@@ -236,7 +236,7 @@ def family_book_ids(customers: list[dict], ledger: dict) -> set[int]:
 
 
 def tab_rows_of_book(ledger: dict, customers: list[dict]) -> list[dict]:
-    """Dòng tab khách của sổ (CONTAINER-DUNG-LAI-01). Bản chụp giá hỏng thì không có dòng nào: chuyến vẫn chờ người xem."""
+    """Dòng tab khách của sổ (CONTAINER-DUNG-LAI-01). Bản chụp giá hỏng thì không có dòng nào: chuyến vẫn bị giữ ngoài sổ."""
     try:
         return book_rows(cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH), ledger["customer_id"], customers)
     except ValueError:
@@ -284,8 +284,11 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
             continue
         items.append({**row, "source_fingerprint": source,
                       "candidate_books": [{k: c.get(k) for k in ("id", "name", "display_name", "commodity", "transport_mode", "version")} for c in candidates]})
+    # CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet chỉ để xem; dòng người đã gán sang sổ khác thì không còn chờ ở sổ này.
+    waiting = [row for row in result.get("waiting_items") or [] if trip_identity(row) not in assigned]
     return {**result, "items": items, "new_count": sum(r["sync_state"] == "NEW" for r in items),
-            "conflict_count": sum(r["sync_state"] == "CONFLICT" for r in items)}
+            "conflict_count": sum(r["sync_state"] == "CONFLICT" for r in items),
+            "waiting_items": waiting, "waiting_count": len(waiting)}
 
 
 _ROAD: list = [None, None, None, None]   # [road.json, prices.json, khóa danh sách khách, hàng chờ chuyến bộ]

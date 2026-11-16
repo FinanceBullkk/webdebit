@@ -40,3 +40,5 @@ Giới hạn:
 - Chuyến mới bị giữ tới khi tab có dòng riêng. Trước lúc đó nó chưa có giá nên chưa làm tăng nợ.
 - 15 dòng còn lại cần người xem nếu muốn hết hẳn; sổ đã khớp Sheet thì việc này được ẩn theo `MAY-DOI-SOAT-01`.
 - Chỉ xét chuyến biển trong hàng chờ Sheet. Chuyến bộ (`NGUON-CHUYEN-01`) có luật riêng.
+
+**Cập nhật 13/11/2026:** [`CHUYEN-KHONG-HOI-01`](chuyen-khong-hoi-01.md) thay vế "không đủ thì dòng vẫn chờ người xem": dòng vẫn bị giữ ngoài sổ theo đúng hai điều kiện trên, nhưng không còn là việc của người; nó là dòng "chờ tab Sheet", chỉ để xem ở Sổ khách.

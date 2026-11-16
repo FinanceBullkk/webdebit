@@ -53,7 +53,7 @@ OPERATIONS = {
     "Quyết lệch chữ Sheet–web": ("sheet_conflict_resolved",),
 }
 SYSTEM_KINDS = frozenset({"import", "reallocation", "fee_migration"})   # hệ thống tự ghi, không phải thao tác của người
-QUEUES = (("sheet_sync", ("new_count", "conflict_count", "removed_count")), ("sheet_prices", ("ready_count", "review_count")),
+QUEUES = (("sheet_sync", ("new_count", "conflict_count", "waiting_count", "removed_count")), ("sheet_prices", ("ready_count", "review_count")),
           ("sheet_receipts", ("ready_count", "review_count")), ("ps_fees", ("ready_count", "review_count")), ("sheet_road", ("new_count", "conflict_count")))
 
 

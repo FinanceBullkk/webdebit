@@ -36,7 +36,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 | Đọc sổ gốc từ file tải | `v7_load_real_copy.workbook_rows`, `scan_tabs` | Không |
 | Điền ngày | Việc A của `MAY-KHOA-01`: mở khóa, `edit_legacy_trip`, khóa lại; người làm "Máy (theo Sheet)" | Áp thêm cho nguồn mới |
 | Giữ việc | `keep_sheet_task` ([`VCL-GIU-01`](../docs/decisions/vcl-giu-01.md)) | Thêm loại việc mới |
-| Lấy ngày Sheet khi lệch | `resolve_sheet_conflict` chỉ cho `keep_web` với `event_date`; muốn lấy ngày thì phải sửa tay ở tháng mở | Nút "Lấy theo booking" ở tháng mở (tháng khóa CÒN MỞ) |
+| Lấy ngày Sheet khi lệch | `resolve_sheet_conflict` chỉ cho `keep_web` với `event_date`; muốn lấy ngày thì phải sửa tay ở tháng mở | Nút "Lấy theo booking" ở tháng mở (tháng khóa CÒN MỞ). Từ 13/11/2026 dòng sổ gốc lệch không quá 3 ngày không còn hỏi ([`CHUYEN-KHONG-HOI-01`](../docs/decisions/chuyen-khong-hoi-01.md)) |
 | Gom nhóm theo sổ | `v7_inbox.summarize`: phiếu thu, chuyến bị xóa, chuyến mới, chuyến cần kiểm, lệch chữ, giá, PS | `trip_dup`, `source_only` |
 
 ## Giai đoạn
@@ -84,7 +84,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 - **Kết quả mới của mỗi sổ:**
   - `trip_dup`: nhóm dòng có tiền cùng một chuyến nguồn, theo ba trường hợp trùng của GĐ1, kể cả trường hợp đảo ngày/tháng;
   - `source_only`: chuyến nguồn trước 10/2026 không ghép dòng nào, kèm gợi ý sổ.
-  - Lệch ngày giữ ở nhóm chuyến cần kiểm như hiện nay.
+  - Lệch ngày giữ ở nhóm chuyến cần kiểm như hiện nay. Từ 13/11/2026 riêng dòng sổ gốc lệch không quá 3 ngày thì không hỏi ([`CHUYEN-KHONG-HOI-01`](../docs/decisions/chuyen-khong-hoi-01.md)).
 - **Gợi ý sổ cho chuyến bộ:** sổ mà các chuyến khác cùng CHỦ HÀNG đã ghép nhiều nhất. Chỉ để hiện, không dùng để ghi.
 - **Chuyến bộ mới tự vào sổ (ĐÃ CHỐT 3/11/2026, [quyết định](../docs/decisions/nguon-chuyen-01.md#hiệu-lực-và-giới-hạn); đã code).** Riêng `road.json`, thay vế "không tạo chuyến mới" ở trên. `web/v7_road_queue.py`:
   - `build_road_queue` gắn mỗi chuyến `CONT_BO` READY từ 10/2026 vào sổ của **đúng một tab khách** trong bản chụp giá (cùng container, ±3 ngày; dòng tab không ngày thì cùng tháng nợ). Tab đó phải ứng một sổ đang hoạt động, theo tên sổ hoặc tên khác.

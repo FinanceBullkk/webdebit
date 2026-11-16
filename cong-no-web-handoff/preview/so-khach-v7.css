@@ -293,6 +293,8 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .ledger tr.moved td:not(.pay){background:#fff3c4!important}
 .ledger tr.sheet-new td:not(.pay){background:#fff1ad!important}
 .ledger tr.sheet-conflict td:not(.pay){background:#ffd6d6!important}
+.ledger tr.sheet-waiting td:not(.pay){background:#f3f5f7!important;color:#4a5563}
+.ledger tr.sheet-waiting td small.sheet-why{color:#4a5563}
 .ledger tr.sheet-removed td:not(.pay){background:#e9ddff!important}
 .sheet-removed-tag{display:block;color:#4b2a86;font-weight:700}
 .sheet-removed-actions{display:flex;gap:5px;margin-top:4px}

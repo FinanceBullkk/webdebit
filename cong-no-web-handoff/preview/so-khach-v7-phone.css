@@ -51,6 +51,7 @@
   #the-so .trip-card tr.ph-row.sheet-new>td,#the-so .trip-card tr.ph-row.sheet-conflict>td{background:transparent!important}
   #the-so .trip-card tr.ph-row.sheet-new{background:#fff1ad}
   #the-so .trip-card tr.ph-row.sheet-conflict{background:#ffd6d6}
+  #the-so .trip-card tr.sheet-waiting{display:none}   /* chờ tab Sheet: chỉ để xem ở máy tính */
   #the-so .trip-card tr.ph-row:active{background:#eaf2fc}
   #the-so .trip-card .ph-cont small,#the-so .trip-card .ph-cont button,#the-so .trip-card .ph-cont input,
   #the-so .trip-card .ph-amt small,#the-so .trip-card .ph-amt button:not(.row-tag){display:none}

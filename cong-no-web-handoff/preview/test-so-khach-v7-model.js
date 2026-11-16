@@ -746,6 +746,11 @@ test("tách phụ phí theo bảng PS: chỉ ghi 'Tổng tiền không đổi' k
   const fill = { fill: true, before: [{ amount_vnd: '3500000' }], after: [{ amount_vnd: '3500000' }, { amount_vnd: '10000000' }] };
   assert.deepEqual(model.planPsFees([fill]), { count: 1, totalVnd: 13500000n, same: true, fills: 1 });
   assert.deepEqual(model.planPsFees([{ ...fill, fill: false }]), { count: 1, totalVnd: null, same: false, fills: 0 });
+  // Ô PS =631579/2: số lẻ viết kiểu Việt kèm số Sheet hiện (#,##0 làm tròn) để tìm được ô; số không lẻ hoặc chữ lạ thì null.
+  assert.deepEqual(model.psOddText("315789.5"), { exact: "315.789,5", shown: "315.790" });
+  assert.deepEqual(model.psOddText("315789.47"), { exact: "315.789,47", shown: "315.789" });
+  assert.deepEqual(model.psOddText(" 999.5 "), { exact: "999,5", shown: "1.000" });
+  for (const raw of ["315789", "-5.5", "1,500.5", "abc", "", null, undefined]) assert.equal(model.psOddText(raw), null, String(raw));
   const names = { 1: "Neo", 2: "Điện" };
   assert.equal(model.feeLinesText(ready[0].after, id => names[id]), "Neo 1.500.000 + Điện 500.000");
 });
