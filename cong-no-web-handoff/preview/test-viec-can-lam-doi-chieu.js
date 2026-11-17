@@ -81,7 +81,17 @@ test('web đi trước có chuyến cần xem thì thành khách phải xem, câ
   assert.deepEqual(M.hintTexts(reconcile.customers[2], say), ['Chuyến MAUU0000002 ngày 04/11 ([41000000]) web ghi ở sổ này, còn Sheet ghi ở tab Mẫu Khác. Xem chuyến thuộc khách nào.']);
 });
 
-test('tỷ lệ số nợ: còn khách lệch thì không ghi tròn 100; chưa có tổng thì không có tỷ lệ', () => {
+test('Sheet cần sửa: chỉ khách HELD; nhãn nêu số chỗ khi máy đếm được, 0 hay chưa có số thì không nêu số (KIEM-TAB-01 3e)', () => {
+  assert.equal(M.isSheetFix({ reason: 'HELD' }), true);
+  assert.equal(M.isSheetFix({ reason: 'NO_EXACT_FIX' }), false);
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: 2 }), 'Sheet cần sửa · 2 chỗ');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: 1 }), 'Sheet cần sửa · 1 chỗ');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: 0 }), 'Sheet cần sửa');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD' }), 'Sheet cần sửa');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: '2' }), 'Sheet cần sửa');   // không phải số nguyên thì không tin
+});
+
+test('tỷ lệ số nợ:còn khách lệch thì không ghi tròn 100; chưa có tổng thì không có tỷ lệ', () => {
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '88', counts: { KHOP: 1 }, total: 2 }), '88');
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '100', counts: { KHOP: 1 }, total: 2 }), 'gần 100');
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '100', counts: { KHOP: 2 }, total: 2 }), '100');

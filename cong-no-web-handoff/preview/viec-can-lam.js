@@ -78,7 +78,7 @@
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
     tongOpen: false,   // danh sách chỗ tab TONG chưa cộng đủ (KIEM-TONG-01) đang mở; giữ qua các lần tự tải lại
     // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
-    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), dismissed: new Map(), xem: new Set(), undo: new Map(), ai: new Map(), regionOpen: new Set(), region: new Map(), regionSeen: new Set() },
+    dc: { open: null, closed: false, filter: '', data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), dismissed: new Map(), xem: new Set(), undo: new Map(), ai: new Map(), regionOpen: new Set(), region: new Map(), regionSeen: new Set() },
     // Tab Đã làm (HOAT-DONG-01): ngày đang xem (null = hôm nay), lọc máy/người, bản đọc theo ngày (undefined đang tải, null lỗi).
     act: { day: null, filter: 'all', data: new Map(), loading: null } };
   const inboxLabel = book => {
@@ -139,7 +139,7 @@
     if (!inbox.stale) globalThis.AppNav?.saveTodoSnapshot({ inbox: inbox.data, dashboard, unsorted, customers: currentCustomers });
   }
   // Đang hiện bản cũ của tab: xem được, mở dòng được; mọi nút ghi khóa tới khi có bản mới (thường dưới 1 giây).
-  const VIEW_ONLY = ['data-sc-view', 'data-sc-refresh', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-xem', 'data-dc-retry', 'data-act-day', 'data-act-date', 'data-act-filter', 'data-act-retry', 'data-tong-toggle'];
+  const VIEW_ONLY = ['data-sc-view', 'data-sc-refresh', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-filter', 'data-dc-xem', 'data-dc-retry', 'data-act-day', 'data-act-date', 'data-act-filter', 'data-act-retry', 'data-tong-toggle'];
   function paintInbox() {
     if (!firstLoadDone || inbox.data === undefined) return;
     const html = globalThis.InboxTable.render(inbox.data, {
@@ -157,7 +157,7 @@
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
     const gridScroll = new Map([...inboxRoot.querySelectorAll('.sf-card')].map(card => [card.dataset.scFinding, card.querySelector('.sf-scroll')?.scrollLeft ?? 0]));
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-sc-view', 'data-sc-refresh', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-group-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book', 'data-tong-toggle'].find(attr => active.hasAttribute(attr));
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-sc-view', 'data-sc-refresh', 'data-dc-open', 'data-dc-filter', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-group-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book', 'data-tong-toggle'].find(attr => active.hasAttribute(attr));
     const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
     const caret = focusAttr && active.tagName === 'INPUT' && active.type !== 'checkbox' ? active.selectionStart : null;
     inboxRoot.innerHTML = html;
@@ -779,6 +779,7 @@
     if (button.hasAttribute('data-act-day')) { showActivityDay(button.dataset.actDay); return; }
     if (button.hasAttribute('data-act-filter')) { inbox.act.filter = button.dataset.actFilter; paintInbox(); return; }
     if (button.hasAttribute('data-act-retry')) { inbox.act.data.delete(actDay()); paintInbox(); loadActivity(true); return; }
+    if (button.hasAttribute('data-dc-filter')) { inbox.dc.filter = button.dataset.dcFilter; paintInbox(); return; }
     if (button.hasAttribute('data-dc-open')) {
       const id = Number(button.dataset.dcOpen), dc = inbox.dc;
       dc.closed = dc.open === id;

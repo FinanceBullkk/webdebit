@@ -525,6 +525,35 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(row["hints"], [{"kind": "chain_break", "month": "2026-10", "sheet_end_vnd": str(FAKE_AMOUNT + 1),
                                          "expected_end_vnd": str(FAKE_AMOUNT), "delta_vnd": "1"}])   # CHAN-DOAN-LECH-01
 
+    def test_held_customer_carries_the_number_of_places_the_sheet_fix_block_names(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])
+        seen = []
+        real = job.fix.sheet_findings
+
+        def counted(prices, ledger, customers, held):
+            found = real(prices, ledger, customers, held)
+            seen.append((held["customer_id"], held["hints"][0]["kind"], len(found["findings"])))
+            return found
+        with patch.object(job.fix, "sheet_findings", side_effect=counted):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        row = self.result()["customers"][0]
+        self.assertEqual(seen, [(1, "chain_break", row["sheet_fix_count"])])   # cùng hàm, cùng dòng HELD (có gợi ý) với khối khi mở
+        self.assertIsInstance(row["sheet_fix_count"], int)
+
+    def test_counting_sheet_fixes_fails_quietly_and_keeps_the_held_row(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])
+        with patch.object(job.fix, "sheet_findings", side_effect=RuntimeError("x")):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        row = self.result()["customers"][0]
+        self.assertEqual(row["reason"], "HELD")
+        self.assertNotIn("sheet_fix_count", row)
+
+    def test_no_held_customer_reads_no_ledger_for_sheet_fixes(self):
+        fixture(self.source)
+        with patch.object(job.fix, "sheet_findings") as found:
+            self.assertEqual(self.run_job(Db())[0], 0)
+        found.assert_not_called()
+
     def test_unexplained_gap_names_a_slip_written_twice_and_writes_nothing(self):
         fixture(self.source)
         db = Db(total=FAKE_AMOUNT - 5)
