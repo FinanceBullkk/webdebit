@@ -46,7 +46,7 @@ def write_source(directory: Path) -> None:
         {"conversation_id": GROUP, "message_count": 8, "participant_ids": [OWNER, KHACH]},
         {"conversation_id": OTHER, "message_count": 2, "participant_ids": [OWNER, BAN]},
         {"conversation_id": PRIVATE, "message_count": 1, "participant_ids": [OWNER, BAN]}]), encoding="utf-8")
-    (directory / "name-index.json").write_text(json.dumps({"items": {GROUP: "Nhóm Hoàng Vũ - công nợ", OTHER: "Nhóm Vận tải", PRIVATE: "Bạn riêng"}}, ensure_ascii=False), encoding="utf-8")
+    (directory / "name-index.json").write_text(json.dumps({"items": {GROUP: "Nhóm Kim Mẫu - công nợ", OTHER: "Nhóm Vận tải", PRIVATE: "Bạn riêng"}}, ensure_ascii=False), encoding="utf-8")
     (directory / "conv-meta.json").write_text(json.dumps({"conversations": {GROUP: {"is_group": True}, OTHER: {"is_group": True}, PRIVATE: {"is_group": False}}}), encoding="utf-8")
     (directory / "user-index.json").write_text(json.dumps({"self_user": OWNER, "users": {OWNER: "Hào", KHACH: "Vũ", BAN: "Người lạ"}}, ensure_ascii=False), encoding="utf-8")
     (directory / "revision.json").write_text(json.dumps({"revision": 87}), encoding="utf-8")
@@ -133,7 +133,7 @@ class ZaloWebBundleTest(unittest.TestCase):
                 json.loads((directory / "media.json").read_text(encoding="utf-8")))
 
     def test_select_by_name_and_prefix(self):
-        self.assertEqual(self.run_cli("add", "hoang vu")[0], 0)   # không dấu, một phần tên
+        self.assertEqual(self.run_cli("add", "kim mau")[0], 0)   # không dấu, một phần tên
         self.assertEqual(self.source.selection(), [GROUP])
         code, text = self.run_cli("add", "nhóm")                 # hai group khớp: không chọn bừa
         self.assertEqual(code, 1)
@@ -159,7 +159,7 @@ class ZaloWebBundleTest(unittest.TestCase):
         report = self.build()
         conversations, users, messages, _ = self.data(report)
         self.assertEqual([row["conversation_id"] for row in conversations], [GROUP])
-        self.assertEqual(conversations[0]["display_name"], "Nhóm Hoàng Vũ - công nợ")
+        self.assertEqual(conversations[0]["display_name"], "Nhóm Kim Mẫu - công nợ")
         self.assertTrue(conversations[0]["is_group"])
         self.assertEqual([row["message_id"] for row in messages], ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"])
         self.assertEqual(users, {"self_user": OWNER, "users": {OWNER: "Hào", KHACH: "Vũ"}})

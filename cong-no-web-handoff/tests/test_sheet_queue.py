@@ -132,7 +132,7 @@ class SheetQueueTests(unittest.TestCase):
     def test_trip_shipper_conflict_keeps_null_web_value(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [{
             "source_row": 8, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-24",
-            "carrier": "COSCO", "shipper": "KHOI PHONG", "origin": "A", "destination": "B",
+            "carrier": "COSCO", "shipper": "CHU HANG M", "origin": "A", "destination": "B",
             "review_status": "NEEDS_PRICE"}]}
         ledger = {"customer_id": 7, "trips": [{"id": 9, "container": "ABC1", "source_ref": f"sheet:{'a' * 64}:8",
             "event_date": "2026-10-24", "carrier": "COSCO", "shipper": None, "origin": "A", "destination": "B"}],
@@ -225,7 +225,7 @@ class SheetQueueTests(unittest.TestCase):
                   "review_status": "NEEDS_PRICE"}
         queue = {"snapshot_sha256": "a" * 64, "items": [source]}
         self.assertEqual(project_customer(queue, ledger)["conflict_count"], 0)
-        queue["items"][0] = source | {"shipper": "KHOI PHONG"}
+        queue["items"][0] = source | {"shipper": "CHU HANG M"}
         conflict = project_customer(queue, ledger)["items"][0]
         self.assertEqual(conflict["changed_fields"], ["shipper"])
         self.assertEqual(conflict["existing_values"], {"shipper": "TAY NGUYEN"})

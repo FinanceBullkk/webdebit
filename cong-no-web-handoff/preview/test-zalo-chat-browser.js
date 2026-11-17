@@ -29,7 +29,7 @@ const ALL = [
   msg('m7', false, DAY + 86_403_000, 'Dạ vâng ạ'),
 ];
 const conversations = () => ({ total: 2, conversations: [
-  { conversation_id: CONV_A, display_name: 'Nguyễn Hoàng Vũ', name_status: 'matched_storage_info_cache', message_count: 7, last_message_at: DAY + 86_403_000, last_own_message_at: DAY + 86_402_000, participant_count: 2 },
+  { conversation_id: CONV_A, display_name: 'Nguyễn Kim Mẫu', name_status: 'matched_storage_info_cache', message_count: 7, last_message_at: DAY + 86_403_000, last_own_message_at: DAY + 86_402_000, participant_count: 2 },
   { conversation_id: CONV_B, display_name: null, name_status: 'unmatched', message_count: 1, last_message_at: DAY, last_own_message_at: null, participant_count: 1 },
 ] });
 const report = () => ({ status: 'EXPORTED_WITH_GAPS', conversation_count: 2, message_count: 8, named_conversations: 1, owner_conversations: 1, body_missing: 1, attachment_matched: 1, attachment_unmatched: 1, skipped_lines: 0 });
@@ -39,7 +39,7 @@ const { foldText: fold } = require('./cong-no-format.js');   // cùng quy tắc 
 const GROUP = '5'.repeat(64);
 const PIC = 'e'.repeat(64);
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-const people = { [OWNER]: 'Hào', [KHACH]: 'Vũ', ['c'.repeat(64)]: 'Lan kế toán' };
+const people = { [OWNER]: 'Hào', [KHACH]: 'Mẫu', ['c'.repeat(64)]: 'Kế toán A' };
 const groupRows = Array.from({ length: 120 }, (_, i) => {
   const sender = i % 3 === 0 ? OWNER : i % 3 === 1 ? KHACH : 'c'.repeat(64);
   const row = msg(`g${i}`, sender === OWNER, DAY + i * 60_000, `Tin số ${i}`, { sender_id: sender, sender_name: people[sender], media: [], deleted: false });
@@ -52,8 +52,8 @@ const groupRows = Array.from({ length: 120 }, (_, i) => {
 // Trạng thái dấu như hàm get_marks lúc chưa có phiếu thu: hứa trả "pending", khách báo đã chuyển "waiting".
 const todayVn = (days = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(Date.now() + days * 86_400_000);
 function ledgerWorld() {
-  return { links: [], marks: [], posts: [], customers: [{ id: 7, name: 'NGUYEN HOANG VU', label: 'Nguyễn Hoàng Vũ · Sầu riêng' },
-    { id: 8, name: 'TRAN LAN', label: 'Trần Lan · Thanh long' }] };
+  return { links: [], marks: [], posts: [], customers: [{ id: 7, name: 'NGUYEN KIM MAU', label: 'Nguyễn Kim Mẫu · Sầu riêng' },
+    { id: 8, name: 'TRAN THI GIA', label: 'Trần Thị Giả · Thanh long' }] };
 }
 function ledgerRoute(world, req, url, body, json) {
   if (req.method === 'GET' && url.pathname === '/api/v7/zalo/links') return json(200, { links: world.links });
@@ -110,7 +110,7 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
         return json(200, bundled ? { ...report(), status: 'BUNDLED', conversation_count: 1, message_count: 120, media_count: 1, built_at: '2026-11-01T14:12:19+07:00' } : report());
       }
       if (url.pathname === '/api/v7/zalo/conversations') {
-        return json(200, bundled ? { total: 1, conversations: [{ conversation_id: GROUP, display_name: 'Nhóm Vũ - công nợ', name_status: 'name_index', message_count: 120,
+        return json(200, bundled ? { total: 1, conversations: [{ conversation_id: GROUP, display_name: 'Nhóm Mẫu - công nợ', name_status: 'name_index', message_count: 120,
           last_message_at: DAY + 119 * 60_000, last_own_message_at: DAY + 117 * 60_000, participant_count: 3, is_group: true }] } : conversations());
       }
       if (url.pathname === '/api/v7/zalo/messages') {
@@ -164,21 +164,21 @@ test('Chat Zalo: danh sách hội thoại có tên, số tin, ngày tin cuối; 
   await withPage({ requests }, async (page, logs) => {
     await page.locator('.conv').first().waitFor();
     assert.match(await page.locator('#summary').innerText(), /2 hội thoại · 8 tin · 1 có tên khách · 1 đính kèm chưa khớp/);
-    assert.deepEqual(await page.locator('.conv .nm').allInnerTexts(), ['Nguyễn Hoàng Vũ', `Chưa rõ tên · ${CONV_B.slice(0, 8)}`]);
+    assert.deepEqual(await page.locator('.conv .nm').allInnerTexts(), ['Nguyễn Kim Mẫu', `Chưa rõ tên · ${CONV_B.slice(0, 8)}`]);
     assert.deepEqual(await page.locator('.conv .last').allInnerTexts(), ['10/10/2025', '09/10/2025']);
     assert.match(await page.locator('.conv .sub').first().innerText(), /7 tin · Mình nhắn gần nhất 10\/10\/2025/);
     assert.equal(await page.locator('nav a.active').innerText(), 'Sổ khách');
     assert.equal(await page.locator('a.back').getAttribute('href'), '/so-khach-v7-live.html');
-    await page.locator('#conversation-search').fill('hoang vu');
-    assert.deepEqual(await page.locator('.conv .nm').allInnerTexts(), ['Nguyễn Hoàng Vũ']);
+    await page.locator('#conversation-search').fill('kim mau');
+    assert.deepEqual(await page.locator('.conv .nm').allInnerTexts(), ['Nguyễn Kim Mẫu']);
     assert.equal(await page.locator('#conversation-count').innerText(), '1 / 2');
     await page.locator('.conv').first().click();
     await page.locator('.msg').first().waitFor();
-    assert.equal(await page.locator('#title').innerText(), 'Nguyễn Hoàng Vũ');
+    assert.equal(await page.locator('#title').innerText(), 'Nguyễn Kim Mẫu');
     assert.deepEqual(await page.locator('.msg').evaluateAll(nodes => nodes.map(n => n.dataset.id)), ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']);
     assert.deepEqual(await page.locator('.day').allInnerTexts(), ['09/10/2025', '10/10/2025']);
     assert.deepEqual(await page.locator('.msg.own .who').allInnerTexts(), ['Mình', 'Mình', 'Mình']);
-    assert.equal(await page.locator('.msg.other .who').first().innerText(), 'Nguyễn Hoàng Vũ');
+    assert.equal(await page.locator('.msg.other .who').first().innerText(), 'Nguyễn Kim Mẫu');
     // ZALO-GROUP-01: dòng trên bong bóng chỉ còn người gửi và giờ (bỏ "Văn bản · đã gửi" cho đỡ rối).
     assert.doesNotMatch(await page.locator('.msg[data-id="m1"] .meta').innerText(), /Văn bản|đã gửi/);
     // Đính kèm đã khớp, chưa khớp, và tin thiếu nội dung đều hiện rõ.
@@ -240,9 +240,9 @@ test('Chat Zalo: nút Tải tin cũ hơn ghép trang cũ lên trên, giữ thứ
 test('Chat Zalo: ?q= từ thẻ Trao đổi lọc sẵn và tự mở khi chỉ còn một hội thoại', async () => {
   await withPage({}, async page => {
     await page.locator('.msg').first().waitFor();
-    assert.equal(await page.locator('#conversation-search').inputValue(), 'Nguyễn Hoàng Vũ');
-    assert.equal(await page.locator('#title').innerText(), 'Nguyễn Hoàng Vũ');
-  }, { query: `?q=${encodeURIComponent('Nguyễn Hoàng Vũ')}` });
+    assert.equal(await page.locator('#conversation-search').inputValue(), 'Nguyễn Kim Mẫu');
+    assert.equal(await page.locator('#title').innerText(), 'Nguyễn Kim Mẫu');
+  }, { query: `?q=${encodeURIComponent('Nguyễn Kim Mẫu')}` });
 });
 
 test('Chat Zalo: máy chủ chưa có bản xuất thì báo rõ, không treo "Đang tải"', async () => {
@@ -302,8 +302,8 @@ test('Chat Zalo (gói web): group có tên người gửi theo cụm, ảnh tron
       bottom: Math.round(box.scrollHeight - box.scrollTop - box.clientHeight), page: document.documentElement.scrollHeight }));
     assert.deepEqual(layout, { inner: true, bottom: 0, page: 720 });
     assert.equal(await page.locator('.msg[data-id="g117"] .who').innerText(), 'Mình');
-    assert.equal(await page.locator('.msg[data-id="g118"] .who').innerText(), 'Vũ');
-    assert.equal(await page.locator('.msg[data-id="g119"] .who').innerText(), 'Lan kế toán');
+    assert.equal(await page.locator('.msg[data-id="g118"] .who').innerText(), 'Mẫu');
+    assert.equal(await page.locator('.msg[data-id="g119"] .who').innerText(), 'Kế toán A');
     const picture = page.locator('.msg[data-id="g118"] .pic img');
     await picture.waitFor();
     assert.equal(await picture.evaluate(img => img.complete && img.naturalWidth), 1);
@@ -353,12 +353,12 @@ test('Đánh dấu (G4): group chưa gắn sổ thì gắn ngay trong hộp, ghi
     await page.locator('.msg[data-id="g115"]').hover();
     await page.locator('.msg[data-id="g115"] .mark-btn').click();
     assert.ok(await page.locator('#mark-dialog').evaluate(dialog => dialog.open));
-    assert.match(await page.locator('#mark-quote').innerText(), /Vũ · .*\nTin số 115/);
+    assert.match(await page.locator('#mark-quote').innerText(), /Mẫu · .*\nTin số 115/);
     assert.ok(await page.locator('#mark-no-book').isVisible());
     await page.locator('#mark-no-book [data-open-link]').click();
-    await page.locator('#link-search').fill('hoang vu');
+    await page.locator('#link-search').fill('kim mau');
     await page.locator('#link-options .option').first().waitFor();   // danh sách sổ tải sau khi mở hộp
-    assert.deepEqual(await page.locator('#link-options .option').allInnerTexts(), ['Nguyễn Hoàng Vũ · Sầu riêng']);
+    assert.deepEqual(await page.locator('#link-options .option').allInnerTexts(), ['Nguyễn Kim Mẫu · Sầu riêng']);
     await page.locator('#link-options .option').click();
     await page.locator('#mark-book-field').waitFor();
     assert.equal(await page.locator('#mark-book').inputValue(), '7');
@@ -375,16 +375,16 @@ test('Đánh dấu (G4): group chưa gắn sổ thì gắn ngay trong hộp, ghi
     const sent = world.posts.find(post => post.path === '/api/v7/marks').body;
     assert.deepEqual({ ...sent, idempotency_key: typeof sent.idempotency_key, message_at: typeof sent.message_at }, {
       customer_id: 7, kind: 'promise', idempotency_key: 'string', conversation_id: GROUP, message_id: 'g115', message_at: 'string',
-      message_sender: 'Vũ', message_excerpt: 'Tin số 115', note: 'mai chuyển', amount_vnd: '50000000', on_date: todayVn(3) });
-    assert.deepEqual(await page.locator('#links .chip a').allInnerTexts(), ['Nguyễn Hoàng Vũ · Sầu riêng']);
-    assert.match(await page.locator('.conv .books').innerText(), /Sổ: Nguyễn Hoàng Vũ/);
+      message_sender: 'Mẫu', message_excerpt: 'Tin số 115', note: 'mai chuyển', amount_vnd: '50000000', on_date: todayVn(3) });
+    assert.deepEqual(await page.locator('#links .chip a').allInnerTexts(), ['Nguyễn Kim Mẫu · Sầu riêng']);
+    assert.match(await page.locator('.conv .books').innerText(), /Sổ: Nguyễn Kim Mẫu/);
     assert.equal(await page.locator('#links a').getAttribute('href'), '/so-khach-v7-live.html?customer=7&the=trao-doi');
   });
 });
 
 test('Đánh dấu (G4): khách báo đã chuyển không cho ngày mai, ghi chú bắt buộc chữ; mất mạng khi lưu thì bấm lại vẫn chỉ một dấu', async () => {
   const world = ledgerWorld();
-  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Hoàng Vũ · Sầu riêng' });
+  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Kim Mẫu · Sầu riêng' });
   const drop = new Set();
   await withPage({ bundled: true, world, drop }, async page => {
     await page.locator('.conv').first().click();
@@ -426,7 +426,7 @@ test('Đánh dấu (G4): khách báo đã chuyển không cho ngày mai, ghi ch�
 
 test('Đánh dấu (G4): bỏ dấu và bỏ gắn sổ bắt buộc lý do; điện thoại chạm vào tin thì hiện nút Đánh dấu', async () => {
   const world = ledgerWorld();
-  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Hoàng Vũ · Sầu riêng' });
+  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Kim Mẫu · Sầu riêng' });
   world.marks.push({ id: 1, customer_id: 7, kind: 'promise', amount_vnd: '2000000', on_date: todayVn(2), conversation_id: GROUP, message_id: 'g119',
     status: 'pending', paid_vnd: '0', idempotency_key: 'k1' });
   await withPage({ bundled: true, world }, async page => {

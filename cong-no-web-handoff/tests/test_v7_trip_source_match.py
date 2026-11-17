@@ -130,10 +130,10 @@ class TripSourceMatchTests(unittest.TestCase):
             ("KHONG_NGUON", "MAUU12345670"), ("KHONG_PHAI_CONT", "50"), ("KHONG_PHAI_CONT", "THUE"), ("KHONG_PHAI_CONT", "VAT")])
 
     def test_owner_written_in_the_tab_name_is_the_books_customer(self):
-        rows = [sheet("BAOAN 宝安-CHUOI", i, f"JINU000000{i}", "2026-01-0" + str(i)) for i in (1, 2)]
-        rows += [sheet("BAOAN 宝安-CHUOI", 3, "HANU0000003", "2026-01-03"), sheet("BAOAN 宝安-CHUOI", 4, "CHAU0000004", "2026-01-04")]
+        rows = [sheet("SAMPLE 样本-CHUOI", i, f"JINU000000{i}", "2026-01-0" + str(i)) for i in (1, 2)]
+        rows += [sheet("SAMPLE 样本-CHUOI", 3, "HANU0000003", "2026-01-03"), sheet("SAMPLE 样本-CHUOI", 4, "CHAU0000004", "2026-01-04")]
         source = [src("JINU0000001", "2026-01-01", owner="KHACH CHINH"), src("JINU0000002", "2026-01-02", owner="KHACH CHINH 12"),
-                  src("HANU0000003", "2026-01-03", owner="BAOAN 宝安 123"), src("CHAU0000004", "2026-01-04", owner="KHACH LA")]
+                  src("HANU0000003", "2026-01-03", owner="SAMPLE 样本 123"), src("CHAU0000004", "2026-01-04", owner="KHACH LA")]
         _, found = found_for(rows, source)
         self.assertEqual([s["cont"] for g, s, b, _ in found if g == "KHAC_KHACH"], ["CHAU0000004"])
 
