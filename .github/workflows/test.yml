@@ -226,6 +226,10 @@ jobs:
       # Gọi thẳng `node scripts/check.js` (chính là `npm run check`): trên
       # windows-latest, `uv run` không spawn được `npm` vì đó là file npm.cmd.
       - name: ruff + luat nghiep vu + eslint + unittest + node --test + browser + viewer
+        env:
+          # Danh sách tên khách cho mẫu customer-name của check-secrets; `scripts/check.js` chỉ đưa cho
+          # bước lint:sec. PR từ fork và Dependabot không nhận secret: mẫu đó in BỎ QUA (docs/development.md).
+          WEBDEBIT_TEN_KHACH: ${{ secrets.WEBDEBIT_TEN_KHACH }}
         run: >-
           uv run --python ${{ matrix.python }} --with-requirements requirements.txt
           --with-requirements requirements-dev.txt node scripts/check.js

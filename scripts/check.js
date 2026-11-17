@@ -74,6 +74,13 @@ function eslintBin() {
 
 const PYTHON = pythonCommand();
 
+// Danh sách tên khách (secret `WEBDEBIT_TEN_KHACH` trên CI, xem check-secrets.js) chỉ đưa cho bước `lint:sec`;
+// bước khác không cần, và test nào in biến môi trường ra log cũng không làm lộ tên.
+const NAMES_ENV = "WEBDEBIT_TEN_KHACH";
+const envWithoutNames = { ...process.env };
+// Tên biến môi trường trên Windows không phân biệt hoa thường.
+for (const key of Object.keys(envWithoutNames)) if (key.toUpperCase() === NAMES_ENV) delete envWithoutNames[key];
+
 // Test trình duyệt cần bản Chromium đã tải. Ở máy chưa tải thì báo SKIP thay vì
 // FAIL: một lỗi không liên quan tới thay đổi của người sửa sẽ khiến họ bỏ luôn
 // thói quen chạy check.
@@ -113,12 +120,14 @@ const steps = [
   },
   {
     // Secrets và dữ liệu nghiệp vụ thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số
-    // container) trên mọi file đã theo dõi. Trước 18/11/2026 lệnh này chỉ chạy tay trước commit,
-    // và nhật ký triển khai đã lọt tổng nợ thật vào repo public; chạy ở đây để CI chặn.
+    // container, tên khách theo danh sách ngoài repo) trên mọi file đã theo dõi. Trước 18/11/2026 lệnh
+    // này chỉ chạy tay trước commit, và nhật ký triển khai đã lọt tổng nợ thật vào repo public; chạy ở
+    // đây để CI chặn.
     name: "lint:sec  secrets + dữ liệu thật",
     cmd: process.execPath,
     args: [path.join(__dirname, "check-secrets.js"), "--all"],
     cwd: ROOT,
+    names: true,
   },
   {
     // Gọi thẳng điểm vào của eslint bằng node: trên Windows, spawn một file
@@ -184,6 +193,7 @@ for (const step of steps) {
   // `npm` là npm.cmd trên Windows; file .cmd chỉ chạy được qua shell.
   const r = spawnSync(step.cmd, step.args, {
     cwd: step.cwd,
+    env: step.names ? process.env : envWithoutNames,
     stdio: "inherit",
     shell: step.cmd === "npm" && process.platform === "win32",
   });
