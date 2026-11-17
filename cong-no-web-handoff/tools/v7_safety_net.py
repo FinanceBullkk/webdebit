@@ -278,7 +278,7 @@ def run(now: dt.datetime, *, db=None, state_dir: Path | str | None = None, save_
         if result is None:
             return {"ok": True, "problems": [], "accepted": [], "summary": {"skipped": "DB chưa có hàm get_safety_net"}}
         ledgers = [result["ledger"]]
-        if full:  # chạy tay: mỗi phần một câu SQL để không quá giới hạn 15 giây mỗi câu của adapter
+        if full:  # chạy tay: mỗi phần một câu SQL, mỗi câu trong giới hạn 60 giây của câu đọc nền (READ_ONLY_STATEMENT_TIMEOUT)
             ledgers += [scan(db, {**options, "ledger_slice": other})["ledger"] for other in range(slices) if other != current]
         new_state, problems, pending = evaluate(result, ledgers, state, now, keep=folder is not None, reset=reset)
         accepted = []

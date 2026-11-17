@@ -56,9 +56,13 @@ sổ. Kiểm 2 cộng `v_outstanding_month` theo sổ (sổ có mốc nạp đan
 | `ARCHIVED_BALANCE` | (Tổng quan bỏ sổ lưu trữ) | không sổ lưu trữ nào còn số dư |
 | `LEDGER_TOTAL` | `get_ledger(sổ).total_outstanding_vnd` | tổng `v_outstanding_month` của sổ đó |
 
-Mở cả 242 sổ mất 23 giây, quá giới hạn 15 giây mỗi câu lệnh của adapter, nên phần `LEDGER_TOTAL` chia 8: lượt nào so
+Mở cả 242 sổ mất 23 giây, nên phần `LEDGER_TOTAL` chia 8: lượt nào so
 các sổ có `mã sổ mod 8` bằng `(giờ Unix / 900) mod 8`, khoảng 30 sổ. Mỗi sổ được so ít nhất 2 giờ một lần. Kết quả
 từng phần giữ trong mốc để lượt sau vẫn báo tới khi phần đó so lại sạch.
+
+Câu đọc nền (`read_only`) được chạy tới 60 giây (lệnh của người dùng vẫn 15 giây). Đo trên `hao` 18/11/2026 lúc API vừa
+khởi động lại và đang tính lại hộp việc: một sổ lớn mất 8 giây mở bằng `get_ledger`, phần sổ chứa nó 11 giây; lượt chạy tay
+`--full` đầu tiên có một phần quá 15 giây và lỗi. Bình thường một lượt máy canh 3–5 giây.
 
 ### Kiểm 3: sổ không tự đổi
 
@@ -177,7 +181,7 @@ không ghi được mốc) thành dòng "Không kiểm được phần lưới a
 - [x] Migration chạy hai lần được; `--migration-test` so catalog khớp file chuẩn; harness quyền và checker sau triển
       khai có hàm mới cho app, không cho reader.
 - [x] `npm run check`, `node scripts/check-secrets.js` xanh (ở máy; CI theo PR).
-- [ ] Trên `hao`: nâng DB theo runbook, cài drop-in, một lượt máy canh thật chạy lưới an toàn (ổn, hoặc danh sách lệch kèm
+- [x] Trên `hao`: nâng DB theo runbook, cài drop-in, một lượt máy canh thật chạy lưới an toàn (ổn, hoặc danh sách lệch kèm
       lời giải thích) và lượt sau so với mốc.
 
 ## Phạm vi file
@@ -211,4 +215,4 @@ Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerp
 - `npm run check` xanh (ruff, luật nghiệp vụ, link tài liệu, bí mật, eslint, unittest, ba bộ test JS);
   `node scripts/check-secrets.js` trên diff đã stage: sạch.
 
-Đợt nâng DB trên `hao` và lượt máy canh đầu tiên: ghi ở nhật ký triển khai sau khi chạy.
+CI #461 xanh. Trên `hao` 18/11/2026: [nhật ký triển khai](../docs/deploys/2026-11-18-luoi-an-toan.md). Lượt đầu sạch cả bốn phép kiểm (không phiếu thu nào chia lệch, Tổng quan khớp tổng các sổ, cả 242 sổ khớp `get_ledger`); từ lượt 06:47 mỗi lượt so với mốc lượt trước.

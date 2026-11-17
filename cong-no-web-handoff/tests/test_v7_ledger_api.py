@@ -954,14 +954,22 @@ class LedgerApiTest(unittest.TestCase):
             self.assertIn("a" * 64, args)
         with patch.object(api.subprocess, "run", return_value=inspect):
             self.assertEqual(api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app").user, "v7_app")
-        # LUOI-AN-TOAN-01: read_only mở giao dịch REPEATABLE READ READ ONLY; mặc định vẫn là BEGIN thường.
+        # LUOI-AN-TOAN-01: read_only mở giao dịch REPEATABLE READ READ ONLY, được chạy tới 60 giây (lệnh người dùng 15 giây);
+        # hết giờ thì là DB_UNAVAILABLE, không phải "chưa rõ đã lưu" vì không ghi gì. Mặc định vẫn là BEGIN thường.
         answer = subprocess.CompletedProcess([], 0, '{"books": 0}\n', "")
         with patch.object(api.subprocess, "run", side_effect=[inspect, answer]) as command:
             runner = api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app")
             self.assertEqual(runner.run("get_safety_net", {"event_upto": None}, "may-canh", read_only=True), {"books": 0})
             sql = command.call_args.kwargs["input"]
-            self.assertTrue(sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\nSET LOCAL sokhach.actor = :'actor';\n"))
+            self.assertTrue(sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\nSET LOCAL statement_timeout = '60s';\n"
+                                           "SET LOCAL sokhach.actor = :'actor';\n"))
             self.assertIn("SELECT sokhach.get_safety_net(:'payload'::jsonb);", sql)
+            self.assertEqual(command.call_args.kwargs["timeout"], 90)
+        with patch.object(api.subprocess, "run", side_effect=[inspect, subprocess.TimeoutExpired([], 90)]):
+            runner = api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app")
+            with self.assertRaises(api.ApiError) as caught:
+                runner.run("get_safety_net", {}, "may-canh", read_only=True)
+            self.assertEqual(caught.exception.code, "DB_UNAVAILABLE")
         unsafe = subprocess.CompletedProcess([], 0, json.dumps([{"Id": "b" * 64, "Config": {"Labels": {}},
             "HostConfig": {"NetworkMode": "bridge"}}]), "")
         with patch.object(api.subprocess, "run", return_value=unsafe), self.assertRaises(ValueError):

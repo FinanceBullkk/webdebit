@@ -53,7 +53,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | # | Kiểm gì | Đạt khi | Máy | Trạng thái 11/11/2026 |
 | --- | --- | --- | --- | --- |
 | D1 | Debit note gửi khách | Đúng mẫu, đúng số, có thông tin ngân hàng | không | CHƯA có thông tin ngân hàng |
-| D2 | Số trên Tổng quan bằng số trong sổ | Khớp tới đồng tại cùng thời điểm | không | ĐẠT cho tổng: "còn phải thu" trừ phần khách dư bằng tổng 239 sổ |
+| D2 | Số trên Tổng quan bằng số trong sổ | Khớp tới đồng tại cùng thời điểm | có, 15 phút (lưới an toàn) | ĐẠT cho tổng: "còn phải thu" trừ phần khách dư bằng tổng 239 sổ |
 | D3 | Tra chuyện cũ không cần mở Sheet | Lấy mẫu vài khách, vài tháng cũ | không | CHƯA |
 | D4 | Ai và cái gì khác đang đọc Sheet sổ nợ | Danh sách rỗng hoặc đã chuyển sang web | không | CHƯA liệt kê |
 
@@ -76,7 +76,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | F2 | Quyết định còn chữ CÒN MỞ chạm đường tiền | Đã lọc và trả lời | CHƯA lọc |
 | F3 | Kịch bản ngày chuyển | Diễn tập trên bản sao | CHƯA viết |
 | F4 | Đường lui | Xuất được cả sổ web ra bảng tính, tổng khớp | CHƯA có lệnh xuất cả sổ |
-| F5 | Lưới an toàn thay "khớp Sheet" | Có phép kiểm định kỳ khác | Hai phép. (1) Từ 16/11/2026: kiểm Sheet sổ nợ so với booking mỗi giờ, khối ở tab Máy chạy ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)); khi bỏ Sheet phải đổi đầu vào sang sổ web. (2) Lưới an toàn trên chính sổ web, máy canh 15 phút một lượt, báo email ([`LUOI-AN-TOAN-01`](decisions/luoi-an-toan-01.md)): phiếu thu chia đủ, Tổng quan bằng tổng các sổ (D2 thành kiểm máy), sổ không đổi khi không có lệnh, Lịch sử chỉ thêm. Mã và hàm SQL xong 18/11/2026, chờ đợt nâng DB trên `hao`. Xác nhận debit note của khách chưa có |
+| F5 | Lưới an toàn thay "khớp Sheet" | Có phép kiểm định kỳ khác | Hai phép. (1) Từ 16/11/2026: kiểm Sheet sổ nợ so với booking mỗi giờ, khối ở tab Máy chạy ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)); khi bỏ Sheet phải đổi đầu vào sang sổ web. (2) Lưới an toàn trên chính sổ web, máy canh 15 phút một lượt, báo email ([`LUOI-AN-TOAN-01`](decisions/luoi-an-toan-01.md)): phiếu thu chia đủ, Tổng quan bằng tổng các sổ (D2 thành kiểm máy), sổ không đổi khi không có lệnh, Lịch sử chỉ thêm. Chạy trên `hao` từ 18/11/2026 (06:38, [nhật ký](deploys/2026-11-18-luoi-an-toan.md)): lượt đầu sạch cả bốn phép kiểm (không phiếu thu nào chia lệch, Tổng quan khớp tổng các sổ, cả 242 sổ khớp `get_ledger`); từ lượt 06:47 mỗi lượt so với mốc lượt trước. Xác nhận debit note của khách chưa có |
 
 ## Lượt đo 11/11/2026
 

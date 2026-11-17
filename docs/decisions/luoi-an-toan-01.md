@@ -40,7 +40,9 @@ khoảng 10 nghìn dòng.
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT làm. Triển khai: hàm SQL theo đợt nâng DB tay ([`DEPLOY-CLAUDE-01`](deploy-claude-01.md)), mã máy canh lên theo release,
+ĐÃ CHỐT làm. **ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 lúc 06:38** ([nhật ký](../deploys/2026-11-18-luoi-an-toan.md)): lượt đầu sạch cả bốn phép kiểm (không phiếu thu nào chia lệch, Tổng quan khớp tổng các sổ, cả 242 sổ khớp `get_ledger`); từ lượt 06:47 mỗi lượt so với mốc lượt trước.
+
+Cách triển khai: hàm SQL theo đợt nâng DB tay ([`DEPLOY-CLAUDE-01`](deploy-claude-01.md)), mã máy canh lên theo release,
 kiểm 3, 4 bật khi cài drop-in `StateDirectory` cho máy canh ([runbook](../v7-deploy-runbook.md#lưới-an-toàn-luoi-an-toan-01--nâng-db-và-drop-in-cho-máy-canh)).
 
 Không bắt được:
