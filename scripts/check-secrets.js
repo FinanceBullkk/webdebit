@@ -7,6 +7,7 @@
 // require() từ test chỉ lấy mẫu và hàm khớp, không quét (test: scripts/test-check-secrets.js).
 //
 // Chỉ in file, số dòng và tên mẫu; không bao giờ in giá trị khớp (repo public, log CI cũng public).
+// Tên khách so theo danh sách ngoài repo (`customer-name` bên dưới); chưa có danh sách thì mẫu đó bỏ qua.
 // Thoát 1 nếu có khớp. Đây là lưới thô, không thay review diff (AGENTS.md).
 
 const { spawnSync } = require("node:child_process");
@@ -38,12 +39,15 @@ const PATH_PATTERNS = [
   ["age-file", /\.age$/i],
   ["db-or-dump", /\.(dump|backup|sqlite3?|db)$/i],
   ["captures-dir", /(^|\/)captures\//],
+  // File danh sách tên khách (`NAMES_FILE`) chép nhầm vào cây làm việc.
+  ["customer-name-list", /(^|\/)webdebit-ten-khach\.txt$/i],
 ];
 
 // Dữ liệu nghiệp vụ thật trong tài liệu. Gỡ 18/11/2026: nhật ký triển khai đã chép tổng nợ cả công ty tới
 // từng đồng, số tiền theo khách, tên khách và số container thật vào repo public. Chỉ áp cho tài liệu
 // (`DOC_PATH`); test và fixture trong mã không qua lưới này. Không bắt được: số viết liền ("95000000"),
-// nhóm phẩy ("1,070,000,000"), tiền rút gọn ("43,5 triệu"), tên khách, số booking — những thứ đó vẫn do review.
+// nhóm phẩy ("1,070,000,000"), tiền rút gọn ("43,5 triệu"), số booking, tên khách ngoài danh sách hoặc dưới ngưỡng
+// của `customer-name` — những thứ đó vẫn do review.
 const DATA_PATTERNS = [
   // Số tiền nhóm chấm từ 7 chữ số (1.234.567 trở lên). Cỡ file ghi kèm "byte" không phải tiền.
   ["vnd-amount", /(?<![\d.])\d{1,3}(?:\.\d{3}){2,}(?!\d|\.\d)(?!\s*bytes?\b)/g],
@@ -69,6 +73,71 @@ const FAKE_VALUES_BY_FILE = {
   // Số của fixture vàng V7 (`so-khach-v7-fixture.js`, sinh bằng script, không lấy từ sổ thật).
   "specs/v7-backend/thiet-ke.md": ["600.694.000", "1.381.510.000", "2.411.645.000"],
 };
+
+// Tên khách thật trong tài liệu (từ 18/11/2026). Danh sách tên không nằm trong repo public: CI đọc biến
+// `NAMES_ENV` (secret cùng tên của repo), ở máy đọc file `NAMES_FILE` trong thư mục git chung
+// (`git rev-parse --git-common-dir`) — mọi worktree của một bản clone dùng chung file đó và Git không bao giờ theo
+// dõi file trong thư mục này. Mỗi dòng một tên; dòng trống và dòng bắt đầu bằng `#` bỏ qua. Không có danh sách thì
+// bỏ qua mẫu và in rõ đã bỏ qua. Báo khớp in `#n` (số dòng của tên trong danh sách), không bao giờ in tên.
+const NAMES_ENV = "WEBDEBIT_TEN_KHACH";
+const NAMES_FILE = "webdebit-ten-khach.txt";
+// Bỏ dấu rồi thì tên ngắn trùng chữ thường gặp ("Cô Ba" ~ "có ba", "Tân" ~ "tận"): chỉ dùng tên từ 6 chữ/số, tên một
+// từ thì từ 8 (âm tiết tiếng Việt dài nhất 7 chữ). Tên dài hơn mà vẫn trùng cụm từ hay gặp thì xóa khỏi danh sách.
+const NAME_MIN_CHARS = 6;
+const NAME_MIN_CHARS_ONE_WORD = 8;
+
+// Các từ của một chuỗi để so tên như so tên tab (`fold` của cong-no-web-handoff/tools/v7_company_info_snapshot.py):
+// bỏ dấu, đ → d, không phân biệt hoa thường; mọi ký tự không phải chữ/số (khoảng trắng, dấu câu, `-`, `_`) là ranh
+// giới từ.
+function nameWords(text) {
+  return String(text).normalize("NFD").replace(/\p{M}+/gu, "").replace(/[đĐ]/g, "d").toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+// Chỉ mục danh sách tên: `keys` (các từ nối bằng một dấu cách → số dòng đầu tiên, từ 1), `starts` (từ đầu → các
+// độ dài tên bắt đầu bằng từ đó), `skipped` (số tên dưới ngưỡng).
+function nameIndex(lines) {
+  const keys = new Map();
+  const starts = new Map();
+  let skipped = 0;
+  lines.forEach((line, i) => {
+    if (!line.trim() || line.trim().startsWith("#")) return;
+    const words = nameWords(line);
+    if (words.join("").length < (words.length > 1 ? NAME_MIN_CHARS : NAME_MIN_CHARS_ONE_WORD)) {
+      skipped += 1;
+      return;
+    }
+    const key = words.join(" ");
+    if (keys.has(key)) return;
+    keys.set(key, i + 1);
+    if (!starts.has(words[0])) starts.set(words[0], new Set());
+    starts.get(words[0]).add(words.length);
+  });
+  return { keys, starts, skipped };
+}
+
+// Số dòng (trong danh sách) của tên đầu tiên có trọn từ trong một dòng tài liệu; không có thì 0.
+function nameHit(text, index) {
+  const words = nameWords(text);
+  for (let i = 0; i < words.length; i++) {
+    for (const size of index.starts.get(words[i]) || []) {
+      const lineNo = i + size <= words.length && index.keys.get(words.slice(i, i + size).join(" "));
+      if (lineNo) return lineNo;
+    }
+  }
+  return 0;
+}
+
+// Danh sách tên: biến `NAMES_ENV` nếu có chữ, nếu không thì file; không có cả hai thì null.
+function readNameList(env, file) {
+  const value = env[NAMES_ENV];
+  if (value && value.trim()) return { lines: value.split(/\r?\n/), source: `biến ${NAMES_ENV}` };
+  try {
+    return { lines: fs.readFileSync(file, "utf8").split(/\r?\n/), source: file };
+  } catch {
+    return null;
+  }
+}
 
 function git(args) {
   const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
@@ -127,17 +196,34 @@ function dataHits(text, allowed = new Set()) {
 }
 
 module.exports = {
-  CONTENT_PATTERNS, PATH_PATTERNS, DATA_PATTERNS, FAKE_CONTAINER_OWNERS, FAKE_VALUES_BY_FILE,
-  contentHits, pathHits, isDocPath, fakeValues, allowedValues, dataHits,
+  CONTENT_PATTERNS, PATH_PATTERNS, DATA_PATTERNS, FAKE_CONTAINER_OWNERS, FAKE_VALUES_BY_FILE, NAMES_ENV, NAMES_FILE,
+  contentHits, pathHits, isDocPath, fakeValues, allowedValues, dataHits, nameWords, nameIndex, nameHit, readNameList,
 };
 
 const hits = [];
 let dataFound = false;
+let names = null; // chỉ mục tên khách (`nameIndex`); null khi chưa có danh sách
+
+// Nạp danh sách tên khách, in nguồn và số tên dùng được (số đếm, không in tên).
+function loadNames() {
+  const file = path.resolve(ROOT, git(["rev-parse", "--git-common-dir"]).trim(), NAMES_FILE);
+  const list = readNameList(process.env, file);
+  const index = list && nameIndex(list.lines);
+  if (!index || !index.keys.size) {
+    console.log(`check-secrets: BỎ QUA customer-name — chưa có danh sách tên khách (biến ${NAMES_ENV} hoặc file ${file}).`);
+    return null;
+  }
+  console.log(`check-secrets: customer-name dùng ${index.keys.size} tên từ ${list.source} (bỏ ${index.skipped} tên dưới ngưỡng).`);
+  return index;
+}
 
 function scanLine(file, lineNo, text, allowed) {
   for (const name of contentHits(text)) hits.push(`${file}:${lineNo} [${name}]`);
   if (!allowed) return;
-  for (const name of dataHits(text, allowed)) {
+  const found = dataHits(text, allowed);
+  const nameLine = names ? nameHit(text, names) : 0;
+  if (nameLine) found.push(`customer-name #${nameLine}`);
+  for (const name of found) {
     hits.push(`${file}:${lineNo} [${name}]`);
     dataFound = true;
   }
@@ -151,6 +237,7 @@ function scanPaths(files) {
 
 function main() {
   const scanAll = process.argv.includes("--all");
+  names = loadNames();
   if (scanAll) {
     const files = git(["ls-files", "-z"]).split("\0").filter(Boolean);
     scanPaths(files);
@@ -198,6 +285,8 @@ function main() {
       console.error(
         "Dữ liệu thật trong tài liệu: ghi số đếm, mã sổ hoặc câu giữ ý (\"tổng nợ không đổi\") thay cho số tiền,"
         + " tên khách và số container; dữ liệu giả cố ý thì khai `<!-- du-lieu-gia: <giá trị> -->` trong chính file đó."
+        + " `customer-name #n`: tên ở dòng n của danh sách tên khách; nếu dòng tài liệu chỉ là cụm từ thường gặp"
+        + " trùng tên, xóa dòng n khỏi danh sách (file và secret), không khai tên trong tài liệu."
       );
     }
     process.exit(1);

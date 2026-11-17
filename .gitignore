@@ -1,5 +1,7 @@
 # Financial captures and local credentials
 captures/
+# Danh sách tên khách cho check-secrets: để ở thư mục git chung (.git/), không trong cây làm việc
+webdebit-ten-khach.txt
 .chrome-ux-audit/
 *.dump
 *.backup

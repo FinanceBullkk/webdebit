@@ -107,7 +107,29 @@ mã sổ hoặc câu giữ ý ("tổng nợ không đổi", "bằng tổng Sheet
 trong chính file đó bằng `<!-- du-lieu-gia: <giá trị> ... -->`; mã chủ container bịa `MAUU`, `HTHU`, `ALTU` được bỏ qua sẵn.
 File dưới `specs/v7-backend/` thì khai ở `FAKE_VALUES_BY_FILE` trong script, không thêm dòng khai vào file: mọi thay đổi ở
 thư mục đó làm `Deploy hao` dừng ở cổng triển khai tay.
-Lưới thô: số viết liền, nhóm phẩy, tiền rút gọn ("43,5 triệu"), tên khách và số booking vẫn do người review.
+Lưới thô: số viết liền, nhóm phẩy, tiền rút gọn ("43,5 triệu") và số booking vẫn do người review; tên khách xem đoạn dưới.
+
+**Tên khách thật** (từ 18/11/2026): trong cùng phạm vi tài liệu, `check-secrets.js` bắt tên khách theo một danh sách
+**không nằm trong repo** (repo public). Nguồn, theo thứ tự: biến `WEBDEBIT_TEN_KHACH` (CI lấy từ secret cùng tên của repo
+ở job `javascript`; `scripts/check.js` chỉ đưa biến này cho bước `lint:sec`), rồi file `webdebit-ten-khach.txt` trong
+thư mục git chung (`git rev-parse --git-common-dir`, tức `.git/` của checkout chính): mọi worktree của bản clone dùng chung
+file đó và Git không theo dõi gì trong thư mục này. Mỗi dòng một tên; dòng trống và dòng bắt đầu bằng `#` bỏ qua.
+
+- So như so tên tab: bỏ dấu, `đ` thành `d`, không phân biệt hoa thường; khoảng trắng và dấu câu là ranh giới từ, khớp trọn
+  từ (tên viết trong slug tên file cũng bị bắt). Tên dưới 6 chữ/số, hoặc chỉ một từ dưới 8 chữ, bị bỏ: bỏ dấu rồi thì trùng
+  chữ thường gặp.
+- Báo khớp chỉ in `file:dòng [customer-name #n]`, `n` là số dòng của tên trong danh sách; không bao giờ in tên. Tên đủ dài
+  mà vẫn trùng một cụm từ thường gặp (báo nhầm) thì xóa dòng `n` khỏi file và secret. Không khai tên trong tài liệu để được
+  bỏ qua: dòng khai chính là chỉ đường tới tên đó.
+- Không có danh sách thì bước in `BỎ QUA customer-name` và không đỏ vì lý do đó. PR từ fork và PR của Dependabot không
+  nhận secret của repo nên luôn bỏ qua; lượt push lên `main` và PR từ nhánh trong repo thì có.
+- CI chỉ thấy tên khi nhánh đã lên GitHub, lúc đó diff của PR đã public. Máy có file danh sách thì chạy `npm run check`
+  (hoặc `node scripts/check-secrets.js` trên diff đã stage) trước khi push.
+- Dựng hoặc cập nhật danh sách: tên sổ khách V7 (`sokhach.list_customers()`), `display_name` và tên khác (`aliases`)
+  trong file ánh xạ tên khách (`WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH`) trên `hao`, chỉ đọc, ghi thẳng vào file danh sách,
+  không in ra màn hình hay log. Chạy `node scripts/check-secrets.js --all`, xử lý từng `#n` (tên thật thì sửa tài liệu,
+  báo nhầm thì xóa dòng), rồi mới `gh secret set WEBDEBIT_TEN_KHACH < <file danh sách>`. Đọc từ `hao` và tạo, sửa
+  secret đều hỏi người dùng trước.
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,

@@ -5,8 +5,14 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
-const { contentHits, pathHits, isDocPath, fakeValues, dataHits } = require("./check-secrets");
+const {
+  contentHits, pathHits, isDocPath, fakeValues, dataHits, nameWords, nameIndex, nameHit, readNameList, NAMES_ENV,
+} = require("./check-secrets");
 
 const fake = (n, ch = "x") => ch.repeat(n);
 
@@ -108,4 +114,83 @@ test("FAKE_VALUES_BY_FILE: chỉ cho file dưới cổng triển khai tay, gộp
   assert.deepStrictEqual(dataHits(`tổng ${grouped("2", "411", "645", "000")}`, allowed), []);
   assert.deepStrictEqual(allowedValues("cong-no-web-handoff/preview/so-khach-v7-fixture.js", ""), null);
   assert.deepStrictEqual([...allowedValues("specs/khac.md", "")], []);
+});
+
+// Tên khách thật (từ 18/11/2026): danh sách thật chỉ ở secret/file ngoài repo; ở đây toàn tên bịa.
+const NAME_LIST = [
+  "# danh sách giả cho test", // 1: chú thích
+  "", //                         2: trống
+  "CÔNG TY MẪU THỬ", //          3
+  "Lê Văn Giả", //               4
+  "Cô Ba", //                    5: dưới 6 chữ
+  "Xanh Lá", //                  6: đủ 6 chữ, hai từ
+  "Bịa", //                      7: một từ dưới 8 chữ
+  "GIẢLẬPVIỆT", //               8: một từ từ 8 chữ
+  "lê   văn giả", //             9: trùng dòng 4 sau chuẩn hóa
+];
+
+test("nameWords: bỏ dấu, đ thành d, chữ thường, dấu câu và khoảng trắng là ranh giới từ, NFC/NFD như nhau", () => {
+  assert.deepStrictEqual(nameWords("  CÔNG-TY   Mẫu_thử. "), ["cong", "ty", "mau", "thu"]);
+  assert.deepStrictEqual(nameWords("Đặng Đức"), ["dang", "duc"]);
+  assert.deepStrictEqual(nameWords("Lê Văn Giả".normalize("NFD")), nameWords("Lê Văn Giả".normalize("NFC")));
+  assert.deepStrictEqual(nameWords("Ưng Ơn"), ["ung", "on"]);
+  assert.deepStrictEqual(nameWords("— · —"), []);
+});
+
+test("nameIndex: bỏ chú thích, dòng trống, tên dưới ngưỡng; giữ số dòng đầu tiên của tên trùng", () => {
+  const index = nameIndex(NAME_LIST);
+  assert.deepStrictEqual([...index.keys], [["cong ty mau thu", 3], ["le van gia", 4], ["xanh la", 6], ["gialapviet", 8]]);
+  assert.strictEqual(index.skipped, 2);
+  assert.deepStrictEqual([...index.starts.get("le")], [3]);
+});
+
+test("nameHit: khớp trọn từ, không phân biệt dấu/hoa thường/dấu câu; trả số dòng trong danh sách", () => {
+  const index = nameIndex(NAME_LIST);
+  assert.strictEqual(nameHit("Khách Công ty Mẫu Thử trả tiền tháng 10", index), 3);
+  assert.strictEqual(nameHit("| LÊ VĂN GIẢ | 2 chuyến |", index), 4);
+  assert.strictEqual(nameHit("docs/deploys/2026-11-01-le-van-gia.md", index), 4);
+  assert.strictEqual(nameHit("Lê  Văn\tGiả".normalize("NFD"), index), 4);
+  assert.strictEqual(nameHit("khách giảlậpviệt", index), 8);
+  for (const ok of ["Lê Văn Giản", "XLê Văn Giả", "Lê Văn", "có ba bước", "chữ bịa", "Công ty Mẫu", ""]) {
+    assert.strictEqual(nameHit(ok, index), 0, ok);
+  }
+  assert.strictEqual(nameHit("Lê Văn Giả", nameIndex([])), 0);
+});
+
+test("readNameList: biến môi trường trước file; biến rỗng thì đọc file; không có cả hai thì null", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-secrets-"));
+  try {
+    const file = path.join(dir, "webdebit-ten-khach.txt");
+    const missing = path.join(dir, "khong-co.txt");
+    fs.writeFileSync(file, "\uFEFF# chú thích\r\nLê Văn Giả\r\n");
+    assert.deepStrictEqual(readNameList({ [NAMES_ENV]: "Xanh Lá\nCô Ba" }, file).lines, ["Xanh Lá", "Cô Ba"]);
+    assert.match(readNameList({ [NAMES_ENV]: "Xanh Lá" }, file).source, new RegExp(NAMES_ENV));
+    const fromFile = readNameList({ [NAMES_ENV]: " \n" }, file);
+    assert.strictEqual(fromFile.source, file);
+    assert.deepStrictEqual([...nameIndex(fromFile.lines).keys], [["le van gia", 2]]);
+    assert.strictEqual(readNameList({}, missing), null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("customer-name-list: chặn file danh sách tên chép nhầm vào repo", () => {
+  assert.deepStrictEqual(pathHits("webdebit-ten-khach.txt"), ["customer-name-list"]);
+  assert.deepStrictEqual(pathHits("docs\\webdebit-ten-khach.txt"), ["customer-name-list"]);
+  assert.deepStrictEqual(pathHits("docs/ten-khach.md"), []);
+});
+
+test("quét --all: báo file:dòng và #n, không in tên; danh sách lấy từ biến, không từ file", () => {
+  // Dùng dòng đầu của một tài liệu có thật làm "tên", để biết chắc có một chỗ khớp.
+  const doc = "docs/development.md";
+  const title = fs.readFileSync(path.join(__dirname, "..", doc), "utf8").split(/\r?\n/)[0].replace(/^#+\s*/, "");
+  assert.ok(nameWords(title).join("").length >= 8, title);
+  const run = spawnSync(process.execPath, [path.join(__dirname, "check-secrets.js"), "--all"], {
+    cwd: path.join(__dirname, ".."), encoding: "utf8", env: { ...process.env, [NAMES_ENV]: `# test\n${title}` },
+  });
+  const out = run.stdout + run.stderr;
+  assert.strictEqual(run.status, 1, out);
+  assert.match(out, new RegExp(`customer-name dùng 1 tên từ biến ${NAMES_ENV}`));
+  assert.ok(out.includes(`${doc}:1 [customer-name #2]`), out);
+  for (const leaked of [title, nameWords(title).join(" ")]) assert.ok(!out.toLowerCase().includes(leaked.toLowerCase()), out);
 });
