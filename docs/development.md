@@ -105,6 +105,8 @@ nhật ký triển khai và spec): `check-secrets.js` bắt số tiền nhóm ch
 kèm "byte") và số container 4 chữ hoa + 7 số trong `docs/`, `specs/`, `contexte/`, `livrables/` và mọi file `.md`. Ghi số đếm,
 mã sổ hoặc câu giữ ý ("tổng nợ không đổi", "bằng tổng Sheet"). Dữ liệu giả cố ý (ví dụ trong spec, fixture tổng hợp) khai
 trong chính file đó bằng `<!-- du-lieu-gia: <giá trị> ... -->`; mã chủ container bịa `MAUU`, `HTHU`, `ALTU` được bỏ qua sẵn.
+File dưới `specs/v7-backend/` thì khai ở `FAKE_VALUES_BY_FILE` trong script, không thêm dòng khai vào file: mọi thay đổi ở
+thư mục đó làm `Deploy hao` dừng ở cổng triển khai tay.
 Lưới thô: số viết liền, nhóm phẩy, tiền rút gọn ("43,5 triệu"), tên khách và số booking vẫn do người review.
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh

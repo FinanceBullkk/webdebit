@@ -95,3 +95,17 @@ test("phạm vi dữ liệu thật: tài liệu (docs, specs, contexte, livrable
     assert.ok(!isDocPath(code), code);
   }
 });
+
+test("FAKE_VALUES_BY_FILE: chỉ cho file dưới cổng triển khai tay, gộp với dòng khai trong file", () => {
+  const { FAKE_VALUES_BY_FILE, allowedValues } = require("./check-secrets");
+  for (const file of Object.keys(FAKE_VALUES_BY_FILE)) {
+    assert.ok(file.startsWith("specs/v7-backend/") && isDocPath(file), file);
+  }
+  const ex = grouped("50", "000", "000");
+  const allowed = allowedValues("specs/v7-backend/thiet-ke.md", `<!-- du-lieu-gia: ${ex} -->`);
+  assert.ok(allowed.has(ex));
+  for (const value of FAKE_VALUES_BY_FILE["specs/v7-backend/thiet-ke.md"]) assert.ok(allowed.has(value), value);
+  assert.deepStrictEqual(dataHits(`tổng ${grouped("2", "411", "645", "000")}`, allowed), []);
+  assert.deepStrictEqual(allowedValues("cong-no-web-handoff/preview/so-khach-v7-fixture.js", ""), null);
+  assert.deepStrictEqual([...allowedValues("specs/khac.md", "")], []);
+});

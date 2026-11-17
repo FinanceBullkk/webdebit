@@ -63,6 +63,13 @@ const DOC_PATH = /^(?:docs|specs|contexte|livrables)\/|\.md$/i;
 // Chỉ đúng các giá trị đã khai, chỉ trong file đó; giá trị khác vẫn bị bắt. Không khai số thật vào đây.
 const FAKE_MARKER = /<!--\s*du-lieu-gia:([^>]*?)-->/g;
 
+// Như dòng khai trên, nhưng ghi ở đây cho file không nên sửa chỉ để thêm dòng khai: mọi thay đổi dưới
+// `specs/v7-backend/` làm `Deploy hao` dừng ở cổng triển khai tay (`.github/workflows/deploy-hao.yml`).
+const FAKE_VALUES_BY_FILE = {
+  // Số của fixture vàng V7 (`so-khach-v7-fixture.js`, sinh bằng script, không lấy từ sổ thật).
+  "specs/v7-backend/thiet-ke.md": ["600.694.000", "1.381.510.000", "2.411.645.000"],
+};
+
 function git(args) {
   const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
   if (r.status !== 0) {
@@ -95,6 +102,14 @@ function fakeValues(text) {
   return out;
 }
 
+// Tập giá trị giả của một file tài liệu (dòng khai trong file + `FAKE_VALUES_BY_FILE`); file không phải
+// tài liệu thì null: lưới dữ liệu thật không áp.
+function allowedValues(file, text) {
+  const p = file.replace(/\\/g, "/");
+  if (!isDocPath(p)) return null;
+  return new Set([...fakeValues(text), ...(FAKE_VALUES_BY_FILE[p] || [])]);
+}
+
 // Tên các mẫu dữ liệu thật khớp một dòng tài liệu; `allowed` là tập giá trị giả đã khai của file.
 function dataHits(text, allowed = new Set()) {
   const line = text.replace(FAKE_MARKER, "");
@@ -112,8 +127,8 @@ function dataHits(text, allowed = new Set()) {
 }
 
 module.exports = {
-  CONTENT_PATTERNS, PATH_PATTERNS, DATA_PATTERNS, FAKE_CONTAINER_OWNERS,
-  contentHits, pathHits, isDocPath, fakeValues, dataHits,
+  CONTENT_PATTERNS, PATH_PATTERNS, DATA_PATTERNS, FAKE_CONTAINER_OWNERS, FAKE_VALUES_BY_FILE,
+  contentHits, pathHits, isDocPath, fakeValues, allowedValues, dataHits,
 };
 
 const hits = [];
@@ -149,7 +164,7 @@ function main() {
       }
       if (buf.includes(0)) continue;
       const text = buf.toString("utf8");
-      const allowed = isDocPath(f) ? fakeValues(text) : null;
+      const allowed = allowedValues(f, text);
       text.split(/\r?\n/).forEach((line, i) => scanLine(f, i + 1, line, allowed));
     }
   } else {
@@ -158,7 +173,7 @@ function main() {
     const allowedOf = new Map();
     const allowedFor = (file) => {
       if (!isDocPath(file)) return null;
-      if (!allowedOf.has(file)) allowedOf.set(file, fakeValues(git(["show", `:${file}`])));
+      if (!allowedOf.has(file)) allowedOf.set(file, allowedValues(file, git(["show", `:${file}`])));
       return allowedOf.get(file);
     };
     let file = "";
