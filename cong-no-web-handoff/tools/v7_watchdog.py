@@ -6,8 +6,9 @@ Chạy trên hao dưới user runner (timer v7-watchdog, 15 phút một lần):
     v7_watchdog.py [--dry-run] [--test-fail]
 
 Mỗi lượt kiểm tại chỗ, chỉ đọc: web còn trả lời, lượt đối soát còn mới và không báo lỗi ghi, bản chụp Sheet còn mới, nguồn booking
-còn chuyến mới, hộp việc của API còn tính được, các timer còn bật, sao lưu không lỗi, đĩa còn chỗ. Rồi báo về một check trên
-healthchecks.io: ổn thì ping thường, có việc thì ping /fail kèm danh sách.
+còn chuyến mới, hộp việc của API còn tính được, các timer còn bật, sao lưu không lỗi, đĩa còn chỗ, và lưới an toàn trên sổ thật
+(`v7_safety_net.py`, LUOI-AN-TOAN-01; chỉ ghi file mốc của chính nó). Rồi báo về một check trên healthchecks.io: ổn thì ping
+thường, có việc thì ping /fail kèm danh sách.
 hao tắt hay mất mạng thì không còn ping và dịch vụ đó tự gửi email, nên không dùng Uptime Kuma nằm trên chính hao.
 
 Nội dung gửi đi chỉ có mã và số đếm, không có tên khách hay số tiền. Chưa có WEBDEBIT_ALERT_PING_URL thì chỉ in ra journal.
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import json
 import os
 import shutil
@@ -200,14 +202,22 @@ def check_disks(paths: tuple[str, ...], usage: Callable = shutil.disk_usage) -> 
     return found
 
 
-def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path, show: Callable = systemctl_show) -> list[str]:
+def check_safety_net(now: dt.datetime, *, save_state: bool = True) -> list[str]:
+    """Lưới an toàn (LUOI-AN-TOAN-01, specs/v7-luoi-an-toan.md): kiểm sổ thật chỉ đọc. Module riêng, import muộn để mã của nó
+    (và tầng web nó dùng) hỏng thì chỉ mục này báo "Không kiểm được", máy canh vẫn chạy các mục khác."""
+    import v7_safety_net
+    return v7_safety_net.check(now, save_state=save_state)
+
+
+def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path, show: Callable = systemctl_show,
+            safety: Callable[[dt.datetime], list[str]] = check_safety_net) -> list[str]:
     """Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
     checks: tuple[tuple[str, Callable[[], list[str]]], ...] = (
         ("web", lambda: check_api(healthz)), ("đối soát", lambda: check_reconcile(reconcile, now)),
         ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("nguồn chuyến", lambda: check_sources(snapshots, now.date())),
         ("hộp việc", lambda: check_inbox(healthz)), ("timer", lambda: check_units(show, moment)),
-        ("đĩa", lambda: check_disks(DISKS)))
+        ("đĩa", lambda: check_disks(DISKS)), ("lưới an toàn", lambda: safety(now)))
     found: list[str] = []
     for label, check in checks:
         try:
@@ -242,7 +252,10 @@ def main(argv: list[str] | None = None) -> int:
     if url and not url.startswith("https://"):
         print(json.dumps({"ok": False, "error": "WEBDEBIT_ALERT_PING_URL phải bắt đầu bằng https://"}, ensure_ascii=False))
         return 2
-    found: list[str] = [TEST_BODY] if args.test_fail else collect(now_vn(), healthz=args.healthz, reconcile=args.reconcile, snapshots=args.snapshots)
+    # --dry-run không ghi gì, kể cả mốc của lưới an toàn.
+    found: list[str] = [TEST_BODY] if args.test_fail else collect(
+        now_vn(), healthz=args.healthz, reconcile=args.reconcile, snapshots=args.snapshots,
+        safety=functools.partial(check_safety_net, save_state=not args.dry_run))
     report: dict[str, Any] = {"ok": not found, "problems": found, "configured": bool(url)}
     print(json.dumps(report, ensure_ascii=False))
     if args.dry_run or not url:

@@ -36,6 +36,8 @@ COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13
 # HIEU-NANG-01 13/11/2026: get_read_stamp chỉ có ở migration này.
 DAU_DOC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql"
 BAO_CAO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql"
+# LUOI-AN-TOAN-01 18/11/2026: ba hàm của lưới an toàn chỉ có ở migration này.
+LUOI_AN_TOAN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-luoi-an-toan.sql"
 # KIEM-TAB-01 16/11/2026 (K4): edit_trip_info và resolve_sheet_conflict bằng migration này thay bản KHOA-CHU-01.
 CHUAN_HOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql"
 # Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
@@ -95,6 +97,10 @@ class FeeSqlSync(unittest.TestCase):
         report = BAO_CAO_THANG_MIGRATION.read_text(encoding="utf-8")
         with self.subTest(name="get_trip_month"):
             self.assertEqual(definition(report, "FUNCTION", "get_trip_month"), definition(canonical, "FUNCTION", "get_trip_month"))
+        safety = LUOI_AN_TOAN_MIGRATION.read_text(encoding="utf-8")
+        for name in ("_safety_fingerprints", "_safety_events", "get_safety_net"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(safety, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         optional = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
         for name in ("_lookup_price", "save_price_table"):
             with self.subTest(name=name):
