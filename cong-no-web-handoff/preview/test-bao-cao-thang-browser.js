@@ -19,7 +19,7 @@ const REPORT = month => ({
       rows: [trip('GIAU1000001', 'khop'), trip('GIAU1000002', 'khop', { web: null }),
         trip('GIAU1000003', 'thieu', { row: null, block: null, amount_vnd: null, date: null, web: null, booking: { date: '2026-10-29', owner: 'CHU HANG GIA', ref: 'BKGIA2' } }),
         trip('GIAU1000001', 'chep', { tab: 'KHACH GIA COPY', amount_vnd: null, booking: undefined, web: null })] },
-    { name: 'KHACH GIA BO 长弘', owner: null, book_id: 8, commodity: null, families: ['BO'], ...counts(), rows: [trip('GIAU2000001', 'khop', { family: 'BO' })] },
+    { name: 'KHACH GIA BO 样本', owner: null, book_id: 8, commodity: null, families: ['BO'], ...counts(), rows: [trip('GIAU2000001', 'khop', { family: 'BO' })] },
     { name: null, owner: 'CHU HANG LA', book_id: null, commodity: null, families: ['BIEN'], ...counts({ booking: 1, sheet: 0, web: 0, thieu: 1, issues: 1, amount_vnd: '0' }),
       rows: [trip('GIAU3000001', 'thieu', { tab: null, row: null, amount_vnd: null, date: null, web: null })] },
   ],
@@ -75,7 +75,7 @@ test('Báo cáo tháng: bảng tổng biển/bộ, khách lệch lên đầu, b�
     assert.match(await page.locator('.sum-notes').innerText(), /lượt máy lúc 10:09 16\/11/);
     const first = page.locator('tr.cust').first();
     assert.match(await first.innerText(), /KHACH GIA A\s+Dừa\s+Biển\s+3\s+2\s+2\s+Sheet chưa ghi 1\s+Chép 0đ 1\s+170 tr/);
-    assert.match(await page.locator('tr.cust').nth(1).innerText(), /KHACH GIA BO 长弘[\s\S]*Khớp/);
+    assert.match(await page.locator('tr.cust').nth(1).innerText(), /KHACH GIA BO 样本[\s\S]*Khớp/);
     assert.match(await page.locator('tr.cust').nth(2).innerText(), /Chưa rõ sổ · CHU HANG LA[\s\S]*—$/);
     await first.locator('.cust-btn').click();
     assert.equal(await first.locator('.cust-btn').getAttribute('aria-expanded'), 'true');

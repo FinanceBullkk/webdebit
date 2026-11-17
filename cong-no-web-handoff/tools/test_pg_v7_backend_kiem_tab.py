@@ -45,19 +45,19 @@ def check_kiem_tab(pg) -> str:
     before = months(pg, c)
 
     # 1. Phần đọc của web gửi NULL cho chủ hàng '': giữ web hoặc lấy Sheet đều chạy, không báo "Sổ đã thay đổi".
-    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-keep", SHA, 7, "trip", trips[0], "shipper", None, "KHOI PHONG", "keep_web")
-    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-use", SHA, 8, "trip", trips[1], "shipper", None, "KHOI PHONG", "use_sheet")
-    require(pg.value(f"SELECT shipper FROM sokhach.v_trip_current WHERE id={trips[1]}") == "KHOI PHONG", "use_sheet did not write the Sheet shipper")
+    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-keep", SHA, 7, "trip", trips[0], "shipper", None, "CHU HANG M", "keep_web")
+    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-use", SHA, 8, "trip", trips[1], "shipper", None, "CHU HANG M", "use_sheet")
+    require(pg.value(f"SELECT shipper FROM sokhach.v_trip_current WHERE id={trips[1]}") == "CHU HANG M", "use_sheet did not write the Sheet shipper")
     # Khoảng trắng cũng là "chưa có"; chuyến shipper NULL nhận cả hai cách ghi.
-    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-blank", SHA, 9, "trip", trips[2], "shipper", "  ", "KHOI PHONG", "keep_web")
+    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-blank", SHA, 9, "trip", trips[2], "shipper", "  ", "CHU HANG M", "keep_web")
     # Giá trị web thật sự khác vẫn là STALE_LEDGER: chỉ gộp rỗng với NULL, không nới so sánh.
-    reject_call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-stale", SHA, 7, "trip", trips[0], "shipper", "KHAC", "KHOI PHONG",
+    reject_call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-stale", SHA, 7, "trip", trips[0], "shipper", "KHAC", "CHU HANG M",
                 "keep_web", error="STALE_LEDGER")
 
     # 2. Dòng sổ gốc không có chủ hàng thì web lấy hãng tàu, kể cả khi chủ hàng là '' hay toàn khoảng trắng (khớp phần đọc của web).
-    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-legacy", SHA, 10, "legacy", legacy, "shipper", "HT", "KHOI PHONG", "use_sheet")
+    call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-legacy", SHA, 10, "legacy", legacy, "shipper", "HT", "CHU HANG M", "use_sheet")
     reject_call(pg, "resolve_sheet_conflict", c, version(pg, c), "kt-legacy-stale", SHA, 11, "legacy", legacy, "shipper", "HT", "KHAC",
-                "keep_web", error="STALE_LEDGER")   # sau khi lấy Sheet, chủ hàng là KHOI PHONG, không còn là hãng tàu
+                "keep_web", error="STALE_LEDGER")   # sau khi lấy Sheet, chủ hàng là CHU HANG M, không còn là hãng tàu
 
     # 3. Sửa ô chữ rỗng thành rỗng không phải thay đổi; sửa thành giá trị thật vẫn ghi.
     reject_call(pg, "edit_trip_info", c, version(pg, c), "kt-nochange", trips[0], "shipper", "   ", error="NO_CHANGE")

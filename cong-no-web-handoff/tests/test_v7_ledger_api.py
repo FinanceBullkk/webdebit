@@ -276,7 +276,7 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual(runner.calls[-1][1]["target_value"], "WH")
         self.assertEqual(runner.calls[-1][2], "fake-actor")
         shipper = body | {"field": "shipper", "decision": "use_sheet"}
-        projection["items"][0].update(changed_fields=["shipper"], shipper="KHOI PHONG",
+        projection["items"][0].update(changed_fields=["shipper"], shipper="CHU HANG M",
                                       existing_values={"shipper": None})
         with patch.object(v7_api_sheet, "sheet_projection", return_value=projection), \
                 patch.object(v7_api_sheet, "load_snapshot", return_value={"sha256": "a" * 64}):

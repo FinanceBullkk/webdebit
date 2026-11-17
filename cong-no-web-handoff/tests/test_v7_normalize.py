@@ -18,7 +18,7 @@ class TextTests(unittest.TestCase):
     def test_empty_and_blank_text_is_none_and_the_rest_is_trimmed(self):
         for raw in (None, "", "   ", "\t\n"):
             self.assertIsNone(normalize.text_or_none(raw), repr(raw))
-        self.assertEqual(normalize.text_or_none("  KHOI PHONG "), "KHOI PHONG")
+        self.assertEqual(normalize.text_or_none("  CHU HANG M "), "CHU HANG M")
         self.assertEqual(normalize.text_or_none("0"), "0")   # chữ "0" vẫn là chữ, không phải rỗng
 
 
@@ -57,12 +57,12 @@ class SheetMatchTests(unittest.TestCase):
 
     def row(self, container, source_row=8):
         return {"source_row": source_row, "customer_id": 7, "container": container, "event_date": "2026-10-24", "carrier": "COSCO",
-                "shipper": "KHOI PHONG", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}
+                "shipper": "CHU HANG M", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}
 
     def test_clean_source_row_matches_the_web_row_whose_cell_carries_a_note(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [self.row("MAUU5500001")]}
         ledger = {"customer_id": 7, "trips": [], "legacy_rows": [{"id": 5, "kind": "trip", "current": {
-            "container": "MAUU5500001-mã chưa up", "event_date": "2026-10-24", "carrier": "COSCO", "shipper": "KHOI PHONG",
+            "container": "MAUU5500001-mã chưa up", "event_date": "2026-10-24", "carrier": "COSCO", "shipper": "CHU HANG M",
             "origin": "A", "destination": "B", "month": "2026-10-01"}}]}
         self.assertEqual(project_customer(queue, ledger)["items"], [])   # không còn là NEW
 
@@ -77,7 +77,7 @@ class ExistingValuesTests(unittest.TestCase):
     def test_empty_web_text_reaches_sql_as_none(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [{
             "source_row": 8, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-24",
-            "carrier": "COSCO", "shipper": "KHOI PHONG", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}]}
+            "carrier": "COSCO", "shipper": "CHU HANG M", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}]}
         for shipper in ("", "   ", None):
             with self.subTest(shipper=shipper):
                 ledger = {"customer_id": 7, "trips": [{"id": 9, "container": "ABC1", "source_ref": f"sheet:{'a' * 64}:8",
@@ -89,7 +89,7 @@ class ExistingValuesTests(unittest.TestCase):
     def test_legacy_row_without_shipper_shows_its_carrier(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [{
             "source_row": 8, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-24",
-            "carrier": "COSCO", "shipper": "KHOI PHONG", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}]}
+            "carrier": "COSCO", "shipper": "CHU HANG M", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}]}
         ledger = {"customer_id": 7, "trips": [], "legacy_rows": [{"id": 5, "kind": "trip", "current": {
             "container": "ABC1", "event_date": "2026-10-24", "carrier": "HT", "shipper": " ", "origin": "A", "destination": "B",
             "month": "2026-10-01"}}]}

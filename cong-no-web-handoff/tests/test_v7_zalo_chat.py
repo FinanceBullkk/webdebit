@@ -36,7 +36,7 @@ def message(cid, mid, sender, stamp, body, message_type=1, status=None, attachme
 
 def write_fixture(directory: Path) -> None:
     conversations = [
-        {"conversation_id": CONV_A, "message_count": 7, "participant_ids": [OWNER, KHACH], "display_name": "Nguyễn Hoàng Vũ", "name_status": "matched_storage_info_cache"},
+        {"conversation_id": CONV_A, "message_count": 7, "participant_ids": [OWNER, KHACH], "display_name": "Nguyễn Kim Mẫu", "name_status": "matched_storage_info_cache"},
         {"conversation_id": CONV_B, "message_count": 1, "participant_ids": [BAN], "display_name": None, "name_status": "unmatched"},
         {"conversation_id": CONV_C, "message_count": 0, "participant_ids": [OWNER, KHACH], "display_name": "Trống", "name_status": "matched_storage_info_cache"},
         {"conversation_id": CONV_D, "message_count": 1, "participant_ids": [OWNER, "d" * 64], "display_name": "Khách D", "name_status": "matched_storage_info_cache"},
@@ -91,7 +91,7 @@ class ZaloChatStoreTest(unittest.TestCase):
         self.assertEqual(rows[0]["last_message_at"], 1_700_000_007_000)
         self.assertEqual(rows[0]["last_own_message_at"], 1_700_000_006_000)
         self.assertEqual((rows[1]["display_name"], rows[1]["last_own_message_at"], rows[3]["last_message_at"]), (None, None, None))
-        self.assertEqual([row["display_name"] for row in self.store.conversations("HOANG vu")], ["Nguyễn Hoàng Vũ"])
+        self.assertEqual([row["display_name"] for row in self.store.conversations("KIM mau")], ["Nguyễn Kim Mẫu"])
         self.assertEqual([row["conversation_id"] for row in self.store.conversations("222")], [CONV_B])
         self.assertEqual(self.store.conversations("không có"), [])
 
@@ -160,8 +160,8 @@ class ZaloChatApiTest(unittest.TestCase):
     def test_routes(self):
         status, report = self.get("/api/v7/zalo/report")
         self.assertEqual((status, report["conversation_count"], report["message_count"]), (200, 4, 9))
-        status, body = self.get("/api/v7/zalo/conversations?q=ho%C3%A0ng")
-        self.assertEqual((status, body["total"], body["conversations"][0]["display_name"]), (200, 1, "Nguyễn Hoàng Vũ"))
+        status, body = self.get("/api/v7/zalo/conversations?q=m%E1%BA%ABu")
+        self.assertEqual((status, body["total"], body["conversations"][0]["display_name"]), (200, 1, "Nguyễn Kim Mẫu"))
         status, body = self.get(f"/api/v7/zalo/messages?conversation={CONV_A}&page=1&limit=2&q=")
         self.assertEqual((status, [m["message_id"] for m in body["messages"]], body["total"]), (200, ["m4", "m5"], 7))
         status, body = self.get(f"/api/v7/zalo/messages?conversation={CONV_A}&q=cont")

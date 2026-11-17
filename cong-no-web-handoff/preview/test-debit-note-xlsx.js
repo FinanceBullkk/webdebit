@@ -34,7 +34,7 @@ const trip = (id, container, day, port, price, lines = []) => ({ id, month: '202
   origin: 'DAKLAK', destination: port, unit_price_vnd: String(price), status: 'confirmed', is_missing_price: false, is_fee_only: false,
   fee_lines: lines, amount_vnd: String(price + lines.reduce((sum, line) => sum + Number(line.amount_vnd), 0)) });
 const ledger = { trips: [
-  trip(1, 'CSQU3054383', '03', 'XIAMEN', 80000000, [{ fee_type_id: 1, amount_vnd: '2000000' }]),
+  trip(1, 'MAUU5500008', '03', 'XIAMEN', 80000000, [{ fee_type_id: 1, amount_vnd: '2000000' }]),
   trip(2, 'TSTU1000019', '06', 'QINGDAO', 75000000),
   { id: 3, month: '2026-09-01', container: null, event_date: '2026-09-10', status: 'confirmed', is_fee_only: true, unit_price_vnd: null, amount_vnd: '25000000',
     fee_lines: [{ fee_type_id: 11, amount_vnd: '25000000', note: 'BK-001' }] },
@@ -56,7 +56,7 @@ test('DEBIT-NOTE-02 Excel đối chiếu: tiêu đề cố định hàng 9, đ�
     ['I', 'TRUCKING'], ['J', 'GENERATOR / ELECTRICITY FEE'], ['K', 'OVERSTAY'], ['L', 'HC FEE'], ['M', 'CANCELLATION FEE'], ['N', 'AMD FEE'], ['O', 'TOTAL (VND)']]);
   assert.match(sheet, /<pane ySplit="9" topLeftCell="A10" activePane="bottomLeft" state="frozen"\/>/);
   assert.doesNotMatch(sheet, /mergeCell/);
-  assert.match(sheet, /<c r="B10" s="6" t="inlineStr"><is><t xml:space="preserve">CSQU3054383<\/t>/);
+  assert.match(sheet, /<c r="B10" s="6" t="inlineStr"><is><t xml:space="preserve">MAUU5500008<\/t>/);
   assert.match(sheet, /<c r="C10" s="6" t="inlineStr"><is><t xml:space="preserve">Chủ hàng &lt;A&amp;B&gt;<\/t>/);
   assert.match(sheet, /<c r="D10" s="8"><v>46268<\/v><\/c>/);   // 03 Sep 2026 là ngày thật
   assert.match(sheet, /<c r="E10" s="6" t="inlineStr"><is><t xml:space="preserve">Dak Lak {2}多乐省<\/t>/);   // DIA-DIEM-01
