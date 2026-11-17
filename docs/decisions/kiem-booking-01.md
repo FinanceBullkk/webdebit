@@ -38,9 +38,9 @@ Claude chọn phần cách làm (ĐỀ XUẤT, áp dụng trong phạm vi trên)
 
 16/11/2026, chat: người dùng hỏi "có thể xử lý những cái này không" với bốn nhóm đụng tiền, rồi chọn "Làm phần máy lọc". Claude chọn các luật dưới đây (ĐỀ XUẤT). Không luật nào đổi tiền hay điều kiện máy ghi; chúng chỉ đổi cách ghép và cách phân nhóm của công cụ GĐ1, nên phép kiểm và báo cáo tháng đổi theo.
 
-- **Chuyến bộ ghép theo cả ô "Số xe":** Sheet có lúc ghi biển số ở chỗ của container (tab CHANG HONG), và `CONT_BO` có dòng đổi chỗ hai ô. Chỉ ghép khi đúng một chuyến hợp (±3 ngày, hoặc cùng tháng nợ với dòng không ngày), vì một xe chạy nhiều chuyến trong tháng.
-- **Ô container không phải số container hay biển số** (`THUE`, `VAT`, `PHIKIEMDICHN`, `50`, ô trống sau khi bỏ dấu) là dòng phí, không phải chuyến. Những dòng này không lên nhóm "Trên sổ, booking không có", chỉ được đếm ở `hidden.KHONG_PHAI_CONT`. Số container gõ thừa một ký tự (`WHLU77333680`) vẫn tính là chuyến.
-- **Chủ hàng ghi ngay trong tên tab thì không là "khách khác".** Ví dụ: tab "HANZONG 韩总-CHUOI" chủ yếu chở cho JINFUJIE nhưng cũng có chuyến HANZONG.
+- **Chuyến bộ ghép theo cả ô "Số xe":** Sheet có lúc ghi biển số ở chỗ của container (một tab đường bộ), và `CONT_BO` có dòng đổi chỗ hai ô. Chỉ ghép khi đúng một chuyến hợp (±3 ngày, hoặc cùng tháng nợ với dòng không ngày), vì một xe chạy nhiều chuyến trong tháng.
+- **Ô container không phải số container hay biển số** (`THUE`, `VAT`, `PHIKIEMDICHN`, `50`, ô trống sau khi bỏ dấu) là dòng phí, không phải chuyến. Những dòng này không lên nhóm "Trên sổ, booking không có", chỉ được đếm ở `hidden.KHONG_PHAI_CONT`. Số container gõ thừa một ký tự (dạng `MAUU12345670`, tám số) vẫn tính là chuyến.
+- **Chủ hàng ghi ngay trong tên tab thì không là "khách khác".** Ví dụ: một tab mang tên chủ hàng A kèm mặt hàng, chủ yếu chở cho chủ hàng B nhưng cũng có chuyến của A.
 - **Hòa khoảng cách thì ưu tiên dòng mang tiền rồi dòng nằm đúng khối tháng của chuyến.** Dòng thừa ra mới là dòng cần hỏi.
 - **Dòng có ngày nằm ngoài khối tháng của nó, trong khi khối đó có một chuyến booking chưa dòng nào ghép:** ngày bị gõ nhầm, nên dòng này là chuyến đó, không phải tính hai lần. Kết quả hiện ở nhóm lệch ngày, ghi chú "ghi nhầm ngày?".
 - **Dòng 0đ đã giữ chuyến (±3 ngày):** dòng mang tiền của chuyến đó thành lệch ngày, không thành nghi tính hai lần. Luật này chỉ áp khi dòng mang tiền là dòng chưa ghép duy nhất của container có tiền. Kiểu đảo ngày/tháng vẫn để người xem. Trong báo cáo tháng, dòng mang tiền là chuyến (`lech_ngay`), dòng 0đ là `chep`.
@@ -55,7 +55,7 @@ Claude chọn phần cách làm (ĐỀ XUẤT, áp dụng trong phạm vi trên)
 | Trên sổ, booking không có | 45 | 30 |
 | Lệch ngày / sổ thiếu ngày | 69 / 240 | 71 / 243 |
 
-11 dòng phí chuyển sang chỉ đếm. Còn lại để người dùng trả lời: tab chép của nhau (DUONG BO TAN HUA và TAN HOA 鑫华 312; KONGZONG -FENGJIE và FENG JIE-A LONG-SR), và DA LAI GUO YE với CHAU HAI THINH.
+11 dòng phí chuyển sang chỉ đếm. Còn lại để người dùng trả lời: hai cặp tab chép của nhau, và một cặp tên chưa rõ là một hay hai khách.
 
 ## Ngày / nguồn
 

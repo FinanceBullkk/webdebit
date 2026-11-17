@@ -49,3 +49,5 @@ Thanh chuyển khung thêm nút 10.
 
 - File `index.html` đủ 10 khung.
 - Cuối câu trả lời, liệt kê những chỗ bạn phải tự đoán. Không tự chốt thay chủ nghiệp vụ.
+
+<!-- du-lieu-gia: 20.000.000 30.000.000 50.000.000 70.000.000 100.000.000 -->

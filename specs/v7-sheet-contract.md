@@ -7,7 +7,7 @@ Trạng thái: giai đoạn 1 **ĐÃ TRIỂN KHAI trên `hao` và CHAU_HAO 29/10
 Bộ lập bill CHAU_HAO là chuỗi công thức `LET`/`REDUCE`/`IMPORTRANGE`, không có bước lưu giữa:
 
 ```
-File booking THIEN THANH (tab "THÁNG mm/yyyy") ─IMPORTRANGE─► BOOKING_DATA ─┐
+File booking của đối tác (tab "THÁNG mm/yyyy") ─IMPORTRANGE─► BOOKING_DATA ─┐
 DANH_MUC_KHACH (chuẩn hóa tên chủ hàng) ───────────────────────────────────┤
 File PS (tab "CHI PHI PS THANG n", 3 kiểu cột) ─IMPORTRANGE─► PS_DATA ─────┼─► CONT_MASTER (1 dòng / cont|ngày đóng)
 NHAP_GIA, GIA_WECHAT (đơn giá cho bill) ───────────────────────────────────┤      ├─► WEBDEBIT_EXPORT
@@ -83,6 +83,6 @@ Web chỉ đọc, qua ba runner trên `hao` (mỗi 15 phút và khi bấm "↻ L
 
 ## Hướng sau (chưa làm)
 
-- **Giai đoạn 2b:** runner đọc thẳng file booking THIEN THANH và file PS, bỏ phụ thuộc vào chuỗi `IMPORTRANGE` của CHAU_HAO. Khi đó CHAU_HAO hỏng thì web vẫn có chuyến. Cần quyền đọc hai file đó cho tài khoản dịch vụ và đối chiếu lại logic chuẩn hóa tên (`DANH_MUC_KHACH`) trong code.
+- **Giai đoạn 2b:** runner đọc thẳng file booking của đối tác và file PS, bỏ phụ thuộc vào chuỗi `IMPORTRANGE` của CHAU_HAO. Khi đó CHAU_HAO hỏng thì web vẫn có chuyến. Cần quyền đọc hai file đó cho tài khoản dịch vụ và đối chiếu lại logic chuẩn hóa tên (`DANH_MUC_KHACH`) trong code.
 - **Giai đoạn 3 (sau ngày chuyển hẳn):** web là sổ chính. CHAU_HAO thu về công cụ in bill đọc từ web, hoặc bỏ hẳn vì web đã có debit note ([`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md)). Các tab soát chuyển thành màn hình kiểm trên web. Xét lại [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md) cùng lúc.
 - **CÒN MỞ:** chưa đọc Apps Script của menu BILL (Sheets API không đọc được). Cần trước giai đoạn 3.

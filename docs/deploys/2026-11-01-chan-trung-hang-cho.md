@@ -13,7 +13,7 @@
 ## Trước
 
 - `hao` chạy `4b5a9f1`.
-- DB `webdebit_v7`: 236 khách, tổng nợ trên web 67.701.771.688 đ, 6.555 event; lần ghi cuối 30/10/2026.
+- DB `webdebit_v7`: 236 khách, 6.555 event; lần ghi cuối 30/10/2026.
 - Không phiên nào nối vào DB. Phiên Claude khác đang chạy không đụng `hao` (kiểm `ListAgents`, `pg_stat_activity`).
 
 Hàng chờ đo bằng hàm chiếu của API trên cả 236 sổ (chỉ đọc):
@@ -44,7 +44,7 @@ Hàng chờ đo bằng hàm chiếu của API trên cả 236 sổ (chỉ đọc)
 ## Sau
 
 - Checker chạy từ file trong release: 9/9 OK.
-- 236 khách, tổng nợ 67.701.771.688 đ và 6.555 event bằng trước đợt.
+- 236 khách, tổng nợ và 6.555 event bằng trước đợt.
 - Role `v7_app` gọi được `list_legacy_trip_refs`. Journal API không lỗi.
 - Hàng chờ đo lại bằng mã mới, cả 236 sổ, chỉ đọc, không sổ nào lỗi chiếu:
 

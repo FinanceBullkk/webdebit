@@ -93,11 +93,19 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 
 ## Lint và lệnh check
 
-`npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
-(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
+`npm run check` ở gốc repo chạy chín bước theo thứ tự: `ruff check`, luật nghiệp vụ
+(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), secrets và dữ liệu thật
+(`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
 `node --test` cho model JS, rồi hai bộ test trình duyệt Playwright (`test:browser` và `test:viewer`). Chưa tải Chromium thì cả hai bước
 Playwright cùng báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
-`npm run lint` chạy riêng bốn bước lint khi đang sửa dở.
+`npm run lint` chạy riêng năm bước lint khi đang sửa dở.
+
+**Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
+nhật ký triển khai và spec): `check-secrets.js` bắt số tiền nhóm chấm từ 7 chữ số (dạng `x.xxx.xxx` trở lên, trừ cỡ file ghi
+kèm "byte") và số container 4 chữ hoa + 7 số trong `docs/`, `specs/`, `contexte/`, `livrables/` và mọi file `.md`. Ghi số đếm,
+mã sổ hoặc câu giữ ý ("tổng nợ không đổi", "bằng tổng Sheet"). Dữ liệu giả cố ý (ví dụ trong spec, fixture tổng hợp) khai
+trong chính file đó bằng `<!-- du-lieu-gia: <giá trị> ... -->`; mã chủ container bịa `MAUU`, `HTHU`, `ALTU` được bỏ qua sẵn.
+Lưới thô: số viết liền, nhóm phẩy, tiền rút gọn ("43,5 triệu"), tên khách và số booking vẫn do người review.
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,

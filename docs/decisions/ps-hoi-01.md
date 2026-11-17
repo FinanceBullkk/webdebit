@@ -14,8 +14,10 @@ Người dùng phản ánh "Phụ phí PS cần xem" không hiểu là gì và k
 
 ## Ngày / nguồn
 
-9/11/2026, chat (ảnh 6 dòng "Khác = 315789.5 không đọc được" của LINSHUN). Đo chỉ đọc `ps.json` trên `hao`: 8 dòng `PS_BAD_AMOUNT`, đều là `315789.5` ở cột Khác của CHI PHÍ PS tháng 7 (một khoản chia đều cho nhiều cont); tab khách không thu. Trước đó 5/11 người dùng đã trả lời một ca tương tự (OTPU6666931 không thu) mà web không có chỗ ghi.
+9/11/2026, chat (ảnh 6 dòng "Khác = 315789.5 không đọc được" của sổ 155). Đo chỉ đọc `ps.json` trên `hao`: 8 dòng `PS_BAD_AMOUNT`, đều là `315789.5` ở cột Khác của CHI PHÍ PS tháng 7 (một khoản chia đều cho nhiều cont); tab khách không thu. Trước đó 5/11 người dùng đã trả lời một ca tương tự (một container không thu) mà web không có chỗ ghi.
 
 ## Hiệu lực và giới hạn
 
 ĐÃ CHỐT theo yêu cầu người dùng. Migration [`2026-11-09-v7-ps-khong-thu.sql`](../../cong-no-web-handoff/tools/migrations/2026-11-09-v7-ps-khong-thu.sql) chỉ cho `keep_sheet_task` nhận thêm `task_kind = 'ps'`. Máy không tự trả lời thay người.
+
+<!-- du-lieu-gia: 1.500.000 -->

@@ -32,8 +32,8 @@ DB, role, `pg_hba` hay Tailscale; không ghi tiền.
   `webdebit_v7_restore_test_20261031` (thu hồi CONNECT của PUBLIC): `restore` mã thoát 0, `MATCH`, số dòng 32 bảng và tổng
   nợ 236 khách khớp `MANIFEST.json`, 9 giây; đã `dropdb`, kiểm còn 0. Timer enabled. **Lượt timer đầu** 14:00 giờ VN:
   `v7-20261031-140007`, `Result=success`, `"ok": true`, `verify` MATCH.
-- **Gói cấu hình (K3):** `systemctl start` 13:23: 6 giây, `Result=success`, `v7-config-20261031-132302.tar.age` 2.366.314
-  byte, 55 tệp, 10 symlink, `missing` rỗng; cặp tệp root nhóm quản trị 640; `sha256sum -c` OK. Timer enabled, lượt kế
+- **Gói cấu hình (K3):** `systemctl start` 13:23: 6 giây, `Result=success`, `v7-config-20261031-132302.tar.age`
+  2.366.314 byte, 55 tệp, 10 symlink, `missing` rỗng; cặp tệp root nhóm quản trị 640; `sha256sum -c` OK. Timer enabled, lượt kế
   02:50 giờ VN (giữa bản ngày 02:40 và `offsite` 03:00).
 - **Bản dữ liệu cho PC thứ hai giải mã được ngay:** các archive cũ trong hộp chờ chỉ mã hóa cho khóa PC cũ, nên chạy tay
   `offsite` một lần dưới `postgres` (`umask 0027`) với gốc `/srv/v7-backup-hourly`: `v7-20261031-131845.tar.age`, mã hóa cho

@@ -4,7 +4,7 @@
 
 ## Số đo trước khi làm
 
-Đo trên `hao` ngày 13/11/2026, bản `1c2d1a2`, sổ LINSHUN (155) có 31 hàng bảng:
+Đo trên `hao` ngày 13/11/2026, bản `1c2d1a2`, sổ 155 có 31 hàng bảng:
 
 - `GET /api/v7/ledger`: khoảng 1,8 giây mỗi lần (đo 4 lần liên tiếp), 490 KB.
 - Dựng lại `#app`: khoảng 20 ms.

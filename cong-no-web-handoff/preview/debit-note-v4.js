@@ -31,7 +31,7 @@ const DebitNoteV4 = (() => {
   // Bản gửi khách không có tiếng Việt (SPEC 4.3): chữ Latin bỏ dấu, chữ Trung giữ nguyên.
   const latin = text => String(text ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
     .replace(/\s+/g, ' ').trim();
-  // Tên hiển thị "FANYA 泛亚" → phần Latin và phần chữ Hán.
+  // Tên hiển thị "SAMPLE 样本" → phần Latin và phần chữ Hán.
   function splitName(text) {
     const value = String(text ?? '').trim();
     const zh = (value.match(/[\p{Script=Han}（）]+/gu) ?? []).join(' ');

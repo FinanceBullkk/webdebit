@@ -142,3 +142,5 @@ PR (b), 13/11/2026, máy Windows, PostgreSQL 18.6 dùng một lần, dữ liệu
 - `test_pg_v7_backend.py --migration-test`: migration đạt (nâng từ schema cũ ra đúng catalog khởi tạo mới), 69 BEHAVIOR + 10 SCHEMA đạt, 2 SKIPPED_OPEN như trước. `BANG-GIA.01` thêm: xem trước không đổi version, event, revision giá, khóa lệnh, bảng giá, số dư tháng, dòng phân bổ; gọi lại cho cùng kết quả; `STALE_LEDGER`, `PRICE_PERIOD_OVERLAP`, `NO_CHANGE` trả đúng mã và không ghi; số xem trước trùng lệnh lưu thật (chuyến, tổng, tháng khóa, hết giá) và `typed_trips` trùng trạng thái giá sau lưu; tháng khóa xem trước báo đúng; chạy lại migration trên schema chuẩn không đổi gì.
 - `test_pg_v7_grants.py --strict`: đạt (hàm mới chỉ `sokhach_app` gọi được).
 - Test trình duyệt 14 test (thêm 2: bước xem lại đủ số từ server, bảng đổi gì, quay lại/Esc giữ bảng, lưu đúng bảng và phiên bản đã xem; máy chủ chưa tính được vẫn lưu được). Ảnh 1265×560 của bước xem lại đã xem và sửa (ô số xuống dòng, danh sách chuyến bị cắt).
+
+<!-- du-lieu-gia: 60.000.000 -->

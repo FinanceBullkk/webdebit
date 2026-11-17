@@ -19,14 +19,14 @@
 Dump (`pg_restore -l` đọc lại được, 34 bảng), restore vào DB tạm, migration hai lượt (87 ms, 84 ms; một `COMMIT` mỗi lượt). Đã xóa DB tạm.
 
 - Catalog ổn định giữa hai lượt và khác bản trước (đúng: thay một hàm); dấu vân tay không đổi; checker 9/9.
-- Kiểm `keep_sheet_task(..., 'source', NULL, NULL, <dấu vân>, {"scope":"price"})` trong giao dịch rồi `ROLLBACK`: đúng một event `task_source`, tổng nợ không đổi (57.922.175.077 đ), gửi lại cùng khóa nhận cùng kết quả, 9 ca sai (có đích, đích kèm, dấu vân sai hoặc NULL, scope lạ, thừa khóa, `{}`, mảng, loại lạ) đều `INVALID_SHEET_RESOLUTION`.
+- Kiểm `keep_sheet_task(..., 'source', NULL, NULL, <dấu vân>, {"scope":"price"})` trong giao dịch rồi `ROLLBACK`: đúng một event `task_source`, tổng nợ không đổi, gửi lại cùng khóa nhận cùng kết quả, 9 ca sai (có đích, đích kèm, dấu vân sai hoặc NULL, scope lạ, thừa khóa, `{}`, mảng, loại lạ) đều `INVALID_SHEET_RESOLUTION`.
 - Rollback bằng áp lại `2026-11-09-v7-ps-khong-thu.sql`: dấu vân tay không đổi. Catalog sau rollback **không trùng từng byte** với bản đang chạy vì hàm đang chạy có ký tự `\r` (CRLF) do lần triển khai 9/11 chép từ cây làm việc Windows; migration và git đều LF. Thân hàm trùng từng token (đã so). Không ảnh hưởng hành vi.
 
 ## Cửa sổ dừng ghi (10:54:00–10:54:04 UTC)
 
 - Dừng timer `v7-reconcile-auto` và API, không còn kết nối. Dấu vân tay, dump kèm hash, đọc lại được (34 bảng).
 - Áp migration với `ON_ERROR_STOP`: 101 ms, một `COMMIT`. Catalog sau áp trùng bản thử; hàm nhận `'source'`.
-- **Đối soát tổng khách: dấu vân tay không đổi**; 242 sổ, tổng 57.922.175.077 đ, 10.455 event. Checker 9/9.
+- **Đối soát tổng khách: dấu vân tay không đổi**; 242 sổ, 10.455 event. Checker 9/9.
 - Bật lại API và timer: `active`, loopback 403 (sống). API gián đoạn 4 giây.
 
 Thứ tự: migration trước release. Release cũ chạy được với hàm mới (chỉ thêm một giá trị được nhận).

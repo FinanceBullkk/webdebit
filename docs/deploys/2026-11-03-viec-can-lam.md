@@ -12,7 +12,7 @@
 
 ## Trước
 
-- `hao` chạy `833a4ae`. DB `webdebit_v7`: 236 khách, tổng nợ trên web 67.131.162.261 đ, 8.269 event; lần ghi cuối 13:49.
+- `hao` chạy `833a4ae`. DB `webdebit_v7`: 236 khách, 8.269 event; lần ghi cuối 13:49.
 - Không phiên nào nối vào DB, không lệnh sudo của phiên khác trong 30 phút; các phiên Claude khác offline hoặc idle (`ListAgents`).
 
 ## Bản sao thử
@@ -41,7 +41,7 @@ Bản sao thử lần đầu bắt được lỗi: `v7_post_deploy_check.sql` ch
 ## Sau
 
 - Checker chạy từ file trong release: 9/9 OK.
-- 236 khách, tổng nợ 67.131.162.261 đ, 8.269 event và số dòng mọi bảng bằng trước đợt.
+- 236 khách, tổng nợ, 8.269 event và số dòng mọi bảng bằng trước đợt.
 - Journal API không lỗi.
 
 **Bằng chứng:** thư mục `backup-20261102-viec-can-lam` trong `/srv/v7` trên `hao`, ngoài Git (quyền 700). Gồm dump trước và dump lúc dừng kèm sha256, bản sao các file SQL kèm sha256, script bản sao thử và cửa sổ dừng, dấu vân tay, catalog, log áp thật và log checker.

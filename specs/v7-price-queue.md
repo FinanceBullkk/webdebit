@@ -202,10 +202,10 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 ## Phụ phí theo cột TỔNG (3/11/2026)
 
 **Vì sao:** Claude Chat kiểm Sheet trực tiếp (chỉ đọc) và thấy bộ quét tab chỉ cộng phụ phí ở cột có tiêu đề bắt đầu "OTHER FEE"/"PHU PHI". Các cột sau bị bỏ, dù cột TỔNG của Sheet có cộng:
-- BAO HIEM (FENG JIE);
-- cột không tiêu đề (FANYA);
-- tiêu đề tiếng Trung (YOUHE);
-- "Neo / Phi dien / Dong ghep" (TAM XUYEN từ tháng 10).
+- BAO HIEM (một sổ);
+- cột không tiêu đề (một sổ);
+- tiêu đề tiếng Trung (một sổ);
+- "Neo / Phi dien / Dong ghep" (một sổ, từ tháng 10).
 
 Vì vậy web tính thiếu so với Sheet.
 
@@ -217,3 +217,5 @@ Vì vậy web tính thiếu so với Sheet.
 - 361/10.630 dòng tab đổi phụ phí;
 - máy ghi giá không có dòng nào tự ghi thêm;
 - dòng "giá khác web" để người từ 64 lên 71, đều là chuyến web thiếu đúng phần phí trên.
+
+<!-- du-lieu-gia: 1.400.000 1.500.000 -->

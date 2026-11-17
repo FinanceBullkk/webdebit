@@ -124,10 +124,10 @@ class TripSourceMatchTests(unittest.TestCase):
 
     def test_fee_lines_are_not_trips_but_a_mistyped_container_still_is(self):
         rows = [sheet("A", 1, "THUE", None, month="2026-05", mode="BO"), sheet("A", 2, "VAT", None, month="2026-05"),
-                sheet("A", 3, "50", None, month="2026-05"), sheet("A", 4, "WHLU77333680", "2026-05-02")]
+                sheet("A", 3, "50", None, month="2026-05"), sheet("A", 4, "MAUU12345670", "2026-05-02")]
         _, found = found_for(rows, [src("ZZZU1234567", "2026-05-02")])
         self.assertEqual(sorted((g, s["cont"]) for g, s, b, _ in found if s), [
-            ("KHONG_NGUON", "WHLU77333680"), ("KHONG_PHAI_CONT", "50"), ("KHONG_PHAI_CONT", "THUE"), ("KHONG_PHAI_CONT", "VAT")])
+            ("KHONG_NGUON", "MAUU12345670"), ("KHONG_PHAI_CONT", "50"), ("KHONG_PHAI_CONT", "THUE"), ("KHONG_PHAI_CONT", "VAT")])
 
     def test_owner_written_in_the_tab_name_is_the_books_customer(self):
         rows = [sheet("BAOAN 宝安-CHUOI", i, f"JINU000000{i}", "2026-01-0" + str(i)) for i in (1, 2)]

@@ -112,6 +112,15 @@ const steps = [
     cwd: ROOT,
   },
   {
+    // Secrets và dữ liệu nghiệp vụ thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số
+    // container) trên mọi file đã theo dõi. Trước 18/11/2026 lệnh này chỉ chạy tay trước commit,
+    // và nhật ký triển khai đã lọt tổng nợ thật vào repo public; chạy ở đây để CI chặn.
+    name: "lint:sec  secrets + dữ liệu thật",
+    cmd: process.execPath,
+    args: [path.join(__dirname, "check-secrets.js"), "--all"],
+    cwd: ROOT,
+  },
+  {
     // Gọi thẳng điểm vào của eslint bằng node: trên Windows, spawn một file
     // .cmd (npx.cmd) không qua shell bị Node chặn, nên bước này sẽ luôn hỏng
     // mà không in ra lỗi nào.
