@@ -139,7 +139,8 @@ def healthz_allowed(client_ip: str, headers, port: int) -> bool:
 
 
 def healthz(runner: Psql, now: float) -> tuple[int, dict]:
-    """`SELECT 1` qua đúng runner psql của app, kèm tuổi bản chụp Sheet; DB lỗi thì 503 (audit DevOps #6, #14)."""
+    """`SELECT 1` qua đúng runner psql của app, kèm tuổi bản chụp Sheet và tình trạng hộp việc (chỉ số đếm); DB lỗi thì 503
+    (audit DevOps #6, #14). Hộp việc không làm đỏ kiểm sống: máy canh đọc và tự quyết báo (CANH-BAO-01, bổ sung 18/11/2026)."""
     times = []
     for path in (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH):
         try:
@@ -152,7 +153,7 @@ def healthz(runner: Psql, now: float) -> tuple[int, dict]:
         db_ok = runner.run("healthz", {}, "healthz") == 1
     except ApiError:
         db_ok = False
-    body = {"ok": db_ok, "db": "ok" if db_ok else "error", "sheet_snapshot_age_seconds": age}
+    body = {"ok": db_ok, "db": "ok" if db_ok else "error", "sheet_snapshot_age_seconds": age, "inbox": INBOX.health(now)}
     return (200 if db_ok else 503), body
 
 

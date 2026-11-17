@@ -65,7 +65,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | E2 | `hao` sập giữa ngày thì ghi tạm vào đâu | Có quy trình một trang | không | CHƯA |
 | E3 | Cảnh báo email tới thật | Một lần thử tới hộp thư | không | Máy canh báo ổn lúc 17:32; chưa kiểm lại email |
 | E4 | Bảo mật | Ba điểm còn mở của [`ACCESS-01`](decisions/access-01.md) đóng hoặc được chấp nhận | không | CÒN MỞ |
-| E5 | Sang tháng | Ngày 1 máy chạy không kẹt | không | Chờ 1/12 |
+| E5 | Sang tháng | Ngày 1 máy chạy không kẹt | không | Chờ 1/12. **Diễn tập 18/11/2026** trên bản sao (backup 17/11, Docker không mạng, giờ giả 30/11–3/12, đúng mã đang chạy): lượt đối chứng ra y như máy thật; sang tháng không có lệnh ghi nào; giá tháng 11 nhập trễ được mở khóa, ghi, khóa lại ở cả máy đối soát (8 giá) và vòng tự ghi của API (3 giá); chuyến tháng 12 từ booking được dán và ghi giá; phiếu thu ngày 30/11 vào tháng 11, phiếu 1/12 vào tháng 12; các sổ khớp lại. Chưa thử: phía Sheet của tab gộp (`CONT_NGUON`, `CONT_MASTER`), tab TONG mở khối tháng 12, mất điện giữa lượt ghi. Máy canh có thêm cảnh báo nguồn ngừng thêm chuyến và hộp việc hỏng ([`CANH-BAO-01`](decisions/canh-bao-01.md)) |
 | E6 | Lỗi mạng, bấm lặp, tốc độ khi dán nhiều chuyến | Đo trên `hao` | không | CHƯA |
 
 ### F. Quyết định và đường lui

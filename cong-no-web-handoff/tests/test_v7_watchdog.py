@@ -24,14 +24,24 @@ Disk = namedtuple("Disk", "total used free")
 
 
 class Response:
-    def __init__(self, status=200):
-        self.status = status
+    def __init__(self, status=200, body=b""):
+        self.status, self.body = status, body
 
     def __enter__(self):
         return self
 
     def __exit__(self, *args):
         return False
+
+    def read(self):
+        return self.body
+
+
+def health_opener(**inbox):
+    """Opener giả trả thân /healthz có phần `inbox` (chỉ số đếm, như API thật)."""
+    body = json.dumps({"ok": True, "db": "ok", "sheet_snapshot_age_seconds": 60,
+                       "inbox": {"state": "ready", "books": 242, "failed": 0, "failed_rounds": 0, "computed_age_seconds": 300, **inbox}})
+    return lambda *args, **kwargs: Response(200, body.encode("utf-8"))
 
 
 def healthy_units(unit, *properties):
@@ -128,6 +138,79 @@ class SnapshotTests(Base):
         self.assertIn("Bản chụp Sheet prices.json đã cũ 95 phút.", dog.check_snapshots(self.root, now))
 
 
+class SourceTests(Base):
+    """Diễn tập 1/12 (18/11/2026): tab tháng mới chưa vào tab gộp thì bản chụp vẫn mới mà không thêm chuyến."""
+
+    def rows(self, name, *days):
+        (self.root / name).write_text(json.dumps({"rows": [{"event_date": day} for day in days]}), encoding="utf-8")
+
+    def test_a_recent_trip_on_each_source_is_quiet(self):
+        self.rows("snapshot.json", "2026-11-30", "2026-12-03")
+        self.rows("road.json", "2026-12-01")
+        self.assertEqual(dog.check_sources(self.root, dt.date(2026, 12, 3)), [])
+
+    def test_a_two_day_gap_like_the_real_data_is_quiet(self):
+        # Từ 5/2026 khoảng trống dài nhất của cả hai nguồn là 2 ngày (vd. 19/9 → 21/9).
+        self.rows("snapshot.json", "2026-09-19", "2026-09-21")
+        self.rows("road.json", "2026-09-19", "2026-09-21")
+        for day in (20, 21, 22, 23, 24):
+            self.assertEqual(dog.check_sources(self.root, dt.date(2026, 9, day)), [], day)
+
+    def test_month_tab_not_in_the_merged_tab_is_reported_per_source(self):
+        self.rows("snapshot.json", "2026-11-29", "2026-11-30")
+        self.rows("road.json", "2026-11-27", "2026-11-30")
+        self.assertEqual(dog.check_sources(self.root, dt.date(2026, 12, 3)), [])   # khung 30/11–3/12 còn chuyến
+        self.assertEqual(dog.check_sources(self.root, dt.date(2026, 12, 4)), [
+            "Nguồn chuyến biển (CONT_NGUON) không có chuyến mới từ 30/11, 3 ngày gần nhất trống: tab tháng mới có thể chưa vào tab gộp.",
+            "Nguồn chuyến bộ (CONT_BO) không có chuyến mới từ 30/11, 3 ngày gần nhất trống: tab tháng mới có thể chưa vào tab gộp."])
+
+    def test_future_and_junk_dates_do_not_hide_a_stop(self):
+        self.rows("snapshot.json", "2026-11-30", "2027-01-05", "1899-12-30", "", None, "13/12/2026")
+        self.rows("road.json", "2026-12-04")
+        self.assertEqual(dog.check_sources(self.root, dt.date(2026, 12, 6)),
+                         ["Nguồn chuyến biển (CONT_NGUON) không có chuyến mới từ 30/11, 3 ngày gần nhất trống: "
+                          "tab tháng mới có thể chưa vào tab gộp."])
+
+    def test_missing_or_broken_file_is_left_to_the_snapshot_check(self):
+        (self.root / "snapshot.json").write_text("{không phải json", encoding="utf-8")
+        self.assertEqual(dog.check_sources(self.root, dt.date(2026, 12, 6)), [])
+
+
+class InboxTests(unittest.TestCase):
+    """Hộp việc hỏng im lặng: bản chụp hỏng làm mọi sổ lỗi, máy ngừng dán chuyến và ghi giá (diễn tập 1/12, 18/11/2026)."""
+
+    def test_healthy_old_api_or_no_answer_is_quiet(self):
+        self.assertEqual(dog.check_inbox("x", health_opener()), [])
+        old = json.dumps({"ok": True, "db": "ok", "sheet_snapshot_age_seconds": 60}).encode("utf-8")
+        self.assertEqual(dog.check_inbox("x", lambda *a, **k: Response(200, old)), [])
+
+        def refused(*args, **kwargs):
+            raise urllib.error.URLError("refused")
+        self.assertEqual(dog.check_inbox("x", refused), [])   # phần web đã báo, không báo hai lần
+
+    def test_failed_books_must_repeat_before_an_email(self):
+        self.assertEqual(dog.check_inbox("x", health_opener(failed=242, failed_rounds=1)), [])
+        self.assertEqual(dog.check_inbox("x", health_opener(failed=242, failed_rounds=2)),
+                         ["Hộp việc không tính được 242/242 sổ qua 2 lượt liền: máy ngừng tự dán chuyến, ghi giá ở các sổ đó."])
+
+    def test_unreadable_snapshot_and_stopped_background_are_reported(self):
+        self.assertEqual(dog.check_inbox("x", health_opener(state="unavailable")),
+                         ["Hộp việc không đọc được bản chụp Sheet: máy ngừng dán chuyến và ghi giá."])
+        self.assertEqual(dog.check_inbox("x", health_opener(computed_age_seconds=90 * 60)), [])
+        self.assertEqual(dog.check_inbox("x", health_opener(computed_age_seconds=91 * 60)),
+                         ["Hộp việc chưa tính lại 91 phút: nhịp nền của API có thể đã dừng."])
+        self.assertEqual(dog.check_inbox("x", health_opener(state="computing", computed_age_seconds=None)), [])
+
+    def test_body_of_a_503_is_still_read(self):
+        body = json.dumps({"ok": False, "db": "error", "inbox": {"state": "ready", "books": 10, "failed": 3, "failed_rounds": 4,
+                                                                 "computed_age_seconds": 60}}).encode("utf-8")
+
+        def db_down(*args, **kwargs):
+            raise urllib.error.HTTPError("x", 503, "x", None, io.BytesIO(body))
+        self.assertEqual(dog.check_inbox("x", db_down),
+                         ["Hộp việc không tính được 3/10 sổ qua 4 lượt liền: máy ngừng tự dán chuyến, ghi giá ở các sổ đó."])
+
+
 class UnitTests(unittest.TestCase):
     def test_all_healthy(self):
         self.assertEqual(dog.check_units(healthy_units, NOON.timestamp()), [])
@@ -162,10 +245,14 @@ class DiskTests(unittest.TestCase):
 class CollectTests(Base):
     def test_one_broken_check_does_not_hide_the_others(self):
         self.write(checked_at="2026-11-04T01:00:00+07:00", customers=[])
-        with patch.object(dog, "check_api", return_value=[]), patch.object(dog, "check_disks", return_value=[]):
+        with patch.object(dog, "check_api", return_value=[]), patch.object(dog, "check_disks", return_value=[]), \
+                patch.object(dog, "check_inbox", side_effect=ValueError("x")), \
+                patch.object(dog, "check_sources", return_value=["Nguồn chuyến biển (CONT_NGUON) không có chuyến mới."]):
             found = dog.collect(NOON, healthz="x", reconcile=self.path, snapshots=self.root,
                                 show=lambda *a: (_ for _ in ()).throw(FileNotFoundError("systemctl")))
         self.assertIn("Không kiểm được phần timer (FileNotFoundError).", found)
+        self.assertIn("Không kiểm được phần hộp việc (ValueError).", found)
+        self.assertIn("Nguồn chuyến biển (CONT_NGUON) không có chuyến mới.", found)
         self.assertTrue(any(line.startswith("Máy đối soát chưa chạy được") for line in found))
         self.assertTrue(any(line.startswith("Thiếu bản chụp") for line in found))
 
