@@ -146,6 +146,7 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 |---|---|---|
 | `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12, 3.13 và 3.14 qua `uv` |
 | `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | `ubuntu-latest` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
+| `postgres-v7-backend`, `postgres-v7-p0`, `postgres-v7-grants-direct`, `postgres-v7-fifo` | `ubuntu-latest` | harness V7, mỗi job một container PostgreSQL 18.6 dùng một lần; `postgres-v7-fifo` chạy chuỗi lệnh ghi tiền ngẫu nhiên so với mô hình tham chiếu ([spec](../specs/v7-fifo-ngau-nhien.md)), cần Hypothesis từ `requirements-dev.txt` |
 | `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 và 3.14 qua `uv` (`hao` chạy 3.14) |
 | `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
 
@@ -188,7 +189,7 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 |---|---|
 | UI, preview, model JS, tài liệu | `npm run check`, không chạy harness |
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
-| `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền) |
+| `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền); đụng phân bổ thu hoặc lệnh ghi tiền thì thêm `test_pg_v7_fifo_ngau_nhien.py` (lệnh chạy và cờ `--mutant` ở [spec](../specs/v7-fifo-ngau-nhien.md)); lệch so với mô hình thì sửa SQL hoặc sửa `tools/v7_fifo_model.py` kèm test tính tay trong `tests/test_v7_fifo_model.py` |
 | Migration mới | `test_pg_v7_backend.py --migration-test` (CI chạy lệnh này): nâng từ schema cũ, so hàm/cột/view/ràng buộc với khởi tạo mới trước mọi case. Thêm file vào chuỗi `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file |
 
 Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
