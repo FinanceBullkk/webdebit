@@ -135,6 +135,24 @@ jobs:
       - name: V7 deployment rehearsal
         run: uv run --python 3.13 python cong-no-web-handoff/tools/rehearse_v7_deploy.py --strict
 
+  # Chuỗi lệnh ghi tiền ngẫu nhiên (Hypothesis, seed cố định) so với mô hình tham chiếu sau mỗi lệnh
+  # (specs/v7-fifo-ngau-nhien.md). Hypothesis ghim ở requirements-dev.txt, chỉ dùng trong job này.
+  postgres-v7-fifo:
+    needs: changes
+    if: needs.changes.outputs.pg_v7 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
+      - name: V7 FIFO random command sequences vs reference model
+        run: >-
+          uv run --python 3.13 --with-requirements requirements-dev.txt
+          python cong-no-web-handoff/tools/test_pg_v7_fifo_ngau_nhien.py
+
   postgres-m1-history-queries:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
@@ -252,6 +270,7 @@ jobs:
       - postgres-v7-backend
       - postgres-v7-p0
       - postgres-v7-grants-direct
+      - postgres-v7-fifo
       - postgres-m1-history-queries
       - pg18-versioned-approval-fixture
       - javascript

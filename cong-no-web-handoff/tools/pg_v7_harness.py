@@ -8,6 +8,9 @@ import queue
 import shutil
 import subprocess
 import threading
+import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from docker_exec_channel import run_docker_exec, run_kept_psql
@@ -379,3 +382,66 @@ def inspect_volume(volume: str, run_id: str) -> None:
     labels = info.get("Labels") or {}
     require(info.get("Name") == volume and labels.get(LABEL_TEST) == LABEL_VALUE
             and labels.get(LABEL_RUN) == run_id, "run volume identity/labels mismatch")
+
+
+def _wait_ready(name: str) -> None:
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        logs = run(["docker", "logs", name], check=False, timeout=10)
+        if "PostgreSQL init process complete; ready for start up." in logs.stdout + logs.stderr:
+            break
+        time.sleep(0.25)  # readiness polling only; never contention evidence
+    else:
+        raise HarnessError("PostgreSQL init marker timed out")
+    # The init marker precedes the final restart; wait until the server accepts connections.
+    while time.monotonic() < deadline:
+        if run(["docker", "exec", name, "pg_isready", "-U", "postgres"], check=False, timeout=10).returncode == 0:
+            return
+        time.sleep(0.25)  # readiness polling only; never contention evidence
+    raise HarnessError("PostgreSQL readiness timed out")
+
+
+@contextmanager
+def disposable_database(report: dict):
+    """Một container PostgreSQL 18.6 dùng một lần, nạp schema + hàm chuẩn + migration Sheet như `test_pg_v7_backend.py`.
+
+    Cùng nhãn, mạng `none` và các bước kiểm danh tính container/volume; luôn dọn đúng container và volume của lượt
+    chạy, kể cả khi thân `with` lỗi hay bị ngắt. Ghi `run_id`, `container_id`, `postgres_version`, `cleanup` vào `report`.
+    """
+    run_id = uuid.uuid4().hex
+    name = volume = f"webdebit-v7-test-{run_id}"
+    report.update(run_id=run_id, cleanup="not_started")
+    volume_created, container_id = False, None
+    try:
+        require(shutil.which("docker") is not None, "Docker CLI unavailable")
+        run(["docker", "volume", "create", "--label", f"{LABEL_TEST}={LABEL_VALUE}",
+             "--label", f"{LABEL_RUN}={run_id}", volume])
+        volume_created = True
+        inspect_volume(volume, run_id)
+        run(["docker", "run", "--detach", "--name", name, "--label", f"{LABEL_TEST}={LABEL_VALUE}",
+             "--label", f"{LABEL_RUN}={run_id}", "--network", "none", "--volume",
+             f"{volume}:/var/lib/postgresql", "--env", "POSTGRES_HOST_AUTH_METHOD=trust", IMAGE], timeout=240)
+        container_id = inspect_owned(name, volume, run_id)
+        require(container_id is not None, "container absent after Docker run")
+        report["container_id"] = container_id
+        _wait_ready(name)
+        pg = Pg(name, run_id)
+        pg.sql(f"CREATE DATABASE {DATABASE}", database="postgres")
+        inspect_owned(name, volume, run_id, container_id)
+        for path in (SCHEMA, FUNCTIONS):
+            run(["docker", "exec", "-i", *pg.env, name, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+                 "-U", "postgres", "-d", DATABASE], input_text=path.read_text(encoding="utf-8"))
+        pg.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
+        report["postgres_version"] = pg.value("SHOW server_version")
+        yield pg
+    finally:
+        try:
+            owned = inspect_owned(name, volume, run_id, container_id) if volume_created else None
+            if owned:
+                run(["docker", "rm", "--force", owned])
+            if volume_created:
+                inspect_volume(volume, run_id)
+                run(["docker", "volume", "rm", volume])
+            report["cleanup"] = "verified_and_removed" if volume_created else "nothing_created"
+        except (HarnessError, OSError, ValueError) as exc:
+            report["cleanup"] = "failed: " + str(exc)
