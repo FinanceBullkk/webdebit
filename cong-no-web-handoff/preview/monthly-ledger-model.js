@@ -2,13 +2,13 @@
 const MonthlyLedgerPreview = (() => {
   const customer = { id: "KH-DEMO", name: "KHACH_MAU" };
   const shipments = [
-    { id: "CH-001", period: "2026-01", date: "2026-01-02", container: "EMCU5391060", carrier: "EVG", origin: "TIEN GIANG", destination: "HONGKONG", price: 42000000n, fees: 1000000n, total: 43000000n, status: "posted" },
-    { id: "CH-002", period: "2026-01", date: "2026-01-02", container: "EMCU5625868", carrier: "EVG", origin: "TIEN GIANG", destination: "HONGKONG", price: 43500000n, fees: 0n, total: 43500000n, status: "posted" },
-    { id: "CH-003", period: "2026-01", date: "2026-01-02", container: "EMCU5738000", carrier: "EMC", origin: "TIEN GIANG", destination: "HONGKONG", price: 43500000n, fees: 2500000n, total: 46000000n, status: "posted" },
-    { id: "CH-004", period: "2026-01", date: "2026-01-05", container: "SEGU9951606", carrier: "WH", origin: "PHAN THIET", destination: "SHEKOU", price: 45500000n, fees: 0n, total: 45500000n, status: "posted" },
-    { id: "CH-005", period: "2026-02", date: "2026-02-05", container: "DFOU6412431", carrier: null, origin: null, destination: null, price: 43000000n, fees: 0n, total: 43000000n, status: "posted" },
-    { id: "CH-006", period: "2026-02", date: "2026-02-08", container: "FBIU5374130", carrier: null, origin: null, destination: null, price: 46000000n, fees: 1000000n, total: 47000000n, status: "posted" },
-    { id: "CH-007", period: "2026-02", date: "2026-02-10", container: "BMOU9318648", carrier: null, origin: null, destination: null, price: null, fees: 0n, total: null, status: "waiting_price" },
+    { id: "CH-001", period: "2026-01", date: "2026-01-02", container: "MAUU5500013", carrier: "EVG", origin: "TIEN GIANG", destination: "HONGKONG", price: 42000000n, fees: 1000000n, total: 43000000n, status: "posted" },
+    { id: "CH-002", period: "2026-01", date: "2026-01-02", container: "MAUU5500029", carrier: "EVG", origin: "TIEN GIANG", destination: "HONGKONG", price: 43500000n, fees: 0n, total: 43500000n, status: "posted" },
+    { id: "CH-003", period: "2026-01", date: "2026-01-02", container: "MAUU5500034", carrier: "EMC", origin: "TIEN GIANG", destination: "HONGKONG", price: 43500000n, fees: 2500000n, total: 46000000n, status: "posted" },
+    { id: "CH-004", period: "2026-01", date: "2026-01-05", container: "MAUU5500040", carrier: "WH", origin: "PHAN THIET", destination: "SHEKOU", price: 45500000n, fees: 0n, total: 45500000n, status: "posted" },
+    { id: "CH-005", period: "2026-02", date: "2026-02-05", container: "MAUU5500055", carrier: null, origin: null, destination: null, price: 43000000n, fees: 0n, total: 43000000n, status: "posted" },
+    { id: "CH-006", period: "2026-02", date: "2026-02-08", container: "MAUU5500060", carrier: null, origin: null, destination: null, price: 46000000n, fees: 1000000n, total: 47000000n, status: "posted" },
+    { id: "CH-007", period: "2026-02", date: "2026-02-10", container: "MAUU5500076", carrier: null, origin: null, destination: null, price: null, fees: 0n, total: null, status: "waiting_price" },
   ];
   const payments = [
     { id: "PT-001/A1", receiptId: "PT-001", period: "2025-12", date: "2026-02-10", kind: "receipt", amount: 441500000n, receiptTotal: 441500000n, status: "posted" },

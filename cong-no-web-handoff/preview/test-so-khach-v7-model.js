@@ -499,7 +499,7 @@ test("NHAP-SHEET-01 cell edit: Sheet dates, money blank is unknown, container no
   assert.equal(model.parseCellEdit("container", " abcu 123 4567 "), "ABCU1234567");
   assert.equal(model.parseCellEdit("origin", "  Tiền Giang "), "Tiền Giang");
   assert.equal(model.parseCellEdit("carrier", ""), "");
-  assert.equal(model.parseCellEdit("shipper", "  TRUONG THINH PHAT "), "TRUONG THINH PHAT");
+  assert.equal(model.parseCellEdit("shipper", "  CHU HANG MAU SO 2 "), "CHU HANG MAU SO 2");
   assert.equal(model.parseCellEdit("shipper", ""), "");
   assert.throws(() => model.parseCellEdit("amount_vnd", "1"), /không được sửa/);
 });
@@ -636,10 +636,10 @@ test("DEBIT-NOTE-02 tháng 8/2026: 99 container + 1 dòng phí hủy không đá
 });
 
 test("DEBIT-NOTE-02 số container ISO 6346, số bằng chữ, mã loại phí, chuẩn tên nơi, tỷ giá", () => {
-  assert.deepEqual(model.containerCheck("csqu 3054383"), { id: "CSQU3054383", valid: true, reason: null, expected: 3 });
-  assert.equal(model.containerCheck("CSQU3054384").reason, "check");
-  assert.equal(model.containerCheck("BM0U9231830").reason, "format");
-  assert.equal(model.containerCheck("35C-10331").valid, false);
+  assert.deepEqual(model.containerCheck("mauu 5500008"), { id: "MAUU5500008", valid: true, reason: null, expected: 8 });
+  assert.equal(model.containerCheck("MAUU5500009").reason, "check");
+  assert.equal(model.containerCheck("MA0U5500006").reason, "format");
+  assert.equal(model.containerCheck("51C-12345").valid, false);
   assert.equal(model.vndInWords(12019000001n), "SAY VIETNAM DONG TWELVE BILLION NINETEEN MILLION ONE ONLY");
   assert.equal(model.vndInWords(21n), "SAY VIETNAM DONG TWENTY-ONE ONLY");
   assert.equal(model.vndInWords(0n), "SAY VIETNAM DONG ZERO ONLY");
@@ -699,14 +699,14 @@ test("DIA-DIEM-01: tên tiếng Trung của nơi đóng hàng, cảng đến và
 test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc chắn, cảnh báo điểm bất thường", () => {
   const dup = dnTrip("2026-09", "02", "XIAMEN", 80000000);
   const trips = [dup, { ...dup, id: ++dnSerial }, dnTrip("2026-09", "10", "XIAMEN", 0), dnTrip("2026-09", "11", "THIEN BAO", 1, [], { origin: "KHO MOI" }),
-    dnTrip("2026-09", "12", "XIAMEN", 1, [], { container: "BM0U9231830" }), dnTrip("2026-09", "13", "XIAMEN", 1, [], { unit_price_vnd: null, amount_vnd: null, is_missing_price: true }),
+    dnTrip("2026-09", "12", "XIAMEN", 1, [], { container: "MA0U5500006" }), dnTrip("2026-09", "13", "XIAMEN", 1, [], { unit_price_vnd: null, amount_vnd: null, is_missing_price: true }),
     { id: ++dnSerial, month: "2026-09-01", container: null, event_date: "2026-09-14", status: "confirmed", is_fee_only: true, unit_price_vnd: null, amount_vnd: "100",
       fee_lines: [{ fee_type_id: 7, amount_vnd: "100", note: "Gọi 0912 345 678" }] }];
   const note = model.debitNote({ trips }, "2026-09", dnFeeTypes);
   const checks = model.debitNoteChecks(note, dnDoc({ issueDate: "2026-09-05", buyer: { display: "B" }, payment: { beneficiary: "OTHER CO", bank: "B", account: "1", swift: "S" },
     usd: { on: true, rate: "25,950", source: "", date: "2026-09-05" } }));
   const texts = checks.map(item => `${item.level}: ${item.text}`);
-  for (const pattern of [/^block: 1 dòng chưa có giá/, /^block: Số container sai theo ISO 6346: BM0U9231830/, new RegExp(`^block: Container trùng trong chứng từ: ${dup.container}`),
+  for (const pattern of [/^block: 1 dòng chưa có giá/, /^block: Số container sai theo ISO 6346: MA0U5500006/, new RegExp(`^block: Container trùng trong chứng từ: ${dup.container}`),
     /^block: Còn thiếu: Tên pháp lý của khách, Địa chỉ của khách\.$/, /^block: Bật quy đổi USD nhưng thiếu/, /^block: Mô tả hoặc ghi chú có chuỗi giống số điện thoại/,
     /^warn: Chủ tài khoản nhận tiền khác bên phát hành/, /^warn: Ngày phát hành sớm hơn ngày đóng hàng cuối cùng \(13 Sep 2026\)/,
     /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Thien Bao/, /^warn: 1 container có đơn giá bằng 0/])
@@ -721,14 +721,14 @@ test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc ch�
 test("DEBIT-NOTE-02 dòng sổ gốc không có bản sửa đọc theo Sheet; dòng không container thành ADDITIONAL CHARGES", () => {
   const ledger = { legacy_rows: [
     { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "900", fee_lines: [],
-      display: { container: "CSQU3054383", carrier: "C", date: "2026-10-02", from: "A", to: "B", unit_price: "900", flags: [] } },
+      display: { container: "MAUU5500008", carrier: "C", date: "2026-10-02", from: "A", to: "B", unit_price: "900", flags: [] } },
     { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "0", fee_lines: [],
       display: { container: dnContainer(77), date: "2026-10-01", unit_price: "", flags: ["MISSING_PRICE"] } },
     { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "70", fee_lines: [{ fee_type_id: 1, amount_vnd: "70" }],
       display: { container: "", date: null, unit_price: "", flags: [] } },
   ] };
   const note = model.debitNote(ledger, "2026-10", [{ id: 1, name: "Neo" }]);
-  assert.deepEqual(note.rows.map(row => [row.container, row.lumpSumVnd, row.amountVnd]), [[dnContainer(77), null, null], ["CSQU3054383", 900n, 900n]]);
+  assert.deepEqual(note.rows.map(row => [row.container, row.lumpSumVnd, row.amountVnd]), [[dnContainer(77), null, null], ["MAUU5500008", 900n, 900n]]);
   assert.deepEqual(note.charges, [{ date: null, code: "OVERSTAY", note: "", amountVnd: 70n }]);
   assert.deepEqual([note.missingCount, note.totalVnd, note.lumpSumVnd], [1, null, null]);
 });

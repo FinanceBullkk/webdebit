@@ -246,12 +246,12 @@ test('chưa có phần quá hạn (API debt lỗi) hay tìm khách lỗi: số t
 
 test('tên Sheet trên bảng; bấm tên hoặc dòng khách mở trang khách thẻ Tình hình (DASH-05)', async () => withDashboard({
   customers: [
-    { id: 1, name: 'AG -DỪA', display_name: 'AG LOGISTIC', commodity: 'Dừa', aliases: ['AG DU A'] },
+    { id: 1, name: 'MẪU -DỪA', display_name: 'MAU LOGISTIC', commodity: 'Dừa', aliases: ['MAU DU A'] },
     { id: 2, name: 'Khách C', display_name: 'KHACH CHUNG TEN', commodity: 'Chuối', aliases: [] },
     { id: 3, name: 'Khách K', display_name: 'KHACH CHUNG TEN', commodity: 'Chuối', aliases: [] },
   ],
 }, async page => {
-  await page.locator('#list .nm').getByText('AG LOGISTIC', { exact: true }).waitFor();
+  await page.locator('#list .nm').getByText('MAU LOGISTIC', { exact: true }).waitFor();
   assert.equal(await page.locator('#list .nm').first().innerText(), 'KHACH CHUNG TEN · Chuối · sổ 2');
   assert.deepEqual(await page.locator('#list .who a').evaluateAll(links => links.map(link => link.getAttribute('href'))), [
     '/so-khach-v7-live.html?customer=2&the=tinh-hinh', '/so-khach-v7-live.html?customer=4&the=tinh-hinh',
@@ -260,8 +260,8 @@ test('tên Sheet trên bảng; bấm tên hoặc dòng khách mở trang khách 
   await page.locator('#list .who a').first().focus();
   const tip = await page.locator('#tip > *').allTextContents();
   assert.deepEqual(tip, ['KHACH CHUNG TEN · Chuối · sổ 2', 'Theo dõi — Nợ T8/2026 quá hạn · có trả 02/10', 'Còn nợ 1.250.000.000 đ', 'Bấm để mở Tình hình']);
-  await page.locator('#customer-search').fill('AG DU A');
-  assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');
+  await page.locator('#customer-search').fill('MAU DU A');
+  assert.equal(await page.locator('#customer-results a').innerText(), 'MAU LOGISTIC · Dừa');
   await page.locator('#customer-search').fill('');
   await page.locator('#list tr').nth(1).locator('.num.tot').click();
   await page.waitForURL(/\/so-khach-v7-live\.html\?customer=4&the=tinh-hinh$/);

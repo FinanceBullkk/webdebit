@@ -106,7 +106,7 @@ test('Debit note: đủ thông tin thì hết chặn; cảnh báo cần xác nh�
   assert.equal(await dialog.locator('[name="issuer.taxId"]').inputValue(), '0000000001');
   assert.equal(await dialog.locator('[name="payment.swift"]').inputValue(), 'BANKXXXX');
 }, world => {
-  world.legacy[0].current = { ...world.legacy[0].current, container: 'CSQU3054383', unit_price_vnd: '0', counted_vnd: '0' };
+  world.legacy[0].current = { ...world.legacy[0].current, container: 'MAUU5500008', unit_price_vnd: '0', counted_vnd: '0' };
   world.legacy[1].current = { ...world.legacy[1].current, container: 'TSTU1000019', shipper: 'Chủ hàng 2' };
   world.trips[0] = { ...world.trips[0], container: 'TSTU1000024', shipper: 'Chủ hàng 3' };
   world.trips.push({ ...world.trips[0], id: 12, container: 'PEND0000001', status: 'pending_review', amount_vnd: null });

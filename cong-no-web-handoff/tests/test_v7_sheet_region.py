@@ -130,16 +130,16 @@ class PureTests(unittest.TestCase):
             region.region_bounds([], [])
 
     def test_date_flag_only_when_stored_is_outside_the_block_and_swapping_lands_in_it(self):
-        molly = {"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 11, 10)}   # hiện 11/10, Sheet hiểu 10 tháng 11; khối là tháng 10
-        self.assertTrue(region.date_swap(molly, "2025-10"))
-        self.assertIn("Ô hiện 11/10/2025 nhưng Sheet hiểu là ngày 10/11/2025, ngoài tháng 10 của khối", region.date_swap_text(molly, "2025-10"))
+        swapped = {"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 11, 10)}   # hiện 11/10, Sheet hiểu 10 tháng 11; khối là tháng 10
+        self.assertTrue(region.date_swap(swapped, "2025-10"))
+        self.assertIn("Ô hiện 11/10/2025 nhưng Sheet hiểu là ngày 10/11/2025, ngoài tháng 10 của khối", region.date_swap_text(swapped, "2025-10"))
         d17 = {"kind": "DATE", "v": "10/26/2026", "serial": serial(2026, 10, 26)}    # ngày 26 > 12, đúng tháng khối: chỉ hiển thị kiểu tháng/ngày
         self.assertFalse(region.date_swap(d17, "2026-10"))
         self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 10, 11)}, "2025-10"))   # lưu trong khối
-        self.assertFalse(region.date_swap(molly, "2025-09"))   # đảo ra tháng 10, không phải tháng 9 của khối
+        self.assertFalse(region.date_swap(swapped, "2025-09"))   # đảo ra tháng 10, không phải tháng 9 của khối
         self.assertFalse(region.date_swap({"kind": "DATE", "v": "26/11/2025", "serial": serial(2025, 11, 26)}, "2025-10"))   # ngày > 12 không đảo được
         self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2024", "serial": serial(2024, 11, 10)}, "2025-10"))   # khác năm
-        self.assertFalse(region.date_swap(molly, None))     # không biết tháng khối thì không đoán
+        self.assertFalse(region.date_swap(swapped, None))     # không biết tháng khối thì không đoán
         self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2025"}, "2025-10"))   # không đọc được ngày lưu thì bỏ cờ
         self.assertFalse(region.date_swap({"kind": "NUMBER", "v": "x", "serial": serial(2025, 11, 10)}, "2025-10"))
 
@@ -180,7 +180,7 @@ class BuildTests(unittest.TestCase):
     def test_swapped_date_becomes_a_suspect_mark_without_help_from_findings(self):
         cells = {(42, 4): cell("11/10/2025", kind="DATE", number=serial(2025, 11, 10)), (43, 4): cell("10/26/2025", kind="DATE", number=serial(2025, 10, 26))}
         built = region.build_region(raw(first=36, cells=cells), 36, 1, 50, 18, [], "2025-10")
-        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D42", "suspect")])   # D42 kiểu MOLLY có cờ, D43 kiểu 10/26 không
+        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D42", "suspect")])   # D42 kiểu ca thật 16/11 có cờ, D43 kiểu 10/26 không
         self.assertIn("ngoài tháng 10 của khối", built["marks"][0]["text"])
         self.assertEqual(region.build_region(raw(first=36, cells=cells), 36, 1, 50, 18, [])["marks"], [])   # không có tháng khối thì không cờ
 
@@ -228,11 +228,11 @@ class TabTitleTests(Env):
         return opener, out
 
     def test_trailing_space_in_the_real_title_is_kept_in_the_range(self):
-        opener, _ = self.read("MOLLY TÂN TỶ-", ["KK - A TANK 402- SR", "MOLLY TÂN TỶ- "])
-        self.assertEqual(ranges_of(opener.calls[2]), ["'MOLLY TÂN TỶ- '!A38:R52"])
+        opener, _ = self.read("KHÁCH GIẢ ĐÔNG-", ["KK - MẪU 101- SR", "KHÁCH GIẢ ĐÔNG- "])
+        self.assertEqual(ranges_of(opener.calls[2]), ["'KHÁCH GIẢ ĐÔNG- '!A38:R52"])
 
     def test_nfd_and_nfc_spellings_both_reach_the_real_title(self):
-        nfc, nfd = (unicodedata.normalize(form, "MOLLY TÂN TỶ- ") for form in ("NFC", "NFD"))
+        nfc, nfd = (unicodedata.normalize(form, "KHÁCH GIẢ ĐÔNG- ") for form in ("NFC", "NFD"))
         self.assertNotEqual(nfc, nfd)
         for asked, real in ((nfd.strip(), nfc), (nfc.strip(), nfd)):
             with self.subTest(real=real == nfd):
@@ -247,12 +247,12 @@ class TabTitleTests(Env):
         self.assertEqual(ranges_of(opener.calls[2]), ["'O''HARA '!A8:R22", "'O''HARA '!N40:N40"])
 
     def test_exact_title_wins_over_a_look_alike_and_an_ambiguous_one_is_refused(self):
-        opener, _ = self.read("MOLLY", ["MOLLY ", "MOLLY"])
-        self.assertEqual(ranges_of(opener.calls[2]), ["'MOLLY'!A38:R52"])
+        opener, _ = self.read("KHACHGIA", ["KHACHGIA ", "KHACHGIA"])
+        self.assertEqual(ranges_of(opener.calls[2]), ["'KHACHGIA'!A38:R52"])
         region._cache.clear()
         region._titles.clear()
         with self.assertRaises(ApiError) as caught:
-            self.read("MOLLY  ", ["MOLLY ", " MOLLY"])
+            self.read("KHACHGIA  ", ["KHACHGIA ", " KHACHGIA"])
         self.assertEqual((caught.exception.status, caught.exception.code), (503, "SHEET_REGION_UNAVAILABLE"))
 
     def test_unknown_tab_is_503_and_reads_no_cells(self):
@@ -273,13 +273,13 @@ class TabTitleTests(Env):
         self.assertEqual(ranges_of(opener.calls[-1]), ["'MOI '!A8:R22"])
 
     def test_endpoint_opens_the_right_gid_for_a_tab_with_a_trailing_space(self):
-        finding = {"tab": "MOLLY TÂN TỶ-", "kind": "row_shift", "level": "error", "month": "2026-10", "rows": [45], "cells": ["B45"],
+        finding = {"tab": "KHÁCH GIẢ ĐÔNG-", "kind": "row_shift", "level": "error", "month": "2026-10", "rows": [45], "cells": ["B45"],
                    "message": "x", "fix": "y"}
         health = {"status": "broken", "findings": [finding]}
-        opener = Opener(raw(), titles=["MOLLY TÂN TỶ- "])
+        opener = Opener(raw(), titles=["KHÁCH GIẢ ĐÔNG- "])
         with patch.object(api, "_read", return_value=({}, {}, {}, [], 0, [], health)):
             out = api.region("customer=162&finding=0", object(), "t", opener=opener, now=1_800_000_000)
-        self.assertEqual(ranges_of(opener.calls[2])[0], "'MOLLY TÂN TỶ- '!A38:R52")
+        self.assertEqual(ranges_of(opener.calls[2])[0], "'KHÁCH GIẢ ĐÔNG- '!A38:R52")
         self.assertTrue(out["open_url"].endswith(f"#gid={GID}&range=B45"))
 
 

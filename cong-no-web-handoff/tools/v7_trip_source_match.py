@@ -37,7 +37,7 @@ from v7_normalize import container_code  # lớp web; tools được phép gọi
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ISO = re.compile(r"[A-Z]{4}\d{7}")
 # What a trip cell may hold besides a clean ISO code: a container typed with one letter or digit too many ("MAUU12345670"), or the
-# truck plate of a road trip ("51C18585"). Anything else ("THUE", "VAT", "PHIKIEMDICHN", "50") is a fee line, not a trip to look up.
+# truck plate of a road trip ("51C12345"). Anything else ("THUE", "VAT", "PHIKIEMDICHN", "50") is a fee line, not a trip to look up.
 TRIP_KEY = re.compile(r"[A-Z]{3,5}\d{6,8}")
 PLATE = re.compile(r"\d{2}[A-Z]{1,2}\d{4,6}")
 PAIR_DAYS = 3   # rule (1), same window as BASELINE_DATE_WINDOW
