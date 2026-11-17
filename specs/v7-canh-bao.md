@@ -22,6 +22,7 @@ Trạng thái: ĐÃ CHỐT (người dùng chọn email, 4/11/2026, [`CANH-BAO-0
 | Timer | `systemctl show`: đối soát, đồng bộ Sheet, giá Sheet, PS, 4 sao lưu | Không `active` |
 | Sao lưu | `Result` của service; `LastTriggerUSec` của timer | `Result` khác `success`; hourly quá 12 giờ, ba loại còn lại quá 26 giờ |
 | Đĩa | `/`, `/srv`, `/var/lib/postgresql` | Dưới 10% trống |
+| Lưới an toàn (bổ sung 18/11/2026, [`LUOI-AN-TOAN-01`](../docs/decisions/luoi-an-toan-01.md)) | Hàm `sokhach.get_safety_net` qua `v7_app`, giao dịch chỉ đọc; mốc ở `/var/lib/v7-watchdog` | Phiếu thu chia không đủ, Tổng quan khác tổng các sổ, sổ đổi mà không qua lệnh, Lịch sử bị sửa. Chi tiết ở [spec riêng](v7-luoi-an-toan.md) |
 
 Cấu hình trên healthchecks.io: một check, chu kỳ 15 phút, thời gian chờ 45 phút. Gói miễn phí có 20 check, giữ 100 sự kiện mỗi check. Đo trên `hao` 4/11/2026: gọi được ra ngoài qua HTTPS, chưa có dịch vụ gửi thư.
 
@@ -32,7 +33,7 @@ Cấu hình trên healthchecks.io: một check, chu kỳ 15 phút, thời gian c
 
 ## Hành vi và bất biến
 
-- Chỉ đọc. Không ghi DB, không đổi file nào ngoài journal.
+- Chỉ đọc. Không ghi DB. Từ 18/11/2026 chỉ ghi một file: mốc của lưới an toàn trong thư mục riêng của máy canh (`/var/lib/v7-watchdog`, systemd `StateDirectory`); `--dry-run` không ghi cả file đó.
 - Một phép kiểm hỏng không che các phép kiểm khác: nó thành một dòng "Không kiểm được phần …".
 - Nội dung gửi đi không có tên khách, số tiền. Link ping là bí mật: không in ra journal, không vào Git.
 - Mạng chập chờn thì thử lại 3 lần. Vẫn không được thì thoát khác 0 và để dịch vụ tự báo khi quá giờ.

@@ -249,12 +249,25 @@ class CollectTests(Base):
                 patch.object(dog, "check_inbox", side_effect=ValueError("x")), \
                 patch.object(dog, "check_sources", return_value=["Nguồn chuyến biển (CONT_NGUON) không có chuyến mới."]):
             found = dog.collect(NOON, healthz="x", reconcile=self.path, snapshots=self.root,
-                                show=lambda *a: (_ for _ in ()).throw(FileNotFoundError("systemctl")))
+                                show=lambda *a: (_ for _ in ()).throw(FileNotFoundError("systemctl")),
+                                safety=lambda now: (_ for _ in ()).throw(ImportError("v7_safety_net")))
         self.assertIn("Không kiểm được phần timer (FileNotFoundError).", found)
         self.assertIn("Không kiểm được phần hộp việc (ValueError).", found)
+        self.assertIn("Không kiểm được phần lưới an toàn (ImportError).", found)
         self.assertIn("Nguồn chuyến biển (CONT_NGUON) không có chuyến mới.", found)
         self.assertTrue(any(line.startswith("Máy đối soát chưa chạy được") for line in found))
         self.assertTrue(any(line.startswith("Thiếu bản chụp") for line in found))
+
+    def test_safety_net_lines_are_sent_like_the_others(self):
+        quiet = {name: patch.object(dog, name, return_value=[]) for name in
+                 ("check_api", "check_reconcile", "check_snapshots", "check_sources", "check_inbox", "check_units", "check_disks")}
+        for item in quiet.values():
+            item.start()
+            self.addCleanup(item.stop)
+        seen = []
+        found = dog.collect(NOON, healthz="x", reconcile=self.path, snapshots=self.root,
+                            safety=lambda now: seen.append(now) or ["Phiếu thu chia không khớp tiền phiếu ở 1 sổ (sổ 4)."])
+        self.assertEqual((found, seen), (["Phiếu thu chia không khớp tiền phiếu ở 1 sổ (sổ 4)."], [NOON]))
 
 
 class SendTests(unittest.TestCase):
@@ -312,6 +325,14 @@ class MainTests(Base):
 
     def test_dry_run_and_non_https_url_send_nothing(self):
         self.assertEqual(self.run_main("--dry-run", url="https://ping.test/x")[1].call_count, 0)
+        env = {key: value for key, value in os.environ.items() if key != "WEBDEBIT_ALERT_PING_URL"}
+        with patch.dict(os.environ, env, clear=True), patch.object(dog, "collect", return_value=[]) as collect, \
+                redirect_stdout(io.StringIO()):
+            dog.main(["--dry-run"])
+            dog.main([])
+        # --dry-run cũng không ghi mốc của lưới an toàn; lượt thường thì ghi.
+        self.assertEqual([call.kwargs["safety"].keywords for call in collect.call_args_list],
+                         [{"save_state": False}, {"save_state": True}])
         code, send, _ = self.run_main(url="http://ping.test/x")
         self.assertEqual((code, send.call_count), (2, 0))
 

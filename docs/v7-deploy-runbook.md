@@ -2056,6 +2056,43 @@ Bổ sung 18/11/2026 (nguồn booking, hộp việc): không đổi unit hay fil
 
 **Tắt:** `systemctl disable --now v7-watchdog.timer`, rồi tắt hoặc xóa check trên healthchecks.io để không báo nhầm là máy dừng. Khi bảo trì `hao` lâu thì bấm Pause trên trang của check.
 
+## Lưới an toàn (LUOI-AN-TOAN-01) — nâng DB và drop-in cho máy canh
+
+Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên sổ thật ([quyết định](decisions/luoi-an-toan-01.md), [spec](../specs/v7-luoi-an-toan.md)). Cần một hàm đọc mới (migration `2026-11-18-v7-luoi-an-toan.sql`, cấp `sokhach_app`), mã theo release, và một drop-in cho unit máy canh. Không đổi role, quyền bảng hay pg_hba: máy canh vào DB bằng `v7_app` như API.
+
+1. **Nâng DB** theo mục chung ([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)): backup, bản sao hai lượt, dấu vân trước/sau, `v7_post_deploy_check.sql`. Chỉ thêm hàm đọc nên không cần cửa sổ dừng ghi. Trên bản sao gọi thử như máy canh, đo giây:
+
+   ```sql
+   BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY; SET LOCAL ROLE v7_app; SET LOCAL sokhach.actor = 'may-canh';
+   SELECT sokhach.get_safety_net('{"ledger_slices": 8, "ledger_slice": 0}'); ROLLBACK;
+   ```
+
+2. **Release:** `Deploy hao` dừng ở gate SQL; đổi release tay như mọi đợt. Release mới trên DB chưa nâng thì mục này im (journal ghi `"skipped"`).
+3. **Drop-in** `/etc/systemd/system/v7-watchdog.service.d/luoi-an-toan.conf` (root, 644):
+
+   ```ini
+   [Service]
+   StateDirectory=v7-watchdog
+   StateDirectoryMode=0700
+   ```
+
+   `systemd-analyze verify v7-watchdog.service`, `daemon-reload`; unit là oneshot nên lượt timer kế tự dùng. systemd tạo `/var/lib/v7-watchdog` (chủ `v7app`, 700), ghi được dù `ProtectSystem=strict`, và đặt `STATE_DIRECTORY` cho máy canh. Chạy lượt đầu: `sudo systemctl start v7-watchdog.service`, rồi `journalctl -u v7-watchdog.service -n 5 -o cat`: có dòng `lưới an toàn: {… "baseline": "lần đầu, lấy mốc" …}` và `"ok": true`. Lượt sau dòng đó ghi `"so với lượt …"`.
+4. **Chạy tay, không ghi mốc:**
+
+   ```bash
+   sudo -u v7app python3 -B /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_safety_net.py --state-dir /var/lib/v7-watchdog --dry-run
+   ```
+
+   Thêm `--full` để so `get_ledger` của mọi sổ (8 câu SQL, mỗi câu dưới giới hạn 15 giây); mỗi lượt máy canh chỉ so 1/8 số sổ. Luôn chạy bằng `sudo -u v7app`: lệnh từ chối chạy bằng root vì file mốc của root làm máy canh không ghi được nữa.
+5. **Khi có báo.** Kiểm 1, 2 (phiếu thu chia, Tổng quan, sổ lưu trữ, tổng trong sổ): mở sổ đó trên web, sửa bằng lệnh (hủy và ghi lại phiếu, điều chỉnh…), không sửa tay DB; sổ đúng lại thì lượt sau tự hết báo. Kiểm 3, 4 (đổi không qua lệnh, số lần ghi lùi, sổ biến mất, Lịch sử bị sửa): tìm việc ngoài lệnh vừa xảy ra (migration, loader, phục hồi bản sao, phiên psql quản trị); cần thì so với bản `v7-backup-hourly` trước giờ thấy báo. Xem xong thì chấp nhận:
+
+   ```bash
+   sudo -u v7app python3 -B /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_safety_net.py --state-dir /var/lib/v7-watchdog --accept
+   ```
+
+   Lệnh in các mục được chấp nhận rồi lấy mốc mới. **Sau mỗi migration hay loader đổi dữ liệu sổ hoặc Lịch sử mà không qua lệnh:** ngay sau đợt nâng chạy `--dry-run`, danh sách phải đúng phạm vi migration, rồi `--accept`. Lượt máy canh lỡ chạy trước thì có một email; chấp nhận xong lượt kế báo ổn lại.
+6. **Tắt:** xóa drop-in rồi `daemon-reload`: kiểm 3, 4 nghỉ, kiểm 1, 2 vẫn chạy. Gỡ hẳn mục: quay release. Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerprints(), sokhach._safety_events(bigint,interval);` (không gì phụ thuộc, không đụng dữ liệu); `/var/lib/v7-watchdog` xóa được.
+
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 
 Đã nâng DB, đổi release và cho máy tạo sổ 4/11/2026, xem [nhật ký](deploys/2026-11-04-may-tao-so.md).

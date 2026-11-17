@@ -50,3 +50,7 @@ Người dùng bấm "Vá cảnh báo" sau buổi diễn tập sang tháng 12 tr
 - **Hộp việc hỏng im lặng.** Bản chụp chuyến không đọc được thì hộp việc đánh lỗi mọi sổ, máy ngừng dán chuyến và ghi giá mà bộ đếm lỗi tự ghi vẫn 0. API đưa tình trạng hộp việc vào `/healthz` (chỉ số đếm, không mã sổ); máy canh báo khi không đọc được bản chụp, khi có sổ lỗi 2 lượt nền liền trở lên, hoặc khi hộp việc không tính lại quá 90 phút.
 
 Chi tiết và ngưỡng ở [spec](../../specs/v7-canh-bao.md).
+
+## Bổ sung 18/11/2026: lưới an toàn
+
+Máy canh có thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên sổ thật, quyết định riêng ở [`LUOI-AN-TOAN-01`](luoi-an-toan-01.md). Cùng kênh email, cùng luật nội dung (không tên khách, số tiền). Khác các mục cũ một điểm: máy canh ghi một file mốc trong thư mục riêng của nó (`/var/lib/v7-watchdog`) để so lượt sau với lượt trước.

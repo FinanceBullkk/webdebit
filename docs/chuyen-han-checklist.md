@@ -14,7 +14,7 @@ Từ 4/11/2026 web chạy theo Sheet ([`MAY-DOI-SOAT-01`](decisions/may-doi-soat
 | Giá, phụ phí | Máy chép từ Sheet ([`MAY-GIA-01`](decisions/may-gia-01.md)) | Bảng giá trên web ([`BANG-GIA-02`](decisions/bang-gia-02.md)) và gõ tay |
 | Phiếu thu | Máy chép từ Sheet ([`THU-SHEET-01`](decisions/thu-sheet-01.md)) | Người nhập gõ ở hàng phiếu thu, hàng này vẫn còn |
 | Khách mới | Máy tạo sổ khi khách có trên TONG ([`MAY-TAO-SO-01`](decisions/may-tao-so-01.md)) | Tạo sổ từ nguồn booking hoặc từ màn hình |
-| Lưới an toàn | Đối soát "khớp Sheet" mỗi giờ; hết hiệu lực khi chuyển hẳn | Phép kiểm định kỳ khác: so với booking, khách xác nhận debit note |
+| Lưới an toàn | Đối soát "khớp Sheet" mỗi giờ; hết hiệu lực khi chuyển hẳn | Phép kiểm định kỳ khác: so với booking; lưới an toàn trên sổ web ([`LUOI-AN-TOAN-01`](decisions/luoi-an-toan-01.md)); khách xác nhận debit note |
 
 ## Danh mục
 
@@ -76,7 +76,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | F2 | Quyết định còn chữ CÒN MỞ chạm đường tiền | Đã lọc và trả lời | CHƯA lọc |
 | F3 | Kịch bản ngày chuyển | Diễn tập trên bản sao | CHƯA viết |
 | F4 | Đường lui | Xuất được cả sổ web ra bảng tính, tổng khớp | CHƯA có lệnh xuất cả sổ |
-| F5 | Lưới an toàn thay "khớp Sheet" | Có phép kiểm định kỳ khác | CÓ MỘT PHÉP, từ 16/11/2026: kiểm Sheet sổ nợ so với booking mỗi giờ, khối ở tab Máy chạy ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)). Khi bỏ Sheet phải đổi đầu vào sang sổ web; xác nhận debit note của khách chưa có |
+| F5 | Lưới an toàn thay "khớp Sheet" | Có phép kiểm định kỳ khác | Hai phép. (1) Từ 16/11/2026: kiểm Sheet sổ nợ so với booking mỗi giờ, khối ở tab Máy chạy ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)); khi bỏ Sheet phải đổi đầu vào sang sổ web. (2) Lưới an toàn trên chính sổ web, máy canh 15 phút một lượt, báo email ([`LUOI-AN-TOAN-01`](decisions/luoi-an-toan-01.md)): phiếu thu chia đủ, Tổng quan bằng tổng các sổ (D2 thành kiểm máy), sổ không đổi khi không có lệnh, Lịch sử chỉ thêm. Mã và hàm SQL xong 18/11/2026, chờ đợt nâng DB trên `hao`. Xác nhận debit note của khách chưa có |
 
 ## Lượt đo 11/11/2026
 

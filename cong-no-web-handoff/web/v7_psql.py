@@ -46,23 +46,27 @@ def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[
 
 
 class _PsqlRunner:
-    def run(self, function: str, payload: dict, actor: str) -> dict:
+    def run(self, function: str, payload: dict, actor: str, *, read_only: bool = False) -> dict:
         try:
-            return json.loads(self.run_text(function, payload, actor))
+            return json.loads(self.run_text(function, payload, actor, read_only=read_only))
         except ValueError as exc:
             raise ApiError(
                 503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
             ) from exc
 
-    def run_text(self, function: str, payload: dict, actor: str) -> str:
-        """Chữ JSON hàm trả về, chưa phân tích (HIEU-NANG-01: bộ nhớ đọc giữ chữ, mỗi lượt `loads` một bản mới)."""
-        return self._run_psql(self._argv(), function, payload, actor)
+    def run_text(self, function: str, payload: dict, actor: str, *, read_only: bool = False) -> str:
+        """Chữ JSON hàm trả về, chưa phân tích (HIEU-NANG-01: bộ nhớ đọc giữ chữ, mỗi lượt `loads` một bản mới).
+
+        `read_only=True` (LUOI-AN-TOAN-01): giao dịch REPEATABLE READ READ ONLY, mọi câu trong hàm cùng một ảnh dữ liệu và
+        không ghi được gì.
+        """
+        return self._run_psql(self._argv(), function, payload, actor, read_only)
 
     def _argv(self) -> list[str]:
         raise NotImplementedError
 
     def _run_psql(
-        self, argv: list[str], function: str, payload: dict, actor: str
+        self, argv: list[str], function: str, payload: dict, actor: str, read_only: bool = False
     ) -> str:
         statement = SQL[function]
         if function == "attach_receipt_image":
@@ -72,7 +76,8 @@ class _PsqlRunner:
                 raise ApiError(422, "IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
             statement = statement.replace(IMAGE_MARK, image)
         sql = (
-            "BEGIN;\nSET LOCAL sokhach.actor = :'actor';\n"
+            ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n" if read_only else "BEGIN;\n")
+            + "SET LOCAL sokhach.actor = :'actor';\n"
             + statement
             + "\nCOMMIT;\n"
         )
