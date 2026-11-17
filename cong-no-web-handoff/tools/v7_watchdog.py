@@ -5,8 +5,9 @@ Chạy trên hao dưới user runner (timer v7-watchdog, 15 phút một lần):
 
     v7_watchdog.py [--dry-run] [--test-fail]
 
-Mỗi lượt kiểm tại chỗ, chỉ đọc: web còn trả lời, lượt đối soát còn mới và không báo lỗi ghi, bản chụp Sheet còn mới, các timer còn bật,
-sao lưu không lỗi, đĩa còn chỗ. Rồi báo về một check trên healthchecks.io: ổn thì ping thường, có việc thì ping /fail kèm danh sách.
+Mỗi lượt kiểm tại chỗ, chỉ đọc: web còn trả lời, lượt đối soát còn mới và không báo lỗi ghi, bản chụp Sheet còn mới, nguồn booking
+còn chuyến mới, hộp việc của API còn tính được, các timer còn bật, sao lưu không lỗi, đĩa còn chỗ. Rồi báo về một check trên
+healthchecks.io: ổn thì ping thường, có việc thì ping /fail kèm danh sách.
 hao tắt hay mất mạng thì không còn ping và dịch vụ đó tự gửi email, nên không dùng Uptime Kuma nằm trên chính hao.
 
 Nội dung gửi đi chỉ có mã và số đếm, không có tên khách hay số tiền. Chưa có WEBDEBIT_ALERT_PING_URL thì chỉ in ra journal.
@@ -33,6 +34,13 @@ RECONCILE = "/var/lib/webdebit-sheet-sync/reconcile.json"
 SNAPSHOT_DIR = "/var/lib/webdebit-sheet-sync"
 SNAPSHOTS = ("snapshot.json", "prices.json", "receipts.json", "road.json", "ps.json")
 SNAPSHOT_MAX_MINUTES = 60   # runner 15 phút một lần, lỗi lẻ tự lành ở lượt sau (audit DevOps #14: 5 lần trong 2 ngày)
+# Nguồn booking là tab gộp phía Sheet (CONT_NGUON, CONT_BO): tab tháng mới chưa vào tab gộp thì bản chụp vẫn mới mà không thêm chuyến.
+# Đo 18/11/2026 từ 1/5/2026: cả hai nguồn chưa từng trống quá 2 ngày liền, nên khung 3 ngày không báo nhầm; Tết thì báo là đúng.
+SOURCES = (("snapshot.json", "chuyến biển (CONT_NGUON)"), ("road.json", "chuyến bộ (CONT_BO)"))
+SOURCE_DAYS = int(os.getenv("WEBDEBIT_ALERT_SOURCE_DAYS") or 3)
+# Hộp việc tính lại mỗi đợt bản chụp (15 phút): quá 90 phút là nhịp nền đã dừng. Sổ lỗi phải lặp 2 lượt liền mới báo (lỗi lẻ tự lành).
+INBOX_MAX_MINUTES = 90
+INBOX_FAILED_ROUNDS = 2
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
 TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
                                    "webdebit-ps-snapshot": None, "v7-backup-hourly": 12, "v7-backup-daily": 26,
@@ -103,6 +111,59 @@ def check_snapshots(folder: Path, now: float) -> list[str]:
     return found
 
 
+def check_sources(folder: Path, today: dt.date, days: int = SOURCE_DAYS) -> list[str]:
+    """Mỗi nguồn booking phải có chuyến mang ngày trong `days` ngày gần nhất (kể cả hôm nay). Thiếu hay hỏng file thì phần bản chụp
+    và hộp việc đã báo; ở đây chỉ xét nội dung. Diễn tập 1/12 (18/11/2026): máy canh trước đây không thấy nguồn ngừng thêm dòng."""
+    found = []
+    since = today - dt.timedelta(days=days)
+    for name, label in SOURCES:
+        try:
+            rows = json.loads((folder / name).read_text(encoding="utf-8")).get("rows") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        dates = []
+        for row in rows:
+            try:
+                dates.append(dt.date.fromisoformat(str((row or {}).get("event_date") or "")[:10]))
+            except (ValueError, AttributeError):
+                continue
+        if any(since <= day <= today for day in dates):
+            continue
+        newest = max((day for day in dates if day <= today), default=None)
+        since_text = f" từ {newest:%d/%m}" if newest else ""
+        found.append(f"Nguồn {label} không có chuyến mới{since_text}, {days} ngày gần nhất trống: tab tháng mới có thể chưa vào tab gộp.")
+    return found
+
+
+def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str]:
+    """Hộp việc của API (dán chuyến, ghi giá, phí PS) qua phần `inbox` của /healthz. Web không trả lời thì phần web đã báo, ở đây im;
+    API cũ chưa có phần này thì cũng im."""
+    try:
+        with opener(url, timeout=15) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:   # 503 khi DB lỗi: thân vẫn có hộp việc
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+        except (OSError, ValueError, AttributeError):
+            return []
+    except (OSError, ValueError):
+        return []
+    inbox = body.get("inbox") if isinstance(body, dict) else None
+    if not isinstance(inbox, dict):
+        return []
+    found = []
+    if inbox.get("state") == "unavailable":
+        found.append("Hộp việc không đọc được bản chụp Sheet: máy ngừng dán chuyến và ghi giá.")
+    failed, rounds = inbox.get("failed") or 0, inbox.get("failed_rounds") or 0
+    if failed and rounds >= INBOX_FAILED_ROUNDS:
+        found.append(f"Hộp việc không tính được {failed}/{inbox.get('books')} sổ qua {rounds} lượt liền: "
+                     "máy ngừng tự dán chuyến, ghi giá ở các sổ đó.")
+    age = inbox.get("computed_age_seconds")
+    if isinstance(age, int) and age > INBOX_MAX_MINUTES * 60:
+        found.append(f"Hộp việc chưa tính lại {age // 60} phút: nhịp nền của API có thể đã dừng.")
+    return found
+
+
 def systemctl_show(unit: str, *properties: str) -> dict[str, str]:
     command = ["systemctl", "show", unit, "--timestamp=unix", *(f"--property={name}" for name in properties)]
     output = subprocess.run(command, capture_output=True, text=True, timeout=20, check=True).stdout
@@ -144,7 +205,8 @@ def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path,
     moment = now.timestamp()
     checks: tuple[tuple[str, Callable[[], list[str]]], ...] = (
         ("web", lambda: check_api(healthz)), ("đối soát", lambda: check_reconcile(reconcile, now)),
-        ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("timer", lambda: check_units(show, moment)),
+        ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("nguồn chuyến", lambda: check_sources(snapshots, now.date())),
+        ("hộp việc", lambda: check_inbox(healthz)), ("timer", lambda: check_units(show, moment)),
         ("đĩa", lambda: check_disks(DISKS)))
     found: list[str] = []
     for label, check in checks:

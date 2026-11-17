@@ -156,6 +156,23 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(view["sheet_at"], "2026-11-01T07:45:00+00:00")
         self.assertEqual(runner.calls.count("list_customers"), 1)          # hàm đọc dùng chung lấy một lần
 
+    def test_health_counts_rounds_with_failed_books_for_the_watchdog(self):
+        # CANH-BAO-01, bổ sung 18/11/2026: /healthz chỉ có số đếm; sổ lỗi phải lặp lượt liền mới đáng báo.
+        self.assertEqual(self.inbox.health(1000.0), {"state": "computing", "books": 0, "failed": 0, "failed_rounds": 0,
+                                                     "computed_age_seconds": None})
+        broken = Runner([1, 2, 5])   # sổ 5 lỗi đọc
+        self.inbox.refresh_all(broken)
+        self.assertEqual(self.inbox.health(self.inbox.computed_at + 30),
+                         {"state": "ready", "books": 3, "failed": 1, "failed_rounds": 1, "computed_age_seconds": 30})
+        self.inbox.refresh_all(broken)
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["failed_rounds"], 2)
+        self.inbox.refresh_all(Runner([1, 2]))   # tự lành: đếm lại từ đầu
+        health = self.inbox.health(self.inbox.computed_at)
+        self.assertEqual((health["failed"], health["failed_rounds"]), (0, 0))
+        self.paths[0].unlink()   # thiếu bản chụp
+        self.inbox.refresh_all(Runner([1, 2]))
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["state"], "unavailable")
+
     def test_dirty_book_recomputed_on_next_view(self):
         runner = Runner([1, 2])
         self.inbox.start(runner)

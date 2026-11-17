@@ -2048,6 +2048,8 @@ WantedBy=timers.target
 
 Cài: đặt hai file, `systemd-analyze verify`, `daemon-reload`, `systemctl enable --now v7-watchdog.timer`. Chưa có link thì máy canh chỉ ghi journal: `journalctl -u v7-watchdog.service -n 5 -o cat`.
 
+Bổ sung 18/11/2026 (nguồn booking, hộp việc): không đổi unit hay file nào trên `hao`, mã lên bằng `Deploy hao`. Máy canh đọc thêm `rows[].event_date` của `snapshot.json`, `road.json` và phần `inbox` của `/healthz` (API mới có sau lượt deploy này; API cũ thì phép kiểm hộp việc im). Muốn đổi khung "nguồn không có chuyến mới" (mặc định 3 ngày) thì thêm `WEBDEBIT_ALERT_SOURCE_DAYS=<số ngày>` vào `/etc/webdebit/alert.env`. Kiểm sau deploy: `sudo systemctl start v7-watchdog.service`, rồi `journalctl -u v7-watchdog.service -n 3 -o cat` ra `"ok": true`.
+
 **Bật email (chủ sổ làm):** tạo tài khoản healthchecks.io bằng email nhận cảnh báo. Thêm một check: chu kỳ 15 phút, thời gian chờ 45 phút. Sao chép link ping, đặt vào `/etc/webdebit/alert.env` dòng `WEBDEBIT_ALERT_PING_URL=…`, `root:v7app`, quyền 640. Không đưa link vào Git hay nhật ký.
 
 **Thử:** chạy `v7_watchdog.py --test-fail` dưới `v7app` với cùng biến môi trường: email tới trong vài phút; lượt timer kế gửi email hết lỗi. Dừng thử: `systemctl stop v7-watchdog.timer` quá 60 phút thì có email, `start` lại thì hết.
