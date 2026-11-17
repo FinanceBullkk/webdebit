@@ -125,11 +125,12 @@ file đó và Git không theo dõi gì trong thư mục này. Mỗi dòng một 
   nhận secret của repo nên luôn bỏ qua; lượt push lên `main` và PR từ nhánh trong repo thì có.
 - CI chỉ thấy tên khi nhánh đã lên GitHub, lúc đó diff của PR đã public. Máy có file danh sách thì chạy `npm run check`
   (hoặc `node scripts/check-secrets.js` trên diff đã stage) trước khi push.
-- Dựng hoặc cập nhật danh sách: tên sổ khách V7 (`sokhach.list_customers()`), `display_name` và tên khác (`aliases`)
-  trong file ánh xạ tên khách (`WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH`) trên `hao`, chỉ đọc, ghi thẳng vào file danh sách,
-  không in ra màn hình hay log. Chạy `node scripts/check-secrets.js --all`, xử lý từng `#n` (tên thật thì sửa tài liệu,
-  báo nhầm thì xóa dòng), rồi mới `gh secret set WEBDEBIT_TEN_KHACH < <file danh sách>`. Đọc từ `hao` và tạo, sửa
-  secret đều hỏi người dùng trước.
+- Dựng hoặc cập nhật danh sách: tên sổ khách V7 (cột `name` của `sokhach.customer`, phiên chỉ đọc), `display_name` và
+  tên khác (`aliases`) trong file ánh xạ tên khách (`WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH`) trên `hao`; ghi thẳng vào file
+  danh sách, chỉ giữ tên đủ ngưỡng và bỏ tên trùng sau chuẩn hóa, không in ra màn hình hay log. Chạy
+  `node scripts/check-secrets.js --all`, xử lý từng `#n` (tên thật thì sửa tài liệu, báo nhầm thì xóa dòng), rồi mới
+  `gh secret set WEBDEBIT_TEN_KHACH < <file danh sách>` từ chính file đó để `#n` trên CI và ở máy trùng nhau. Đọc từ
+  `hao` và tạo, sửa secret đều hỏi người dùng trước. Secret ĐÃ TẠO 18/11/2026 (người dùng đồng ý), 312 tên.
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
