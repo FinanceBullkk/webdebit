@@ -56,3 +56,5 @@ A: ghi giá một chuyến bằng gõ số + Enter (hai phím thay vì ba lần 
 - Review: opus (ghi tiền)
 - Được sửa: `cong-no-web-handoff/preview/so-khach-v7-edit-ui.js`; B thêm `so-khach-v7-model.js`, `so-khach-v7-api.js`, `so-khach-v7-ui.js` (dòng tiến độ ở đầu sổ), `so-khach-v7-month-ui.js` (khung xem lại chặn đổi tháng), `so-khach-v7-entry-ui.js` (chặn Ghi phiếu khi còn lệnh khác; phiếu chưa rõ giữ đúng khóa lệnh), `so-khach-v7.css`, `so-khach-v7-browser-world.js`; test mới `test-so-khach-v7-go-la-sua-browser.js` (A), `test-so-khach-v7-dan-gia.js`, `test-so-khach-v7-dan-gia-browser.js`, `test-so-khach-v7-entry-pending-browser.js` (B); `specs/v7-o-gia-nhu-sheet.md`
 - Ngân sách diff: A 150 dòng, B 700 dòng (nâng sau review: chặn chạy hai vòng ghi, tiến độ, chặn Ghi phiếu thu khi còn lệnh khác)
+
+<!-- du-lieu-gia: 1.000.000 45.000.000 -->

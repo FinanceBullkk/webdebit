@@ -164,3 +164,5 @@ Chạy trên PostgreSQL cô lập theo [harness P0](../p0-write-path/next-task.m
 - **P1-2 lịch sử, thay bởi N1/N2 20/10/2026:** cách lấy hiệu mỏ neo liên tiếp và chính sách từ chối mặc định đã bỏ. Gate hiện tính FIFO từ phát sinh/thu theo tháng và mỏ neo đầu; tổng bucket bằng mỏ neo cuối.
 - **P2-1:** mã phiếu cùng ngày xếp theo thứ tự chuỗi JS, tương ứng `pid COLLATE "C"` ở PostgreSQL. `PH-1000 < PH-999` là hành vi chủ ý của JS.
 - **P2-4 CÒN MỞ:** `adjust_trip` cho phép ở tháng mở là lệch có chủ ý so với JS; chưa chốt thay đổi quy tắc.
+
+<!-- du-lieu-gia: 600.694.000 1.381.510.000 2.411.645.000 -->

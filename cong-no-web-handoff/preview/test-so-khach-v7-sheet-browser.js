@@ -203,7 +203,7 @@ test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Shee
   assert.match(await items.nth(0).innerText(), /Tháng 8\/2026 đang khóa/);
   assert.match(await items.nth(1).innerText(), /Web 50\.000\.000 đ · Sheet 52\.000\.000 đ/);
   assert.match(await items.nth(2).innerText(), /Khớp nhiều chuyến/);
-  // MANUAL có hai lý do, mỗi lý do một câu riêng (FANYA 16/11: phụ phí chia loại từng bị báo nhầm là "số âm").
+  // MANUAL có hai lý do, mỗi lý do một câu riêng (một sổ thật 16/11: phụ phí chia loại từng bị báo nhầm là "số âm").
   assert.match(await items.nth(3).innerText(), /phụ phí Sheet 3\.000\.000 đ, web 4\.500\.000 đ\s*Phụ phí trên web đã chia theo loại/);
   assert.doesNotMatch(await items.nth(3).innerText(), /số âm/);
   assert.match(await items.nth(4).innerText(), /Sheet có số âm \(giảm trừ\)/);

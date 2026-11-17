@@ -31,3 +31,5 @@ Trạng thái: **ĐÃ TRIỂN KHAI khi PR merge** (Claude, 13/11/2026). Người
 - Mã: `cong-no-web-handoff/preview/so-khach-v7-copy-ui.js` (phần `copy` trong `so-khach-v7-ctx.js`), thẻ script ở `so-khach-v7-live.html`, CSS ở `so-khach-v7.css`.
 - Test: `test-so-khach-v7-chep-browser.js` (kéo chuột, Shift+mũi tên, Shift+bấm, Esc, chép một ô, ô đang gõ).
 - Ngoài phạm vi: bảng phiếu thu, bảng chi tiết (SO-CHI-TIET-01), điện thoại; dán vùng nhiều cột vào sổ (dán cột giá đã có ở GIA-O-01).
+
+<!-- du-lieu-gia: 85.000.000 -->

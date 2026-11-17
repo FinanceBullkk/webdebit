@@ -16,8 +16,8 @@ const { chromium } = require('playwright');
 
 const PREVIEW = path.join(__dirname, '..', 'preview');
 const DEFAULT_CONFIG = path.join(__dirname, '..', 'web', 'debit-note-config.default.json');
-const LONG = { name_en: 'FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD', name_zh: '泛亚国际物流（深圳）有限公司',
-  legal_name_address: 'Room 1203, Block B, Galaxy Century Building, No. 3069 Caitian Road, Futian District, Shenzhen, Guangdong, China' };
+const LONG = { name_en: 'SAMPLE INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD', name_zh: '样本国际物流（深圳）有限公司',
+  legal_name_address: 'Room 1203, Block B, Sample Century Building, No. 1234 Example Road, Futian District, Shenzhen, Guangdong, China' };
 
 function merge(base, extra) {
   const out = { ...base, ...Object.fromEntries(Object.entries(extra).filter(([key]) => !['company', 'payment', 'fees'].includes(key))) };

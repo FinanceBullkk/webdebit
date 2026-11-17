@@ -104,7 +104,7 @@ test('Tự cân cột: chữ mọi ô cách ô bên phải ít nhất 10px; DOCU
     await page.addScriptTag({ path: path.join(__dirname, 'debit-note-v4.js') });
     const result = await page.evaluate(({ data, config }) => {
       const doc = DebitNoteV4.fromSample(data, { ...config, show_place_cn: true });
-      const lines = [['COSCO', 'TRUONG THINH PHAT'], ['SNL', 'HOA HANH'], ['EVERGREEN', 'COSCO001 FRUIT']];
+      const lines = [['COSCO', 'CHU HANG MAU SO 1'], ['SNL', 'CHU HANG'], ['EVERGREEN', 'COSCO001 FRUIT']];
       doc.rows.forEach((row, index) => { if (!row.feeOnly) [row.line, row.shipper] = lines[index % lines.length]; });
       doc.columns = doc.columns.slice(0, 2);
       document.body.innerHTML = DebitNoteV4.pagesHtml(doc, DebitNoteV4.split(doc, document));

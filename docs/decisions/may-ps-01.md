@@ -25,7 +25,7 @@ Vẫn để người xem (bản 4/11, phần `TOTAL_DIFF` và ô gõ sai đã th
 
 ## Ngày / nguồn
 
-4/11/2026, chat. Claude đọc chỉ đọc file PS gốc (tab `CHI PHÍ PS T6`), `PS_DATA`, `CONT_MASTER`, `DEBIT NOTE` và tab khách: cột `HEALH+KD` chỉ có một số, ghi chú chỉ có "XONG"; các cột Health/Kiểm định riêng chỉ là cờ. Có 6 cont 3.000.000đ và 1 cont 10.000.000đ, nên không có tỉ lệ cố định. Claude đề xuất loại gộp cùng cả ba việc trên, người dùng trả lời "Làm loại gộp".
+4/11/2026, chat. Claude đọc chỉ đọc file PS gốc (tab `CHI PHÍ PS T6`), `PS_DATA`, `CONT_MASTER`, `DEBIT NOTE` và tab khách: cột `HEALH+KD` chỉ có một số, ghi chú chỉ có "XONG"; các cột Health/Kiểm định riêng chỉ là cờ. Có 7 cont với hai mức tiền khác nhau, nên không có tỉ lệ cố định. Claude đề xuất loại gộp cùng cả ba việc trên, người dùng trả lời "Làm loại gộp".
 
 ## Hiệu lực và giới hạn
 

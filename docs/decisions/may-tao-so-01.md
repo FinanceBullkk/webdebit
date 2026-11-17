@@ -26,7 +26,7 @@ Không đủ điều kiện thì máy không ghi gì và báo ở đầu tab Vi�
 
 ## Ngày / nguồn
 
-4/11/2026, chat. Khi rà độ tin cậy, Claude thấy 2 tab mới còn nợ khoảng 335 triệu mà web chưa có sổ, và từ mốc nạp 21/10 web không có lệnh tạo sổ. Claude hỏi khách mới vào web theo cách nào, nêu hai cách; người dùng chọn "Máy tự tạo sổ".
+4/11/2026, chat. Khi rà độ tin cậy, Claude thấy 2 tab mới còn nợ mà web chưa có sổ, và từ mốc nạp 21/10 web không có lệnh tạo sổ. Claude hỏi khách mới vào web theo cách nào, nêu hai cách; người dùng chọn "Máy tự tạo sổ".
 
 Claude đặt các điều kiện 1–5 và cách làm (đường nạp mốc thay vì sổ rỗng rồi chờ các máy khác), không đổi quy tắc tiền. Cũng trong lúc này Claude phát hiện máy đang so "có trên TONG" với danh sách đóng băng từ mốc 20/10 chứ không phải TONG thật, nên câu báo "chưa có trên TONG" trước đó là sai; 2 tab đó đã có trên TONG và số khớp.
 

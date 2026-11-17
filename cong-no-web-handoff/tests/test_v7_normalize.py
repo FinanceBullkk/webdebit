@@ -24,52 +24,52 @@ class TextTests(unittest.TestCase):
 
 class ContainerTests(unittest.TestCase):
     def test_note_next_to_the_code_is_split_off(self):
-        self.assertEqual(normalize.split_container("YMLU5506443-mã chưa up"), ("YMLU5506443", "mã chưa up"))
+        self.assertEqual(normalize.split_container("MAUU5500001-mã chưa up"), ("MAUU5500001", "mã chưa up"))
         self.assertEqual(normalize.split_container("chờ - TCNU1234567"), ("TCNU1234567", "chờ"))
-        self.assertEqual(normalize.split_container("ymlu 5506443"), ("YMLU5506443", ""))
+        self.assertEqual(normalize.split_container("mauu 5500001"), ("MAUU5500001", ""))
         self.assertEqual(normalize.split_container(" ABCD1234567 "), ("ABCD1234567", ""))
 
     def test_cells_that_cannot_be_split_stay_as_they_are(self):
         for raw in ("AAAA1111111/BBBB2222222",   # hai mã: không đoán mã nào
                     "FAKEU0000001",              # năm chữ: không phải khúc giữa của mã ISO
-                    "YMLU55064431",              # tám số
+                    "MAUU55000011",              # tám số
                     "FAKE-C", "KT-1", ""):
             with self.subTest(raw=raw):
                 self.assertEqual(normalize.split_container(raw), (raw.upper(), ""))
                 self.assertEqual(normalize.container_key(raw), raw.upper())
 
     def test_key_reads_numbers_and_codes_with_notes(self):
-        self.assertEqual(normalize.container_key("YMLU5506443-mã chưa up"), "YMLU5506443")
-        self.assertEqual(normalize.container_key("SO YMLU5506443"), "YMLU5506443")
+        self.assertEqual(normalize.container_key("MAUU5500001-mã chưa up"), "MAUU5500001")
+        self.assertEqual(normalize.container_key("SO MAUU5500001"), "MAUU5500001")
         for raw in ("4.2E7", "42000000.0", " 42000000 ", 42000000):
             self.assertEqual(normalize.container_key(raw), "42000000")
         self.assertEqual(normalize.container_key("0042"), "0042")
 
     def test_every_matcher_uses_the_same_code_rule(self):
-        for raw in ("YMLU5506443-mã chưa up", "ymlu 5506443", "YMLU5506443"):
+        for raw in ("MAUU5500001-mã chưa up", "mauu 5500001", "MAUU5500001"):
             self.assertEqual({price_key(raw), queue_key(raw), month_report.container_key(raw), source_match.container_key(raw)},
-                             {"YMLU5506443"}, raw)
+                             {"MAUU5500001"}, raw)
         self.assertEqual(month_report.container_key("FAKE-C"), "FAKEC")   # bản booking vẫn bỏ dấu, như trước
 
 
 class SheetMatchTests(unittest.TestCase):
-    """Ca thật 16/11/2026: ô `YMLU5506443-mã chưa up` (tab đã tính tiền) không khớp container, dòng nguồn cùng container hiện là chuyến mới."""
+    """Ca thật 16/11/2026 (mã giả thay mã thật): ô `MAUU5500001-mã chưa up` (tab đã tính tiền) không khớp container, dòng nguồn cùng container hiện là chuyến mới."""
 
     def row(self, container, source_row=8):
         return {"source_row": source_row, "customer_id": 7, "container": container, "event_date": "2026-10-24", "carrier": "COSCO",
                 "shipper": "KHOI PHONG", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}
 
     def test_clean_source_row_matches_the_web_row_whose_cell_carries_a_note(self):
-        queue = {"snapshot_sha256": "a" * 64, "items": [self.row("YMLU5506443")]}
+        queue = {"snapshot_sha256": "a" * 64, "items": [self.row("MAUU5500001")]}
         ledger = {"customer_id": 7, "trips": [], "legacy_rows": [{"id": 5, "kind": "trip", "current": {
-            "container": "YMLU5506443-mã chưa up", "event_date": "2026-10-24", "carrier": "COSCO", "shipper": "KHOI PHONG",
+            "container": "MAUU5500001-mã chưa up", "event_date": "2026-10-24", "carrier": "COSCO", "shipper": "KHOI PHONG",
             "origin": "A", "destination": "B", "month": "2026-10-01"}}]}
         self.assertEqual(project_customer(queue, ledger)["items"], [])   # không còn là NEW
 
     def test_the_same_rows_with_different_codes_are_still_new(self):
-        queue = {"snapshot_sha256": "a" * 64, "items": [self.row("YMLU5506443")]}
+        queue = {"snapshot_sha256": "a" * 64, "items": [self.row("MAUU5500001")]}
         ledger = {"customer_id": 7, "trips": [], "legacy_rows": [{"id": 5, "kind": "trip", "current": {
-            "container": "YMLU5506444-mã chưa up", "event_date": "2026-10-24", "month": "2026-10-01"}}]}
+            "container": "MAUU5500002-mã chưa up", "event_date": "2026-10-24", "month": "2026-10-01"}}]}
         self.assertEqual([i["sync_state"] for i in project_customer(queue, ledger)["items"]], ["NEW"])
 
 

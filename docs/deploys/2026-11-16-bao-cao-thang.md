@@ -29,7 +29,7 @@
 - Backup lần nữa ngay trước migration (34 bảng).
 - Áp migration với `ON_ERROR_STOP`: 1 `COMMIT`, 163 ms.
 - Catalog sau trùng bản thử.
-- Dấu vân tay trước và sau trùng nhau: 242 khách, tổng nợ 57.755.939.064đ. Con số này khác lần thử vì lượt máy 12:05 đã ghi 6 event.
+- Dấu vân tay trước và sau trùng nhau: 242 khách, tổng nợ không đổi. Tổng nợ khác lần thử vì lượt máy 12:05 đã ghi 6 event.
 - Checker đạt, quyền đúng.
 - Migration chỉ thêm hàm đọc, nên không cần cửa sổ dừng ghi.
 

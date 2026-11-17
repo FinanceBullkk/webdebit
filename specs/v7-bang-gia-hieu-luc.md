@@ -189,3 +189,5 @@ Giai đoạn 1 (backend), 29/10/2026, máy Windows của người dùng, dữ li
 - `npm run check`: xanh.
 
 Chưa triển khai `hao`: migration `2026-10-29-v7-bang-gia.sql` phải chạy tay theo runbook, có gate người dùng. Chưa có giao diện (giai đoạn 2).
+
+<!-- du-lieu-gia: 85.000.000 -->

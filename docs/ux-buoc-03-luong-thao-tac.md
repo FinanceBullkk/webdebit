@@ -107,3 +107,5 @@ Trạng thái: khi chưa tính được việc chờ (job lỗi), nhãn ghi "ch�
 
 - **Q4 đã có câu trả lời (Claude đo trên `hao` 1/11/2026, [spec P3b](../specs/v7-hop-ngoai-le-p3b.md)):** tab `CONT_NGUON` có cột "Mặt hàng" ghi đúng tên mặt hàng như sổ (CHUỐI, SẦU RIÊNG, THANH LONG, DỪA, XOÀI, MÍT…). Dòng booking vào sổ theo (tên khách, mặt hàng); tên khách của sổ là `display_name` trong bảng gán tên. Đây là gốc của 241 dòng rơi nhầm sổ.
 - **Q5 · ĐÃ CHỐT (A), 1/11/2026** ([`HANG-CHO-01`](decisions/hang-cho-01.md) mục 4). Chuyến đủ điều kiện tự vào sổ dù chưa có giá. Chuyến đó hiện "chưa có giá", không cộng vào nợ cho tới khi có giá có nguồn; giá từ Sheet vẫn do người bấm ở hộp chung. Vì vậy nhóm "Chuyến chưa có giá" ở mục 2.2 là nơi giá vào sổ, còn danh sách chuyến luôn đủ và tươi (M2, M5).
+
+<!-- du-lieu-gia: 50.000.000 120.000.000 -->

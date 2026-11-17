@@ -4,7 +4,7 @@ Hai luật, mọi nơi đọc Sheet hoặc gửi giá trị chữ xuống SQL d�
 
 - Chữ mô tả (hãng tàu, chủ hàng, nơi đi, nơi đến): cắt khoảng trắng hai đầu; chuỗi rỗng là NULL (`text_or_none`). Không bao giờ áp cho
   trường tiền: ô tiền trống là NULL, không phải 0, và chuỗi "0" vẫn là chữ "0".
-- Mã container: một ô có đúng một mã theo mẫu 4 chữ + 7 số (ISO 6346) kèm chữ đi cùng ("YMLU5506443-mã chưa up") thì mã là phần ISO,
+- Mã container: một ô có đúng một mã theo mẫu 4 chữ + 7 số (ISO 6346) kèm chữ đi cùng ("MAUU5500001-mã chưa up") thì mã là phần ISO,
   phần còn lại là ghi chú (`split_container`). Ô có hai mã hoặc không có mã ISO thì giữ nguyên, không đoán.
 
 SQL giữ cùng luật ở chỗ so trước–sau (`nullif(btrim(...),'')` trong `resolve_sheet_conflict` và `edit_trip_info`).
@@ -16,7 +16,7 @@ import re
 from decimal import Decimal
 from typing import Any
 
-# Không nhận khúc giữa của chuỗi dài hơn ("FAKEU0000001" có năm chữ, "YMLU55064431" tám số): trước mã không có chữ hay số, sau mã không có số.
+# Không nhận khúc giữa của chuỗi dài hơn ("FAKEU0000001" có năm chữ, "MAUU55000011" tám số): trước mã không có chữ hay số, sau mã không có số.
 ISO_CONTAINER = re.compile(r"(?<![A-Z0-9])[A-Z]{4}[0-9]{7}(?![0-9])")
 NUMBER_CELL = re.compile(r"[0-9]+(?:\.[0-9]+)?(?:E\+?[0-9]{1,2})?")
 
@@ -42,7 +42,7 @@ def container_code(value: Any) -> str | None:
 
 def split_container(value: Any) -> tuple[str, str]:
     """(mã container, ghi chú đi kèm). Ô không tách được thì mã là chính ô viết hoa bỏ khoảng trắng và ghi chú rỗng. Ghi chú giữ chữ
-    như người gõ, đã bỏ khoảng trắng và dấu ngăn ở hai đầu; mã bị dấu xen giữa ("YMLU-5506443") thì không có ghi chú."""
+    như người gõ, đã bỏ khoảng trắng và dấu ngăn ở hai đầu; mã bị dấu xen giữa ("MAUU-5500001") thì không có ghi chú."""
     spaced = " ".join(str(value or "").split())
     code = container_code(spaced)
     if code is None:

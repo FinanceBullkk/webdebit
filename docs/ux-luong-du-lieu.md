@@ -67,17 +67,17 @@ Nơi đi và nơi đến có thể ảnh hưởng giá vì bảng giá tính the
 
 **Kết quả:** cả 226 container đều đang nằm trong sổ gốc của **một sổ khác**, chưa bị xóa.
 
-| Nhóm | Dòng | Tiền ở sổ kia | Nếu bấm Duyệt hôm nay |
+| Nhóm | Dòng | Phần tiền ở sổ kia | Nếu bấm Duyệt hôm nay |
 | --- | ---: | ---: | --- |
-| Cùng container, lệch ngày ≤ 3 | 170 | 4,39 tỷ | DB **chặn được**: dòng vào trạng thái *chờ kiểm* (lý do `BASELINE_DATE_WINDOW`), không cộng nợ. Rủi ro dời sang bước kết luận chờ kiểm: người chọn "Đúng" thì thành tính trùng. |
-| Dòng ở sổ kia **không có ngày** | 49 | 0,15 tỷ | DB **không chặn**: luật chặn so ngày, ngày trống thì không khớp. Chuyến vào sổ và cộng nợ; nhiều khả năng là tính trùng. |
-| Lệch ngày > 3 (tới 365 ngày) | 7 | 0,29 tỷ | DB không chặn. Có thể là container dùng lại cho chuyến khác (đúng), có thể là cùng chuyến ghi sai ngày (trùng). Cần người xem. |
+| Cùng container, lệch ngày ≤ 3 | 170 | 91% | DB **chặn được**: dòng vào trạng thái *chờ kiểm* (lý do `BASELINE_DATE_WINDOW`), không cộng nợ. Rủi ro dời sang bước kết luận chờ kiểm: người chọn "Đúng" thì thành tính trùng. |
+| Dòng ở sổ kia **không có ngày** | 49 | 3% | DB **không chặn**: luật chặn so ngày, ngày trống thì không khớp. Chuyến vào sổ và cộng nợ; nhiều khả năng là tính trùng. |
+| Lệch ngày > 3 (tới 365 ngày) | 7 | 6% | DB không chặn. Có thể là container dùng lại cho chuyến khác (đúng), có thể là cùng chuyến ghi sai ngày (trùng). Cần người xem. |
 | Không có ở sổ nào | 8 | — | Chuyến thật sự mới, hoặc số container gõ khác nhau giữa booking sheet và Sheet công nợ. Nếu là chuyến chưa từng tính tiền thì đây là chỗ sót. Cần người xem. |
 
 **Nguyên nhân chính: sổ tách theo mặt hàng.** 202 trong 226 dòng thuộc cùng một cặp sổ, là hai sổ của *cùng một khách*: sổ chính và sổ "– DỪA". Các cặp khác phần lớn cũng là cùng khách khác mặt hàng ("-SR", "– DỪA"). Chỉ một cặp 4 dòng có tên khác hẳn nhau, có thể là bí danh khách. Theo [`V7-MH`](decisions/v7-mh.md) và [`MH-01`](decisions/mh-01.md), mỗi sổ là một mặt hàng. Hàng chờ thì gán dòng booking theo **tên khách** nên rơi vào sổ chính. Sau đó nó chỉ so container trong sổ đó và với chuyến *web* của sổ khác, không so với sổ gốc của sổ khác (`project_customer` trong `v7_sheet_queue.py`; `list_sheet_trip_refs` chỉ trả chuyến web).
 
 **Kết luận cho M2:**
-- Đo hôm nay: **56 dòng (0,44 tỷ) có thể cộng nợ hai lần** nếu có người bấm Duyệt.
+- Đo hôm nay: **56 dòng có thể cộng nợ hai lần** nếu có người bấm Duyệt.
 - 170 dòng nữa hiện sai là "chuyến mới" và sẽ thành việc chờ kiểm thừa.
 - Chưa ai bấm, nên chưa có thiệt hại.
 

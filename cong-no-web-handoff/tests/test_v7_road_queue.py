@@ -71,10 +71,10 @@ class BuildRoadQueueTests(unittest.TestCase):
 class OwnerBookTests(unittest.TestCase):
     """CHUYEN-BO-CHU-HANG-01: chuyến chưa ở tab nào lấy sổ theo CHỦ HÀNG khi chủ hàng đó chỉ từng vào một sổ."""
 
-    HISTORY = (  # ba chuyến cũ của "CHANGHONG 379" tab đã xếp vào sổ 7; kho "KHO CHUNG" từng vào hai sổ
-        (road_row(90, "HIST0000001", "2026-08-05", owner="CHANGHONG 379"), tab_row("DUONG BO KHACH A 324", 30, "HIST0000001", "2026-08-05", "2026-08")),
-        (road_row(91, "HIST0000002", "2026-09-16", owner="Changhong  379"), tab_row("DUONG BO KHACH A 324", 31, "HIST0000002", "2026-09-16", "2026-09")),
-        (road_row(92, "REUS0000001", "2026-09-20", owner="CHANGHONG 379"), tab_row("DUONG BO KHACH A 324", 32, "REUS0000001", "2026-09-20", "2026-09")),
+    HISTORY = (  # ba chuyến cũ của "CHU HANG X 379" tab đã xếp vào sổ 7; kho "KHO CHUNG" từng vào hai sổ
+        (road_row(90, "HIST0000001", "2026-08-05", owner="CHU HANG X 379"), tab_row("DUONG BO KHACH A 324", 30, "HIST0000001", "2026-08-05", "2026-08")),
+        (road_row(91, "HIST0000002", "2026-09-16", owner="Chu hang x  379"), tab_row("DUONG BO KHACH A 324", 31, "HIST0000002", "2026-09-16", "2026-09")),
+        (road_row(92, "REUS0000001", "2026-09-20", owner="CHU HANG X 379"), tab_row("DUONG BO KHACH A 324", 32, "REUS0000001", "2026-09-20", "2026-09")),
         (road_row(93, "HIST0000004", "2026-09-01", owner="KHO CHUNG"), tab_row("DUONG BO KHACH A 324", 33, "HIST0000004", "2026-09-01", "2026-09")),
         (road_row(94, "HIST0000005", "2026-09-02", owner="KHO CHUNG"), tab_row("KHACH B", 34, "HIST0000005", "2026-09-02", "2026-09")),
         (road_row(95, "HIST0000006", "2026-09-03", owner="KHO CHUNG"), tab_row("KHACH B", 35, "HIST0000006", "2026-09-03", "2026-09")),
@@ -86,13 +86,13 @@ class OwnerBookTests(unittest.TestCase):
 
     def test_reused_container_with_its_own_cont_bo_row_goes_to_the_owner_book(self):
         # Cùng container chuyến 20/9 (dòng tab đó đã có dòng CONT_BO nhận), chuyến 11/10 chưa ở tab nào.
-        queue = self.build([road_row(2, "REUS0000001", "2026-10-11", owner="CHANGHONG 379")])
+        queue = self.build([road_row(2, "REUS0000001", "2026-10-11", owner="CHU HANG X 379")])
         self.assertEqual(queue["stats"], {"OWNER": 1})
         item = queue["items"][0]
         self.assertEqual((item["customer_id"], item["book_basis"], item["customer_tab"], item["tab_row"], item["tab_debt_month"]),
                          (7, "owner", None, None, "2026-10"))
         self.assertEqual((item["event_date"], item["owner"], item["src"], item["note"]),
-                         ("2026-10-11", "CHANGHONG 379", f"sheet:{SHA}:2", NOTE))
+                         ("2026-10-11", "CHU HANG X 379", f"sheet:{SHA}:2", NOTE))
         book = ledger(legacy=[{"id": 3, "kind": "trip", "month": "2026-09-01",
                                "current": {"container": "REUS0000001", "event_date": "2026-09-20", "month": "2026-09-01"}}])
         result = project_road(queue, book)
@@ -104,14 +104,14 @@ class OwnerBookTests(unittest.TestCase):
                             road_row(4, "WAIT0000003", "2026-10-11", owner="")])
         self.assertEqual((queue["items"], queue["stats"]), ([], {"NO_TAB": 3}))
         few = build_road_queue({"sha256": SHA, "rows": [self.HISTORY[0][0], self.HISTORY[1][0],
-                                                        road_row(2, "WAIT0000004", "2026-10-11", owner="CHANGHONG 379")]},
+                                                        road_row(2, "WAIT0000004", "2026-10-11", owner="CHU HANG X 379")]},
                                {"rows": [self.HISTORY[0][1], self.HISTORY[1][1]]}, CUSTOMERS)
         self.assertEqual(few["stats"], {"NO_TAB": 1})   # mới hai chuyến: chưa đủ OWNER_MIN_TRIPS
 
     def test_unclaimed_tab_row_close_by_means_a_mistyped_date_so_it_waits(self):
-        queue = self.build([road_row(2, "FARU0000001", "2026-10-11", owner="CHANGHONG 379"),
-                            road_row(3, "FARU0000002", "2026-10-11", owner="CHANGHONG 379"),
-                            road_row(4, "FARU0000003", "2026-10-11", owner="CHANGHONG 379")],
+        queue = self.build([road_row(2, "FARU0000001", "2026-10-11", owner="CHU HANG X 379"),
+                            road_row(3, "FARU0000002", "2026-10-11", owner="CHU HANG X 379"),
+                            road_row(4, "FARU0000003", "2026-10-11", owner="CHU HANG X 379")],
                            [tab_row("DUONG BO KHACH A 324", 50, "FARU0000001", "2026-10-25"),            # lệch 14 ngày
                             tab_row("KHACH B", 51, "FARU0000002", None, month="2026-09"),               # không ngày, tháng liền kề
                             tab_row("DUONG BO KHACH A 324", 52, "FARU0000003", "2026-06-02", "2026-06")])  # xa: chuyến khác
@@ -119,9 +119,9 @@ class OwnerBookTests(unittest.TestCase):
         self.assertEqual([i["container"] for i in queue["items"]], ["FARU0000003"])
 
     def test_same_container_twice_within_three_days_is_not_two_trips(self):
-        queue = self.build([road_row(2, "TWIN0000001", "2026-10-11", owner="CHANGHONG 379"),
-                            road_row(3, "TWIN0000001", "2026-10-13", owner="CHANGHONG 379"),
-                            road_row(4, "TWIN0000001", "2026-11-20", owner="CHANGHONG 379")])   # xa: chuyến khác
+        queue = self.build([road_row(2, "TWIN0000001", "2026-10-11", owner="CHU HANG X 379"),
+                            road_row(3, "TWIN0000001", "2026-10-13", owner="CHU HANG X 379"),
+                            road_row(4, "TWIN0000001", "2026-11-20", owner="CHU HANG X 379")])   # xa: chuyến khác
         self.assertEqual(queue["stats"], {"OWNER": 1, "AMBIGUOUS_SOURCE": 2})
         self.assertEqual([i["event_date"] for i in queue["items"]], ["2026-11-20"])
 

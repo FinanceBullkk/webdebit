@@ -17,7 +17,7 @@ Sau đó chuyến đi tiếp đúng đường có sẵn của chuyến bộ: đ�
 
 ## Vì sao
 
-Đối chiếu tháng 10/2026 với booking (16/11/2026) tìm ra chuyến `PCIU6051073` ngày 11/10 của CHANGHONG 379 có trên `CONT_BO` nhưng không có trên Sheet lẫn web. Chuyến này là chuyến thật: "XE 10" của lô (lô đánh số xe 1–11), số thùng 921 khác chuyến 20/9 (863), người phụ trách khác. Tab CHANG HONG chưa ghi tháng 10, nên luật cũ giữ nó ngoài sổ. Claude giải thích luật, người dùng chọn đổi: "đổi luật để chuyến bộ tự vào sổ theo chủ hàng".
+Đối chiếu tháng 10/2026 với booking (16/11/2026) tìm ra một chuyến ngày 11/10 của một chủ hàng có trên `CONT_BO` nhưng không có trên Sheet lẫn web. Chuyến này là chuyến thật: "XE 10" của lô (lô đánh số xe 1–11), số thùng 921 khác chuyến 20/9 (863), người phụ trách khác. Tab của khách này chưa ghi tháng 10, nên luật cũ giữ nó ngoài sổ. Claude giải thích luật, người dùng chọn đổi: "đổi luật để chuyến bộ tự vào sổ theo chủ hàng".
 
 Đo chỉ đọc trên bản chụp `road.json` và `prices.json` của `hao` sáng 16/11/2026:
 
@@ -26,7 +26,7 @@ Sau đó chuyến đi tiếp đúng đường có sẵn của chuyến bộ: đ�
 | Chuyến từ 10/2026 xếp theo tab | 200 | 200 (y hệt từng dòng) |
 | Chuyến chưa ở tab nào | 31 chờ | 31 theo chủ hàng, 0 chờ |
 
-31 chuyến ở 6 sổ: DUONG BO HÂN HƯNG 324 (19), HTH352 (6), DUONG BO KPP (3), CHANG HONG (2), DUONG BO ALEX 368 (1). 30 chuyến tháng 11, 1 chuyến tháng 10. 38 chủ hàng từng ghép được; 37 chỉ vào một sổ, chủ hàng ít chuyến nhất có 4. Chủ hàng duy nhất vào hai sổ là HUYNH NUONG 289 (198 chuyến một sổ, 2 chuyến sổ khác): theo luật này nó vẫn chờ tab.
+31 chuyến ở 6 sổ (nhiều nhất 19 chuyến ở một sổ). 30 chuyến tháng 11, 1 chuyến tháng 10. 38 chủ hàng từng ghép được; 37 chỉ vào một sổ, chủ hàng ít chuyến nhất có 4. Chủ hàng duy nhất vào hai sổ có 198 chuyến ở một sổ, 2 chuyến ở sổ khác: theo luật này nó vẫn chờ tab.
 
 ## Ngày / nguồn
 

@@ -14,18 +14,18 @@ Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 16/11/2026 (Claude; [nhật ký](..
 
 Bố cục "hai dòng mỗi container" (dòng container không tiền, tiền ở dòng không container ngay dưới) và "tiền lệch một dòng" nhìn như nhau trong dữ liệu; chỉ người biết tab mới phân được. Vì vậy:
 
-1. Danh sách tab được duyệt bố cục hai dòng khai tay ở một chỗ: `TWO_ROW_LAYOUT_TABS` trong `tools/v7_tab_health.py`, kèm ghi chú nguồn. Không suy ra tự động, không dùng ngưỡng số cặp (ngưỡng sẽ miễn đúng ca nguy hiểm nhất: cả khối lệch một dòng ra nhiều cặp). Hiện chỉ có "KK - DỪA": audit 4/11/2026, tổng khớp tới từng đồng, nạp thành "Phí lẻ".
+1. Danh sách tab được duyệt bố cục hai dòng khai tay ở một chỗ: `TWO_ROW_LAYOUT_TABS` trong `tools/v7_tab_health.py`, kèm ghi chú nguồn. Không suy ra tự động, không dùng ngưỡng số cặp (ngưỡng sẽ miễn đúng ca nguy hiểm nhất: cả khối lệch một dòng ra nhiều cặp). Hiện chỉ có tab của sổ 149: audit 4/11/2026, tổng khớp tới từng đồng, nạp thành "Phí lẻ".
 2. Miễn chỉ áp cho khối đều đặn: mọi cặp của khối đều "container trên, tiền ngay dưới". Khối có một cặp ngược (tiền trên, container dưới) thì mọi cặp của khối vẫn là `row_shift`, kể cả ở tab được miễn. Chuyến một dòng (container và tiền cùng dòng) xen giữa các cặp là thói quen của tab, không làm khối thành không đều.
 3. Cặp được miễn vẫn nằm trong `findings` ở mức `note` (`two_row_layout`, "bố cục hai dòng đã duyệt"): không chặn, nhưng màn và lượt đo còn thấy. Lỗi `issues` ở tab được miễn vẫn chặn như mọi tab.
 
-Cách đọc "không có dòng container vừa có container vừa có tiền xen giữa" của yêu cầu: không có dòng như vậy **giữa dòng container và dòng tiền của một cặp** (hai dòng sát nhau). Đo trên `hao` cho thấy khối T9 và T11/2026 của "KK - DỪA" có chuyến một dòng xen *giữa các cặp*; đọc theo nghĩa rộng (không có giữa bất kỳ cặp nào) thì tab này vẫn bị chặn, trái mục đích miễn trừ.
+Cách đọc "không có dòng container vừa có container vừa có tiền xen giữa" của yêu cầu: không có dòng như vậy **giữa dòng container và dòng tiền của một cặp** (hai dòng sát nhau). Đo trên `hao` cho thấy khối T9 và T11/2026 của tab sổ 149 có chuyến một dòng xen *giữa các cặp*; đọc theo nghĩa rộng (không có giữa bất kỳ cặp nào) thì tab này vẫn bị chặn, trái mục đích miễn trừ.
 
 ## Bằng chứng
 
 Đo chỉ đọc trên `hao`, 16/11/2026 (chép release sang thư mục tạm, đè hai file mới, đọc Sheet qua Sheets API bằng cùng tài khoản đọc của runner, tính trong bộ nhớ, không ghi file nào, đã xóa thư mục tạm):
 
-- Luật `row_shift` thuần theo đề xuất: 253 tab quét, 10 tab `broken` (8 chỉ vì `issues` sẵn có, 1 chỉ vì `row_shift`, 1 cả hai). `row_shift` ra ở 2 tab: tab sổ 239 (khối T10, 2 cặp, đúng ca thật) và "KK - DỪA" (48 cặp ở T8–T11/2026).
-- Sau khi thêm miễn trừ: 253 tab, **9** `broken` (8 chỉ vì `issues`, 1 vừa `issues` vừa `row_shift` là tab sổ 239); "KK - DỪA" `ok` với các `note`. `reconcile.json` cùng lúc có 5 khách `HELD` trên 242.
+- Luật `row_shift` thuần theo đề xuất: 253 tab quét, 10 tab `broken` (8 chỉ vì `issues` sẵn có, 1 chỉ vì `row_shift`, 1 cả hai). `row_shift` ra ở 2 tab: tab sổ 239 (khối T10, 2 cặp, đúng ca thật) và tab sổ 149 (48 cặp ở T8–T11/2026).
+- Sau khi thêm miễn trừ: 253 tab, **9** `broken` (8 chỉ vì `issues`, 1 vừa `issues` vừa `row_shift` là tab sổ 239); tab sổ 149 `ok` với các `note`. `reconcile.json` cùng lúc có 5 khách `HELD` trên 242.
 
 ## Phạm vi và kiểm
 
