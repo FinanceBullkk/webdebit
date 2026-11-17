@@ -80,7 +80,8 @@ Với `chain_break`: đọc thêm một dải cột (chỉ công thức) của �
 | 3a | Cặp hai dòng: tiền là giá chuyến web (đã lên `hao`, #442) | Không | Tự động |
 | 3b | `negative_receipt` (mức `error`, chặn ghi) và `duplicate_container` (mức `warning`, không chặn: dòng không tiền cộng 0) trong `v7_tab_health.py`, ô nêu rõ. ĐÃ CODE 16/11/2026; đo trên `hao`: 9 tab `broken` như cũ, 1 tab có `negative_receipt` (ô M238, đúng ca số âm 164.833.232 đ ở cột thu), 11 cảnh báo `duplicate_container` ở 2 tab | Không | Tự động |
 | 3c | Endpoint `GET /api/v7/sheet/vung-o` đọc vùng ô (`web/v7_sheet_region.py`, cache 60 giây, API tự xin token chỉ đọc) và `chain_break` nêu ô (ô số cuối tháng của khối, so công thức mẫu các khối khác). ĐÃ CODE 16/11/2026; đo trên `hao` với tab sổ 239: 1,1 giây, 20 KB, đọc đủ công thức, nền, ô gộp, chỉ đúng cặp ô `row_shift` và một ô ngày nghi đảo | Không; cần drop-in `sheet-region.conf` cho `v7-ledger-api` (phiên điều phối duyệt 16/11/2026 theo quyền người dùng trao 21/10) | Release tự động, drop-in tay |
-| 3d | Khối "Sheet cần sửa" ở bảng đối chiếu của khách (`preview/viec-can-lam-sheet-can-sua.js`, CSS, nút Xem vùng ô / Đọc lại / Mở ô này trên Sheet, 1280×560 và 390px). ĐÃ CODE 16/11/2026 (test đơn vị, test trình duyệt hai cỡ, ảnh render dữ liệu giả). **Chưa làm:** chip lọc "Sheet cần sửa (n)" đầu bảng (cần `reconcile.json` mang số chỗ sai mỗi khách) và bước cuối của `UX-NEN-01` (người dùng thật đi hết luồng) | Không | Tự động |
+| 3d | Khối "Sheet cần sửa" ở bảng đối chiếu của khách (`preview/viec-can-lam-sheet-can-sua.js`, CSS, nút Xem vùng ô / Đọc lại / Mở ô này trên Sheet, 1280×560 và 390px). ĐÃ CODE 16/11/2026 (test đơn vị, test trình duyệt hai cỡ, ảnh render dữ liệu giả). **Chưa làm:** bước cuối của `UX-NEN-01` (người dùng thật đi hết luồng) | Không | Tự động |
+| 3e | Chip lọc "Sheet cần sửa (n)" đầu bảng khách lệch (n = số khách máy giữ) và nhãn "Sheet cần sửa · k chỗ" ở dòng. Máy đối soát ghi `sheet_fix_count` cho khách `HELD` bằng `sheet_findings` (`web/v7_sheet_fix.py`), cùng hàm bảng đối chiếu dùng, nên k bằng số thẻ khi mở; chưa đếm được thì nhãn không nêu số. ĐÃ CODE 17/11/2026 (test đơn vị, test trình duyệt 1280 và 390px) | Không (`reconcile.json` thêm một trường) | Tự động |
 
 Mọi luật kiểm ở `v7_tab_health.py`, không đụng `v7_load*`. Không ghi Google Sheet.
 
@@ -98,7 +99,7 @@ Mọi luật kiểm ở `v7_tab_health.py`, không đụng `v7_load*`. Không gh
 - [x] Bản dựng đúng giá trị hiển thị, nền, ô gộp; cột trống liên tiếp gộp thành "…".
 - [x] Ô lỗi viền đỏ và ô nghi ngờ viền cam nét đứt, có câu giải thích; `chain_break` hiện công thức mẫu; `row_shift` khoanh cả cặp.
 - [x] 1280×560: không cuộn ngang trang, ô lỗi trong khung lưới; 390px: lưới cuộn ngang trong khung, ô lỗi đầu tiên ở giữa (cả cặp ô nếu vừa khung).
-- [ ] Chip "Sheet cần sửa (n)" đếm đúng (chưa làm); tab sửa xong thì khối biến sau lượt quét (khối tự mất khi bản chụp mới không còn chỗ sai).
+- [x] Chip "Sheet cần sửa (n)" đếm đúng, lọc đúng (3e); tab sửa xong thì khối biến sau lượt quét (khối tự mất khi bản chụp mới không còn chỗ sai).
 - [ ] Người dùng thật đi hết luồng mục 6 trên bản thử (bước cuối `UX-NEN-01`): chưa làm.
 
 ## 10. Đợt sau (chưa làm)

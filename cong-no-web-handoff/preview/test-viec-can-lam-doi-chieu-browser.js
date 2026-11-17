@@ -339,7 +339,9 @@ if (process.argv.includes('--preview')) {
       const items = await page.locator('.dc-hints li').allInnerTexts();
       assert.equal(items.length, 3);
       assert.match(items[2], /Dòng 231 \(MAUU0000231\): Sheet 101,5 tr, web 98 tr\. Máy không tự sửa vì dòng có phụ phí chia theo loại, sửa trên Sổ\./);
-      const kept = await page.locator('.dc-customer', { hasText: 'Kim Long' }).locator('.dc-why').innerText();
+      const keptCell = page.locator('.dc-customer', { hasText: 'Kim Long' }).locator('.dc-why');
+      assert.equal(await keptCell.locator('.dc-tag').innerText(), 'Sheet cần sửa');   // nhãn đứng đầu ô (KIEM-TAB-01 3e), câu theo sau
+      const kept = (await keptCell.innerText()).replace(/^Sheet cần sửa\s+/, '');
       assert.match(kept, /^Sheet có chỗ máy chưa đọc được, chưa so được\. Khối tháng 10 trên Sheet: số cuối tháng thiếu 500 đ so với/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang ở 1280');
     });

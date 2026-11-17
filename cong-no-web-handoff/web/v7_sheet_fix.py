@@ -12,6 +12,7 @@ import calendar
 import datetime as dt
 import hashlib
 import itertools
+import re
 from collections import Counter
 from typing import Any
 
@@ -108,6 +109,42 @@ def customer_health(snapshot: dict[str, Any], ledger: dict[str, Any], customers:
                 if health.get("status") == "broken"
                 for finding in health.get("findings") or [] if finding.get("level") != "note"]   # `note`: bố cục đã duyệt, không chặn
     return {"status": "broken" if findings else "ok", "findings": findings}
+
+
+def chain_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],
+                   held: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Chuỗi số dư gãy (`chain_break` của máy đối soát, trong `hints` của dòng khách HELD) nêu thành chỗ sai có ô: tháng đầu tiên số cuối
+    tháng trên Sheet khác số dựng lại, ô là số còn phải thu cuối tháng của khối tháng đó trong bản chụp (`blocks`). Không biết ô thì không
+    nêu, giữ câu cũ của khách HELD."""
+    found = []
+    for hint in (held or {}).get("hints") or []:
+        month = str(hint.get("month") or "")
+        if hint.get("kind") != "chain_break" or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", month):
+            continue
+        for tab, health in customer_tabs(prices, ledger, customers):
+            blocks = health.get("blocks") or {}
+            cell = blocks.get(month)
+            if not cell:
+                continue
+            delta = hint.get("delta_vnd")
+            found.append({"tab": tab, "kind": "chain_break", "level": "error", "month": month,
+                          "rows": [int(re.sub(r"[A-Z]+", "", cell))], "cells": [cell],
+                          "other_cells": [other for key, other in sorted(blocks.items()) if key != month],
+                          "message": f"Số cuối tháng {int(month[5:7])} trên Sheet lệch {delta} đ so với số dựng lại từ các dòng của tháng. "
+                                     f"Xem ô {cell} (số còn phải thu cuối tháng).",
+                          "fix": "Ô phải là công thức giống các khối tháng khác của tab (số dư đầu + phát sinh − đã thu); ô trống hoặc số gõ tay thì "
+                                 "điền lại công thức mẫu."})
+            break
+    return found
+
+
+def sheet_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],
+                   held: dict[str, Any] | None) -> dict[str, Any]:
+    """Sức khỏe tab kèm mọi chỗ sai khối "Sheet cần sửa" nêu (specs/v7-sheet-can-sua.md): phát hiện của tab rồi chuỗi số dư gãy, chỗ có
+    ô đứng trước lỗi chỉ có mã. Một nơi tính cho cả bảng đối chiếu và máy đối soát, để số chỗ ở dòng khách đúng bằng số thẻ khi mở."""
+    health = customer_health(prices, ledger, customers)
+    found = health["findings"] + chain_findings(prices, ledger, customers, held)
+    return {**health, "findings": sorted(found, key=lambda finding: not finding.get("cells"))}
 
 
 def tab_broken(health: dict[str, Any]) -> ApiError:

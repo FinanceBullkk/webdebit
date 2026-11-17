@@ -128,6 +128,8 @@ svg{flex:none;vertical-align:middle}
 /* HOAT-DONG-01: tab Đã làm chọn ngày, lọc máy/người; dòng dài xuống hàng, giờ và người làm thẳng cột. */
 .act-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}.act-bar .btn{display:inline-flex;align-items:center;gap:2px;font-variant-numeric:tabular-nums}
 .act-date{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:#52514e}.act-date input{height:36px;padding:0 8px;border:1px solid #d7dce3;border-radius:8px;font:inherit;color:#1a1a19}
+.dc-filter{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}.dc-filter .filter-chip{height:36px}
+.dc-tag{display:inline-block;margin-right:4px;padding:1px 8px;border:1px solid var(--critical);border-radius:10px;background:var(--critical-soft);color:var(--critical);font-size:13px;font-weight:700;white-space:nowrap}
 .act-filter{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}.act-filter .filter-chip{height:36px}
 .act-scroll{background:#fff;border:1px solid #e3e7ec;border-radius:10px}
 .act-table{width:100%;min-width:900px;border-collapse:collapse;font-variant-numeric:tabular-nums}

@@ -32,10 +32,9 @@ from v7_psql import Psql
 from v7_receipt_queue import load_receipt_snapshot
 from v7_sheet_fix import (
     apply_fix,
-    customer_health,
-    customer_tabs,
     plan,
     price_delta,
+    sheet_findings,
     tab_broken,
 )
 from v7_sheet_task_keep import closed_sources
@@ -77,31 +76,6 @@ def _blocked(customer: int, health: dict[str, Any]) -> dict[str, Any] | None:
             "held_reasons": (held or {}).get("held_reasons") or {}}
 
 
-def _chain_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]], held: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Chuỗi số dư gãy (`chain_break` của máy đối soát) nêu thành chỗ sai có ô: tháng đầu tiên số cuối tháng trên Sheet khác số dựng lại,
-    ô là số còn phải thu cuối tháng của khối tháng đó trong bản chụp (`blocks`). Không biết ô thì không nêu, giữ câu cũ của khách HELD."""
-    found = []
-    for hint in (held or {}).get("hints") or []:
-        month = str(hint.get("month") or "")
-        if hint.get("kind") != "chain_break" or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", month):
-            continue
-        for tab, health in customer_tabs(prices, ledger, customers):
-            blocks = health.get("blocks") or {}
-            cell = blocks.get(month)
-            if not cell:
-                continue
-            delta = hint.get("delta_vnd")
-            found.append({"tab": tab, "kind": "chain_break", "level": "error", "month": month,
-                          "rows": [int(re.sub(r"[A-Z]+", "", cell))], "cells": [cell],
-                          "other_cells": [other for key, other in sorted(blocks.items()) if key != month],
-                          "message": f"Số cuối tháng {int(month[5:7])} trên Sheet lệch {delta} đ so với số dựng lại từ các dòng của tháng. "
-                                     f"Xem ô {cell} (số còn phải thu cuối tháng).",
-                          "fix": "Ô phải là công thức giống các khối tháng khác của tab (số dư đầu + phát sinh − đã thu); ô trống hoặc số gõ tay thì "
-                                 "điền lại công thức mẫu."})
-            break
-    return found
-
-
 def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, list, int, list, dict]:
     """(sổ, bản chụp giá, bản chụp phiếu, các nhóm, tiền web đi trước, tháng đơn giá đổi chỗ, sức khỏe tab); giá và phiếu mới nhất của runner."""
     ledger = runner.run("get_ledger", {"customer_id": customer}, actor)
@@ -113,9 +87,7 @@ def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, li
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     groups, ahead, shuffled = plan(prices, receipts, ledger, customers, _today())
-    health = customer_health(prices, ledger, customers)
-    found = health["findings"] + _chain_findings(prices, ledger, customers, _held(customer))
-    health = {**health, "findings": sorted(found, key=lambda finding: not finding.get("cells"))}   # chỗ có ô đứng trước lỗi chỉ có mã
+    health = sheet_findings(prices, ledger, customers, _held(customer))
     return ledger, prices, receipts, groups, ahead, shuffled, health
 
 

@@ -222,6 +222,40 @@ if (process.argv.includes('--preview')) {
     });
   });
 
+  // Chip lọc đầu bảng khách lệch và nhãn ở dòng (specs/v7-sheet-can-sua.md mục 2, phương án A).
+  const heldRow = (name, id, extra = {}) => ({ customer: name, customer_id: id, status: 'CHI_CO_WEB', reason: 'HELD', difference_vnd: null, web_total_vnd: '100000000', sheet_total_vnd: null, held_reasons: { ROW_SHIFT: 2 }, ...extra });
+  const withHeld = inbox({ reconcile: { ...reconcile, counts: { KHOP: 236, LECH_TONG: 1, CHI_CO_WEB: 2 }, customers: [lech, heldRow('Mẫu Lộc Phát', 8, { sheet_fix_count: 2 }), heldRow('Mẫu Kim Long', 9)] } });
+  const rowNames = page => page.locator('.dc-customer th').allInnerTexts();
+
+  test('chip Sheet cần sửa (n): đếm khách máy giữ, lọc còn đúng các khách đó, nhãn ở dòng nêu số chỗ', async () => {
+    await withPage({ inbox: withHeld }, async page => {
+      await page.locator('.dc-filter').waitFor();
+      const chips = page.locator('.dc-filter .filter-chip');
+      assert.deepEqual((await chips.allInnerTexts()).map(text => text.replace(/\s+/g, ' ').trim()), ['Tất cả 3', 'Sheet cần sửa 2']);
+      assert.equal(await chips.nth(0).getAttribute('aria-pressed'), 'true');
+      assert.deepEqual(await page.locator('.dc-tag').allInnerTexts(), ['Sheet cần sửa · 2 chỗ', 'Sheet cần sửa']);
+      assert.equal(await rowNames(page).then(list => list.length), 3);
+      await chips.nth(1).click();
+      assert.equal(await page.locator('.dc-filter .filter-chip').nth(1).getAttribute('aria-pressed'), 'true');
+      assert.deepEqual(await rowNames(page), ['Mẫu Lộc Phát', 'Mẫu Kim Long']);
+      await page.locator('.dc-filter .filter-chip').nth(0).click();
+      assert.equal(await rowNames(page).then(list => list.length), 3);
+    });
+  });
+
+  test('không có khách máy giữ thì không có chip, bảng như cũ', async () => withPage({}, async page => {
+    await page.locator('.dc-customer').first().waitFor();
+    assert.equal(await page.locator('.dc-filter').count(), 0);
+    assert.equal(await page.locator('.dc-tag').count(), 0);
+  }));
+
+  test('chip và nhãn ở 390px: trang không cuộn ngang', async () => withPage({ inbox: withHeld }, async page => {
+    await page.locator('.dc-filter').waitFor();
+    assert.ok(await noOverflow(page), 'trang tràn ngang');
+    const box = await page.locator('.dc-filter').boundingBox();
+    assert.ok(box.x >= 0 && box.x + box.width <= 390);
+  }, { width: 390, height: 780 }));
+
   test('điện thoại 390px: trang không cuộn ngang, lưới cuộn ngang trong khung và ô lỗi đầu tiên nằm trong khung nhìn', async () => withPage({ statement: blockedStatement(), region: region() }, async page => {
     await page.locator('.sf-scroll').waitFor();
     assert.ok(await noOverflow(page), 'trang tràn ngang');

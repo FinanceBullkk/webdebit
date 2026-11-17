@@ -23,6 +23,14 @@
   const fixedRows = reconcile => (reconcile?.customers ?? []).filter(isDone);
   const openIds = reconcile => new Set(openRows(reconcile).map(row => row.customer_id).filter(Boolean));
 
+  // Khách máy giữ vì tab Sheet có chỗ sai (KIEM-TAB-01 đợt 3e): chip lọc đầu bảng và nhãn ở dòng. Số chỗ do máy đối soát đếm bằng cùng
+  // hàm với khối "Sheet cần sửa" (`sheet_fix_count`); chưa có số hoặc 0 thì không nêu số (khối khi mở tự nói chưa chỉ ra được ô).
+  const isSheetFix = row => row.reason === 'HELD';
+  function sheetFixLabel(row) {
+    const n = row.sheet_fix_count;
+    return Number.isInteger(n) && n > 0 ? `Sheet cần sửa · ${n} chỗ` : 'Sheet cần sửa';
+  }
+
   // Nợ tập trung ở vài khách lớn: đếm khách một mình dễ tưởng gần xong, nên kèm tỷ lệ theo tiền. Còn khách lệch thì chưa phải 100%.
   function share(reconcile) {
     const all = big(reconcile?.all_web_vnd ?? 0);
@@ -135,5 +143,5 @@
     .map(hint => ({ text: hintText(hint, say), source: hint.closable && /^[0-9a-f]{64}$/.test(hint.source_fingerprint ?? '') ? hint.source_fingerprint : null }))
     .filter(entry => entry.text);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, hintRows, tongView };
+  return { openRows, aheadRows, fixedRows, openIds, isSheetFix, sheetFixLabel,share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, hintRows, tongView };
 }));

@@ -315,6 +315,28 @@ def attach_ahead_check(row: dict[str, Any], ledger: dict, prices: dict, customer
         row["hints"] = [hints.money_fields(hint) for hint in found]
 
 
+def count_sheet_fixes(db, results: list[dict[str, Any]], rows: list[dict], snapshots_of: Callable[[], tuple[dict, dict]]) -> None:
+    """Số chỗ khối "Sheet cần sửa" sẽ nêu cho mỗi khách HELD (`sheet_fix_count`), để bảng khách lệch có chip lọc và nhãn "· n chỗ" mà
+    không phải mở từng khách (specs/v7-sheet-can-sua.md, 3e). Cùng hàm với bảng đối chiếu nên số khớp số thẻ khi mở. Chỉ đọc; lỗi ở
+    đây chỉ bỏ số của khách đó, không làm hỏng lượt."""
+    held = [row for row in results if row.get("reason") == "HELD" and row.get("customer_id")]
+    if not held:
+        return
+    try:
+        prices, _ = snapshots_of()
+        mapping = customer_name_mapping()
+    except Exception as exc:  # noqa: BLE001  thiếu số chỗ không phải lý do bỏ cả lượt
+        print(f"V7 đối soát máy: chưa đếm được chỗ Sheet cần sửa ({failure_code(exc)})", file=sys.stderr, flush=True)
+        return
+    customers = [named_customer(row, mapping) for row in rows]
+    for row in held:
+        try:
+            ledger = db.run("get_ledger", {"customer_id": row["customer_id"]}, ACTOR)
+            row["sheet_fix_count"] = len(fix.sheet_findings(prices, ledger, customers, row)["findings"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"V7 đối soát máy: sổ {row['customer_id']} chưa đếm được chỗ Sheet cần sửa ({failure_code(exc)})", file=sys.stderr, flush=True)
+
+
 def money_fields(row: dict[str, Any]) -> dict[str, Any]:
     """Tiền ra file là chuỗi số nguyên chính xác, NULL giữ null (cùng hợp đồng với get_ledger)."""
     return {key: (str(value) if key.endswith("_vnd") and value is not None else value) for key, value in row.items()}
@@ -431,19 +453,20 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                              seen, digest, ids, write=args.fix)
         # Sau khi máy sửa và tạo sổ, để tổng web là tổng lúc lưu. Hơn 40 khách lệch thì phần đi trước chưa tính, số so không có nghĩa.
         tong = {"month": None, "skipped": "TOO_MANY_DIFFERENT"} if too_many else check_tong(Path(xlsx), results, ids, rows, sheet_snapshots)
+        held_names = {item["name"]: item for item in held}
+        for row in results:
+            row["customer_id"] = ids.get(row["customer"])
+            if row["status"] == "LECH_TONG" and too_many:
+                row["reason"] = "TOO_MANY_DIFFERENT"
+            elif row["customer"] in held_names:
+                item = held_names[row["customer"]]
+                row.update(reason="HELD", held_reasons=item["reasons"])
+                if item["chain_break"]:
+                    row["hints"] = [hints.money_fields(item["chain_break"])]
+            elif row["status"] != "LECH_TONG":
+                row.setdefault("reason", row["status"])
+        count_sheet_fixes(db, results, rows, sheet_snapshots)   # còn trong `with`: bản chụp dựng từ bản tải ở thư mục tạm
     trace.stage("luu")
-    held_names = {item["name"]: item for item in held}
-    for row in results:
-        row["customer_id"] = ids.get(row["customer"])
-        if row["status"] == "LECH_TONG" and too_many:
-            row["reason"] = "TOO_MANY_DIFFERENT"
-        elif row["customer"] in held_names:
-            item = held_names[row["customer"]]
-            row.update(reason="HELD", held_reasons=item["reasons"])
-            if item["chain_break"]:
-                row["hints"] = [hints.money_fields(item["chain_break"])]
-        elif row["status"] != "LECH_TONG":
-            row.setdefault("reason", row["status"])
     edit_state = note_sheet_edits(args, results, downloaded_at)
     for row in results:
         if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS:
