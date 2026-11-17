@@ -323,6 +323,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.accept and args.state_dir is None:
         parser.error("--accept cần --state-dir")
+    if args.state_dir is not None and getattr(os, "geteuid", lambda: -1)() == 0:
+        parser.error("chạy bằng user v7app (sudo -u v7app …): file mốc và khóa của root làm máy canh không ghi được nữa")
     report = run(now_vn(), db=connect(args.socket_dir, args.database, args.db_user), state_dir=args.state_dir,
                  save_state=not args.dry_run, accept=args.accept, full=args.full)
     print(json.dumps(report, ensure_ascii=False, indent=1))

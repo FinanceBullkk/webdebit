@@ -2083,7 +2083,7 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
    sudo -u v7app python3 -B /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_safety_net.py --state-dir /var/lib/v7-watchdog --dry-run
    ```
 
-   Thêm `--full` để so `get_ledger` của mọi sổ (8 câu SQL, mỗi câu dưới giới hạn 15 giây); mỗi lượt máy canh chỉ so 1/8 số sổ.
+   Thêm `--full` để so `get_ledger` của mọi sổ (8 câu SQL, mỗi câu dưới giới hạn 15 giây); mỗi lượt máy canh chỉ so 1/8 số sổ. Luôn chạy bằng `sudo -u v7app`: lệnh từ chối chạy bằng root vì file mốc của root làm máy canh không ghi được nữa.
 5. **Khi có báo.** Kiểm 1, 2 (phiếu thu chia, Tổng quan, sổ lưu trữ, tổng trong sổ): mở sổ đó trên web, sửa bằng lệnh (hủy và ghi lại phiếu, điều chỉnh…), không sửa tay DB; sổ đúng lại thì lượt sau tự hết báo. Kiểm 3, 4 (đổi không qua lệnh, số lần ghi lùi, sổ biến mất, Lịch sử bị sửa): tìm việc ngoài lệnh vừa xảy ra (migration, loader, phục hồi bản sao, phiên psql quản trị); cần thì so với bản `v7-backup-hourly` trước giờ thấy báo. Xem xong thì chấp nhận:
 
    ```bash

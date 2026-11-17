@@ -150,7 +150,8 @@ không ghi được mốc) thành dòng "Không kiểm được phần lưới a
 - Kết quả hàm và câu báo không có tên khách, số tiền; chỉ mã sổ, mã lỗi, số đếm, phiên bản, dấu vân.
 - Một phép kiểm hỏng không che phép khác: mục "lưới an toàn" là một mục riêng trong `collect()`, import muộn, lỗi thành
   một dòng "Không kiểm được"; trong mục, kiểm 1–4 cùng một câu SQL nên hỏng thì hỏng cả mục.
-- `--dry-run` của máy canh và của lệnh tay không ghi mốc.
+- `--dry-run` của máy canh và của lệnh tay không ghi mốc. Lệnh tay có thư mục mốc từ chối chạy bằng root: file mốc, khóa của
+  root làm máy canh (`v7app`) không ghi được nữa.
 - Lượt đầu chỉ lấy mốc, không báo kiểm 3, 4.
 
 ## Giới hạn (không bắt được)
@@ -186,10 +187,11 @@ không ghi được mốc) thành dòng "Không kiểm được phần lưới a
   `docs/decisions/luoi-an-toan-01.md`.
 - Sửa: `cong-no-web-handoff/tools/v7_backend_functions.sql` (thêm ba hàm và quyền), `cong-no-web-handoff/web/v7_psql.py`
   (chế độ `read_only`), `cong-no-web-handoff/web/v7_api_tables.py` (hai câu SQL), `cong-no-web-handoff/tools/v7_watchdog.py`
-  (một mục), `cong-no-web-handoff/tools/v7_post_deploy_check.sql`, các harness khai hàm (`test_pg_v7_backend.py`,
-  `test_pg_v7_grants.py`, `test_pg_v7_backend_schema.py`), `tests/test_v7_fee_sql_sync.py`, `tests/test_v7_ledger_api.py`,
-  `tests/test_v7_watchdog.py`, `.github/workflows/test.yml`, `docs/decisions.md`, `docs/v7-deploy-runbook.md`,
-  `docs/chuyen-han-checklist.md`, `specs/v7-canh-bao.md`.
+  (một mục), `cong-no-web-handoff/tools/v7_post_deploy_check.sql`, các harness khai hàm hoặc chuỗi migration
+  (`test_pg_v7_backend.py`, `test_pg_v7_backend_locks.py`, `test_pg_v7_backend_price.py`, `test_pg_v7_grants.py`,
+  `test_pg_v7_backend_schema.py`), `tests/test_v7_fee_sql_sync.py`, `tests/test_v7_ledger_api.py`, `tests/test_v7_watchdog.py`,
+  `.github/workflows/test.yml`, `docs/decisions.md`, `docs/decisions/canh-bao-01.md`, `docs/development.md`,
+  `docs/v7-deploy-runbook.md`, `docs/chuyen-han-checklist.md`, `specs/v7-canh-bao.md`.
 
 ## Hoàn tác
 

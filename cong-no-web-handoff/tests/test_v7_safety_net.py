@@ -230,6 +230,11 @@ class OperationTests(Base):
         self.assertFalse((self.folder / net.STATE_FILE).exists())
         with patch.dict(os.environ, {"STATE_DIRECTORY": ""}), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             net.main(["--accept"])
+        # Chạy tay bằng root sẽ để lại file mốc của root mà máy canh (v7app) không ghi được: chặn trước khi đụng DB.
+        with patch.object(net.os, "geteuid", create=True, return_value=0), patch.object(net, "connect") as connect, \
+                redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            net.main(["--state-dir", str(self.folder), "--dry-run"])
+        connect.assert_not_called()
 
 
 if __name__ == "__main__":
