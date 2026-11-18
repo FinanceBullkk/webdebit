@@ -40,8 +40,8 @@ Bóng sổ dự đoán từng lệnh được nhận hay bị từ chối với 
 chuyến đã xóa → chờ kiểm → tháng khóa → không đổi → dòng phụ phí không ngày). Cả chuỗi chạy trong một lượt psql
 (`bat_bien.run` trong DB thử: mỗi lệnh một subtransaction với `sokhach.actor` riêng, ràng buộc hoãn kiểm ngay sau lệnh
 như lúc COMMIT, rồi chụp ảnh các sổ); Python đi lại từng bước để kiểm. Cách này cần vì mỗi lượt `docker exec` trên
-Windows mất khoảng 150 ms. Cứ 20 chuỗi, DB thử được dựng lại từ một bản mẫu (schema, hàm, hàm trợ giúp, lỗi cấy nếu
-có) vì `get_ledger` chậm dần theo tổng số sổ của cả DB (xem Câu hỏi mở).
+Windows mất khoảng 150 ms. Cứ 20 chuỗi, các sổ giả cũ bị xóa sạch bằng `TRUNCATE sokhach.customer, sokhach.cutover
+CASCADE` (chỉ dọn DB thử; schema, hàm, danh mục phụ phí và lỗi cấy giữ nguyên) vì `get_ledger` chậm dần theo tổng số sổ của cả DB (xem Câu hỏi mở).
 
 ## Bất biến kiểm sau mỗi bước
 

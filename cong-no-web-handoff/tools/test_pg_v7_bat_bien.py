@@ -32,7 +32,6 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from pg_v7_harness import (
-    DATABASE,
     FUNCTIONS,
     IMAGE,
     SCHEMA,
@@ -75,9 +74,8 @@ MUTANTS = {
 METHODS = ("THU TIỀN", "CẤN TRỪ", "ỨNG TRƯỚC", "KHÁC")
 MONEY = re.compile(r"^-?[0-9]+$")
 # get_ledger chậm dần theo số sổ của cả DB (đo 18/11/2026: v_outstanding_month gọi với tham số, như trong hàm,
-# tính cửa sổ trên mọi sổ, khoảng 16 ms mỗi tháng khi DB có 600 sổ), nên cứ RESET_EVERY chuỗi dựng lại DB thử từ bản mẫu.
+# tính cửa sổ trên mọi sổ, khoảng 16 ms mỗi tháng khi DB có 600 sổ), nên cứ RESET_EVERY chuỗi xóa sạch sổ giả cũ.
 RESET_EVERY = 20
-TEMPLATE = "bat_bien_mau"
 WINDOW = 6  # tháng hiện tại và 5 tháng trước có dòng month_state mở; tháng cũ hơn mặc định khóa
 
 HELPERS = r"""
@@ -1090,9 +1088,9 @@ class Runner:
         self.round_trips = 0
 
     def reset(self) -> None:
-        """Dựng lại DB thử từ bản mẫu (schema, hàm, hàm trợ giúp và lỗi cấy nếu có), bỏ các sổ của chuỗi trước."""
-        self.pg.sql(f"SET statement_timeout = 0; DROP DATABASE {DATABASE}; "
-                    f"CREATE DATABASE {DATABASE} TEMPLATE {TEMPLATE} STRATEGY = FILE_COPY", database="postgres")
+        """Xóa sạch các sổ giả của những chuỗi trước (bảng tiền nối theo khóa ngoại tới khách và mốc); giữ schema, hàm,
+        danh mục phụ phí và lỗi cấy. TRUNCATE không qua trigger chặn sửa/xóa: chỉ dọn DB thử, không phải lệnh tiền."""
+        self.pg.sql("TRUNCATE sokhach.customer, sokhach.cutover CASCADE")
 
     def query(self, sql: str) -> str:
         """Một lượt psql qua `Pg` của harness; bỏ statement_timeout 15 giây của harness cho cả chuỗi (giới hạn
@@ -1215,8 +1213,6 @@ def main() -> int:
             pg.sql(HELPERS)
             if args.mutant:
                 apply_mutant(pg, args.mutant)
-            pg.sql(f"SET statement_timeout = 0; CREATE DATABASE {TEMPLATE} TEMPLATE {DATABASE} STRATEGY = FILE_COPY",
-                   database="postgres")
             runner = Runner(pg)
             for n, i in enumerate(which):
                 if n and n % RESET_EVERY == 0:
