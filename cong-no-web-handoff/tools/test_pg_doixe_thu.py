@@ -36,6 +36,8 @@ from test_pg_doixe import PHIEU_CHI, Dx, count
 from test_pg_doixe import PUBLIC_FUNCTIONS as PUBLIC_1
 
 MIGRATION_2 = Path(__file__).resolve().parent / "migrations" / "2026-11-18-v7-doi-xe-thu.sql"
+# Bản sửa bộ đọc ghi chú sau review độc lập (đợt 2 đã áp trên hao trước khi có bản sửa).
+MIGRATION_3 = Path(__file__).resolve().parent / "migrations" / "2026-11-18-v7-doi-xe-thu-doc-ghi-chu.sql"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 from v7_api_validate import ApiError  # noqa: E402
 from v7_doixe_xlsx import build as build_xlsx  # noqa: E402
@@ -90,9 +92,13 @@ def scenario(pg: Pg, cases: list[str]) -> None:
                      "WHERE attrelid='doixe.loai_phi'::regclass AND attname='chi_ho')") == "t", "migration lỗi không quay lại")
     pg.sql(source)
     pg.sql(source)
+    fix = MIGRATION_3.read_text(encoding="utf-8")
+    pg.sql(fix)
+    pg.sql(fix)
     require(pg.value("SELECT string_agg(ma, ',' ORDER BY ma) FROM doixe.loai_phi WHERE chi_ho") == "hasom,moi,xi", "cờ chi hộ phía chi")
     require(count(pg, "SELECT count(*) FROM doixe.phat_sinh") == 14 and count(pg, "SELECT count(*) FROM doixe.ben") == 1, "danh mục thu")
-    cases.append("migration đợt 2 (sau đợt 1 và phiếu chi) lỗi thì quay lại, chạy lại được hai lượt; cờ chi hộ xí cont, cont mới, hạ sớm/KH; "
+    cases.append("migration đợt 2 (sau đợt 1 và phiếu chi) lỗi thì quay lại, chạy lại được hai lượt, rồi bản sửa bộ đọc ghi chú hai lượt; "
+                 "cờ chi hộ xí cont, cont mới, hạ sớm/KH; "
                  "14 khoản phát sinh, một bên HTH")
 
     granted = json.loads(pg.value("SELECT coalesce(json_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' "
@@ -136,6 +142,10 @@ def scenario(pg: Pg, cases: list[str]) -> None:
         # Số lượng kèm đơn vị trong mô tả được phép; số không đơn vị tới 10 là số lượng.
         ("_ Neo 2 ngày 3tr _ Bãi chờ 2 đêm 400k _ Neo 3", [("neo", 3000000, False, "ps"), ("bai_cho", 400000, False, "ps"),
                                                            ("neo", 4700000, False, "ps")]),
+        # Đơn vị hợp cách tính; tên một chữ ghi khác dấu ("Cần cẩu" với "Cân") là khoản lạ, gõ không dấu vẫn nhận.
+        ("_ Nổ máy phát 3 giờ _ Nổ máy 2h _ Neo 2 ngày", [("no_may", 690000, False, "ps"), ("no_may", 460000, False, "ps"),
+                                                         ("neo", 3000000, False, "ps")]),
+        ("_ Cần cẩu 300k _ Cân 300k _ can 120k", [(None, 300000, False, "ps"), ("can", 300000, True, "ps"), ("can", 120000, True, "ps")]),
     ]
     for text, want in expect:
         got = [(i["ma"], int(i["so_tien_vnd"]), i["chi_ho"], i["cot"]) for i in parse(text)]
@@ -144,12 +154,18 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     errors = {text: parse(text)[0].get("loi") for text in (
         "_ Kiểm hoá 1234", "_ Cân", "_ Kiểm hoá", "_ Xí cont 0k", "_ 300k", "_ Neo 1600", "_ Kiểm hoá 1.234k", "_ Neo 1,5k",
         "_ Xí cont 150k ĐIỀU ĐỘ 450K", "_ Xí cont 150k, nâng hạ 50k", "_ Xí cont 150k+50k", "_ Xí cont 150k nâng hạ", "_ Neo 2d",
-        "_ Cân 1.500", "_ Xí cont 2 x 150k", "_ Neo 50", "_ Xí cont (150k) cont 40")}
+        "_ Cân 1.500", "_ Xí cont 2 x 150k", "_ Neo 50", "_ Xí cont (150k) cont 40",
+        "_ Neo 12 tiếng", "_ Nổ máy phát 2 ngày", "_ Xí cont 2 cont", "_ Cont mới 2 cont", "_ Neo 2 ngày 3", "_ Xí cont -150k",
+        "_ Neo 3tr 2", "_ Neo 1.200tr")}
     require(errors.pop("_ 300k") is None and all(errors.values()), f"ghi chú lỗi: {errors}")
     require(errors["_ Xí cont 150k, nâng hạ 50k"].startswith("Một khoản có hai số tiền")
             and errors["_ Xí cont 150k nâng hạ"].startswith("Số tiền ghi ở cuối khoản")
             and errors["_ Neo 50"].startswith("Số ở cuối thiếu đơn vị") and errors["_ Neo 2d"].startswith("Số tiền lạ")
-            and errors["_ Xí cont 2 x 150k"].startswith("Có số lạ trong khoản"), f"câu báo: {errors}")
+            and errors["_ Xí cont 2 x 150k"].startswith("Có số lạ trong khoản")
+            and errors["_ Neo 12 tiếng"].startswith("Khoản này tính theo ngày")
+            and errors["_ Nổ máy phát 2 ngày"].startswith("Khoản này tính theo giờ hoặc lần")
+            and errors["_ Xí cont 2 cont"].startswith("Có số lạ trong khoản") and errors["_ Xí cont -150k"].startswith("Số âm"),
+            f"câu báo: {errors}")
     require(parse("_ 300k")[0].get("la") is True, "khoản không tên vẫn tính, gắn cờ lạ")
     require(all("loi" in parse(text)[0] and "so_tien_vnd" not in parse(text)[0] for text in errors), f"khoản lỗi không tính: {errors}")
     require(pg.value("SELECT doixe._fold(' Sầu  ĐÔNG đắk lắk ')") == "SAU DONG DAK LAK"
@@ -403,8 +419,13 @@ def scenario(pg: Pg, cases: list[str]) -> None:
                                               f"SELECT d FROM jsonb_array_elements(doixe.get_bang_ke('hth', {lit(m0)}::date) -> 'dong') d "
                                               f"WHERE (d ->> 'chang_id')::bigint = {o_ids[0]}", "nhan-vien-gia").replace("; COMMIT", "; ROLLBACK")))
     require(no_level["chua_doc"] == 1 and no_level["ps_vnd"] == "920000" and "loi" in no_level["ps"][0], f"chưa có mức: {no_level['ps']}")
+    huge = json.loads(pg.value(actor_sql("UPDATE doixe.phat_sinh SET muc_vnd = 9000000000000000 WHERE ma = 'no_may'; "
+                                         f"SELECT d FROM jsonb_array_elements(doixe.get_bang_ke('hth', {lit(m0)}::date) -> 'dong') d "
+                                         f"WHERE (d ->> 'chang_id')::bigint = {o_ids[0]}", "nhan-vien-gia").replace("; COMMIT", "; ROLLBACK")))
+    require(huge["chua_doc"] == 1 and huge["ps_vnd"] == "3000000" and huge["ps"][1]["loi"].startswith("Số tiền không hợp lệ"),
+            f"tiền từ ô quá lớn: {huge['ps']}")
     cases.append("ô ngày neo, giờ máy phát (phiếu chi mới): tính theo danh mục khi ghi chú chưa có khoản đó; ghi chú có thì không cộng "
-                 "thêm; chưa có mức thì gắn lỗi, không tính")
+                 "thêm; chưa có mức hoặc tiền quá lớn thì gắn lỗi, không tính")
 
     # Qua đúng adapter của API (SQL cố định trong v7_api_tables, role v7_app).
     app = Psql(pg.name, DATABASE, "v7_app")
