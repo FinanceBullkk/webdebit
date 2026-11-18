@@ -53,3 +53,5 @@ Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 ## Hiệu lực và giới hạn
 
 Chốt mục tiêu, phạm vi, nhập trên web, việc làm trước, công thức số dư và luồng màn Đội xe đợt 1 (mục 12, gồm khóa tháng chung cả đội xe). Chưa chốt mốc bắt đầu chạy thật, số dư đầu từng người, nguồn dầu, lương, định phí, thứ tự đợt 2–3: xem Câu hỏi mở trong spec. Không cấp quyền nạp dữ liệu thật hay bản sao lên `hao`, ghi Sheet: mỗi lần cần người dùng đồng ý riêng. Migration của schema `doixe` triển khai tay theo [`DEPLOY-CLAUDE-01`](deploy-claude-01.md).
+
+Triển khai: schema `doixe` ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 lúc 12:17 ([nhật ký](../deploys/2026-11-18-doi-xe.md)), bảng rỗng, chưa nạp danh mục. API `/api/v7/doixe/*` triển khai tự động khi merge qua `Deploy hao`.

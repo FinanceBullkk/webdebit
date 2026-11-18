@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from pg_v7_harness import (
+    DATABASE,
     IMAGE,
     HarnessError,
     Pg,
@@ -34,6 +35,10 @@ from pg_v7_harness import (
 )
 
 MIGRATION = Path(__file__).resolve().parent / "migrations" / "2026-11-18-v7-doi-xe.sql"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+from v7_api_validate import ApiError  # noqa: E402
+from v7_psql import Psql  # noqa: E402
+
 PUBLIC_FUNCTIONS = sorted([
     "get_lich_su(bigint,bigint)", "get_so(text,bigint,date)", "get_tong(date)", "ghi_hoan(jsonb)", "ghi_ung(jsonb)",
     "huy_hoan(jsonb)", "huy_ung(jsonb)", "khoa_thang(jsonb)", "luu_chang(jsonb)", "sua_chang(jsonb)", "xoa_chang(jsonb)",
@@ -352,6 +357,23 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     pg.rejects("UPDATE doixe.su_kien SET actor='khac'", message="IMMUTABLE")
     pg.rejects("DELETE FROM doixe.ung", message="IMMUTABLE")
     cases.append("Lịch sử chỉ thêm: người làm, trước → sau, lý do hủy; lọc theo người (kể cả chặng mình lái), theo xe; khóa tháng hiện mọi nơi")
+
+    # Qua đúng adapter của API (SQL cố định trong v7_api_tables, role v7_app): đọc, ghi, mã lỗi thành câu thông báo.
+    app = Psql(pg.name, DATABASE, "v7_app")
+    whole = app.run("doixe_get_tong", {"thang": None}, "nv-api")
+    book_x = app.run("doixe_get_so", {"loai": "xe", "id": x2, "thang": str(month)}, "nv-api")
+    require(len(whole["nguoi"]) == 3 and book_x["xe"]["id"] == x2 and app.run("doixe_get_lich_su", {"nguoi": None, "xe": x1}, "nv-api")["events"],
+            "đọc qua adapter")
+    via = app.run("doixe_ghi_ung", {"idempotency_key": "api-1", "nguoi_id": tx2, "ngay": str(today), "so_tien_vnd": "10"}, "nv-api")
+    require(via["ok"] and app.run("doixe_ghi_ung", {"idempotency_key": "api-1", "nguoi_id": tx2, "ngay": str(today), "so_tien_vnd": "10"},
+                                  "nv-api")["lap_lai"], "ghi qua adapter, lặp không ghi lại")
+    try:
+        app.run("doixe_ghi_ung", {"idempotency_key": "api-2", "nguoi_id": tx2, "ngay": str(tomorrow), "so_tien_vnd": "10"}, "nv-api")
+        raise HarnessError("ngày mai lọt qua adapter")
+    except ApiError as exc:
+        require(exc.status == 422 and exc.code == "NGAY_TUONG_LAI", f"mã lỗi qua adapter: {exc.code}")
+    require(pg.value("SELECT actor FROM doixe.ung ORDER BY id DESC LIMIT 1") == "nv-api", "người làm lấy từ phiên của API")
+    cases.append("qua adapter API (role v7_app): ba đường đọc, ghi ứng và lặp lệnh, ngày mai thành 422 NGAY_TUONG_LAI, người làm từ phiên")
 
     # Không ghi sokhach.
     require(pg.value(actor_sql("SELECT sokhach.get_read_stamp()->>'stamp'")) == stamp, "doixe đã làm đổi dữ liệu sokhach")
