@@ -1,6 +1,6 @@
 # Đội xe đợt 2: thu cước, bảng kê và công nợ cước (DOI-XE-THU-01)
 
-Trạng thái: ĐỀ XUẤT (Claude, 18/11/2026). Đây là đợt 2 của mục tiêu [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), xem [spec đợt 1](chi-phi-xe-01.md). Người dùng chọn làm phần này song song với đợt 1 (18/11/2026). Hiện chỉ có spec và phân tích; code đợi đợt 1 có bảng phương tiện và chặng rồi mới nối vào.
+Trạng thái: luồng ĐÃ CHỐT 18/11/2026 ([`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md), người dùng "Chốt mockup" sau khi bấm thử); mô hình dữ liệu ĐỀ XUẤT. Đây là đợt 2 của mục tiêu [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), xem [spec đợt 1](chi-phi-xe-01.md). Đợt 1 đã chạy trên `hao` (18/11/2026), nên đợt 2 code được ngay trên schema `doixe` của đợt 1.
 
 ## Mục tiêu
 
@@ -52,7 +52,7 @@ Kiểm thêm theo yêu cầu người dùng (18/11/2026), trên file tháng 9 v�
 
 ## Mô hình dữ liệu (ĐỀ XUẤT)
 
-Nối vào schema `doixe` của đợt 1. Chỉ đọc bảng của `sokhach`, không ghi vào đó.
+Nối vào schema `doixe` của đợt 1. Các bảng đã có: `xe`, `nguoi`, `chang`, `dong`, `dong_phi`, `loai_phi`, `ung`, `dot_hoan`, `thang_khoa`, `su_kien`, `lenh`. Đợt 2 thêm các bảng dưới đây, và thêm cờ chi hộ vào `loai_phi` để lãi lỗ đợt 3 loại được chi hộ ở cả hai phía. Chỉ đọc bảng của `sokhach`, không ghi vào đó.
 
 | Bảng | Một dòng là | Ghi chú |
 | --- | --- | --- |
@@ -132,5 +132,7 @@ Revert PR. Không có dữ liệu.
 9. Ba cột đối chiếu trống ở tháng 10: việc đối chiếu với công ty hàng đang làm ở đâu (Zalo, file khác)?
 10. Giá tính theo phần trăm làm tròn thế nào: tới nghìn đồng, hay tới đồng?
 11. ĐÃ TRẢ LỜI 18/11/2026: phí nâng và phí hạ cảng do **đội xe chịu** trong cước. Ghi là dòng chi của chặng; người trả là tài xế hoặc người đi lệnh. Không đưa vào bảng kê.
-12. Chặng chưa có giá: cho gửi bảng kê (ô cước để trống, chưa tính vào số đòi, như bản bấm thử) hay chặn tới khi có giá?
-13. Sau "Đối chiếu xong" có thôi nhận điều chỉnh không, hay vẫn cho điều chỉnh tới khi HTH trả đủ?
+12. ĐÃ CHỐT 18/11/2026 (chốt mockup): chặng chưa có giá vẫn gửi được, ô cước để trống, chưa tính vào số đòi, có cảnh báo trước khi gửi.
+13. ĐÃ CHỐT 18/11/2026 (chốt mockup): sau "Đối chiếu xong" thì thôi nhận điều chỉnh.
+
+Theo bản bấm thử đã chốt, câu 5, 6 và 10 lấy cách làm mặc định: neo theo ngày, nổ máy phát theo đơn vị, đóng ghép nhập tay, làm tròn tới nghìn đồng. Danh sách chi hộ (câu 3) và cách tính nổ máy đang được hỏi lại ở phiên đợt 1; câu trả lời ở đó thay mặc định này.
