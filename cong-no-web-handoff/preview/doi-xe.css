@@ -106,7 +106,13 @@ div.dx-row{cursor:default}
 .dx-seg button[aria-pressed=true]{background:#16324f;color:#fff;font-weight:600}
 .dx-khoa{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 12px 0;padding:8px 12px;border-radius:8px;background:var(--head);color:#3d3c39}
 .dx-khoa .dx-btn{margin-left:auto;min-height:36px;font-size:14px}
-.dx-scroll{overflow-x:auto;padding-bottom:2px}
+/* Bảng rộng hơn màn: tiêu đề cột dính đầu màn, thanh kéo ngang dính đáy màn (thân bảng giấu thanh riêng của nó); doi-xe-ui.js giữ ba
+   khung cùng chỗ ngang và cho lăn chuột trên tiêu đề hoặc thanh kéo để chạy ngang. */
+.dx-hdw{position:sticky;top:0;z-index:4;overflow:hidden}
+.dx-scroll{overflow-x:auto;scrollbar-width:none}
+.dx-scroll::-webkit-scrollbar{display:none}
+.dx-hbar{position:sticky;bottom:0;z-index:4;margin-top:-1px;overflow-x:auto;overflow-y:hidden;border-radius:0 0 8px 8px;background:#fff}
+.dx-hbar>div{height:1px}
 .dx-hd,.dx-r,.dx-bang .dx-tong{display:grid;align-items:stretch;font-size:14px}
 .dx-hd{min-height:36px;background:var(--head);border-top:1px solid var(--line-soft);font-size:13px;font-weight:600;color:var(--ink-2)}
 .dx-hd>span,.dx-bang .dx-tong>span{display:flex;align-items:center;padding:0 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
