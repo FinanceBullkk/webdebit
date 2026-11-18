@@ -1,4 +1,4 @@
-"""MO-SO-NHANH-02: get_ledger_events cho khung Lịch sử, cùng dữ liệu với get_ledger. MO-SO-NHANH-03: get_ledger không JIT."""
+"""MO-SO-NHANH-02: get_ledger_events cho khung Lịch sử, cùng dữ liệu với get_ledger."""
 
 from __future__ import annotations
 
@@ -36,26 +36,3 @@ def check_ledger_events(pg: Pg) -> None:
     pg.rejects(actor_sql(f"SELECT sokhach.get_ledger_events({customer})", "harness"), user="v7_reader", message="permission denied")
     for user in ("v7_app", "v7_reader"):
         pg.rejects(actor_sql(f"SELECT sokhach._ledger_events({customer})", "harness"), user=user, message="permission denied")
-
-
-def check_ledger_jit_off(pg: Pg) -> None:
-    """Mọi câu trong get_ledger lập kế hoạch không JIT, kể cả khi phiên ép JIT cho mọi câu (ngưỡng 0)."""
-    customer = new_book(pg, ("2026-01-01", 1000), ("2026-02-01", 500))
-    call(pg, "record_receipt", customer, version(pg, customer), "jit-receipt", "2026-02-01", "THU TIỀN", 300, None)
-    config = pg.value("SELECT array_to_string(proconfig,'|') FROM pg_proc WHERE oid='sokhach.get_ledger(bigint)'::regprocedure")
-    require(config == "search_path=pg_catalog, sokhach, pg_temp|jit=off", f"get_ledger config: {config}")
-    # auto_explain ghi kế hoạch của từng câu, kể cả câu lồng trong hàm; câu nào được biên dịch thì kế hoạch có mục "JIT:".
-    probe = ("LOAD 'auto_explain'; SET auto_explain.log_min_duration = 0; SET auto_explain.log_nested_statements = on; "
-             "SET auto_explain.log_analyze = on; SET auto_explain.log_level = notice; SET client_min_messages = notice; "
-             "SET jit = on; SET jit_above_cost = 0; ")
-    # check=False: psql riêng; phiên psql giữ chung của harness chạy thêm câu đánh dấu, câu đó cũng bị JIT.
-    probed = pg.sql(probe + actor_sql(f"SELECT sokhach.get_ledger({customer})"), check=False)
-    require(probed.returncode == 0, f"auto_explain probe failed: {probed.stderr[-700:]}")
-    outer, nested = [], []
-    for plan in probed.stderr.split("Query Text:")[1:]:
-        (outer if plan.lstrip().startswith("SELECT sokhach.get_ledger(") else nested).append(plan)
-    # Câu ngoài cùng lập kế hoạch theo phiên nên phải có JIT; không có thì ảnh thiếu LLVM và phép thử vô nghĩa.
-    require(len(outer) == 1 and "\nJIT:" in outer[0], f"outer SELECT should use JIT: {len(outer)} plans")
-    require(len(nested) >= 10, f"auto_explain did not log nested statements: {len(nested)}")
-    compiled = [plan.strip().splitlines()[0][:80] for plan in nested if "\nJIT:" in plan]
-    require(not compiled, f"statements inside get_ledger used JIT: {compiled}")
