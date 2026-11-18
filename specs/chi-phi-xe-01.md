@@ -179,7 +179,7 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 1. Dòng không có ngày, không có container nhưng vẫn có tiền nâng hạ, và vẫn được cộng vào tổng tab.
 2. Cột STT và TRÂN/GL bị dùng để ghi ngày hoàn và "da tt".
 3. Sheet chi phí ghi ngày dạng tháng/ngày, file điều xe ghi ngày/tháng.
-4. Biển số ghi thiếu tỉnh ("44115") ở file này, đủ ("50H-44115") ở file khác.
+4. Biển số chỉ ghi phần số ở file này, ghi đủ mã tỉnh ở file khác.
 5. Cột nhà xe ghi "TP" cho cả xe thuê ngoài.
 6. Một container của xe thuê ngoài lại mang biển số xe mình trong tab tổng hợp của file điều xe.
 7. Trong file công nợ tháng 10, hai tài xế khác nhau cùng ghi một biển số.
