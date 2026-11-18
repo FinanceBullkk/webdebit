@@ -174,6 +174,8 @@ for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_M
 SQL = {
     "list_offset_sources": "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);",
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
+    # XUAT-SO-01: bản xuất cả sổ không cần Lịch sử; chỉ đọc qua run_snapshot, không có route riêng.
+    "get_ledger_export": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint) - 'events';",
     "get_ledger_events": "SELECT sokhach.get_ledger_events((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
     "get_fee_types": "SELECT sokhach.get_fee_types();",

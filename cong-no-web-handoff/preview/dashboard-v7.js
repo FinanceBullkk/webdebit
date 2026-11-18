@@ -383,6 +383,8 @@
   load();
   const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); sheetRefresh?.load(); };
   $('error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
+  // XUAT-SO-01: nút Tải cả sổ; file và phép tự kiểm do máy chủ làm.
+  if (globalThis.XuatSo && $('export-books')) globalThis.XuatSo.create({ button: $('export-books'), status: $('export-status') });
   const button = $('refresh-data');
   if (globalThis.SheetRefresh) {
     sheetRefresh = globalThis.SheetRefresh.create({ node: $('updated-at'), button, onDone: () => load() });
