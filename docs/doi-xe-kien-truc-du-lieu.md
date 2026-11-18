@@ -1,6 +1,6 @@
 # Đội xe: bản đồ dữ liệu và kiến trúc (ĐỀ XUẤT)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026), chưa ai chốt. Viết sau khi người dùng nêu ngày 19/11/2026: không mang nguyên luồng và cách làm của Sheet lên web, vì như vậy thà dùng Sheet; phải hiểu toàn bộ dữ liệu nhà xe, mối liên hệ, cách quản lý và tác động tạo ra được. Tài liệu này không thay [`CHI-PHI-XE-01`](decisions/chi-phi-xe-01.md) hay [`DOI-XE-THU-01`](decisions/doi-xe-thu-01.md); điểm nào đổi hướng thì nằm ở mục [Cần người dùng chốt](#cần-người-dùng-chốt).
+Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026). Riêng điểm xương sống (chặng sinh từ booking, điều xe phân công trên web) người dùng ĐÃ CHỐT ngày 19/11/2026: [`DOI-XE-DIEU-DO-01`](decisions/doi-xe-dieu-do-01.md), [spec](../specs/doi-xe-dieu-do-01.md). Các điểm khác chưa ai chốt. Viết sau khi người dùng nêu ngày 19/11/2026: không mang nguyên luồng và cách làm của Sheet lên web, vì như vậy thà dùng Sheet; phải hiểu toàn bộ dữ liệu nhà xe, mối liên hệ, cách quản lý và tác động tạo ra được. Tài liệu này không thay [`CHI-PHI-XE-01`](decisions/chi-phi-xe-01.md) hay [`DOI-XE-THU-01`](decisions/doi-xe-thu-01.md); điểm nào đổi hướng thì nằm ở mục [Cần người dùng chốt](#cần-người-dùng-chốt).
 
 ## Kết luận ngắn
 
@@ -12,7 +12,7 @@ Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026), chưa ai chốt. Viết sa
 
 ## Doanh nghiệp vận hành thế nào
 
-Đội xe là công ty con, kéo container từ kho đóng hàng ở các tỉnh về cảng, chủ yếu cho HTH (cột công ty của bảng chuyến có 4 tên). Ngoài chặng chở hàng còn chặng phụ: chuyển cảng, trả rỗng, rút mooc, thả mooc. Một phần chuyến do xe thuê ngoài chạy.
+Đội xe là công ty con, kéo container từ kho đóng hàng ở các tỉnh về cảng, cho công ty mẹ HTH. Cột công ty của bảng chuyến là nhóm chủ xe (hai nhóm xe công ty, một nhà xe thuê ngoài, một nhóm chưa khai), không phải khách hàng. Ngoài chặng chở hàng còn chặng phụ: chuyển cảng, trả rỗng, rút mooc, thả mooc. Một phần chuyến do xe thuê ngoài chạy.
 
 Một lô hàng đi qua các bước sau, mỗi bước hiện là một file:
 
@@ -159,7 +159,7 @@ Ba khoản đầu là nơi tiền nằm. Cả ba cần cùng một nền: chặn
 | Thứ tự | Khối | Thay cho | Ra được gì ngay |
 | --- | --- | --- | --- |
 | 1 | **Trục chung:** phương tiện (cả mooc, chủ đứng tên), người, tuyến (km, định mức), đối tác. Kèm **giấy có hạn** | Hai danh sách xe, sheet hồ sơ giấy tờ | Danh sách giấy quá hạn và sắp hết hạn; hết gõ biển số |
-| 2 | **Điều độ:** chặng hàng sinh từ booking, điều xe phân công, thêm chặng phụ, trạng thái theo ngày | Phần chuyến của file điều xe; các bảng chuyến chép lại | Hết gõ lại chuyến; biết xe nào đang nằm |
+| 2 | **Điều độ** ([spec](../specs/doi-xe-dieu-do-01.md)): chặng hàng sinh từ booking, điều xe phân công, thêm chặng phụ, trạng thái theo ngày | Phần chuyến của file điều xe; các bảng chuyến chép lại | Hết gõ lại chuyến; biết xe nào đang nằm |
 | 3 | **Dầu và số đo:** lần đổ dầu, ODO, giờ máy phát, dầu khoán, công nợ nơi bán | Sheet dầu | Lít trên 100 km từng xe, lần đổ vượt khoán |
 | 4 | **Lãi lỗ bản đầu:** thu − chi chặng − dầu − lương chuyến, theo chặng, tuyến, xe | File lợi nhuận làm tay | Tuyến lỗ, xe lỗ, bằng số thật |
 | 5 | **Việc trên xe và định phí:** sửa chữa, lốp, bảo dưỡng theo km; trả góp, bảo hiểm; lương | Sheet sửa chữa; phần còn thiếu của lãi lỗ | Lãi lỗ đủ; hạn bảo dưỡng; dòng tiền phải trả |
@@ -174,7 +174,7 @@ Khác với phân kỳ cũ ở [spec đợt 1](../specs/chi-phi-xe-01.md#phân-k
 
 ## Cần người dùng chốt
 
-1. Có lấy **chặng sinh từ booking, điều xe phân công trên web** làm xương sống không? Việc này đổi mặc định 1 của đợt 1 và cần điều xe làm trên web hằng ngày. Web phải đọc thêm cột nhà xe của sheet booking.
+1. **ĐÃ CHỐT 19/11/2026** ([`DOI-XE-DIEU-DO-01`](decisions/doi-xe-dieu-do-01.md)): lấy chặng sinh từ booking, điều xe phân công trên web làm xương sống. Câu hỏi gốc: có lấy **chặng sinh từ booking, điều xe phân công trên web** làm xương sống không? Việc này đổi mặc định 1 của đợt 1 và cần điều xe làm trên web hằng ngày. Web phải đọc thêm cột nhà xe của sheet booking.
 2. Có đồng ý **thứ tự 5 khối** ở trên không, hay vẫn ưu tiên phần khác?
 3. **Phạm vi "nhà xe":** chỉ đội xe của công ty con, hay gồm cả công nợ phải trả các nhà xe ngoài mà HTH thuê (tháng 10 cột nhà xe của booking có 11 giá trị)? Hai việc này dùng chung danh mục nhưng là hai bài toán khác nhau.
 4. **Ai ghi tại nguồn:** đợt đầu văn phòng nhập thay tài xế như hiện nay; về sau tài xế có gửi ảnh ODO và phiếu chi qua điện thoại không?

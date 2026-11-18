@@ -22,7 +22,7 @@ B1, B2 (mỗi người nhập một tài khoản) và C4 (người nhập tự c
 - Khách còn mở của `SONG-SONG-03` (2): chủ nghiệp vụ xác định số phải thu trước F4.
 - Chép bản xuất chat Zalo lên `hao` để trang Chat Zalo có dữ liệu (`NHAC-NO-01`, sửa đổi ZALO-CHAT-01).
 - Bỏ đường export cũ khi Sheet xóa ba tab (sau khi đồng bộ chuyến đã đọc `CONT_NGUON` ổn định).
-- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy. Ngoại lệ do người dùng chốt 1/11/2026: group Zalo trên web ([`ZALO-GROUP-01`](docs/decisions/zalo-group-01.md)); 3/11/2026: chuyến theo nguồn booking ([`NGUON-CHUYEN-01`](docs/decisions/nguon-chuyen-01.md), bốn giai đoạn trong [spec](specs/v7-chuyen-theo-nguon.md)); 4/11/2026: máy tự đối soát ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md)).
+- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy. Ngoại lệ do người dùng chốt 1/11/2026: group Zalo trên web ([`ZALO-GROUP-01`](docs/decisions/zalo-group-01.md)); 3/11/2026: chuyến theo nguồn booking ([`NGUON-CHUYEN-01`](docs/decisions/nguon-chuyen-01.md), bốn giai đoạn trong [spec](specs/v7-chuyen-theo-nguon.md)); 4/11/2026: máy tự đối soát ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md)); 18/11/2026: module Đội xe ([`CHI-PHI-XE-01`](docs/decisions/chi-phi-xe-01.md), [`DOI-XE-THU-01`](docs/decisions/doi-xe-thu-01.md)); 19/11/2026: Đội xe đổi hướng, chặng sinh từ booking và điều xe phân công trên web ([`DOI-XE-DIEU-DO-01`](docs/decisions/doi-xe-dieu-do-01.md), [bản đồ dữ liệu](docs/doi-xe-kien-truc-du-lieu.md)).
 - Chủ sổ tự đi hết luồng đối soát trên `hao` ([spec](specs/v7-may-doi-soat.md)); khóa lại các tháng cũ đang để mở.
 
 Cập nhật bảng khi trạng thái đổi; lộ trình ở `docs/roadmap.md`, điều kiện khởi động ở `docs/song-song-checklist.md`.
