@@ -4,6 +4,10 @@
 ghi/hủy ứng, ghi/hủy đợt hoàn, khóa tháng. Mỗi lệnh kiểm thân JSON đủ chặt ở đây để DB không nhận chuỗi lạ (ép kiểu lỗi ở psql
 thành 503); hàm SQL kiểm lại lần nữa và giữ mọi luật tiền (ngày không sau hôm nay giờ VN, khóa tháng, mã yêu cầu chống ghi
 trùng). Đăng nhập và quyền như mọi route V7 (ACCESS-01): `handle` của `v7_ledger_api` giải danh tính trước khi gọi vào đây.
+
+DOI-XE-THU-01 (đợt 2): đọc bảng kê tháng (`/bang-ke`, file Excel `/bang-ke.xlsx`), bảng giá (`/bang-gia`), Lịch sử phần thu
+(`/bang-ke/lich-su`); ghi: gửi bảng kê, đối chiếu xong, điều chỉnh dòng, tiền về và hủy, giá cước tay, gắn tuyến, giá tuyến,
+tuyến, danh mục phát sinh.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ import json
 import re
 from urllib.parse import parse_qs
 
-from v7_api_tables import MAX_BIGINT
+from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int, valid_date
 
 PREFIX = "/api/v7/doixe"
@@ -53,7 +57,7 @@ def _text(value: object, limit: int, *, required: bool = False, code: str = "INV
     if value is None and not required:
         return
     if not isinstance(value, str) or len(value) > limit or any(ord(c) < 32 for c in value) or (required and not value.strip()):
-        bad(code, "Cần ghi lý do hủy." if code == "LY_DO_THIEU" else "Dữ liệu gửi không hợp lệ.")
+        bad(code, ERRORS[code][1] if code in ERRORS else "Dữ liệu gửi không hợp lệ.")
 
 
 def _money(value: object, *, nullable: bool = True) -> None:
@@ -175,6 +179,116 @@ def _check_khoa(body: dict) -> None:
         bad()
 
 
+# ---- DOI-XE-THU-01: đợt 2 (bảng kê HTH, bảng giá, tiền về). Bên nhận cố định ở SQL (một bên), không nhận từ client. ----
+SIGNED = re.compile(r"-?[1-9][0-9]{0,15}")
+PS_CODE = re.compile(r"[a-z_]{2,16}")
+TUYEN_LOAI = ("hang", "chuyen_cang", "tra_rong")
+PS_CACH = ("co_dinh", "theo_ngay", "theo_don_vi", "nhap_tay")
+
+
+def _month_body(value: object) -> None:
+    if not isinstance(value, str) or not MONTH.fullmatch(value) or not valid_date(value):
+        bad("INVALID_MONTH", "Tháng không hợp lệ.")
+
+
+def _count(value: object) -> None:
+    if type(value) is not int or not 0 <= value <= 999999:
+        bad()
+
+
+def _flag(value: object) -> None:
+    if type(value) is not bool:
+        bad()
+
+
+def _check_gui(body: dict) -> None:
+    _month_body(body["thang"])
+    _money(body["doi_vnd"], nullable=False)
+    _count(body["so_chang"])
+
+
+def _check_doi_chieu(body: dict) -> None:
+    _month_body(body["thang"])
+    _money(body["doi_vnd"], nullable=False)
+
+
+def _check_dieu_chinh(body: dict) -> None:
+    _id(body["dong_id"])
+    if not isinstance(body["so_tien_vnd"], str) or not SIGNED.fullmatch(body["so_tien_vnd"]):
+        bad("INVALID_VND", "Số tiền điều chỉnh phải là số nguyên VND khác 0.")
+    _text(body["ly_do"], 500)
+    if not isinstance(body["ly_do"], str) or not body["ly_do"].strip():
+        bad("LY_DO_DIEU_CHINH", "Cần ghi lý do điều chỉnh.")
+
+
+def _check_tien_ve(body: dict) -> None:
+    _month_body(body["thang"])
+    _date(body["ngay"])
+    _money(body["so_tien_vnd"], nullable=False)
+    if body["so_tien_vnd"] == "0":
+        bad("INVALID_VND", "Số tiền phải lớn hơn 0.")
+    _text(body.get("ghi_chu"), 500)
+
+
+def _check_cuoc(body: dict) -> None:
+    _id(body["chang_id"])
+    _money(body["truoc"])
+    _money(body["gia_tri"])
+
+
+def _check_gan_tuyen(body: dict) -> None:
+    _id(body["chang_id"])
+    _id(body["tuyen_id"], nullable=True)
+    _flag(body["nho"])
+
+
+def _check_gia(body: dict) -> None:
+    _id(body["tuyen_id"])
+    _date(body["tu_ngay"])
+    _money(body["gia_vnd"], nullable=False)
+    if body["gia_vnd"] == "0":
+        bad("INVALID_VND", "Giá phải lớn hơn 0.")
+
+
+def _check_tuyen(body: dict) -> None:
+    _id(body["tuyen_id"], nullable=True)
+    if body["loai"] not in TUYEN_LOAI:
+        bad()
+    _text(body["hang"], 60)
+    _text(body["di"], 100, required=True, code="TUYEN_THIEU")
+    _text(body["den"], 100)
+    names = body["ten_goc"]
+    if not isinstance(names, list) or len(names) > 50:
+        bad()
+    for item in names:
+        if not isinstance(item, dict) or set(item) != {"hang", "tinh"}:
+            bad()
+        _text(item["hang"], 120)
+        _text(item["tinh"], 120)
+    if "dang_dung" in body:
+        _flag(body["dang_dung"])
+    if body["tuyen_id"] is None:
+        if "gia_vnd" not in body or "tu_ngay" not in body:
+            bad()
+        _check_gia({"tuyen_id": 1, "tu_ngay": body["tu_ngay"], "gia_vnd": body["gia_vnd"]})
+    elif "gia_vnd" in body or "tu_ngay" in body:
+        bad()
+
+
+def _check_phat_sinh(body: dict) -> None:
+    if not isinstance(body["ma"], str) or not PS_CODE.fullmatch(body["ma"]) or body["cach"] not in PS_CACH or body["cot"] not in ("ps", "ghep"):
+        bad()
+    _text(body["ten"], 40, required=True)
+    _money(body["muc_vnd"])
+    _money(body["muc_them_vnd"])
+    _flag(body["chi_ho"])
+    names = body["ten_goc"]
+    if not isinstance(names, list) or not 1 <= len(names) <= 20:
+        bad("TEN_GOC_LA", "Cần ít nhất một tên đọc được trong ghi chú.")
+    for item in names:
+        _text(item, 40, required=True, code="TEN_GOC_LA")
+
+
 POST_HANDLERS = {
     CHANG_PATH: _write("luu_chang", {"rows"}, _check_rows),
     PREFIX + "/chang/sua": _write("sua_chang", {"chang_id", "cot", "truoc", "gia_tri"}, lambda b: (_id(b["chang_id"]), _cell(b))),
@@ -184,7 +298,22 @@ POST_HANDLERS = {
     PREFIX + "/hoan": _write("ghi_hoan", {"nguoi_id", "ngay", "so_tien_vnd", "dong_ids"}, _check_hoan),
     PREFIX + "/hoan/huy": _write("huy_hoan", {"dot_id", "ly_do"}, _check_huy("dot_id")),
     PREFIX + "/thang/khoa": _write("khoa_thang", {"thang", "khoa"}, _check_khoa),
+    # DOI-XE-THU-01
+    PREFIX + "/bang-ke/gui": _write("gui_bang_ke", {"thang", "doi_vnd", "so_chang"}, _check_gui),
+    PREFIX + "/bang-ke/doi-chieu": _write("doi_chieu_xong", {"thang", "doi_vnd"}, _check_doi_chieu),
+    PREFIX + "/bang-ke/dieu-chinh": _write("ghi_dieu_chinh_bk", {"dong_id", "so_tien_vnd", "ly_do"}, _check_dieu_chinh),
+    PREFIX + "/bang-ke/tien-ve": _write("ghi_tien_ve", {"thang", "ngay", "so_tien_vnd"}, _check_tien_ve, {"ghi_chu"}),
+    PREFIX + "/bang-ke/tien-ve/huy": _write("huy_tien_ve", {"tien_ve_id", "ly_do"}, _check_huy("tien_ve_id")),
+    PREFIX + "/thu/cuoc": _write("sua_cuoc", {"chang_id", "truoc", "gia_tri"}, _check_cuoc),
+    PREFIX + "/thu/tuyen": _write("gan_tuyen", {"chang_id", "tuyen_id", "nho"}, _check_gan_tuyen),
+    PREFIX + "/gia": _write("luu_gia", {"tuyen_id", "tu_ngay", "gia_vnd"}, _check_gia),
+    PREFIX + "/tuyen": _write("luu_tuyen", {"tuyen_id", "loai", "hang", "di", "den", "ten_goc"}, _check_tuyen,
+                              {"dang_dung", "gia_vnd", "tu_ngay"}),
+    PREFIX + "/phat-sinh": _write("luu_phat_sinh", {"ma", "ten", "cach", "muc_vnd", "muc_them_vnd", "chi_ho", "cot", "ten_goc"},
+                                  _check_phat_sinh),
 }
+# Tải Excel bảng kê (DOI-XE-THU-01): GET nhị phân, v7_ledger_api gửi file sau xác thực danh tính.
+XLSX_PATH = PREFIX + "/bang-ke.xlsx"
 
 
 def _query(parts_query: str, allowed: set[str]) -> dict[str, str]:
@@ -224,6 +353,15 @@ def parse_get(path: str, parts_query: str) -> tuple[str, dict]:
             bad()
         return "doixe_get_lich_su", {"nguoi": _positive(query["nguoi"]) if "nguoi" in query else None,
                                      "xe": _positive(query["xe"]) if "xe" in query else None}
+    if path in (PREFIX + "/bang-ke", XLSX_PATH):
+        query = _query(parts_query, {"thang"})
+        return "doixe_get_bang_ke", {"thang": _month(query.get("thang"))}
+    if path == PREFIX + "/bang-gia":
+        _query(parts_query, set())
+        return "doixe_get_bang_gia", {}
+    if path == PREFIX + "/bang-ke/lich-su":
+        _query(parts_query, set())
+        return "doixe_get_lich_su_thu", {}
     raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
 
 

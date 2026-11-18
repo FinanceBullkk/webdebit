@@ -16,6 +16,11 @@
 .dx-find{margin-left:auto;display:flex;align-items:center;gap:8px;height:40px;min-width:280px;padding:0 12px;border:1px solid #b9c3cf;border-radius:8px;background:#fff;color:var(--ink-2)}
 .dx-find input{flex:1;min-width:0;height:36px;border:0;outline:0;background:transparent;font-size:15px;color:var(--ink)}
 .dx-find:focus-within{outline:2px solid var(--accent-ink);outline-offset:-1px}
+/* Thẻ phần của đội xe (Người và xe · Bảng kê gửi HTH · Bảng giá), DOI-XE-THU-01 */
+.dx-man{display:flex;gap:4px;flex-wrap:wrap}
+.topbar .dx-man .dx-man-tab{display:inline-flex;align-items:center;min-height:40px;padding:0 14px;border:0;border-radius:8px;background:transparent;color:#33465c;font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+.topbar .dx-man .dx-man-tab:hover{background:#eef2f6;color:#16324f}
+.topbar .dx-man .dx-man-tab[aria-pressed=true],.topbar .dx-man .dx-man-tab[aria-current=page]{background:#e3ecf7;color:#16324f}
 .dx-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid var(--line);border-radius:6px;background:#fff;color:#16324f;cursor:pointer}
 .dx-icon:hover{background:#eef2f6}
 .dx-crumb{color:var(--ink-2)}

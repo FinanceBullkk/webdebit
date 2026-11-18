@@ -58,6 +58,7 @@ module.exports = [
         CongNoFormat: "readonly",
         DashboardModel: "readonly",
         DoiXeModel: "readonly",
+        DoiXeThuModel: "readonly",
         DebitNoteXlsx: "readonly",
         DebitNotePrint: "readonly",
         DebitNoteV4: "readonly",
