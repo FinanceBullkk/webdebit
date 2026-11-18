@@ -42,7 +42,7 @@ Kiểm thêm theo yêu cầu người dùng (18/11/2026), trên file tháng 9 v�
   - Cont mới: 10/20 lần thu đúng bằng số đã chi.
   - Neo: 59/94 lần thu cao hơn số tài xế được chi, không lần nào bằng nhau. Vậy neo là doanh thu, kèm một khoản chi cho tài xế.
   - Nổ máy phát, phí bãi Đồng An: không có dòng chi tương ứng, tức là doanh thu.
-- **Phí cảng không có trên debit.** Phí nâng (do tài xế trả, hoặc trả qua file điều xe) và phí hạ (file điều xe) là các khoản lớn, nhưng không nằm trên debit. Chưa biết công ty hàng trả lại riêng hay đội xe chịu luôn trong cước: CÒN MỞ (11).
+- **Phí cảng không có trên debit, vì đội xe chịu.** Phí nâng (do tài xế trả, hoặc trả qua file điều xe) và phí hạ (file điều xe) là các khoản lớn, không nằm trên debit. Người dùng chốt 18/11/2026: đội xe chịu các khoản này trong cước. Vậy đây là chi phí thật của chặng, không phải chi hộ.
 - **Xe Trần Hùng tính cùng giá cước với Tín Phát.** Trong 11 nhóm tuyến cả hai bên cùng chạy, 10 nhóm có cùng mức giá. Phát sinh thì có mức riêng. File điều xe trả phí cảng cho cả chặng của xe Trần Hùng. Chưa đủ để biết tiền cước của Trần Hùng đi qua mình hay không: CÒN MỞ (2).
 
 ## Mô hình dữ liệu (ĐỀ XUẤT)
@@ -117,4 +117,4 @@ Revert PR. Không có dữ liệu.
 8. ~~Tiền về trừ vào bảng kê cũ trước hay trừ đúng bảng kê?~~ Theo câu 4, tiền về gắn vào bảng kê tháng mà nó trả.
 9. Ba cột đối chiếu trống ở tháng 10: việc đối chiếu với công ty hàng đang làm ở đâu (Zalo, file khác)?
 10. Giá tính theo phần trăm làm tròn thế nào: tới nghìn đồng, hay tới đồng?
-11. Phí nâng và phí hạ cảng không có trên debit: công ty hàng trả lại riêng (chi hộ, có bảng kê chi hộ như cột "Chi hộ" của mẫu BK tháng 3–4), hay đội xe chịu luôn trong cước? Câu này đổi lãi lỗ rất nhiều, vì đây là khoản lớn.
+11. ĐÃ TRẢ LỜI 18/11/2026: phí nâng và phí hạ cảng do **đội xe chịu** trong cước. Ghi là dòng chi của chặng; người trả là tài xế hoặc người đi lệnh. Không đưa vào bảng kê.
