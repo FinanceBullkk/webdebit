@@ -15,7 +15,9 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.match(await page.locator('.sheet-detail').innerText(), /Lấy Sheet/);
   await shot('doi-chieu-sheet');
   await page.locator('.sheet-choice-actions button[data-sheet-decision="use_sheet"]').first().click();
-  await page.waitForFunction(() => document.querySelector('.sheet-detail')?.textContent.includes('Điểm đi'));
+  // CHO-GHI-01: chờ lệnh lấy Sheet có phản hồi và sổ đọc lại (khung mở sẵn cột lệch kế tiếp), không chờ chữ trên màn.
+  await settled(page);
+  assert.match(await page.locator('.sheet-detail').innerText(), /Điểm đi/);
   assert.equal(await page.locator('.sheet-detail').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Đóng');
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
@@ -220,7 +222,7 @@ test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Shee
   await page.locator('.price-unlock').click();
   assert.match(await page.locator('.lock-ask').innerText(), /Mở khóa tháng 8\/2026\?/);
   await page.locator('.lock-yes').click();
-  for (let i = 0; i < 100 && posts(world).at(-1)[0] !== '/api/v7/months/lock'; i++) await page.waitForTimeout(50);
+  await settled(page);
   const [lockPath, lockBody] = posts(world).at(-1);
   assert.deepEqual([lockPath, lockBody.month, lockBody.locked], ['/api/v7/months/lock', '2026-08-01', false]);
 }, world => {
