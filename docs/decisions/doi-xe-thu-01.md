@@ -28,4 +28,4 @@
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT phạm vi và luồng của đợt 2. ĐÃ CODE ở PR #491 (bảng, cách tính, chỗ Claude chọn khi bản bấm thử không nói: [spec, mục Cách tính khi code](../../specs/doi-xe-thu-01.md#cách-tính-khi-code-claude-18112026)). ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 ([nhật ký](../deploys/2026-11-18-doi-xe-thu.md)); chưa nạp tuyến, bảng giá hay dữ liệu tháng 10. Còn mở: bảng kê riêng cho xe Trần Hùng (tùy cước có đi qua đội xe không), ai ghi tiền về, đối chiếu với HTH đang làm ở đâu. Không cấp quyền nạp dữ liệu thật hay ghi Google Sheet.
+ĐÃ CHỐT phạm vi và luồng của đợt 2. ĐÃ CODE ở PR #491 (bảng, cách tính, chỗ Claude chọn khi bản bấm thử không nói: [spec, mục Cách tính khi code](../../specs/doi-xe-thu-01.md#cách-tính-khi-code-claude-18112026)). ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 ([nhật ký](../deploys/2026-11-18-doi-xe-thu.md)); bản thử tháng 10 (tuyến, giá, ghi chú phát sinh) nạp cùng ngày, chờ kế toán nghiệm thu. Còn mở: bảng kê riêng cho xe Trần Hùng (tùy cước có đi qua đội xe không), ai ghi tiền về, đối chiếu với HTH đang làm ở đâu. Không cấp quyền nạp dữ liệu thật hay ghi Google Sheet.
