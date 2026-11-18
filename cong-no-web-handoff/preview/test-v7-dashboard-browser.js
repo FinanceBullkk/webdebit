@@ -246,22 +246,22 @@ test('chưa có phần quá hạn (API debt lỗi) hay tìm khách lỗi: số t
 
 test('tên Sheet trên bảng; bấm tên hoặc dòng khách mở trang khách thẻ Tình hình (DASH-05)', async () => withDashboard({
   customers: [
-    { id: 1, name: 'AG -DỪA', display_name: 'AG LOGISTIC', commodity: 'Dừa', aliases: ['AG DU A'] },
-    { id: 2, name: 'Khách C', display_name: 'CHAU HAI THINH', commodity: 'Chuối', aliases: [] },
-    { id: 3, name: 'Khách K', display_name: 'CHAU HAI THINH', commodity: 'Chuối', aliases: [] },
+    { id: 1, name: 'MẪU -DỪA', display_name: 'MAU LOGISTIC', commodity: 'Dừa', aliases: ['MAU DU A'] },
+    { id: 2, name: 'Khách C', display_name: 'KHACH CHUNG TEN', commodity: 'Chuối', aliases: [] },
+    { id: 3, name: 'Khách K', display_name: 'KHACH CHUNG TEN', commodity: 'Chuối', aliases: [] },
   ],
 }, async page => {
-  await page.locator('#list .nm').getByText('AG LOGISTIC', { exact: true }).waitFor();
-  assert.equal(await page.locator('#list .nm').first().innerText(), 'CHAU HAI THINH · Chuối · sổ 2');
+  await page.locator('#list .nm').getByText('MAU LOGISTIC', { exact: true }).waitFor();
+  assert.equal(await page.locator('#list .nm').first().innerText(), 'KHACH CHUNG TEN · Chuối · sổ 2');
   assert.deepEqual(await page.locator('#list .who a').evaluateAll(links => links.map(link => link.getAttribute('href'))), [
     '/so-khach-v7-live.html?customer=2&the=tinh-hinh', '/so-khach-v7-live.html?customer=4&the=tinh-hinh',
     '/so-khach-v7-live.html?customer=5&the=tinh-hinh', '/so-khach-v7-live.html?customer=1&the=tinh-hinh']);
   // Ô chú thích khi focus bằng bàn phím: tên, mức rủi ro — lý do, số đồng còn nợ.
   await page.locator('#list .who a').first().focus();
   const tip = await page.locator('#tip > *').allTextContents();
-  assert.deepEqual(tip, ['CHAU HAI THINH · Chuối · sổ 2', 'Theo dõi — Nợ T8/2026 quá hạn · có trả 02/10', 'Còn nợ 1.250.000.000 đ', 'Bấm để mở Tình hình']);
-  await page.locator('#customer-search').fill('AG DU A');
-  assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');
+  assert.deepEqual(tip, ['KHACH CHUNG TEN · Chuối · sổ 2', 'Theo dõi — Nợ T8/2026 quá hạn · có trả 02/10', 'Còn nợ 1.250.000.000 đ', 'Bấm để mở Tình hình']);
+  await page.locator('#customer-search').fill('MAU DU A');
+  assert.equal(await page.locator('#customer-results a').innerText(), 'MAU LOGISTIC · Dừa');
   await page.locator('#customer-search').fill('');
   await page.locator('#list tr').nth(1).locator('.num.tot').click();
   await page.waitForURL(/\/so-khach-v7-live\.html\?customer=4&the=tinh-hinh$/);
@@ -461,6 +461,60 @@ test('PRESENCE-01: chấm màu cạnh khách đang có người mở sổ, vòng
   assert.equal(await page.locator('#list a[href*="customer=1&"] .presence-dot').getAttribute('aria-label'), 'Lan đang mở sổ này');
   const labels = await page.locator('.presence-avatar').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')));
   assert.deepEqual(labels, ['Lan · đang mở sổ Khách A, tháng 10/2026', 'Tuấn · đang mở sổ Khách C, tháng 9/2026']);
+}));
+
+// Đo 12/11/2026 trên hao ở 390px: thanh đầu trang cao cố định 53px, hàng người online xuống dòng đè lên chữ bên dưới; dải
+// menu 64px ăn 1/5 bề ngang. Điện thoại: chỉ còn nút ☰, thanh đầu trang cao theo nội dung, bấm ☰ bung đủ menu.
+test('điện thoại 390px: menu thu về nút ☰, năm người online nằm trong thanh đầu trang', async () => withDashboard({ people: ['Lan', 'Tuấn', 'Hà', 'Minh', 'Phúc']
+  .map((name, i) => ({ id: `p${i}`, name, color: i, page: 'tong-quan', customer_id: null, month: null, cell: null, pointer: null })) }, async page => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.strip .big-money').waitFor();
+  await page.waitForFunction(() => document.querySelectorAll('.presence-avatar').length === 5);
+  const box = selector => page.locator(selector).first().evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }; });
+  const [head, bar, h1, main, toggle] = await Promise.all(['.page-head.topbar', '.presence', '.page-head.topbar h1', 'main', '#nav-toggle'].map(box));
+  assert.ok(bar.bottom <= head.bottom && h1.left >= toggle.right, JSON.stringify({ head, bar, h1, toggle }));
+  assert.equal(main.left, 0);
+  assert.equal(await page.locator('.app-nav nav').isVisible(), false);
+  assert.equal(await noSideScroll(page), true);
+  // DIEN-THOAI-SEP-01: bảng khách chỉ Khách · Quá hạn · Còn nợ, số nằm trong màn (không phải vuốt ngang trong khung bảng);
+  // ba viên số cạnh Còn phải thu ghi chữ ngay.
+  await page.locator('#list tr').first().waitFor();
+  const table = await page.evaluate(() => {
+    const shown = el => getComputedStyle(el).display !== 'none';
+    const row = document.querySelector('#list tr');
+    return { cells: [...row.cells].filter(shown).map(td => td.className.split(' ')[0]), inside: row.querySelector('.tot').getBoundingClientRect().right <= innerWidth,
+      wrap: document.querySelector('.tbl-wrap').scrollWidth <= document.querySelector('.tbl-wrap').clientWidth };
+  });
+  assert.deepEqual(table, { cells: ['who', 'num', 'num', 'go'], inside: true, wrap: true });
+  assert.match((await page.locator('.owe-row .pill').first().innerText()).replace(/\s+/g, ' ').trim(), /^\d+ khách đang nợ$/);
+  await page.locator('#nav-toggle').click();
+  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 9);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  assert.equal(await page.locator('.dtable td.bar').first().isVisible(), true, 'màn rộng vẫn có thanh hạn trả');
+  await page.locator('#nav-toggle').click();
+  assert.deepEqual(await Promise.all([box('aside.app-nav'), box('main')]).then(([nav, m]) => [nav.width, m.left]), [76, 76]);
+}));
+
+// Thấy 18/11/2026 (ca thử nút Tải cả sổ): cả sổ chỉ 350.000 đ, toàn bộ còn trong hạn. Vạch Trong hạn rộng 100% cộng khối
+// Quá hạn tối thiểu 9.5em vượt bề ngang dải đầu, cả trang cuộn ngang ở 390px. Dữ liệu cũ toàn số tỷ nên không lộ.
+test('dải đầu toàn trong hạn, số nhỏ: khối Quá hạn nằm trong dải, không cuộn ngang ở 390px và 1280px', async () => withDashboard({
+  payload: { ...dashboard, receivable: { total_vnd: '350000', customers: 1 } },
+  debtPayload: { ...debt, receivable_vnd: '350000', customers: [],
+    due_tiers: debt.due_tiers.map(t => ({ ...t, receivable_vnd: t.tier === 'not_due' ? '350000' : '0' })),
+    summary: { overdue_vnd: '0', long_overdue_vnd: '0', overdue_customers: 0, high_customers: 0, high_overdue_vnd: '0' } },
+}, async page => {
+  await page.locator('.brk .late').waitFor();
+  const fits = () => page.evaluate(() => {
+    const box = el => el.getBoundingClientRect();
+    const brk = box(document.querySelector('.brk'));
+    const parts = [...document.querySelectorAll('.brk > div, .brk strong')].map(box);
+    return { inside: parts.every(r => r.left >= brk.left - 0.5 && r.right <= brk.right + 0.5), page: document.documentElement.scrollWidth <= innerWidth };
+  });
+  assert.deepEqual(await seen(page.locator('.brk > div')), ['Trong hạn 350.000 đ', 'Quá hạn 0 đ']);
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+    assert.deepEqual(await fits(), { inside: true, page: true }, `bề ngang ${width}px`);
+  }
 }));
 
 // Bố cục nhóm cũ thay bằng bảng bốn cột; các ca tải/lọc/trống/lỗi/mở sổ nằm trong test-viec-can-lam-table-browser.js.

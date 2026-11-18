@@ -25,6 +25,7 @@ Trên Sheet, phiếu thu nằm ngay trên dòng chuyến của tab khách: ô ng
 | Ngày thu sau hôm nay (`FUTURE_DATE`) | "Ngày thu sau hôm nay" | Sửa ngày trên Sheet; web chặn ngày tương lai |
 | Cùng tháng, web còn dòng thu sổ gốc không thấy trên Sheet (`SHEET_EDITED`) | "Sheet đã sửa phiếu thu tháng M: web A · Sheet B" | Xóa dòng thu sổ gốc cũ (lệnh có sẵn, [`XOA-THU-GOC-01`](../docs/decisions/xoa-thu-goc-01.md)); lần đọc sau phiếu Sheet thành `READY` |
 | Phiếu trùng dòng thu sổ gốc mà web đã xóa (`WEB_DELETED`) | "Web đã xóa khoản thu này, Sheet vẫn còn" | Người nhập xem Sheet; muốn trừ lại thì nhập phiếu tay |
+| Phiếu đã ghi từ đúng dòng Sheet này rồi bị hủy trên web (`WEB_VOIDED`, từ 10/11/2026) | "Phiếu ghi từ dòng này đã bị hủy trên web, Sheet vẫn còn. Máy không ghi lại." | Hủy đúng thì xóa dòng thu trên Sheet; muốn trừ lại thì nhập phiếu tay |
 | Đã có trên web (`MATCHED_LEGACY`, `MATCHED_WEB`) | Không hiện | — |
 | Tab khách có lỗi cấu trúc, hoặc tab không có khách web | Không hiện trên sổ | Admin sửa tab hoặc thêm tên phụ |
 
@@ -53,7 +54,8 @@ Theo từng khách (tab ↔ sổ như đường giá: tên hoặc tên phụ, b�
 2. **Ngày thu**: ô ngày (số sê-ri) hoặc `dd/mm/yyyy` ở đầu ô chữ (`.`/`-` cũng được), hoặc `yyyy-mm-dd`; không có thì `dd/mm/yyyy` đầu tiên nằm giữa ô chữ, không dính chữ số phía trước (từ 3/11/2026, kiểm Sheet thấy "DA TT 30/10/2026"; "22210/2026" vẫn là không ngày). Khác thì không có ngày. Người vẫn bấm xác nhận từng phiếu, khung xác nhận hiện ngày thu.
 3. Ghép **dòng thu sổ gốc** chưa xóa: cùng tháng khối, cùng số tiền, cùng chữ ngày thu (gộp khoảng trắng, không phân biệt hoa thường). Trùng dòng sổ gốc đã xóa thì `WEB_DELETED`.
 4. Ghép **phiếu web** chưa hủy: cùng số tiền, cùng ngày; rồi cùng số tiền lệch ngày ≤ 3 ngày (người nhập gõ ngày khác chút). Mỗi phiếu web chỉ ghép một lần.
-5. Còn lại: không ngày → `NO_DATE`; ngày sau hôm nay (giờ VN) → `FUTURE_DATE`; tháng khối có dòng thu sổ gốc chưa ghép ở bước 3 → `SHEET_EDITED`; còn lại `READY`.
+5. Còn lại, xét **phiếu web đã hủy** (từ 10/11/2026, [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md)): cùng số tiền và mang chứng từ do đường ghi từ Sheet đặt cho đúng dòng này ("Sheet: " + chữ ngày thu và cùng ngày; dòng không ngày thì tiền tố `Sheet #<dấu dòng>: `) → `WEB_VOIDED`. Mỗi phiếu hủy chỉ giữ một dòng. Phiếu nhập tay rồi hủy có chứng từ khác nên không giữ dòng nào; Sheet sửa số tiền, ngày hoặc ghi chú thì dòng thành việc mới.
+6. Còn lại: không ngày → `NO_DATE`; ngày sau hôm nay (giờ VN) → `FUTURE_DATE`; tháng khối có dòng thu sổ gốc chưa ghép ở bước 3 → `SHEET_EDITED`; còn lại `READY`.
 
 Hình thức phiếu: `THU TIỀN`. Chứng từ: "Sheet: " + chữ ngày thu trên Sheet (tối đa 500 ký tự).
 
@@ -66,7 +68,8 @@ Hình thức phiếu: `THU TIỀN`. Chứng từ: "Sheet: " + chữ ngày thu tr
 ## Hành vi và bất biến
 
 - Chỉ thêm phiếu thu; không sửa, không hủy phiếu có sẵn, không đụng chuyến.
-- Không ghi khi không chắc: không ngày, ngày tương lai, Sheet đã sửa phiếu cũ, web đã xóa, tab lỗi.
+- Không ghi khi không chắc: không ngày, ngày tương lai, Sheet đã sửa phiếu cũ, web đã xóa, phiếu ghi từ dòng đó đã bị hủy, tab lỗi.
+- Người hủy một phiếu ghi từ Sheet thì nút ghi lô lẫn máy đối soát đều không ghi lại dòng đó; ghi lại là việc của người (nhập tay), hoặc Sheet sửa dòng.
 - Một phiếu Sheet ghi tối đa một lần: lần đọc sau nó ghép với phiếu web vừa ghi.
 - Phân bổ theo nợ cũ trước như mọi phiếu (`V7-SO`); tháng trên Sheet không quyết định tháng phân bổ.
 - Phiếu thu không bị chặn bởi tháng khóa (như nhập tay).

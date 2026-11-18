@@ -11,10 +11,23 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 from v7_api_tables import BASE64, ERRORS, IMAGE_MARK, SQL
 from v7_api_validate import ApiError, no_duplicates, vnd
+
+# LUOI-AN-TOAN-01: câu đọc nền (read_only, máy canh) được chạy lâu hơn lệnh của người dùng (15 giây). Đo trên hao 18/11/2026
+# lúc API vừa khởi động lại: một sổ lớn mất 8 giây mở bằng get_ledger, cả phần sổ chứa nó 11 giây.
+READ_ONLY_STATEMENT_TIMEOUT = "60s"
+READ_ONLY_PROCESS_TIMEOUT = 90
+# XUAT-SO-01: bản xuất cả sổ đọc mọi sổ trong một giao dịch. Mỗi câu vẫn giới hạn như trên; cả lượt tối đa 5 phút
+# (lưới an toàn đo 23 giây cho get_ledger của 242 sổ trên hao, 18/11/2026).
+SNAPSHOT_PROCESS_TIMEOUT = 300
+SNAPSHOT_READS = frozenset({"get_dashboard", "get_dashboard_debt", "list_customers", "get_fee_types", "get_ledger_export"})
+_UNAVAILABLE = "Sổ tạm thời không truy cập được."
 
 
 def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[str]:
@@ -45,10 +58,87 @@ def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[
     return [binary] if check.returncode == 0 and check.stdout.strip() == "t|t" else ["psql"]
 
 
+def _feed(stream, text: str) -> None:
+    """Ghi lệnh vào stdin của psql ở luồng riêng: psql in kết quả trong lúc còn nhận lệnh mà không kẹt ống."""
+    try:
+        stream.write(text)
+        stream.close()
+    except (OSError, ValueError):
+        pass  # psql đã thoát (lỗi hoặc bị dừng): mã thoát của nó báo lỗi
+
+
 class _PsqlRunner:
+    def run(self, function: str, payload: dict, actor: str, *, read_only: bool = False) -> dict:
+        try:
+            return json.loads(self.run_text(function, payload, actor, read_only=read_only))
+        except ValueError as exc:
+            raise ApiError(
+                503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
+            ) from exc
+
+    def run_text(self, function: str, payload: dict, actor: str, *, read_only: bool = False) -> str:
+        """Chữ JSON hàm trả về, chưa phân tích (HIEU-NANG-01: bộ nhớ đọc giữ chữ, mỗi lượt `loads` một bản mới).
+
+        `read_only=True` (LUOI-AN-TOAN-01): giao dịch REPEATABLE READ READ ONLY, mọi câu trong hàm cùng một ảnh dữ liệu và
+        không ghi được gì.
+        """
+        return self._run_psql(self._argv(), function, payload, actor, read_only)
+
+    def run_snapshot(self, calls: list[tuple[str, dict]], actor: str, *,
+                     timeout: float = SNAPSHOT_PROCESS_TIMEOUT) -> Iterator[dict]:
+        """Nhiều hàm đọc trong MỘT giao dịch REPEATABLE READ READ ONLY (XUAT-SO-01): mọi kết quả cùng một ảnh dữ liệu.
+
+        Trả lần lượt kết quả từng hàm theo thứ tự `calls` (mỗi hàm một dòng JSON của psql), không giữ cả lượt trong bộ nhớ.
+        Chỉ nhận hàm trong SNAPSHOT_READS. Lỗi psql, hết giờ hay thiếu dòng thành DB_UNAVAILABLE ở cuối lượt, sau các kết quả đã
+        trả: người gọi bỏ cả lượt. Dừng đọc giữa chừng (đóng generator) thì psql bị dừng.
+        """
+        if not calls or any(function not in SNAPSHOT_READS for function, _ in calls):
+            raise ValueError("snapshot accepts read functions only")
+        statements, variables = [], []
+        for index, (function, payload) in enumerate(calls):
+            statements.append(SQL[function].replace(":'payload'", f":'p{index}'"))
+            variables += ["-v", f"p{index}=" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))]
+        sql = ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n"
+               f"SET LOCAL statement_timeout = '{READ_ONLY_STATEMENT_TIMEOUT}';\n"
+               "SET LOCAL sokhach.actor = :'actor';\n" + "\n".join(statements) + "\nCOMMIT;\n")
+        env = {**os.environ, "PGOPTIONS": "-c statement_timeout=15000 -c lock_timeout=12000"}
+        with tempfile.TemporaryFile() as errors:   # stderr ra file: ống đầy không chặn được psql
+            try:
+                process = subprocess.Popen(self._argv() + variables + ["-v", "actor=" + actor], stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8",
+                                           errors="replace", env=env)
+            except OSError as exc:
+                raise ApiError(503, "DB_UNAVAILABLE", _UNAVAILABLE) from exc
+            timer = threading.Timer(timeout, process.kill)
+            feeder = threading.Thread(target=_feed, args=(process.stdin, sql), daemon=True)
+            timer.start()
+            feeder.start()
+            count = 0
+            try:
+                for line in process.stdout:
+                    try:
+                        value = json.loads(line)
+                    except ValueError as exc:
+                        raise ApiError(503, "DB_UNAVAILABLE", _UNAVAILABLE) from exc
+                    count += 1
+                    yield value
+                process.wait()
+            finally:
+                timer.cancel()
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                process.stdout.close()
+                feeder.join(5)
+            if process.returncode or count != len(calls):
+                raise ApiError(503, "DB_UNAVAILABLE", _UNAVAILABLE)
+
+    def _argv(self) -> list[str]:
+        raise NotImplementedError
+
     def _run_psql(
-        self, argv: list[str], function: str, payload: dict, actor: str
-    ) -> dict:
+        self, argv: list[str], function: str, payload: dict, actor: str, read_only: bool = False
+    ) -> str:
         statement = SQL[function]
         if function == "attach_receipt_image":
             payload = dict(payload)
@@ -56,8 +146,13 @@ class _PsqlRunner:
             if not isinstance(image, str) or len(image) % 4 or not BASE64.fullmatch(image):
                 raise ApiError(422, "IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
             statement = statement.replace(IMAGE_MARK, image)
+        begin = "BEGIN;\n"
+        if read_only:
+            begin = ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n"
+                     f"SET LOCAL statement_timeout = '{READ_ONLY_STATEMENT_TIMEOUT}';\n")
         sql = (
-            "BEGIN;\nSET LOCAL sokhach.actor = :'actor';\n"
+            begin
+            + "SET LOCAL sokhach.actor = :'actor';\n"
             + statement
             + "\nCOMMIT;\n"
         )
@@ -78,18 +173,17 @@ class _PsqlRunner:
                 encoding="utf-8",
                 errors="replace",
                 capture_output=True,
-                timeout=25,
+                timeout=READ_ONLY_PROCESS_TIMEOUT if read_only else 25,
                 check=False,
                 env=env,
             )
         except subprocess.TimeoutExpired as exc:
+            reading = read_only or function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status", "preview_price_table")
             raise ApiError(
                 503,
-                "DB_UNAVAILABLE"
-                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status")
-                else "RESULT_UNKNOWN",
+                "DB_UNAVAILABLE" if reading else "RESULT_UNKNOWN",
                 "Sổ tạm thời không truy cập được."
-                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status")
+                if reading
                 else "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.",
             ) from exc
         except OSError as exc:
@@ -120,12 +214,7 @@ class _PsqlRunner:
                             pass
                 raise ApiError(status, match.group(1), message, extra)
             raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.")
-        try:
-            return json.loads(result.stdout.strip())
-        except ValueError as exc:
-            raise ApiError(
-                503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
-            ) from exc
+        return result.stdout.strip()
 
 
 class Psql(_PsqlRunner):
@@ -158,9 +247,8 @@ class Psql(_PsqlRunner):
             raise ValueError("target is not isolated V7 test container")
         self.container, self.database, self.user = info["Id"], database, user
 
-    def run(self, function: str, payload: dict, actor: str) -> dict:
-        return self._run_psql(
-            [
+    def _argv(self) -> list[str]:
+        return [
                 "docker",
                 "exec",
                 "-i",
@@ -180,11 +268,7 @@ class Psql(_PsqlRunner):
                 self.database,
                 "-f",
                 "-",
-            ],
-            function,
-            payload,
-            actor,
-        )
+            ]
 
 
 class PsqlDirect(_PsqlRunner):
@@ -256,8 +340,8 @@ class PsqlDirect(_PsqlRunner):
         if psql_command is None:
             self.psql_command = _real_psql(connect, check_sql, env)
 
-    def run(self, function: str, payload: dict, actor: str) -> dict:
-        return self._run_psql(
+    def _argv(self) -> list[str]:
+        return (
             self.psql_command
             + [
                 "-X",
@@ -274,8 +358,5 @@ class PsqlDirect(_PsqlRunner):
                 self.database,
                 "-f",
                 "-",
-            ],
-            function,
-            payload,
-            actor,
+            ]
         )

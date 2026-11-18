@@ -68,7 +68,7 @@ test('esc escapes the five HTML characters and blanks null', () => {
 });
 
 test('foldText keeps length and punctuation; fold collapses to search words', () => {
-  assert.equal(F.foldText('Nguyễn Hoàng Vũ · Đà Lạt'), 'nguyen hoang vu · da lat');
+  assert.equal(F.foldText('Nguyễn Kim Mẫu · Đà Lạt'), 'nguyen kim mau · da lat');
   assert.equal(F.foldText('Hoàng').length, 'Hoàng'.length);
   assert.equal(F.fold('  Sầu riêng · BỘ  '), 'sau rieng bo');
   assert.equal(F.fold(null), '');

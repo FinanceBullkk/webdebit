@@ -184,3 +184,5 @@ Lỗi mới: `INVALID_FIELD` (422), `LEGACY_NOT_FOUND` (422, "Không tìm thấy
 - Ngân sách diff: 2500 dòng
 - Lệnh kiểm: `py -3.13 -m unittest discover -s cong-no-web-handoff/tests`, `test_pg_v7_backend.py`, `test_pg_v7_grants.py --strict`, `rehearse_v7_deploy.py --strict`, `npm run check` (Docker một lần, `--network none`).
 - Cấm: sửa `preview/so-khach-v7-*.js` (giao diện làm sau), UPDATE/DELETE bảng bất biến, chạm `hao`/DB thật, `captures/`, thêm dependency.
+
+<!-- du-lieu-gia: 5.000.000 60.000.000 65.000.000 70.000.000 93.000.000 -->

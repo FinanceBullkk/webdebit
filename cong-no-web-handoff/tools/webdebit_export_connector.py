@@ -183,7 +183,7 @@ def _road_text(value: Any) -> str:
 def _road_container(value: Any) -> str:
     """Số cont CONT_BO; số 0 gõ nhầm trong 4 chữ cái đầu (mã chủ cont ISO 6346 chỉ có chữ) thành chữ O.
 
-    Kiểm Sheet 3/11/2026: "BM0U9231830" ở CONT_BO là BMOU9231830 trên tab khách, nên chuyến không ghép được tab nào.
+    Kiểm Sheet 3/11/2026 (mã giả thay mã thật): "MA0U5500006" ở CONT_BO là MAOU5500006 trên tab khách, nên chuyến không ghép được tab nào.
     Chỉ sửa ở chuyến bộ (chưa có chuyến bộ nào lên web với mã gõ nhầm); số đuôi và mã khác giữ nguyên.
     """
     container = normalize_container(_road_text(value))

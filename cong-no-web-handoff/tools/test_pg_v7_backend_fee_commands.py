@@ -1,8 +1,10 @@
 """PR-B behavior; run only through disposable test_pg_v7_backend.py harness."""
 import json
+import re
 
 from pg_v7_harness import (
     KHOA_CHU_MIGRATION,
+    KIEM_TAB_MIGRATION,
     ROOT,
     actor_sql,
     call,
@@ -102,7 +104,11 @@ def check_fee_catalog(pg):
     other = int(pg.value("SELECT id FROM sokhach.fee_type WHERE system_key='other'"))
     call(pg, "set_book_fee_columns", c, 0, "columns", json.dumps([other, ft]))
     require([x["fee_type_id"] for x in call(pg, "get_ledger", c)["fee_columns"]] == [other, ft], "column order")
-    reject_call(pg, "set_book_fee_columns", c, version(pg, c), "four-columns", "[1,2,3,4]", error="FEE_COLUMNS_MAX")
+    # COT-PHU-PHI-01: không giới hạn số cột; bảy loại mặc định cộng thêm loại tự tạo.
+    defaults = [int(x) for x in pg.value("SELECT string_agg(id::text,',' ORDER BY default_position) FROM sokhach.fee_type WHERE default_position IS NOT NULL").split(",")]
+    require(len(defaults) == 7, "seven default columns")
+    call(pg, "set_book_fee_columns", c, version(pg, c), "many-columns", json.dumps(defaults + [ft]))
+    require([x["fee_type_id"] for x in call(pg, "get_ledger", c)["fee_columns"]] == defaults + [ft], "many columns")
     reject_call(pg, "set_book_fee_columns", c, version(pg, c), "duplicate-columns", json.dumps([ft, ft]), error="INVALID_COMMAND")
     for name, value in (("rename_fee_type", "SYSTEM"), ("set_fee_type_kind", "pass_through"), ("set_fee_type_active", False)):
         reject_call(pg, name, "system-" + name, other, value, error="FEE_TYPE_SYSTEM")
@@ -132,6 +138,15 @@ def check_fee_catalog(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql").read_text(encoding="utf-8"))  # paste_trips hiện hành (1/11)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql").read_text(encoding="utf-8"))  # chan-trung trả list_legacy_trip_refs cũ
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql").read_text(encoding="utf-8"))  # p2 trả get_ledger cũ; MO-SO-NHANH-02 trả về bản hiện hành
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql").read_text(encoding="utf-8"))  # ledger-events xóa cấu hình hàm; MO-SO-NHANH-03 tắt lại JIT
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau KHOA-CHU-01
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql").read_text(encoding="utf-8"))  # bang-gia trả save_price_table cũ; BANG-GIA-02 trả về bản 5/11
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql").read_text(encoding="utf-8"))
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql").read_text(encoding="utf-8"))  # BANG-GIA-04 thay _lookup_price, save_price_table
+    # PR-B trả set_book_fee_columns bản giới hạn 3 cột; COT-PHU-PHI-01 trả về bản hiện hành. Chỉ chạy lại hàm đó, không đặt lại
+    # cột của các sổ thử mà case sau còn dùng.
+    cot = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-cot-phu-phi-mac-dinh.sql").read_text(encoding="utf-8")
+    block = re.search(r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\.set_book_fee_columns\(.*?\$\$;", cot).group()
+    pg.sql(f"BEGIN; SET LOCAL ROLE sokhach_owner; {block} COMMIT;")
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")

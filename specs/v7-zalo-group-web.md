@@ -252,3 +252,5 @@ Kiểm ở API trước khi gọi DB: `amount_vnd` là số nguyên dương (VND
 
 - CÒN MỞ: một group thường ứng với một khách hay nhiều khách? Thiết kế cho phép cả hai (gắn nhiều sổ); hỏi lại người dùng khi nghiệm thu.
 - ĐÃ CHỐT ở G5 (1/11/2026): đẩy tự động theo lịch, 15 phút một lần khi máy có Zalo đang bật.
+
+<!-- du-lieu-gia: 50.000.000 -->

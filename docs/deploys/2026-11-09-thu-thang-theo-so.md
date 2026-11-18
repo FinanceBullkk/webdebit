@@ -27,7 +27,7 @@ Dump (sha256 `0033fc8e…`), restore vào DB tạm trên `hao`, migration hai l�
 
 - Dừng timer `v7-reconcile-auto` và API, không còn kết nối vào DB. Dấu vân tay, dump kèm hash (`b76b4ddb…`), đọc lại được (34 bảng).
 - Áp migration với `ON_ERROR_STOP`: 91 ms, một `COMMIT`. Catalog sau áp trùng bản thử.
-- **Đối soát tổng khách: dấu vân tay không đổi**; 239 sổ, tổng 63.301.848.356 đ, 10.052 event. Checker 9/9.
+- **Đối soát tổng khách: dấu vân tay không đổi**; 239 sổ, 10.052 event. Checker 9/9.
 - Trên DB thật: mọi trường cũ trùng từng byte; 13 sổ có thu hoặc phát sinh tháng này (5 sổ đã hết nợ), cộng đúng tổng, từng sổ bằng `get_ledger`.
 - Bật lại API và timer: `active`, loopback 403 (sống). API gián đoạn 21 giây.
 

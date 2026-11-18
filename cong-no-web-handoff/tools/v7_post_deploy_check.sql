@@ -40,7 +40,7 @@ DECLARE
       'delete_trip(bigint,bigint,text,bigint)',
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
-      'get_ledger(bigint)', 'get_ledger_events(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)',
+      'get_ledger(bigint)', 'get_ledger_events(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_read_stamp()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)',
       'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
@@ -66,15 +66,17 @@ DECLARE
       'attach_receipt_image(bigint,bigint,text,text,text,bytea)', 'remove_receipt_image(bigint,bigint,text,bigint,text)',
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
+      'preview_price_table(bigint,bigint,text,jsonb)',
       'get_price_table(bigint)', 'get_price_status(bigint)',
-      'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)', 'get_activity(date)',
+      'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)', 'get_trip_month(date)', 'get_activity(date)',
       'link_zalo(text,bigint)', 'unlink_zalo(text,bigint,text)', 'get_zalo_links()',
-      'record_mark(jsonb)', 'cancel_mark(bigint,text)', 'get_marks(bigint,text)'];
+      'record_mark(jsonb)', 'cancel_mark(bigint,text)', 'get_marks(bigint,text)',
+      'get_safety_net(jsonb)'];  -- LUOI-AN-TOAN-01: máy canh, chỉ app
     actual text[];
     expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
-      'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
+      'get_dashboard()', 'get_dashboard_debt()', 'get_read_stamp()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
-      'get_price_table(bigint)', 'get_price_status(bigint)', 'get_reminders()', 'get_receipt_book(date)', 'get_zalo_links()', 'get_marks(bigint,text)'];
+      'get_price_table(bigint)', 'get_price_status(bigint)', 'get_reminders()', 'get_receipt_book(date)', 'get_trip_month(date)', 'get_zalo_links()', 'get_marks(bigint,text)'];
     denied text[] := ARRAY['_sync_trip_fee(bigint,bigint)', '_compat_trip_fee(bigint,bigint,bigint,bigint)',
       '_guard_fee_line()', '_fee_cache_check()', 'v7_fee_migration_dry_run()',
       '_fee_lines(bigint,bigint)', '_fee_columns(bigint)', '_ledger_events(bigint)', '_fee_target(bigint,jsonb)',
@@ -83,7 +85,8 @@ DECLARE
       '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)',
       '_guard_receipt_image()', '_receipt_image_matches(text,bigint)',
       '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)', '_legacy_date(text)', '_legacy_pay_date(text)',
-      '_legacy_undated_match(text,date)', '_mark_json(sokhach.contact_mark,date)'];
+      '_legacy_undated_match(text,date)', '_mark_json(sokhach.contact_mark,date)',
+      '_safety_fingerprints()', '_safety_events(bigint,interval)'];
     wanted text;
     n bigint;
 BEGIN

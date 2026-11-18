@@ -9,12 +9,16 @@ Mỗi lượt: tải bản xlsx sổ gốc (chỉ đọc), làm sạch đúng nh
 một tổ hợp việc đang chờ (phiếu thu, giá) đưa tổng web về tổng Sheet tới từng đồng, tổng và việc đều lấy từ cùng bản tải. Khách có
 trên Sheet mà chưa có sổ web thì tạo sổ khi đủ điều kiện (MAY-TAO-SO-01). Không có --fix thì chỉ báo sẽ ghi gì. Kết quả ghi vào reconcile.json (mode 600, có tên khách và số tiền) để API hiện ở Việc cần làm; bản tải
 và bản làm sạch xóa ngay sau lượt. Stdout chỉ có số đếm, không có tên khách hay số tiền.
+
+Mỗi lượt cũng kiểm tab TONG có cộng đủ các tab khách không (KIEM-TONG-01), bằng đúng phép so của audit chuyển hẳn. Chỉ báo, không ghi.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
+import functools
 import json
 import os
 import re
@@ -22,11 +26,14 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import sheet_sync_runner
+import v7_booking_check as booking_check
+import v7_cutover_audit as audit
 import v7_export_clean as clean
 import v7_load_real_copy as loader
 import v7_price_snapshot as snapshots
@@ -241,10 +248,16 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     if total == sheet:   # ai đó vừa sửa sau lúc đọc
         row.update(status="KHOP", reason="KHOP")
         return
+    health = fix.customer_health(prices, ledger, customers)
+    if health["status"] == "broken":   # KIEM-TAB-01: tab có phát hiện (vd. tiền lệch một dòng) thì máy không ghi gì, như khách bị giữ
+        row.update(reason="HELD", held_reasons=dict(Counter(str(finding["kind"]).upper() for finding in health["findings"])))
+        return
     groups, ahead, shuffled = fix.plan(prices, receipts, ledger, customers, today)
     row["web_ahead_vnd"] = ahead
     if shuffled:
         row["shuffled_months"] = shuffled
+    if ahead:
+        attach_ahead_check(row, ledger, prices, customers, today)
     target = sheet + ahead
     if total == target:
         row.update(reason="WEB_AHEAD", groups=[brief(group, []) for group in groups])
@@ -262,7 +275,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     trace.stage("ghi")
     trace.customer(customer_id, writing=True)
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)
@@ -286,17 +299,91 @@ def attach_hints(row: dict[str, Any], ledger: dict, prices: dict, receipts: dict
     except Exception as exc:  # noqa: BLE001
         print(f"V7 đối soát máy: không đoán được lý do lệch ({type(exc).__name__})", file=sys.stderr, flush=True)
         return
-    if found:
-        row.update(hints=[hints.money_fields(hint) for hint in found], hints_explain=explained,
+    if found:   # chuyến đi trước cần xem (nếu có) đứng sau các chỗ gây lệch
+        row.update(hints=[*(hints.money_fields(hint) for hint in found), *(row.get("hints") or [])], hints_explain=explained,
                    hints_basis={"version": ledger.get("version"), "prices_sha256": prices["sha256"],
                                 "receipts_sha256": receipts["sha256"],
                                 "web_total_vnd": str(row["web_total_vnd"]),
                                 "sheet_total_vnd": str(row["sheet_total_vnd"]) if row["sheet_total_vnd"] is not None else None})
 
 
+def attach_ahead_check(row: dict[str, Any], ledger: dict, prices: dict, customers: list[dict], today: dt.date) -> None:
+    """Chuyến web đi trước để lâu hoặc Sheet ghi ở tab sổ khác: thêm câu để người xem (MAY-DOI-SOAT-01, 10/11/2026). Không đổi phép
+    tính hay kết luận; lỗi ở đây không làm hỏng lượt."""
+    try:
+        found = fix.ahead_to_check(prices, ledger, customers, today)
+    except Exception as exc:  # noqa: BLE001
+        print(f"V7 đối soát máy: không xét được chuyến đi trước ({type(exc).__name__})", file=sys.stderr, flush=True)
+        return
+    if found:
+        row["hints"] = [hints.money_fields(hint) for hint in found]
+
+
+def count_sheet_fixes(db, results: list[dict[str, Any]], rows: list[dict], snapshots_of: Callable[[], tuple[dict, dict]]) -> None:
+    """Số chỗ khối "Sheet cần sửa" sẽ nêu cho mỗi khách HELD (`sheet_fix_count`), để bảng khách lệch có chip lọc và nhãn "· n chỗ" mà
+    không phải mở từng khách (specs/v7-sheet-can-sua.md, 3e). Cùng hàm với bảng đối chiếu nên số khớp số thẻ khi mở. Chỉ đọc; lỗi ở
+    đây chỉ bỏ số của khách đó, không làm hỏng lượt."""
+    held = [row for row in results if row.get("reason") == "HELD" and row.get("customer_id")]
+    if not held:
+        return
+    try:
+        prices, _ = snapshots_of()
+        mapping = customer_name_mapping()
+    except Exception as exc:  # noqa: BLE001  thiếu số chỗ không phải lý do bỏ cả lượt
+        print(f"V7 đối soát máy: chưa đếm được chỗ Sheet cần sửa ({failure_code(exc)})", file=sys.stderr, flush=True)
+        return
+    customers = [named_customer(row, mapping) for row in rows]
+    for row in held:
+        try:
+            ledger = db.run("get_ledger", {"customer_id": row["customer_id"]}, ACTOR)
+            row["sheet_fix_count"] = len(fix.sheet_findings(prices, ledger, customers, row)["findings"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"V7 đối soát máy: sổ {row['customer_id']} chưa đếm được chỗ Sheet cần sửa ({failure_code(exc)})", file=sys.stderr, flush=True)
+
+
 def money_fields(row: dict[str, Any]) -> dict[str, Any]:
     """Tiền ra file là chuỗi số nguyên chính xác, NULL giữ null (cùng hợp đồng với get_ledger)."""
     return {key: (str(value) if key.endswith("_vnd") and value is not None else value) for key, value in row.items()}
+
+
+def check_tong(xlsx: Path, results: list[dict[str, Any]], ids: dict[str, int], rows: list[dict],
+               sheet_snapshots: Callable[[], tuple[dict, dict]]) -> dict[str, Any]:
+    """Tab TONG có cộng đủ các tab khách không (KIEM-TONG-01): khối mới nhất của TONG so với từng sổ web bằng đúng phép so của audit
+    chuyển hẳn (`v7_cutover_audit.read_tong`, `audit_tong`). Chỉ báo: không đổi kết luận, không làm máy ghi; lỗi ở đây không làm hỏng lượt."""
+    try:
+        tong = audit.read_tong(xlsx)
+        if not tong["month"]:
+            return audit.audit_tong(tong, [], {}, {})   # không có tab TONG hoặc bố cục lạ: bỏ qua, khỏi dựng bản chụp
+        prices, receipts = sheet_snapshots()
+        mapping = customer_name_mapping()
+        known = {row["id"] for row in rows}
+        customers = [named_customer(row, mapping) for row in rows]
+        customers += [{"id": book, "name": name} for name, book in ids.items() if book not in known]   # sổ máy vừa tạo ở lượt này
+        names = {customer["id"]: customer["name"] for customer in customers}
+        # Phần web đi trước giải thích trọn chỗ lệch: như audit đọc reconcile.json, thêm khách máy vừa sửa ở lượt này mà còn phần đi trước.
+        ahead = {ids[row["customer"]]: row["web_ahead_vnd"] for row in results if row["customer"] in ids and row["status"] == "LECH_TONG"
+                 and row.get("web_ahead_vnd") and row.get("difference_vnd") == row["web_ahead_vnd"]}
+        books = []
+        for row in results:
+            book = ids.get(row["customer"])
+            if book is None or row.get("web_total_vnd") is None:
+                continue   # chưa có sổ web, hoặc chưa biết tổng web: không so
+            charge, paid = audit.sheet_months(book_rows(prices, book, customers), book_rows(receipts, book, customers))
+            books.append({"id": book, "name": names[book], "web_total_vnd": row["web_total_vnd"], "sheet_charge": charge, "sheet_paid": paid})
+        found = audit.audit_tong(tong, books, ahead, {})
+    except Exception as exc:  # noqa: BLE001
+        code = failure_code(exc)
+        print(f"V7 đối soát máy: không kiểm được tab TONG ({code})", file=sys.stderr, flush=True)
+        return {"month": None, "skipped": "ERROR", "error": code}
+    return {key: [money_fields(item) for item in value] if isinstance(value, list) else value for key, value in money_fields(found).items()}
+
+
+def tong_counts(tong: dict[str, Any]) -> dict[str, Any]:
+    """Số đếm của phép kiểm TONG cho sổ theo dõi và stdout: không tên khách, không số tiền."""
+    if not tong.get("month"):
+        return {key: tong[key] for key in ("skipped", "error") if key in tong}
+    return {"month": tong["month"], "matched": tong["matched"], "blank": len(tong["blank_on_tong"]), "differs": len(tong["differs"]),
+            "unknown_names": len(tong["unknown_names"])}
 
 
 def note_sheet_edits(args: argparse.Namespace, results: list[dict[str, Any]], downloaded_at: dt.datetime) -> dict[str, Any]:
@@ -322,10 +409,13 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
     today = downloaded_at.date()
     work_root = Path(args.work_dir)
     work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
+    # ExitStack đóng trước thư mục tạm: phép kiểm booking chạy song song phải xong khi bản tải còn đó.
+    with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder, contextlib.ExitStack() as stack:
         work = Path(folder)
         trace.stage("tai")
         xlsx = args.xlsx or download(args.spreadsheet_id, args.credentials, work / "sheet.xlsx")
+        # KIEM-BOOKING-01: Sheet sổ nợ so với booking, trên cùng bản tải. Chỉ đọc, file riêng; lỗi không làm hỏng lượt.
+        booking = stack.enter_context(booking_check.alongside(Path(xlsx), args.booking_output, args.snapshot, args.road, enabled=args.booking_check))
         db = PsqlDirect(args.socket_dir, args.database, args.db_user)
         rows = db.run("list_customers", {}, ACTOR).get("customers", [])
         trace.stage("sach")
@@ -340,12 +430,13 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         different = [row for row in results if row["status"] == "LECH_TONG"]
         too_many = len(different) > MAX_DIFFERENT
         trace.mark(books=len(results), counts={"KHOP": sum(row["status"] == "KHOP" for row in results)})
+        sheet_snapshots = functools.cache(lambda: snapshots.build_all(Path(xlsx)))   # dựng một lần cho cả lượt: tìm cách sửa và kiểm TONG
         if different:
             trace.stage("chot")
             trace.mark(too_many=too_many, different=len(different))
         if different and not too_many:
             trace.stage("tim", total=len(different))
-            prices, receipts = snapshots.build_all(Path(xlsx))
+            prices, receipts = sheet_snapshots()
             mapping = customer_name_mapping()
             customers = [named_customer(row, mapping) for row in rows]
             for row in different:
@@ -364,19 +455,22 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         if not too_many:
             create_new_books(db, [row for row in results if row["status"] == "CHI_CO_SHEET"], {rec.name(book["name"]): book for book in books},
                              seen, digest, ids, write=args.fix)
+        # Sau khi máy sửa và tạo sổ, để tổng web là tổng lúc lưu. Hơn 40 khách lệch thì phần đi trước chưa tính, số so không có nghĩa.
+        tong = {"month": None, "skipped": "TOO_MANY_DIFFERENT"} if too_many else check_tong(Path(xlsx), results, ids, rows, sheet_snapshots)
+        held_names = {item["name"]: item for item in held}
+        for row in results:
+            row["customer_id"] = ids.get(row["customer"])
+            if row["status"] == "LECH_TONG" and too_many:
+                row["reason"] = "TOO_MANY_DIFFERENT"
+            elif row["customer"] in held_names:
+                item = held_names[row["customer"]]
+                row.update(reason="HELD", held_reasons=item["reasons"])
+                if item["chain_break"]:
+                    row["hints"] = [hints.money_fields(item["chain_break"])]
+            elif row["status"] != "LECH_TONG":
+                row.setdefault("reason", row["status"])
+        count_sheet_fixes(db, results, rows, sheet_snapshots)   # còn trong `with`: bản chụp dựng từ bản tải ở thư mục tạm
     trace.stage("luu")
-    held_names = {item["name"]: item for item in held}
-    for row in results:
-        row["customer_id"] = ids.get(row["customer"])
-        if row["status"] == "LECH_TONG" and too_many:
-            row["reason"] = "TOO_MANY_DIFFERENT"
-        elif row["customer"] in held_names:
-            item = held_names[row["customer"]]
-            row.update(reason="HELD", held_reasons=item["reasons"])
-            if item["chain_break"]:
-                row["hints"] = [hints.money_fields(item["chain_break"])]
-        elif row["status"] != "LECH_TONG":
-            row.setdefault("reason", row["status"])
     edit_state = note_sheet_edits(args, results, downloaded_at)
     for row in results:
         if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS:
@@ -395,7 +489,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
-        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state,
+        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
     }
 
 
@@ -426,6 +520,8 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
     line["created"] = sum(row["reason"] == "BOOK_CREATED" for row in today)
     line["edit_log"] = result["edit_log"]["status"]
     line["editing"] = sum(bool(row.get("sheet_editing")) for row in result["customers"])
+    line["tong"] = tong_counts(result["tong"])
+    line["booking"] = result.get("booking")
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -444,7 +540,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", default="webdebit_v7")
     parser.add_argument("--db-user", default="v7_app")
     parser.add_argument("--fix", action="store_true", help="ghi tổ hợp đã chọn; không có thì chỉ báo")
+    parser.add_argument("--booking-output", type=Path, help="kết quả kiểm booking (KIEM-BOOKING-01); mặc định booking-check.json cạnh --output")
+    parser.add_argument("--snapshot", type=Path, default=Path(os.getenv("WEBDEBIT_SNAPSHOT_PATH") or booking_check.FOLDER / "snapshot.json"))
+    parser.add_argument("--road", type=Path, default=Path(os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH") or booking_check.FOLDER / "road.json"))
     args = parser.parse_args(argv)
+    args.booking_output = args.booking_output or args.output.with_name("booking-check.json")
+    args.booking_check = os.getenv("WEBDEBIT_BOOKING_CHECK", "on") != "off"   # tắt nhanh không cần release mới
     if not args.xlsx and (not args.spreadsheet_id or not args.credentials):
         parser.error("cần --xlsx, hoặc --spreadsheet-id và --credentials (biến môi trường của runner)")
     started = time.monotonic()
@@ -464,7 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
                       "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],
-                      "seconds": round(time.monotonic() - started)}))
+                      "tong": tong_counts(result["tong"]), "booking": result["booking"], "seconds": round(time.monotonic() - started)}))
     return 0
 
 

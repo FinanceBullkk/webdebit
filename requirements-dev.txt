@@ -4,4 +4,9 @@
 # nền tảng (Windows/Linux, x86_64/arm64), nên --require-hashes sẽ cần một danh
 # sách hash dài và phải sửa mỗi lần nâng cấp. Ghim đúng phiên bản là đủ: ruff
 # không chạy trong đường ghi tiền, nó chỉ đọc mã nguồn.
-ruff==0.17.3
+ruff==0.17.5
+# Sinh chuỗi lệnh ngẫu nhiên cho harness `cong-no-web-handoff/tools/test_pg_v7_fifo_ngau_nhien.py`
+# (specs/v7-fifo-ngau-nhien.md). Chỉ chạy trong container DB dùng một lần, không nằm trong đường ghi tiền;
+# mô hình tham chiếu và test đơn vị của nó không cần gói này.
+hypothesis==6.170.15
+sortedcontainers==2.4.0  # phụ thuộc duy nhất của hypothesis trên Python 3.11+, ghim cùng để lượt cài lặp lại được

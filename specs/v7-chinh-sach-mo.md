@@ -327,3 +327,5 @@ Mỗi điểm một câu. Trả lời "đồng ý" là chọn phương án khuy�
 3. **Nhập muộn, mở tháng (D07):** Vẫn ai cũng mở/khóa tháng được, nhưng mỗi lần mở/khóa ghi một dòng Lịch sử (đổi vế "mở/khóa không ghi Lịch sử" của `V7-SO`) — đồng ý không? *(Khuyến nghị: B.)*
 4. **Ai xem Lịch sử:** Ai mở được sổ thì xem được toàn bộ Lịch sử của sổ đó, xét lại khi có người chỉ xem — đồng ý không? *(Khuyến nghị: A.)*
 5. **Niêm phong bản nguồn (7.11c):** Giờ mốc, người dùng tải file xlsx và đặt tên phiên bản trên Google Sheet; web nhận danh mục khách và số dòng từ một bộ đếm thứ hai, thiếu khách hay thiếu dòng thì không kích hoạt — đồng ý không? *(Khuyến nghị: B.)*
+
+<!-- du-lieu-gia: 3.000.000 5.000.000 8.000.000 8.500.000 9.000.000 10.000.000 12.000.000 15.000.000 20.000.000 25.000.000 30.000.000 42.000.000 45.000.000 50.000.000 50.600.000 70.000.000 -->

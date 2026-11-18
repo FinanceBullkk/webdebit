@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload } = require('./so-khach-v7-browser-world');
+const { withPage, reload, settled } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không vỡ chữ, không ép cột container', async () => withPage(async ({ page, world, shot }) => {
@@ -21,7 +21,8 @@ test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không 
         controlsFit: controls.every(button => button.scrollWidth <= button.clientWidth && getComputedStyle(button).whiteSpace === 'nowrap'),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
-    assert.deepEqual(geometry, { rowHeight: 35, fullWidth: true, labelLines: 1, controlsFit: true, overflow: 0 });
+    // Dưới 760px hàng chuyến là hàng ba cột cao 48px (DIEN-THOAI-CHUYEN-01); dòng báo vẫn trải hết bảng.
+    assert.deepEqual(geometry, { rowHeight: width < 760 ? 48 : 35, fullWidth: true, labelLines: 1, controlsFit: true, overflow: 0 });
     await shot(`sheet-warning-${width}`);
   }
   await page.locator('.sheet-removed-next').click();
@@ -31,7 +32,9 @@ test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không 
   await page.locator('.delete-prompt .cancel-delete').click();
   await page.locator('.sheet-removed-keep').first().click();
   await page.waitForFunction(() => document.querySelectorAll('.sheet-removed-notice').length === 5);
+  await settled(page);
   assert.equal(world.requests.length, 1);
+  await settled(page);
   assert.equal(world.requests[0].path, '/api/v7/sheet/tasks/keep');
 }, world => {
   handoff(world);

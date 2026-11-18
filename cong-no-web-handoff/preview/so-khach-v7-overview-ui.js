@@ -159,7 +159,9 @@
     const on = ui.pin === item.key;
     const today = todayIso();
     const sub = item.key === today.slice(0, 7) ? `<small>đến ${dayMonth(today)}</small>` : '';
-    const name = `<span class="ov-name">${tag(item.key)}${sub}</span>`;
+    // Phần năm ("/2025") tách riêng để điện thoại ẩn đi, nhãn chỉ còn T12 (DIEN-THOAI-SEP-01).
+    const [month, year] = tag(item.key).split('/');
+    const name = `<span class="ov-name">${month}${year ? `<span class="ov-year">/${year}</span>` : ''}${sub}</span>`;
     const inner = `<span class="ov-plot">${plot}</span>${name}`;
     if (!item.present) return `<span class="ov-month off" title="${escape(`${tag(item.key)}: không có dòng`)}">${inner}</span>`;
     const label = `${tag(item.key)} — phát sinh ${full(item.chargesVnd ?? 0n)}, đã thu ${full(item.receivedVnd ?? 0n)}, còn nợ cuối tháng ${item.endVnd === null ? '–' : full(item.endVnd)}, `
@@ -190,8 +192,10 @@
     return [['Phát sinh', item.chargesVnd], ['Đã thu', item.receivedVnd], ['Còn nợ cuối tháng', item.endVnd]].map(([label, value]) => [label, value === null ? '—' : value])
       .concat([['Chuyến', view.counts.get(key)]]);
   }
+  // Màn cảm ứng không rê chuột được (điện thoại, DIEN-THOAI-SEP-01): chạm một tháng là ghim, khung số hiện ngay dưới biểu đồ.
+  const touchOnly = () => typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
   function pinBar() {
-    if (!ui.pin || !view.series.items.some(row => row.key === ui.pin && row.present)) return '<p class="ov-note">Rê chuột xem số, bấm một tháng để ghim</p>';
+    if (!ui.pin || !view.series.items.some(row => row.key === ui.pin && row.present)) return `<p class="ov-note">${touchOnly() ? 'Chạm một tháng để xem số' : 'Rê chuột xem số, bấm một tháng để ghim'}</p>`;
     const cells = figures(ui.pin).map(([label, value]) => `<span><small>${escape(label)}</small><b>${escape(typeof value === 'bigint' ? short(value) : String(value))}</b></span>`).join('');
     return `<div class="ov-pin" id="ov-pin"><strong>${escape(tag(ui.pin))}</strong>${cells}${button(`thang:${ui.pin}`, `Mở sổ ${tag(ui.pin)}`, '', 'ov-pin-open')}`
       + `<button type="button" class="ov-close" data-ui="unpin" aria-label="${escape(`Bỏ ghim ${tag(ui.pin)}`)}">${CLOSE}</button></div>`;

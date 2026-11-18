@@ -134,3 +134,5 @@ Giao diện (sau khi mockup được duyệt): kiểm trình duyệt ở 1280×7
 - Chứng cứ, tham chiếu chứng từ cho cấn trừ (D05/D06), ngoại tệ, tỷ giá.
 - Danh tính người thao tác (Q01).
 - Trang tổng các sổ: không đổi bố cục.
+
+<!-- du-lieu-gia: 5.000.000 20.000.000 30.000.000 50.000.000 60.000.000 70.000.000 100.000.000 120.000.000 -->

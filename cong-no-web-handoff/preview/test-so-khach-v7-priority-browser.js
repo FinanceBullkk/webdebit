@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload, viewMonth } = require('./so-khach-v7-browser-world');
+const { withPage, reload, viewMonth, settled } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuyến ở hai khổ desktop', async () => withPage(async ({ page, world, shot }) => {
@@ -57,24 +57,32 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
     assert.equal(warningColor, 'rgb(255, 243, 209)');
     await shot(`handoff-${width}`);
   }
+  await settled(page);
   assert.deepEqual(world.requests, [], 'xem và đổi cỡ không ghi tiền');
 }, handoff));
 
 test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu tuyến hàng kế', async () => withPage(async ({ page, world }) => {
   const origin = id => page.locator(`.route-cell .info-edit[data-id="${id}"][data-field="origin"]`);
+  // NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào; kiểm ô đang chọn trong một lượt của trang
+  // (locator.evaluate có thể bắt ô cũ vừa bị thay) — trang chọn lại đúng ô sau mỗi lần vẽ.
+  const focused = id => page.waitForFunction(selector => document.activeElement?.matches(selector),
+    `.route-cell .info-edit[data-id="${id}"][data-field="origin"]`, { timeout: 2000 }).then(() => true, () => false);
   await origin(11).click();
   await page.locator('.info-input').fill('Kho mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="origin"]')?.textContent === 'Kho mới');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.field, 'origin');
-  assert.equal(await origin(12).evaluate(node => node === document.activeElement), true);
+  assert.equal(await focused(12), true);
   await page.keyboard.press('ArrowUp');
-  assert.equal(await origin(11).evaluate(node => node === document.activeElement), true);
+  assert.equal(await focused(11), true);
   await page.locator('.route-cell [data-id="11"][data-field="destination"]').click();
   await page.locator('.info-input').fill('Cảng mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="destination"]')?.textContent === 'Cảng mới');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.field, 'destination');
+  await settled(page);
   assert.equal(world.requests.length, 2);
 }, handoff));
 
@@ -102,6 +110,7 @@ test('Thiếu giá: nền cả ô, nhập ngay trong ô với một viền focus
   }), { background: 'rgba(0, 0, 0, 0)', border: '0px', outline: '0px', cellOutline: '2px' });
   await shot('money-edit-fee');
   await page.keyboard.press('Escape');
+  await settled(page);
   assert.deepEqual(world.requests, []);
 }, handoff));
 
@@ -118,6 +127,7 @@ test('Ưu tiên: số API cạnh phiếu thu, trên cột chuyến; mỗi số t
   assert.equal(await page.locator('.month-chip .chip-end').count(), 0);
   assert.equal(await page.locator('.subtotal').innerText().then(text => text.includes('58.750.000')), true);
   assert.equal(await page.locator('.entry-open').count(), 1);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await shot('uu-tien-1280');
 }, world => {
@@ -136,6 +146,7 @@ test('Ưu tiên: giữ NULL và số âm từ API; mở menu và đổi khách b
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#customer-search').isVisible(), false);
   assert.equal(await page.locator('.customer-switch').evaluate(node => node === document.activeElement), true);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
   await page.locator('.nav-toggle').first().click();
@@ -151,6 +162,28 @@ test('Ưu tiên: 1265px có ba cột phí; màn hẹp chỉ cuộn ngang trong v
   }
   await shot('uu-tien-390');
 }, world => { world.feeColumns = [1, 2, 3]; }));
+
+// Đo 12/11/2026 trên hao ở 390px: khối tổng tháng xếp dọc nhưng flex-basis 420px thành chiều cao, Còn nợ cuối tháng cách
+// ba dòng trên ~250px; dải menu 76px ăn 1/5 bề ngang. Điện thoại: khối cao theo nội dung, menu chỉ còn nút ☰ ở đầu sổ.
+test('Ưu tiên: điện thoại 390px, khối tổng tháng không có khoảng trống, menu thu về nút ☰', async () => withPage(async ({ page }) => {
+  for (const width of [390, 900]) {
+    await page.setViewportSize({ width, height: 844 });
+    const gap = await page.evaluate(() => {
+      const stats = document.querySelector('.month-stats').getBoundingClientRect(), end = document.querySelector('.month-stats .month-end').getBoundingClientRect();
+      return { height: stats.height, below: stats.bottom - end.bottom };
+    });
+    assert.ok(gap.height < 260 && gap.below < 40, `${width}px ${JSON.stringify(gap)}`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const geo = await page.evaluate(() => {
+    const r = el => document.querySelector(el).getBoundingClientRect();
+    return { rail: r('.topbar').width, app: r('#app').left, who: r('.page-who').left, toggle: r('.topbar>.nav-toggle').right,
+      navShown: getComputedStyle(document.querySelector('.topbar>nav')).display !== 'none' };
+  });
+  assert.ok(geo.rail <= 60 && geo.app === 0 && geo.who >= geo.toggle && !geo.navShown, JSON.stringify(geo));
+  await page.locator('.nav-toggle').first().click();
+  assert.equal(await page.locator('.topbar>nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 9);
+}));
 
 // Dữ liệu giả cho danh sách phiếu: ô ngày Sheet lẫn chữ, phiếu chia ba tháng, phiếu máy đặt ngày có mã kỹ thuật.
 const HASH_REF = 'Sheet #' + '5bd3cb'.repeat(10) + ': da tt · ngày theo cuối tháng khối Sheet';
@@ -263,6 +296,42 @@ test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm,
   await page.waitForURL(/customer=1$/);
 }, world => {
   world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
+}));
+
+// Góp ý 13/11/2026 "mở sổ khách lúc load hiện UI cũ": trước khi JS dời ô tìm vào menu trái và dải "Tự cập nhật" vào thanh thẻ
+// Sổ, hai khối tĩnh trong HTML không được hiện thành băng ngang đầu trang — cả lúc JS đang tải lẫn lúc đang đọc sổ.
+test('Đang tải sổ: không hiện băng tìm khách và dải cập nhật kiểu cũ', async () => withPage(async ({ page }) => {
+  const url = page.url();
+  // Giữ file JS chính và GET sổ (cả GET đọc sớm ở đầu <head>) cho tới khi test thả từng cái.
+  const script = '**/so-khach-v7-ui.js', ledger = /\/api\/v7\/ledger\?/;
+  const held = { script: [], ledger: [] };
+  await page.route(script, route => (held.script ? held.script.push(route) : route.continue()));
+  await page.route(ledger, route => (held.ledger ? held.ledger.push(route) : route.continue()));
+  const release = async key => {
+    const routes = held[key] ?? [];
+    held[key] = null;
+    await Promise.all(routes.map(route => route.continue()));
+  };
+  const visible = () => page.evaluate(() => ['#customer-picker', '#live-controls'].filter(selector => {
+    const node = document.querySelector(selector);
+    return node && node.getClientRects().length > 0;
+  }));
+  try {
+    await page.goto(url, { waitUntil: 'commit' });
+    await page.waitForFunction(() => document.querySelector('#app') && document.styleSheets.length >= 10);
+    assert.deepEqual(await visible(), [], 'JS chưa tải: không có băng cũ');
+    await release('script');
+    await page.locator('#app > p[role="status"]').waitFor();
+    assert.equal(await page.locator('#app').innerText(), 'Đang đọc sổ khách…');
+    assert.deepEqual(await visible(), [], 'đang đọc sổ: không có băng cũ');
+  } finally {   // lỗi giữa chừng vẫn thả hết, không treo trình duyệt chung
+    await release('script');
+    await release('ledger');
+  }
+  await page.locator('.book-head').waitFor();
+  assert.equal(await page.locator('#app #live-controls').count(), 1, 'vẽ xong: dải cập nhật đã vào trong sổ, luật ẩn không còn áp');
+  await page.locator('.picker-open').click();
+  assert.equal(await page.locator('#customer-picker').evaluate(node => node.matches(':popover-open')), true, 'menu Tìm khách vẫn mở ô tìm');
 }));
 
 test('Sửa tham chiếu phiếu máy ghi: ô sửa không có mã, lưu vẫn giữ mã để máy nhận ra phiếu', async () => withPage(async ({ page }) => {

@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -82,6 +83,14 @@ class SummarizeTests(unittest.TestCase):
                                                   sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []}))
         self.assertEqual((broken["trips_new"], broken["road_new"]), (1, 0))
 
+    def test_closed_source_rows_are_not_counted(self):
+        # K3: dòng Sheet người đã "Đã xem, hết báo" không còn là việc; dòng khác vẫn đếm.
+        items = [{"sync_state": "NEW", "closed": True}, {"sync_state": "NEW", "closed": False},
+                 {"sync_state": "CONFLICT", "sync_reason": "AMBIGUOUS_MATCH", "closed": True},
+                 {"sync_state": "CONFLICT", "sync_reason": "AMBIGUOUS_MATCH"}]
+        book = v7_inbox.summarize(7, projection(sheet_sync={"items": items, "removed_items": []}))
+        self.assertEqual((book["trips_new"], book["trips_check"]), (1, {"count": 1, "reasons": {"AMBIGUOUS_MATCH": 1}}))
+
     def test_machine_price_rows_from_october_open_or_locked(self):
         prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
                   "review": [{"status": "MONTH_LOCKED", "month": "2026-10"}, {"status": "MONTH_LOCKED", "month": "2026-09"},
@@ -147,6 +156,23 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(view["sheet_at"], "2026-11-01T07:45:00+00:00")
         self.assertEqual(runner.calls.count("list_customers"), 1)          # hàm đọc dùng chung lấy một lần
 
+    def test_health_counts_rounds_with_failed_books_for_the_watchdog(self):
+        # CANH-BAO-01, bổ sung 18/11/2026: /healthz chỉ có số đếm; sổ lỗi phải lặp lượt liền mới đáng báo.
+        self.assertEqual(self.inbox.health(1000.0), {"state": "computing", "books": 0, "failed": 0, "failed_rounds": 0,
+                                                     "computed_age_seconds": None})
+        broken = Runner([1, 2, 5])   # sổ 5 lỗi đọc
+        self.inbox.refresh_all(broken)
+        self.assertEqual(self.inbox.health(self.inbox.computed_at + 30),
+                         {"state": "ready", "books": 3, "failed": 1, "failed_rounds": 1, "computed_age_seconds": 30})
+        self.inbox.refresh_all(broken)
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["failed_rounds"], 2)
+        self.inbox.refresh_all(Runner([1, 2]))   # tự lành: đếm lại từ đầu
+        health = self.inbox.health(self.inbox.computed_at)
+        self.assertEqual((health["failed"], health["failed_rounds"]), (0, 0))
+        self.paths[0].unlink()   # thiếu bản chụp
+        self.inbox.refresh_all(Runner([1, 2]))
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["state"], "unavailable")
+
     def test_dirty_book_recomputed_on_next_view(self):
         runner = Runner([1, 2])
         self.inbox.start(runner)
@@ -157,6 +183,91 @@ class InboxTests(unittest.TestCase):
         view = self.inbox.view(runner)
         self.assertFalse(view["refreshing"])
         self.assertEqual([b["customer_id"] for b in view["books"]], [2])
+
+    def test_dirty_books_are_recomputed_in_parallel(self):
+        # HIEU-NANG-01: ba sổ vừa ghi phải cùng vào get_ledger thì barrier mới mở; tính lần lượt sẽ hết giờ.
+        runner = Runner([1, 2, 3])
+        self.outputs[3] = projection()
+        self.inbox.start(runner)
+        wait_idle(self.inbox)
+        barrier = threading.Barrier(3, timeout=5)
+        plain = runner.run
+
+        def run(function, payload, actor):
+            if function == "get_ledger":
+                barrier.wait()
+            return plain(function, payload, actor)
+        runner.run = run
+        self.outputs[2] = projection(sheet_receipts={"ready": [{"amount_vnd": "9"}], "review": []})
+        self.inbox.mark_dirty(1, 2, 3)
+        view = self.inbox.view(runner)
+        self.assertFalse(barrier.broken)
+        self.assertEqual([b["customer_id"] for b in view["books"]], [1, 2])
+        self.assertEqual(self.inbox.dirty, set())
+
+    def test_two_views_at_once_recompute_dirty_books_once(self):
+        runner = Runner([1, 2])
+        self.inbox.start(runner)
+        wait_idle(self.inbox)
+        started, release = threading.Event(), threading.Event()
+        plain, ledgers = runner.run, []
+
+        def run(function, payload, actor):
+            if function == "get_ledger":
+                ledgers.append(payload["customer_id"])
+                started.set()
+                release.wait(5)
+            return plain(function, payload, actor)
+        runner.run = run
+        self.inbox.mark_dirty(1)
+        views = []
+        threads = [threading.Thread(target=lambda: views.append(self.inbox.view(runner))) for _ in range(2)]
+        threads[0].start()
+        self.assertTrue(started.wait(5))
+        threads[1].start()
+        time.sleep(0.05)   # lượt sau đã tới chỗ chờ
+        release.set()
+        for thread in threads:
+            thread.join(5)
+        self.assertEqual(ledgers, [1])
+        self.assertEqual(len(views), 2)
+
+    def test_book_written_again_while_recomputing_stays_dirty(self):
+        runner = Runner([1, 2])
+        self.inbox.start(runner)
+        wait_idle(self.inbox)
+        plain = runner.run
+
+        def run(function, payload, actor):
+            if function == "get_ledger":
+                self.inbox.mark_dirty(payload["customer_id"])   # lệnh ghi khác vào đúng sổ đang tính
+            return plain(function, payload, actor)
+        runner.run = run
+        self.inbox.mark_dirty(1)
+        self.inbox.view(runner)
+        self.assertEqual(self.inbox.dirty, {1})
+
+    def test_too_many_dirty_books_after_waiting_go_to_background(self):
+        runner = Runner(list(range(1, 9)))
+        self.outputs.update({n: projection() for n in range(3, 9)})
+        self.inbox.start(runner)
+        wait_idle(self.inbox)
+        self.inbox.mark_dirty(1)
+        real_lock, inbox = self.inbox.dirty_lock, self.inbox
+
+        class Grow:
+            """Trong lúc lượt này chờ khóa, nhiều sổ khác vừa được ghi."""
+            def __enter__(self):
+                inbox.mark_dirty(*range(1, 9))
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                return real_lock.__exit__(*exc)
+        self.inbox.dirty_lock = Grow()
+        with patch.object(self.inbox, "start", wraps=self.inbox.start) as start:
+            self.inbox.view(runner)
+        start.assert_called_once()
+        wait_idle(self.inbox)
 
     def test_new_snapshot_refreshes_once_settled_and_keeps_old_result(self):
         runner = Runner([1])

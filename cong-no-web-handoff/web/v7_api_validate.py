@@ -111,8 +111,6 @@ def validate_fee(function: str, body: dict) -> tuple[str, dict]:
         ids = body["fee_type_ids"]
         if type(ids) is not list or any(not positive_int(i) for i in ids) or len(set(ids)) != len(ids):
             bad()
-        if len(ids) > 3:
-            bad("FEE_COLUMNS_MAX", ERRORS["FEE_COLUMNS_MAX"][1])
     if "name" in required and (type(body["name"]) is not str or not body["name"].strip() or len(body["name"]) > 200):
         bad()
     if "kind" in required and body["kind"] not in ("service", "pass_through"):
@@ -260,7 +258,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if function == "review_trip" and (not isinstance(body.get("reason"), str) or not body["reason"].strip()):
         bad("REVIEW_REASON_REQUIRED", "Cần ghi lý do kết luận chuyến CHỜ KIỂM.")
     # Bảng giá: chỉ kiểm hình dạng; nội dung (ngày, giá, kho, chồng ngày) do save_price_table kiểm.
-    if function == "save_price_table" and type(body.get("price_table")) is not dict:
+    if function in ("save_price_table", "preview_price_table") and type(body.get("price_table")) is not dict:
         bad()
     if function == "apply_price_table":
         ids = body.get("trip_ids")

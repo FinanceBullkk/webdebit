@@ -499,7 +499,7 @@ test("NHAP-SHEET-01 cell edit: Sheet dates, money blank is unknown, container no
   assert.equal(model.parseCellEdit("container", " abcu 123 4567 "), "ABCU1234567");
   assert.equal(model.parseCellEdit("origin", "  Tiền Giang "), "Tiền Giang");
   assert.equal(model.parseCellEdit("carrier", ""), "");
-  assert.equal(model.parseCellEdit("shipper", "  TRUONG THINH PHAT "), "TRUONG THINH PHAT");
+  assert.equal(model.parseCellEdit("shipper", "  CHU HANG MAU SO 2 "), "CHU HANG MAU SO 2");
   assert.equal(model.parseCellEdit("shipper", ""), "");
   assert.throws(() => model.parseCellEdit("amount_vnd", "1"), /không được sửa/);
 });
@@ -598,8 +598,8 @@ test("DEBIT-NOTE-02 tháng 12/2025: 5 container, tóm tắt theo cảng, TOTAL D
   assert.equal(note.rows[0].place.text, "Dak Lak");   // DAKLAK chuẩn thành "Dak Lak"
   assert.equal(note.totalVnd, 409500000n);
   assert.equal(note.subtotalVnd, note.totalVnd);
-  assert.deepEqual(note.summary, [{ port: "Xiamen", containers: 4, lumpSumVnd: 310000000n, otherVnd: 15000000n },
-    { port: "Nansha", containers: 1, lumpSumVnd: 80000000n, otherVnd: 4500000n }]);
+  assert.deepEqual(note.summary, [{ port: "Xiamen", portCn: "厦门港", containers: 4, lumpSumVnd: 310000000n, otherVnd: 15000000n },
+    { port: "Nansha", portCn: "广州南沙港", containers: 1, lumpSumVnd: 80000000n, otherVnd: 4500000n }]);
   assert.deepEqual([note.lumpSumVnd, note.otherVnd, note.additionalVnd, note.containerCount], [390000000n, 19500000n, null, 5]);
   assert.deepEqual(note.feeColumns.map(fee => [fee.code, fee.totalVnd]), [["LUMP_SUM", 390000000n], ["OTHER", 19500000n]]);
   assert.deepEqual(note.excelColumns.map(fee => fee.code), ["LUMP_SUM", "STORAGE", "TRUCKING", "GENSET", "OVERSTAY", "HC_FEE", "CANCELLATION", "AMENDMENT", "OTHER"]);
@@ -636,10 +636,10 @@ test("DEBIT-NOTE-02 tháng 8/2026: 99 container + 1 dòng phí hủy không đá
 });
 
 test("DEBIT-NOTE-02 số container ISO 6346, số bằng chữ, mã loại phí, chuẩn tên nơi, tỷ giá", () => {
-  assert.deepEqual(model.containerCheck("csqu 3054383"), { id: "CSQU3054383", valid: true, reason: null, expected: 3 });
-  assert.equal(model.containerCheck("CSQU3054384").reason, "check");
-  assert.equal(model.containerCheck("BM0U9231830").reason, "format");
-  assert.equal(model.containerCheck("35C-10331").valid, false);
+  assert.deepEqual(model.containerCheck("mauu 5500008"), { id: "MAUU5500008", valid: true, reason: null, expected: 8 });
+  assert.equal(model.containerCheck("MAUU5500009").reason, "check");
+  assert.equal(model.containerCheck("MA0U5500006").reason, "format");
+  assert.equal(model.containerCheck("51C-12345").valid, false);
   assert.equal(model.vndInWords(12019000001n), "SAY VIETNAM DONG TWELVE BILLION NINETEEN MILLION ONE ONLY");
   assert.equal(model.vndInWords(21n), "SAY VIETNAM DONG TWENTY-ONE ONLY");
   assert.equal(model.vndInWords(0n), "SAY VIETNAM DONG ZERO ONLY");
@@ -647,8 +647,48 @@ test("DEBIT-NOTE-02 số container ISO 6346, số bằng chữ, mã loại phí,
   assert.deepEqual(dnFeeTypes.map(type => model.dnFeeCode(type.name)), ["OVERSTAY", "GENSET", "TRUCKING", "INSURANCE", "INSPECTION", "HC_FEE", "OTHER", "DISCOUNT",
     "OTHER", "STORAGE", "CANCELLATION"]);
   assert.equal(model.dnFeeCode("Nâng hạ"), "OTHER");
-  assert.deepEqual(model.dnPlace("GIA LAI + DAKLAK", model.DN_PLACES), { text: "Gia Lai + Dak Lak", known: true });
-  assert.deepEqual(model.dnPlace("KHO MOI", model.DN_PLACES), { text: "Kho Moi", known: false });
+  assert.deepEqual(model.dnPlace("GIA LAI + DAKLAK", model.DN_PLACES), { text: "Gia Lai + Dak Lak", cn: "嘉莱省 + 多乐省", known: true });
+  assert.deepEqual(model.dnPlace("KHO MOI", model.DN_PLACES), { text: "Kho Moi", cn: "", known: false });
+});
+
+test("DIA-DIEM-01: tên tiếng Trung của nơi đóng hàng, cảng đến và cửa khẩu theo cách ghi thật trên Sheet", () => {
+  const place = raw => model.dnPlace(raw, model.DN_PLACES);
+  const port = raw => model.dnPlace(raw, model.DN_PORTS);
+  // Tỉnh, huyện viết đủ: có trong danh mục, không còn cảnh báo.
+  assert.deepEqual(place("PHAN THIET"), { text: "Phan Thiet", cn: "平顺省潘切市", known: true });
+  assert.deepEqual(place("TIEN GIANG"), { text: "Tien Giang", cn: "前江省", known: true });
+  assert.deepEqual(place("CỦ CHI"), { text: "Cu Chi", cn: "胡志明市古芝县", known: true });
+  // Tên kho: giữ chữ gốc, ngoài danh mục, nhưng kèm tên Trung của địa danh ở đầu/cuối tên.
+  assert.deepEqual(place("KIM CƯƠNG TB"), { text: "Kim Cương Tb", cn: "同奈省壮奔县", known: false });
+  assert.equal(place("A TẮC - Đ.QUÁN 119").cn, "同奈省定贯县");
+  assert.equal(place("LÂM THUẬN 3 - ĐQ").cn, "同奈省定贯县");
+  assert.equal(place("CỬU LONG - BẾN TRE").cn, "槟椥省");
+  assert.equal(place("FARM 3 DẦU TIẾNG BD").cn, "平阳省油汀县");
+  assert.equal(place("KRÔNG PẮC-DAK LAK").cn, "多乐省克容帕县");
+  assert.equal(place("BUÔN HỒ - DAKLAK").cn, "多乐省");
+  assert.equal(place("TÂY NINH 2").cn, "西宁省");
+  assert.equal(place("CÙ BỊ - VŨNG TÀU").cn, "巴地头顿省");
+  assert.equal(place("T&T LA + CỬU LONG BT").cn, "隆安省");   // BT vừa là Bến Tre vừa là Bình Thuận: không đoán
+  // Địa danh nằm giữa tên công ty, hoặc không có địa danh: không có tên Trung.
+  assert.equal(place("KHO BINH THUAN PHAT").cn, "");
+  assert.equal(place("HƯNG THỊNH").cn, "");
+  assert.equal(place("—").cn, "");
+  // Cảng đến.
+  assert.deepEqual(port("SHANGHAI"), { text: "Shanghai", cn: "上海港", known: true });
+  assert.deepEqual(port("QINGDAO "), { text: "Qingdao", cn: "青岛港", known: true });
+  assert.deepEqual(port("HONGKONG"), { text: "Hong Kong", cn: "香港", known: true });
+  assert.deepEqual(port("KAOHSIUNG - TAIWAN"), { text: "Kaohsiung", cn: "高雄港", known: true });
+  assert.deepEqual(port("N-PORT KLANG"), { text: "Port Klang North Port", cn: "巴生北港", known: true });
+  assert.deepEqual(port("ZHAPU"), { text: "Zhapu", cn: "嘉兴乍浦港", known: true });
+  // Cửa khẩu chuyến bộ: chữ Hán sẵn trong ô không làm lệch, in cặp tên bên Trung—bên Việt.
+  assert.deepEqual(port("TÀ LÙNG (水口)"), { text: "Ta Lung", cn: "水口—驮隆口岸", known: true });
+  assert.deepEqual(port("TÂN THANH (蒲寨)"), { text: "Tan Thanh", cn: "浦寨—新清口岸", known: true });
+  assert.deepEqual(port("CHIMA"), { text: "Chi Ma", cn: "爱店—支码口岸", known: true });
+  assert.deepEqual(port("THANH THUỶ"), { text: "Thanh Thuy", cn: "天保—清水口岸", known: true });
+  assert.deepEqual(port("MÓNG CÁI - ĐÔNG HƯNG"), { text: "Mong Cai", cn: "东兴—芒街口岸", known: true });
+  assert.equal(port("THIÊN BẢO").known, false);   // chưa xác nhận có trùng Thanh Thủy không
+  assert.equal(model.dnPlaceText(port("SHANGHAI")), "Shanghai  上海港");
+  assert.equal(model.dnPlaceText(place("KHO MOI")), "Kho Moi");
   assert.deepEqual(["25,950", "25950", "25.950", "0", ""].map(model.parseRate), [25950n, 25950n, null, null, null]);
   assert.equal(model.usdCents(1n, 3n), 33n);   // 1 VND ÷ 3 = 0.33 USD
   assert.equal(model.usdCents(5n, 1000n), 1n);   // 0.005 làm tròn lên 0.01
@@ -658,18 +698,18 @@ test("DEBIT-NOTE-02 số container ISO 6346, số bằng chữ, mã loại phí,
 
 test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc chắn, cảnh báo điểm bất thường", () => {
   const dup = dnTrip("2026-09", "02", "XIAMEN", 80000000);
-  const trips = [dup, { ...dup, id: ++dnSerial }, dnTrip("2026-09", "10", "XIAMEN", 0), dnTrip("2026-09", "11", "LAO CAI", 1, [], { origin: "KHO MOI" }),
-    dnTrip("2026-09", "12", "XIAMEN", 1, [], { container: "BM0U9231830" }), dnTrip("2026-09", "13", "XIAMEN", 1, [], { unit_price_vnd: null, amount_vnd: null, is_missing_price: true }),
+  const trips = [dup, { ...dup, id: ++dnSerial }, dnTrip("2026-09", "10", "XIAMEN", 0), dnTrip("2026-09", "11", "THIEN BAO", 1, [], { origin: "KHO MOI" }),
+    dnTrip("2026-09", "12", "XIAMEN", 1, [], { container: "MA0U5500006" }), dnTrip("2026-09", "13", "XIAMEN", 1, [], { unit_price_vnd: null, amount_vnd: null, is_missing_price: true }),
     { id: ++dnSerial, month: "2026-09-01", container: null, event_date: "2026-09-14", status: "confirmed", is_fee_only: true, unit_price_vnd: null, amount_vnd: "100",
       fee_lines: [{ fee_type_id: 7, amount_vnd: "100", note: "Gọi 0912 345 678" }] }];
   const note = model.debitNote({ trips }, "2026-09", dnFeeTypes);
   const checks = model.debitNoteChecks(note, dnDoc({ issueDate: "2026-09-05", buyer: { display: "B" }, payment: { beneficiary: "OTHER CO", bank: "B", account: "1", swift: "S" },
     usd: { on: true, rate: "25,950", source: "", date: "2026-09-05" } }));
   const texts = checks.map(item => `${item.level}: ${item.text}`);
-  for (const pattern of [/^block: 1 dòng chưa có giá/, /^block: Số container sai theo ISO 6346: BM0U9231830/, new RegExp(`^block: Container trùng trong chứng từ: ${dup.container}`),
+  for (const pattern of [/^block: 1 dòng chưa có giá/, /^block: Số container sai theo ISO 6346: MA0U5500006/, new RegExp(`^block: Container trùng trong chứng từ: ${dup.container}`),
     /^block: Còn thiếu: Tên pháp lý của khách, Địa chỉ của khách\.$/, /^block: Bật quy đổi USD nhưng thiếu/, /^block: Mô tả hoặc ghi chú có chuỗi giống số điện thoại/,
     /^warn: Chủ tài khoản nhận tiền khác bên phát hành/, /^warn: Ngày phát hành sớm hơn ngày đóng hàng cuối cùng \(13 Sep 2026\)/,
-    /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Lao Cai/, /^warn: 1 container có đơn giá bằng 0/])
+    /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Thien Bao/, /^warn: 1 container có đơn giá bằng 0/])
     assert.ok(texts.some(text => pattern.test(text)), `${pattern} trong\n${texts.join("\n")}`);
   // Tổng thiếu giá thì để trống, không coi là 0.
   assert.deepEqual([note.totalVnd, note.subtotalVnd, note.complete], [null, null, false]);
@@ -681,14 +721,14 @@ test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc ch�
 test("DEBIT-NOTE-02 dòng sổ gốc không có bản sửa đọc theo Sheet; dòng không container thành ADDITIONAL CHARGES", () => {
   const ledger = { legacy_rows: [
     { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "900", fee_lines: [],
-      display: { container: "CSQU3054383", carrier: "C", date: "2026-10-02", from: "A", to: "B", unit_price: "900", flags: [] } },
+      display: { container: "MAUU5500008", carrier: "C", date: "2026-10-02", from: "A", to: "B", unit_price: "900", flags: [] } },
     { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "0", fee_lines: [],
       display: { container: dnContainer(77), date: "2026-10-01", unit_price: "", flags: ["MISSING_PRICE"] } },
     { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "70", fee_lines: [{ fee_type_id: 1, amount_vnd: "70" }],
       display: { container: "", date: null, unit_price: "", flags: [] } },
   ] };
   const note = model.debitNote(ledger, "2026-10", [{ id: 1, name: "Neo" }]);
-  assert.deepEqual(note.rows.map(row => [row.container, row.lumpSumVnd, row.amountVnd]), [[dnContainer(77), null, null], ["CSQU3054383", 900n, 900n]]);
+  assert.deepEqual(note.rows.map(row => [row.container, row.lumpSumVnd, row.amountVnd]), [[dnContainer(77), null, null], ["MAUU5500008", 900n, 900n]]);
   assert.deepEqual(note.charges, [{ date: null, code: "OVERSTAY", note: "", amountVnd: 70n }]);
   assert.deepEqual([note.missingCount, note.totalVnd, note.lumpSumVnd], [1, null, null]);
 });
@@ -706,6 +746,11 @@ test("tách phụ phí theo bảng PS: chỉ ghi 'Tổng tiền không đổi' k
   const fill = { fill: true, before: [{ amount_vnd: '3500000' }], after: [{ amount_vnd: '3500000' }, { amount_vnd: '10000000' }] };
   assert.deepEqual(model.planPsFees([fill]), { count: 1, totalVnd: 13500000n, same: true, fills: 1 });
   assert.deepEqual(model.planPsFees([{ ...fill, fill: false }]), { count: 1, totalVnd: null, same: false, fills: 0 });
+  // Ô PS =631579/2: số lẻ viết kiểu Việt kèm số Sheet hiện (#,##0 làm tròn) để tìm được ô; số không lẻ hoặc chữ lạ thì null.
+  assert.deepEqual(model.psOddText("315789.5"), { exact: "315.789,5", shown: "315.790" });
+  assert.deepEqual(model.psOddText("315789.47"), { exact: "315.789,47", shown: "315.789" });
+  assert.deepEqual(model.psOddText(" 999.5 "), { exact: "999,5", shown: "1.000" });
+  for (const raw of ["315789", "-5.5", "1,500.5", "abc", "", null, undefined]) assert.equal(model.psOddText(raw), null, String(raw));
   const names = { 1: "Neo", 2: "Điện" };
   assert.equal(model.feeLinesText(ready[0].after, id => names[id]), "Neo 1.500.000 + Điện 500.000");
 });
@@ -741,4 +786,51 @@ test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ ch�
   assert.throws(() => model.monthSeries([{ month: "2026-10-01", charges_vnd: "1.5" }], "2026-10"), /Invalid VND/);
   assert.deepEqual([model.creditOf("-50000000"), model.creditOf("10"), model.creditOf("0")], [50000000n, 0n, 0n]);
   assert.throws(() => model.creditOf(null), /Invalid VND/);
+});
+
+test('BANG-GIA-05: mức đổi giá một ô của bảng giá — chính xác, có dấu, thiếu một bên thì không có', () => {
+  assert.equal(model.priceTableChange('67000000', '69000000'), 2000000n);
+  assert.equal(model.priceTableChange('82000000', '79000000'), -3000000n);
+  assert.equal(model.priceTableChange('9007199254740993', '9007199254740995'), 2n);
+  assert.equal(model.priceTableChange(null, '69000000'), null);
+  assert.equal(model.priceTableChange('0', null), null);
+  assert.throws(() => model.priceTableChange(67000000, '69000000'));   // tiền phải là chuỗi
+});
+
+test('NHAP-NHANH-01: patchLedger vá đúng dòng, không đổi bản gốc; chỉ lệnh tiền đánh dấu đang lưu; lệnh khác hay dòng không có thì null', () => {
+  const ledger = {
+    version: 7,
+    trips: [{ id: 11, container: 'A', carrier: 'X', unit_price_vnd: '50', other_fee_vnd: null, amount_vnd: '50', is_missing_price: false,
+      fee_lines: [{ id: 1, fee_type_id: 2, amount_vnd: '5', note: null }, { id: 2, fee_type_id: 3, amount_vnd: '7', note: null }] }, { id: 12, container: 'B' }],
+    legacy_rows: [{ id: 21, current: { container: 'C', unit_price_vnd: null, counted_vnd: '0' }, fee_lines: [] }],
+    months: [{ month: '2026-09-01', charges_vnd: '57' }],
+  };
+  const before = structuredClone(ledger);
+
+  const text = model.patchLedger(ledger, 'tripInfo', { trip_id: 11, field: 'carrier', value: 'Y' });
+  assert.equal(text.trips[0].carrier, 'Y');
+  assert.equal(text.trips[0].saving, undefined, 'sửa chữ không làm Thành tiền chờ');
+  assert.equal(text.months, ledger.months, 'số tổng tháng giữ nguyên số máy chủ');
+
+  const price = model.patchLedger(ledger, 'price', { trip_id: 11, unit_price_vnd: null, other_fee_vnd: null });
+  assert.deepEqual([price.trips[0].unit_price_vnd, price.trips[0].is_missing_price, price.trips[0].saving, price.trips[0].amount_vnd], [null, true, true, '50']);
+
+  const legacy = model.patchLedger(ledger, 'legacyEdit', { legacy_row_id: 21, field: 'unit_price_vnd', value: '70' });
+  assert.deepEqual([legacy.legacy_rows[0].current.unit_price_vnd, legacy.legacy_rows[0].current.counted_vnd, legacy.legacy_rows[0].saving], ['70', '0', true]);
+
+  const fee = model.patchLedger(ledger, 'feeSet', { target: { trip_id: 11 }, fee_type_id: 2, amount_vnd: '9' });
+  assert.deepEqual(fee.trips[0].fee_lines.map(line => [line.fee_type_id, line.amount_vnd]), [[3, '7'], [2, '9']]);
+  const cleared = model.patchLedger(ledger, 'feeSet', { target: { legacy_row_id: 21 }, fee_type_id: 2, amount_vnd: null });
+  assert.deepEqual([cleared.legacy_rows[0].fee_lines, cleared.legacy_rows[0].saving], [[], true]);
+
+  assert.deepEqual(model.patchLedger(ledger, 'tripDelete', { trip_id: 12 }).trips.map(row => row.id), [11]);
+  assert.deepEqual(model.patchLedger(ledger, 'legacyDelete', { legacy_row_id: 21 }).legacy_rows, []);
+
+  // Vá chồng: lần vá sau giữ dấu đang lưu của lần trước.
+  assert.equal(model.patchLedger(price, 'tripInfo', { trip_id: 11, field: 'carrier', value: 'Z' }).trips[0].saving, true);
+
+  assert.equal(model.patchLedger(ledger, 'tripInfo', { trip_id: 99, field: 'carrier', value: 'Y' }), null);
+  assert.equal(model.patchLedger(ledger, 'receipt', { amount_vnd: '1' }), null);
+  assert.equal(model.patchLedger(null, 'price', { trip_id: 11 }), null);
+  assert.deepEqual(ledger, before, 'bản gốc không đổi');
 });

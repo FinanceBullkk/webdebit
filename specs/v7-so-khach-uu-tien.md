@@ -48,3 +48,5 @@ Bổ sung cùng ngày: ô nhập cột phụ phí riêng dùng fee-own-input nê
 Đính kèm ảnh phiếu thu, phản hồi 2/11/2026: nút nhỏ bị che sát số tiền, khó phát hiện. Chuyển nút sang dưới tham chiếu, luôn hiện chữ Đính kèm ảnh hoặc Xem N ảnh; không chồng số tiền, không cần hover. Dòng phiếu thu tăng chiều cao vừa nội dung. Không đổi luồng tải/dán/xóa ảnh hoặc quyền. Đã xem ảnh dữ liệu giả receipt-attach/handoff-1280.png; tám ca priority/images browser, toàn bộ unit JS và lint đạt (log receipt-attach*.log ngoài repo). Chưa deploy.
 
 Người dùng bác nút chữ: chốt chỉ icon kẹp giấy cạnh số tiền. Đã bỏ nút chữ và dòng cao; icon luôn hiện, cách tiền 8px, nằm trong luồng cùng hàng để không chồng số. Phiếu có ảnh hiện icon và số ảnh, giữ aria-label/tooltip. Đã xem receipt-icon/handoff-1280.png; tám ca priority/images browser, unit JS và lint đạt. Thay thế hướng nút dưới tham chiếu ở trên.
+
+<!-- du-lieu-gia: 57.000.000 -->

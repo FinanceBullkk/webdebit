@@ -7,6 +7,7 @@ Trạng thái: ĐÃ CHỐT (người dùng, 6/11/2026, [`VIEC-DOI-CHIEU-01`](../
 Chủ sổ (trên 40 tuổi, màn thấy 1280×560) mở tab khi được báo có khách lệch hoặc khi cần tin số nợ. Câu hỏi theo thứ tự:
 
 1. Số nợ hôm nay có đúng không? → dòng đầu trang.
+   - Tab TONG trên Sheet có cộng đủ các tab khách không? → một ý trong dòng đầu khi khớp; một dòng riêng ngay dưới khi chưa khớp, bấm ra danh sách chỗ phải sửa trên Sheet ([`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md), 11/11/2026).
 2. Khách nào lệch, bao nhiêu, vì sao? → tab Số nợ lệch, bảng khách.
 3. Do khoản nào, ghi khoản đó thì còn lệch bao nhiêu? → bảng đối chiếu.
 4. Tiền đúng rồi còn gì chưa gọn? → tab Dọn chi tiết.
@@ -28,6 +29,7 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 | Hoàn tác | `undo_sheet_batch` trong `in_month` | Chỉ giá và phiếu; không thêm hàm SQL |
 | Đã làm (HOAT-DONG-01) | `GET /api/v7/activity?day=` → `get_activity(date)`: event của ngày (giờ VN), mọi sổ, kèm tên sổ, container, số phiếu, tên loại phụ phí | Thêm 9/11/2026 |
 | Số trên nhãn tab Đã làm | `inbox.auto.today_*`, `reconcile` khách `FIXED` | Đã có, giữ |
+| Tab TONG cộng đủ không (KIEM-TONG-01) | `reconcile.tong` của máy đối soát: tháng, `matched`, `blank_on_tong`, `differs`, `unknown_names`, `gap_vnd` ([spec máy](v7-may-doi-soat.md#kiểm-tab-tong-kiem-tong-01)) | Không thêm API; gộp "chỉ khác tên" và xếp thứ tự ở model |
 
 ## Đầu ra
 
@@ -54,6 +56,7 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 - `POST …/giu`: `{"customer_id", "expected_version", "idempotency_key", "rows": [{"target_kind", "target_id", "source_fingerprint"}]}`.
 - `POST …/hoan-tac`: `{"customer_id", "expected_version", "idempotency_key", "command_keys", "months"}`.
 - Lỗi: `STALE_LEDGER` (sổ đổi), `STALE_SHEET` (bản chụp đổi, hoặc số của khoản khác số người đã xem), `SHEET_SNAPSHOT_UNAVAILABLE` (503).
+- Tab không lành (KIEM-TAB-01, đợt 1, ĐỀ XUẤT trong `specs/v7-kiem-tab-truoc-khi-ghi.md`): bản chụp giá có `tabs[tab].status = broken` (bộ quét đếm lỗi, hoặc `row_shift`: dòng có container không tiền sát dòng có tiền không container), hoặc máy đối soát đang giữ khách (`reason = HELD`). Khi đó `groups` rỗng, `blocked = {code: "TAB_BROKEN", findings, held, held_reasons}`, và `POST …/ghi` trả `409 TAB_BROKEN` trước mọi kiểm khác, không ghi gì. Duyệt chuyến không bị chặn. Máy đối soát cũng không ghi cho khách đó (`reason = HELD`, `held_reasons` kiểu `ROW_SHIFT`).
 
 ## Hành vi và bất biến
 
@@ -65,6 +68,18 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 - Đang hiện bản gần nhất của tab thì mọi nút ghi khóa, vẫn xem và đổi tab được.
 - Tải nền không đè lựa chọn đang tích; khoản không còn thì bỏ khỏi lựa chọn.
 - Trạng thái: chưa có lượt đối soát, máy lỗi, kết quả cũ, ghi xong không khớp, tab chưa có sổ, không có khách lệch, đọc khoản lỗi có Thử lại.
+
+## Dòng tab TONG (KIEM-TONG-01)
+
+Chỉ đọc: việc sửa nằm trên Sheet, web không ghi gì. Số lấy từ cùng lượt đối soát của dòng đầu trang (`DoiChieuModel.tongView`).
+
+- **Khớp đủ:** chỉ thêm "TONG tháng 10 khớp" vào các ý của dòng đầu. Chỉ có tên khác tên tab mà số khớp thì thêm ", 1 tên khác tên tab". Không thêm dòng.
+- **Chưa khớp:** một dòng riêng ngay dưới, cùng nhịp với dòng đầu, vừa một dòng ở 1280: câu trả lời trước ("Tab TONG tháng 10 thiếu 326,7 tr so với các sổ", thừa nếu TONG nhiều hơn), rồi đếm từng loại (sổ để trống, dòng khác sổ, tên lạ, tên khác tên tab), nút "Xem N dòng". Không đổi màu dòng đầu, vì dòng đầu nói về web so với Sheet.
+- **Danh sách khi mở:** bốn cột Khách · Trên TONG · Theo sổ, cuối tháng · Cần làm trên Sheet. Thứ tự: dòng TONG khác sổ, sổ để trống, tên lạ (mỗi nhóm số lớn trước, kể cả số âm), rồi dòng chỉ khác tên. Ô trống ghi "trống", không có số thì `—`. Tên sổ mở sổ; tên lạ không có link. Dưới bảng: cộng TONG, cộng các sổ quy về cuối tháng, số dòng khớp.
+- **Chỉ khác tên:** tên trên TONG không ứng sổ nào mà số bằng đúng tới từng đồng số của đúng một sổ để trống, và không tên lạ nào khác cùng số, thì gộp thành một dòng của sổ đó, kèm "Trên TONG: <tên>". Lệch một đồng, hai sổ cùng số hay hai tên cùng số thì không gộp.
+- **Sổ đang lệch Sheet** (có trong danh sách khách lệch): số theo sổ tính từ web nên có thể chưa đúng; cột Cần làm nói xem khách đó ở bảng dưới trước.
+- **Không đọc được tab TONG** hoặc lượt đó lỗi: chỉ một ý "chưa đọc được tab TONG" / "lượt này chưa kiểm được tab TONG" trong dòng đầu, không lộ mã. Quá nhiều khách lệch hoặc file cũ chưa có `tong`: không nói gì về TONG.
+- Danh sách mở hay đóng giữ qua các lần tự tải lại; nút giữ chỗ bấm sau khi vẽ lại, bấm được cả khi đang hiện bản gần nhất.
 
 ## Tab Đã làm (HOAT-DONG-01)
 
@@ -80,4 +95,5 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 - Khoản tháng khóa ghi xong đúng số, tháng khóa lại, Lịch sử mang tên người bấm ở lệnh ghi.
 - 18 dòng chỉ khác phụ phí hiện phụ phí web → Sheet, không còn hai số bằng nhau.
 - `npm run check` xanh; kiểm trên `hao` chỉ đọc, không tự bấm ghi trên sổ thật.
+- Dòng TONG: `preview/test-viec-can-lam-tong.js` (thứ tự, gộp chỉ khác tên và các ca không gộp, sổ đang lệch Sheet, không có kết quả), `preview/test-viec-can-lam-tong-browser.js` (dòng vừa một dòng ở 1280, mở và đóng danh sách, giữ chỗ bấm, 1280×560 vẫn thấy dòng đầu, dòng TONG, ba tab và khách lệch, màn hẹp không tràn ngang, tên chữ Hán dài, các trạng thái khớp, chưa đọc được, lỗi, bỏ qua).
 - Người dùng tự đi hết luồng trên `hao` (CÒN MỞ).

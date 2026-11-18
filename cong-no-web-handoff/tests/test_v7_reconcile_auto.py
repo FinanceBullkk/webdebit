@@ -2,6 +2,7 @@
 
 import io
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -85,6 +86,9 @@ class ReconcileAutoTest(unittest.TestCase):
         self.source = self.root / "source"
         self.source.mkdir()
         self.output = self.root / "var" / "reconcile.json"
+        booking = patch.dict("os.environ", {"WEBDEBIT_BOOKING_CHECK": "off"})   # có test riêng bên dưới; khỏi mở tiến trình con mỗi lượt
+        booking.start()
+        self.addCleanup(booking.stop)
 
     def run_job(self, db, *extra):
         printed = io.StringIO()
@@ -125,6 +129,48 @@ class ReconcileAutoTest(unittest.TestCase):
         log = (self.output.with_name("reconcile-log.jsonl")).read_text(encoding="utf-8").splitlines()
         self.assertEqual(json.loads(log[0])["counts"], {"KHOP": 1})
         self.assertNotIn(FAKE_NAME, log[0])
+
+    def test_booking_check_runs_alongside_and_its_error_never_fails_the_run(self):
+        """KIEM-BOOKING-01: thiếu bản chụp booking thì phép kiểm báo mã lỗi ở file riêng; lượt đối soát vẫn đạt, số không đổi."""
+        fixture(self.source)
+        with patch.dict("os.environ", {"WEBDEBIT_BOOKING_CHECK": "on"}):
+            code, printed = self.run_job(Db(), "--fix", "--snapshot", str(self.root / "none.json"), "--road", str(self.root / "none2.json"))
+        self.assertEqual(code, 0)
+        self.assertEqual((self.result()["counts"], self.result()["booking"]), ({"KHOP": 1}, {"error": "SEA_MISSING"}))
+        self.assertEqual(json.loads(printed)["booking"], {"error": "SEA_MISSING"})
+        saved = json.loads(self.output.with_name("booking-check.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["last_error"]["reason"], "SEA_MISSING")
+        log = json.loads(self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(log["booking"], {"error": "SEA_MISSING"})
+        self.assertEqual(list((self.root / "work").iterdir()), [])
+        self.run_job(Db(), "--fix")
+        self.assertEqual(self.result()["booking"], {"skipped": "OFF"})
+
+    def test_booking_check_reads_the_download_before_the_work_folder_is_removed(self):
+        """Bản tải nằm trong thư mục tạm của lượt; tiến trình con phải đọc xong trước khi thư mục bị xóa."""
+        fixture(self.source)
+        created = job.dt.datetime.now(job.dt.UTC).isoformat()
+        sources = {}
+        for name, row in (("snapshot.json", {"container": "FAKE-CONT-XY", "event_date": "2026-10-03", "customer_name": "X", "source_row": 2}),
+                          ("road.json", {"container": "ROAD1234567", "event_date": "2026-10-04", "owner": "Y", "source_row": 2})):
+            sources[name] = self.root / name
+            sources[name].write_text(json.dumps({"rows": [row], "runner": {"created_at": created}}), encoding="utf-8")
+
+        def download(_sheet, _credentials, output):
+            shutil.copy(self.source / "source-google-export.xlsx", output)
+            return output
+
+        printed = io.StringIO()
+        with patch.dict("os.environ", {"WEBDEBIT_BOOKING_CHECK": "on"}), patch.object(job, "download", download), \
+                patch.object(job, "PsqlDirect", return_value=Db()), redirect_stdout(printed), patch("sys.stderr"):
+            code = job.main(["--source-dir", str(self.source), "--spreadsheet-id", "x", "--credentials", "y", "--output", str(self.output),
+                             "--work-dir", str(self.root / "work"), "--snapshot", str(sources["snapshot.json"]), "--road", str(sources["road.json"])])
+        self.assertEqual(code, 0)
+        booking = self.result()["booking"]
+        self.assertNotIn("error", booking)
+        self.assertEqual((booking["sheet_rows"], booking["paired"]), (1, 1))
+        self.assertNotIn(FAKE_NAME, printed.getvalue())
+        self.assertEqual(list((self.root / "work").iterdir()), [])
 
     def test_report_mode_says_what_it_would_write_and_writes_nothing(self):
         self.undated_receipt_book()
@@ -168,6 +214,18 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual([json.loads(line)["fixed"] for line in log], [1, 0])
         self.assertEqual(run_at(first_hour + job.dt.timedelta(days=1))["customers"], [])   # sang ngày mới thì hết
 
+    def test_receipt_a_person_voided_is_not_written_again(self):
+        self.undated_receipt_book()
+        db = Db()
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        db.receipts[0]["voided_by_event"] = 77   # người hủy phiếu máy vừa ghi; Sheet vẫn còn dòng thu
+        db.total += PAID
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(len(db.writes), 1)      # trước đây: lượt sau ghi lại đúng phiếu đó
+        row = next(r for r in self.result()["customers"] if r["status"] == "LECH_TONG")
+        self.assertEqual((row["reason"], row["difference_vnd"]), ("NOTHING_TO_WRITE", str(PAID)))
+
     def test_no_exact_fix_writes_nothing(self):
         self.undated_receipt_book()
         db = Db(total=FAKE_AMOUNT + 1)   # lệch thêm 1 đồng: phiếu không đưa về đúng tổng Sheet
@@ -210,6 +268,21 @@ class ReconcileAutoTest(unittest.TestCase):
         row = self.result()["customers"][0]
         self.assertEqual((row["reason"], row["web_ahead_vnd"], row["difference_vnd"]), ("WEB_AHEAD", "500", "500"))
 
+    def test_old_web_ahead_trip_is_named_for_a_person_and_the_sum_stays(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", 0, 0)], missing_price=True)
+
+        def run_on(month, day):
+            db = Db(total=500, unit_price=500)
+            with patch.object(job, "now_vn", return_value=job.now_vn().replace(year=2026, month=month, day=day, hour=9)):
+                self.assertEqual(self.run_job(db, "--fix")[0], 0)
+            self.assertEqual(db.writes, [])
+            return self.result()["customers"][0]
+        fresh = run_on(10, 10)   # chuyến ngày 03/10 mới 7 ngày: Sheet chưa kịp nhập
+        self.assertEqual((fresh["reason"], fresh["web_ahead_vnd"], fresh.get("hints")), ("WEB_AHEAD", "500", None))
+        old = run_on(11, 10)     # 38 ngày: phép tính giữ nguyên, thêm câu để người xem
+        self.assertEqual((old["reason"], old["web_ahead_vnd"], old["difference_vnd"]), ("WEB_AHEAD", "500", "500"))
+        self.assertEqual(old["hints"], [{"kind": "ahead_old", "container": "FAKE-CONT-XY", "date": "2026-10-03", "amount_vnd": "500", "days": 38}])
+
     def test_trip_an_adjustment_took_off_the_book_does_not_block_a_right_receipt(self):
         self.undated_receipt_book()
         moved = {"id": 9, "status": "confirmed", "container": "MOVED-CONT-XY", "event_date": "2026-03-18", "month": "2026-03-01",
@@ -234,6 +307,122 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(job.live_tong(self.source / "source-google-export.xlsx"), empty)   # không có cột cuối tháng
         fixture(self.source, tong={6: {"D": "LOAI HANG", "E": "TÊN KHÁCH HÀNG", "F": "SỐ CÒN PHẢI THU CUỐI THÁNG"}, 7: {"E": "A", "F": "5"}})
         self.assertEqual(job.live_tong(self.source / "source-google-export.xlsx"), empty)   # không biết tháng nào
+
+    def tong_rows(self, *names_and_ends):
+        """Tab TONG thật: tiêu đề hai khối (tháng 9, tháng 10), các dòng (tên, số cuối tháng) ở khối tháng 10; số None là ô trống."""
+        rows = {6: TONG_TITLES}
+        for number, (name, end) in enumerate(names_and_ends, 7):
+            rows[number] = {"M": name} | ({} if end is None else {"Q": str(end)})
+        return rows
+
+    def test_tong_rows_equal_to_the_books_are_counted_and_only_counts_leave_the_file(self):
+        """KIEM-TONG-01: lượt mọi khách khớp vẫn kiểm TONG; tên trên TONG khác dấu, gạch, khoảng trắng vẫn ghép được."""
+        fixture(self.source, tong=self.tong_rows(("fake private - customer  zxq", FAKE_AMOUNT)))
+        db = Db()
+        with patch.object(job.snapshots, "build_all", wraps=job.snapshots.build_all) as build:
+            code, printed = self.run_job(db, "--fix")
+        self.assertEqual((code, db.writes), (0, []))
+        build.assert_called_once()   # không khách nào lệch: dựng bản chụp riêng cho TONG
+        tong = self.result()["tong"]
+        self.assertEqual((tong["month"], tong["matched"], tong["differs"], tong["unknown_names"], tong["blank_on_tong"]), ("2026-10", 1, [], [], []))
+        self.assertEqual((tong["tong_sum_vnd"], tong["expected_sum_vnd"], tong["gap_vnd"]), (str(FAKE_AMOUNT), str(FAKE_AMOUNT), "0"))
+        counts = {"month": "2026-10", "matched": 1, "blank": 0, "differs": 0, "unknown_names": 0}
+        self.assertEqual(json.loads(printed)["tong"], counts)
+        log = self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(json.loads(log)["tong"], counts)
+        for secret in (FAKE_NAME, "zxq", str(FAKE_AMOUNT)):
+            self.assertNotIn(secret, printed)
+        self.assertNotIn("zxq", log)
+
+    def test_tong_month_end_takes_later_months_of_the_tab_off_the_book(self):
+        later = 5000
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT), ("2026-11", "04/11/2026", later, FAKE_AMOUNT + later)],
+                tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT)))
+        self.assertEqual(self.run_job(Db(total=FAKE_AMOUNT + later), "--fix")[0], 0)
+        result = self.result()
+        self.assertEqual(result["counts"], {"KHOP": 1})
+        self.assertEqual((result["tong"]["matched"], result["tong"]["differs"]), (1, []))   # sổ hôm nay A + B; cuối tháng 10 là A
+
+    def test_blank_tong_cell_and_a_name_without_book_are_named(self):
+        for label, rows in (("ô trống", ((FAKE_NAME, None), ("KHACH KHONG CO SO", 5))), ("không có dòng", (("KHACH KHONG CO SO", 5),))):
+            with self.subTest(label):
+                fixture(self.source, tong=self.tong_rows(*rows))
+                code, printed = self.run_job(Db(), "--fix")
+                self.assertEqual(code, 0)
+                tong = self.result()["tong"]
+                self.assertEqual(tong["blank_on_tong"], [{"book": 1, "name": FAKE_NAME, "expected_vnd": str(FAKE_AMOUNT)}])
+                self.assertEqual(tong["unknown_names"], [{"name": "KHACH KHONG CO SO", "end_vnd": "5"}])
+                self.assertEqual((tong["matched"], tong["differs"], tong["gap_vnd"]), (0, [], str(5 - FAKE_AMOUNT)))
+                self.assertEqual(json.loads(printed)["tong"], {"month": "2026-10", "matched": 0, "blank": 1, "differs": 0, "unknown_names": 1})
+                self.assertNotIn("KHACH KHONG CO SO", printed)
+
+    def test_tong_cell_that_differs_from_the_book_is_named(self):
+        fixture(self.source, tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT + 7)))
+        self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        tong = self.result()["tong"]
+        self.assertEqual(tong["differs"], [{"name": FAKE_NAME, "book": 1, "tong_vnd": str(FAKE_AMOUNT + 7), "expected_vnd": str(FAKE_AMOUNT)}])
+        self.assertEqual((tong["matched"], tong["blank_on_tong"], tong["gap_vnd"]), (0, [], "7"))
+
+    def test_tong_is_compared_with_the_total_after_the_fix_and_snapshots_are_built_once(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT - PAID)], receipt=str(PAID), receipt_date="da tt",
+                tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT - PAID)))
+        db = Db()
+        with patch.object(job.snapshots, "build_all", wraps=job.snapshots.build_all) as build:
+            self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        build.assert_called_once()   # tìm cách sửa và kiểm TONG dùng chung một bản chụp
+        tong = self.result()["tong"]
+        self.assertEqual((tong["matched"], tong["differs"]), (1, []))
+
+    def test_web_ahead_part_is_taken_off_before_comparing_with_tong(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", 0, 0)], missing_price=True, tong=self.tong_rows((FAKE_NAME, 0)))
+        self.assertEqual(self.run_job(Db(total=500, unit_price=500), "--fix")[0], 0)
+        result = self.result()
+        self.assertEqual(result["customers"][0]["reason"], "WEB_AHEAD")
+        self.assertEqual((result["tong"]["matched"], result["tong"]["differs"]), (1, []))   # web 500 đều là phần Sheet chưa ghi: cuối tháng 0
+
+    def test_book_created_in_the_run_is_compared_with_its_tong_row(self):
+        self.new_tab()
+        self.assertEqual(self.run_job(NewBookDb(), "--fix")[0], 0)
+        tong = self.result()["tong"]
+        self.assertEqual((tong["matched"], tong["unknown_names"], tong["blank_on_tong"]), (1, [], []))
+
+    def test_unreadable_tong_is_skipped_without_building_snapshots(self):
+        layouts = {"không có tab TONG": None,
+                   "không có cột cuối tháng": {6: {"D": "LOAI HANG", "E": "TÊN KHÁCH HÀNG", "F": "CÔNG NỢ PHÁT SINH TRONG THÁNG 10.2026"},
+                                               7: {"E": FAKE_NAME, "F": "5"}}}
+        for label, tong in layouts.items():
+            with self.subTest(label):
+                fixture(self.source, tong=tong)
+                with patch.object(job.snapshots, "build_all", wraps=job.snapshots.build_all) as build:
+                    code, printed = self.run_job(Db(), "--fix")
+                self.assertEqual(code, 0)
+                result = self.result()
+                self.assertEqual((result["tong"], result["counts"]), ({"month": None, "skipped": "TONG_KHONG_DOC_DUOC"}, {"KHOP": 1}))
+                self.assertEqual(json.loads(printed)["tong"], {"skipped": "TONG_KHONG_DOC_DUOC"})
+                build.assert_not_called()
+
+    def test_tong_failure_is_only_a_code_and_the_run_keeps_its_work(self):
+        self.undated_receipt_book()
+        db = Db()
+        with patch.object(job.audit, "read_tong", side_effect=RuntimeError("đọc hỏng")):
+            code, printed = self.run_job(db, "--fix")
+        self.assertEqual(code, 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        result = self.result()
+        self.assertEqual((result["customers"][0]["reason"], result["counts"]), ("FIXED", {"KHOP": 1}))
+        self.assertEqual(result["tong"], {"month": None, "skipped": "ERROR", "error": "RuntimeError"})
+        self.assertEqual(json.loads(printed)["tong"], {"skipped": "ERROR", "error": "RuntimeError"})
+        fixture(self.source, tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT)))   # mọi khách khớp, dựng bản chụp riêng cho TONG thì hỏng
+        with patch.object(job.snapshots, "build_all", side_effect=OSError("đĩa đầy")):
+            self.assertEqual(self.run_job(Db())[0], 0)
+        self.assertEqual((self.result()["tong"], self.result()["counts"]), ({"month": None, "skipped": "ERROR", "error": "OSError"}, {"KHOP": 1}))
+
+    def test_too_many_differences_skip_the_tong_check(self):
+        self.undated_receipt_book()
+        with patch.object(job, "MAX_DIFFERENT", 0):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        self.assertEqual(self.result()["tong"], {"month": None, "skipped": "TOO_MANY_DIFFERENT"})
 
     def test_new_tab_on_real_tong_gets_a_book_through_the_cutover_path_then_matches(self):
         self.new_tab()
@@ -335,6 +524,35 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertTrue(row["held_reasons"])
         self.assertEqual(row["hints"], [{"kind": "chain_break", "month": "2026-10", "sheet_end_vnd": str(FAKE_AMOUNT + 1),
                                          "expected_end_vnd": str(FAKE_AMOUNT), "delta_vnd": "1"}])   # CHAN-DOAN-LECH-01
+
+    def test_held_customer_carries_the_number_of_places_the_sheet_fix_block_names(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])
+        seen = []
+        real = job.fix.sheet_findings
+
+        def counted(prices, ledger, customers, held):
+            found = real(prices, ledger, customers, held)
+            seen.append((held["customer_id"], held["hints"][0]["kind"], len(found["findings"])))
+            return found
+        with patch.object(job.fix, "sheet_findings", side_effect=counted):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        row = self.result()["customers"][0]
+        self.assertEqual(seen, [(1, "chain_break", row["sheet_fix_count"])])   # cùng hàm, cùng dòng HELD (có gợi ý) với khối khi mở
+        self.assertIsInstance(row["sheet_fix_count"], int)
+
+    def test_counting_sheet_fixes_fails_quietly_and_keeps_the_held_row(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])
+        with patch.object(job.fix, "sheet_findings", side_effect=RuntimeError("x")):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        row = self.result()["customers"][0]
+        self.assertEqual(row["reason"], "HELD")
+        self.assertNotIn("sheet_fix_count", row)
+
+    def test_no_held_customer_reads_no_ledger_for_sheet_fixes(self):
+        fixture(self.source)
+        with patch.object(job.fix, "sheet_findings") as found:
+            self.assertEqual(self.run_job(Db())[0], 0)
+        found.assert_not_called()
 
     def test_unexplained_gap_names_a_slip_written_twice_and_writes_nothing(self):
         fixture(self.source)

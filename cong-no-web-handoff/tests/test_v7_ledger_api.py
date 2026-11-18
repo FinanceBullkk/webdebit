@@ -77,9 +77,8 @@ class FeeApiTest(unittest.TestCase):
         for command in ([], None, "drop_table"):
             with self.assertRaises(api.ApiError):
                 api.validate("/api/v7/fee-types/update", json.dumps({"command": command}).encode())
-        with self.assertRaises(api.ApiError) as caught:
-            api.validate("/api/v7/books/fee-columns", json.dumps(self.common | {"fee_type_ids": [1, 2, 3, 4]}).encode())
-        self.assertEqual(caught.exception.code, "FEE_COLUMNS_MAX")
+        # COT-PHU-PHI-01: không giới hạn số cột riêng của sổ.
+        api.validate("/api/v7/books/fee-columns", json.dumps(self.common | {"fee_type_ids": list(range(1, 11))}).encode())
 
     def test_every_spec_error_maps_to_vietnamese(self):
         codes = ("MONTH_LOCKED", "FEE_AMOUNT_INVALID", "FEE_SIGN_INVALID", "FEE_TYPE_INACTIVE", "FEE_TYPE_SYSTEM",
@@ -104,6 +103,10 @@ class PriceApiTest(unittest.TestCase):
         table = {"tt_shippers": ["FAKE"], "locations": [{"name": "DAK LAK"}], "periods": []}
         name, payload, _ = self.request("/api/v7/price-table", self.common | {"price_table": table})
         self.assertEqual((name, payload["price_table"]), ("save_price_table", table))
+        name, payload, _ = self.request("/api/v7/price-table/preview", self.common | {"price_table": table})
+        self.assertEqual((name, payload["price_table"], payload["expected_version"]), ("preview_price_table", table, self.common["expected_version"]))
+        self.assertIn("sokhach.preview_price_table(", api.SQL["preview_price_table"])
+        self.assertIn("(j->'price_table')::jsonb", api.SQL["preview_price_table"])
         name, payload, _ = self.request("/api/v7/price-table/apply", self.common | {"trip_ids": [3, 1]})
         self.assertEqual((name, payload["trip_ids"]), ("apply_price_table", [3, 1]))
         self.assertIn("(j->'price_table')::jsonb", api.SQL["save_price_table"])
@@ -122,6 +125,8 @@ class PriceApiTest(unittest.TestCase):
                 if not change:
                     body.pop("price_table")
                 api.validate("/api/v7/price-table", json.dumps(body).encode())
+            with self.subTest(change=change, path="preview"), self.assertRaises(api.ApiError):
+                api.validate("/api/v7/price-table/preview", json.dumps(body).encode())
         for ids in ([], [0], [1, 1], ["1"], [True], [1.5], list(range(1, 502)), None):
             with self.subTest(ids=ids), self.assertRaises(api.ApiError):
                 api.validate("/api/v7/price-table/apply", json.dumps(self.common | {"trip_ids": ids}).encode())
@@ -271,7 +276,7 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual(runner.calls[-1][1]["target_value"], "WH")
         self.assertEqual(runner.calls[-1][2], "fake-actor")
         shipper = body | {"field": "shipper", "decision": "use_sheet"}
-        projection["items"][0].update(changed_fields=["shipper"], shipper="KHOI PHONG",
+        projection["items"][0].update(changed_fields=["shipper"], shipper="CHU HANG M",
                                       existing_values={"shipper": None})
         with patch.object(v7_api_sheet, "sheet_projection", return_value=projection), \
                 patch.object(v7_api_sheet, "load_snapshot", return_value={"sha256": "a" * 64}):
@@ -949,6 +954,22 @@ class LedgerApiTest(unittest.TestCase):
             self.assertIn("a" * 64, args)
         with patch.object(api.subprocess, "run", return_value=inspect):
             self.assertEqual(api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app").user, "v7_app")
+        # LUOI-AN-TOAN-01: read_only mở giao dịch REPEATABLE READ READ ONLY, được chạy tới 60 giây (lệnh người dùng 15 giây);
+        # hết giờ thì là DB_UNAVAILABLE, không phải "chưa rõ đã lưu" vì không ghi gì. Mặc định vẫn là BEGIN thường.
+        answer = subprocess.CompletedProcess([], 0, '{"books": 0}\n', "")
+        with patch.object(api.subprocess, "run", side_effect=[inspect, answer]) as command:
+            runner = api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app")
+            self.assertEqual(runner.run("get_safety_net", {"event_upto": None}, "may-canh", read_only=True), {"books": 0})
+            sql = command.call_args.kwargs["input"]
+            self.assertTrue(sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\nSET LOCAL statement_timeout = '60s';\n"
+                                           "SET LOCAL sokhach.actor = :'actor';\n"))
+            self.assertIn("SELECT sokhach.get_safety_net(:'payload'::jsonb);", sql)
+            self.assertEqual(command.call_args.kwargs["timeout"], 90)
+        with patch.object(api.subprocess, "run", side_effect=[inspect, subprocess.TimeoutExpired([], 90)]):
+            runner = api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app")
+            with self.assertRaises(api.ApiError) as caught:
+                runner.run("get_safety_net", {}, "may-canh", read_only=True)
+            self.assertEqual(caught.exception.code, "DB_UNAVAILABLE")
         unsafe = subprocess.CompletedProcess([], 0, json.dumps([{"Id": "b" * 64, "Config": {"Labels": {}},
             "HostConfig": {"NetworkMode": "bridge"}}]), "")
         with patch.object(api.subprocess, "run", return_value=unsafe), self.assertRaises(ValueError):

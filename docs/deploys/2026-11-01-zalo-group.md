@@ -12,7 +12,7 @@
 ## Trước
 
 - `hao` chạy release `443b3d4` (G2, FinanceBullkk/webdebit#243, `Deploy hao` xanh).
-- DB `webdebit_v7`: 236 khách, 6.555 event, tổng nợ trên web 67.701.771.688 đ. Dấu vân tay tổng từng khách (`md5` tổng `v_outstanding_month` theo khách) `8e3314…`.
+- DB `webdebit_v7`: 236 khách, 6.555 event. Dấu vân tay tổng từng khách (`md5` tổng `v_outstanding_month` theo khách) `8e3314…`.
 - Không phiên nào nối vào DB; nhật ký `sudo` 30 phút chỉ có hai lượt `Deploy hao` của G1, G2 và lệnh đọc của đợt này.
 
 ## Bản sao thử
@@ -31,7 +31,7 @@
 - Hash migration và checker trong commit merge `fc7a927` trùng bản đã thử (`a573d5ac…`, `34aad15a…`). Các phiên Claude khác đều nghỉ (`ListAgents`).
 - Dừng `v7-ledger-api.service`. Dấu vân tay lúc dừng bằng lúc thử; script tự dừng nếu lệch. Dump lần hai (`v7-stopped.dump`) kèm sha256.
 - Áp migration một transaction: 261 ms.
-- Dấu vân tay, 236 khách, 6.555 event, tổng nợ 67.701.771.688 đ không đổi. Checker 9/9 OK; hai bảng mới có mặt.
+- Dấu vân tay, 236 khách, 6.555 event, tổng nợ không đổi. Checker 9/9 OK; hai bảng mới có mặt.
 - Bật lại API: `active`. API gián đoạn 2 giây.
 
 ## Đổi release

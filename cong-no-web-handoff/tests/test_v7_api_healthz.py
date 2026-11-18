@@ -53,6 +53,10 @@ class HealthzTest(unittest.TestCase):
     def test_healthz_runs_select_1_through_runner_and_reports_snapshot_age(self):
         status, body = api.healthz(self.runner, 1_000_900)
         self.assertEqual(status, 200)
+        # Hộp việc cho máy canh (CANH-BAO-01, bổ sung 18/11/2026): chỉ số đếm, không mã sổ.
+        inbox = body.pop("inbox")
+        self.assertEqual(set(inbox), {"state", "books", "failed", "failed_rounds", "computed_age_seconds"})
+        self.assertFalse(any(isinstance(value, (list, dict)) for value in inbox.values()))
         # Tuổi theo bản cũ hơn trong hai file, như nút Làm mới.
         self.assertEqual(body, {"ok": True, "db": "ok", "sheet_snapshot_age_seconds": 900})
         self.assertEqual(self.runner.calls, [("healthz", {}, "healthz")])
@@ -62,6 +66,8 @@ class HealthzTest(unittest.TestCase):
         self.prices.unlink()
         status, body = api.healthz(FakeRunner(fail=True), 1_000_900)
         self.assertEqual(status, 503)
+        inbox = body.pop("inbox")   # DB lỗi vẫn kèm hộp việc để máy canh đọc
+        self.assertIn("failed_rounds", inbox)
         self.assertEqual(body, {"ok": False, "db": "error", "sheet_snapshot_age_seconds": None})
 
     def test_healthz_db_through_psql_path_maps_failures_to_503(self):

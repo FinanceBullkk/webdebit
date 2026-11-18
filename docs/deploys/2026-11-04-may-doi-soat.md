@@ -7,12 +7,12 @@
 | PR | FinanceBullkk/webdebit#292 (khóa lại tháng máy bỏ mở, nạp lại "Máy đã tự làm hôm nay"), #293 (máy đối soát), #294 (chặn đơn giá đổi chỗ) |
 | Migration | Không có. Mã lên bằng `Deploy hao` |
 | Thêm trên `hao` | Unit `v7-reconcile-auto.service` có `--fix`, timer `v7-reconcile-auto.timer` (phút :05, 7–22 giờ VN), bộ 6 CSV mốc ở `/srv/v7/so-goc-20261020` (`root:v7app`, 750/640), kết quả `reconcile.json`, `reconcile-log.jsonl` |
-| Ghi tiền | Có. Lượt đầu ghi một giá cho một khách, tổng nợ +95.000.000 đ; từ đó mỗi giờ theo quy tắc |
+| Ghi tiền | Có. Lượt đầu ghi một giá cho một khách (tổng nợ tăng đúng bằng giá đó); từ đó mỗi giờ theo quy tắc |
 | Bằng chứng | Thư mục `backup-20261104-may-doi-soat` trong `/srv/v7` trên `hao`, ngoài Git, quyền 700 |
 
 ## Trước
 
-- `hao` chạy `d8358c0`. Tổng nợ trên web 67.104.805.665 đ, event cuối 9.168. Dump `truoc.dump` kèm sha256.
+- `hao` chạy `d8358c0`, event cuối 9.168. Dump `truoc.dump` kèm sha256.
 - Một phiên Claude khác ghi tay theo trả lời của người dùng lúc 09:41 và 10:05 (phiếu không ngày, thay phiếu sổ gốc, giá từng container), người làm `claude`. Hai phiên báo cho nhau qua tin nhắn; job của phiên này chưa ghi gì trước 10:21.
 
 ## Chỉ báo trên DB thật (không ghi)
@@ -23,15 +23,15 @@ Chạy unit tạm không có `--fix`, ba lần trong sáng. Lần cuối bằng 
 
 Dump, restore vào DB tạm, vào bằng `postgres` rồi `SET ROLE v7_app`, chạy bản release `4592a2d` với `--fix` trên một bản tải (09:38–09:59):
 
-- 6 khách được sửa; tổng nợ đổi −2.538.850.010 đ, bằng đúng tổng các nhóm đã chọn; khách khác giữ nguyên số dư.
+- 6 khách được sửa; tổng nợ giảm đúng bằng tổng các nhóm đã chọn; khách khác giữ nguyên số dư.
 - Không có cặp mở/khóa lệch, không tháng nào máy bỏ mở. `v7_post_deploy_check.sql` đạt.
 - Chạy lại lần hai trên cùng bản tải: không còn gì để ghi, tổng nợ không đổi.
 - Đã xóa DB tạm.
 
 ## Phát hiện trong lúc làm
 
-- **Chốt khớp tổng chặn được lỗi thật.** Một sổ có 78 dòng "chỉ có TỔNG" đã tính sẵn trong sổ gốc; ghi mù sẽ cộng sai 274 triệu. Máy không chọn nhóm đó, và điều kiện đã siết để các dòng này không còn là việc.
-- **Dòng tiền không container có thể là chuyến chưa nhập xong.** Một dòng 43,5 triệu có container sau vài giờ, máy đưa thành chuyến thật. Nếu lúc đó đã ghi dòng điều chỉnh thì tính trùng, nên thêm nhóm tự hủy dòng điều chỉnh của máy.
+- **Chốt khớp tổng chặn được lỗi thật.** Một sổ có 78 dòng "chỉ có TỔNG" đã tính sẵn trong sổ gốc; ghi mù sẽ cộng trùng tiền của cả 78 dòng. Máy không chọn nhóm đó, và điều kiện đã siết để các dòng này không còn là việc.
+- **Dòng tiền không container có thể là chuyến chưa nhập xong.** Một dòng tiền không container có container sau vài giờ, máy đưa thành chuyến thật. Nếu lúc đó đã ghi dòng điều chỉnh thì tính trùng, nên thêm nhóm tự hủy dòng điều chỉnh của máy.
 - **Chỗ mù của khớp tổng.** Một tab Sheet bị xếp lại một phần cột: container đổi chỗ, giá giữ nguyên. Tổng vẫn đúng, tổ hợp vẫn khớp, máy sẽ ghi sai giá từng container. Một phiên Claude khác phát hiện trước khi bật; đã kiểm lại trên dữ liệu thật rồi thêm chốt `shuffled_months` (#294).
 - **33 khách "lệch tháng" không phải lỗi ghi.** Sau khi áp `CAN-DU-01` lên số Sheet, cả 33 khớp từng tháng.
 
@@ -44,7 +44,7 @@ Dump, restore vào DB tạm, vào bằng `postgres` rồi `SET ROLE v7_app`, ch�
 ## Sau
 
 - 234 khớp, 1 khách web đi trước Sheet (lệch đúng bằng phần đó), 1 khách bị giữ vì 8 dòng tháng 11 trên Sheet có đơn giá mà chưa có cột TỔNG. Theo tiền, khách khớp chiếm 45% số nợ, vì hai khách còn lại là hai khách lớn nhất.
-- Tổng nợ 67.199.805.665 đ, đổi +95.000.000 đ, đúng một khách. Giá máy ghi trùng dòng Sheet (đơn giá + phụ phí = TỔNG).
+- Tổng nợ tăng đúng bằng giá máy ghi, ở đúng một khách. Giá máy ghi trùng dòng Sheet (đơn giá + phụ phí = TỔNG).
 - Không có cặp mở/khóa lệch của máy, không tháng nào máy bỏ mở. `v7_post_deploy_check.sql` đạt.
 - Trong cùng cửa sổ, các event `rewrite_trip_fees`, `set_book_fee_columns` của máy là `MAY-PS-01` (FinanceBullkk/webdebit#295, phiên khác, merge 10:26), giữ nguyên tổng, không phải của job này.
 - Đối soát độc lập từ máy khác, qua API và đúng các bước của [hướng dẫn tay](../doi-soat-cuoi-ngay.md), trên bản tải sau lượt đầu: 234 khớp, 1 lệch tổng, 1 bị giữ, trùng kết quả của máy.
@@ -53,20 +53,20 @@ Dump, restore vào DB tạm, vào bằng `postgres` rồi `SET ROLE v7_app`, ch�
 ## Lượt timer đầu tiên (11:05–11:12)
 
 - `Result=success`, 463 giây. 234 khớp, 2 lệch. Theo tiền, khách khớp chiếm 99,6% số nợ (lượt 10:30 là 45%): hai khách lớn đã khớp sau khi Sheet được điền thêm.
-- Máy sửa 3 khách: 2 phiếu −100.000.000 đ, 15 giá +672.500.000 đ. Ngoài lượt đối soát, lúc 10:49–10:56 cùng tên máy có 7 giá +630.000.000 đ ở 4 khách (đúng kiểu `MAY-GIA-01`, chưa đọc log runner để xác nhận).
-- Tổng nợ 67.199.805.665 → 68.402.305.665 đ, đổi +1.202.500.000 đ, bằng đúng tổng các event trên. Không tháng nào máy bỏ mở.
+- Máy sửa 3 khách: 2 phiếu và 15 giá. Ngoài lượt đối soát, lúc 10:49–10:56 cùng tên máy có 7 giá ở 4 khách (đúng kiểu `MAY-GIA-01`, chưa đọc log runner để xác nhận).
+- Tổng nợ tăng, đổi đúng bằng tổng các event trên. Không tháng nào máy bỏ mở.
 - Đối soát độc lập theo tháng, trên bản tải sau lượt 10:30: 233 khớp, 1 khách chia tháng khác Sheet vì web trừ nợ cũ trước.
 
 Hai khách còn lệch, máy không ghi gì, đã tìm ra nguyên nhân:
 
-- Lệch +40 triệu: phiếu 40 triệu đang chờ đúng bằng phần lệch, nhưng `web_ahead` tính thừa 181 triệu vì không biết dòng điều chỉnh tay đã trừ đúng 4 chuyến đó (chuyến dời sổ theo booking ngày 3/11). Máy dừng là đúng phía an toàn, nhưng đây là lỗi cách tính, đã sửa ở PR sau. Người dùng tự ghi phiếu lúc 11:39, sổ đã khớp.
-- Lệch −49,5 triệu: bảng booking ghi một chuyến tháng 10 dưới một tên khách không có trong bảng ghép tên, còn một tab khách đã tính tiền chuyến đó. Chuyến nằm ở hàng chờ "chưa rõ khách" nên sổ không có chuyến để ghi giá; máy không đoán khách là đúng. Cần người trả lời tên đó là khách nào.
+- Khách thứ nhất (web cao hơn Sheet): một phiếu đang chờ đúng bằng phần lệch, nhưng `web_ahead` tính thừa tiền 4 chuyến vì không biết dòng điều chỉnh tay đã trừ đúng 4 chuyến đó (chuyến dời sổ theo booking ngày 3/11). Máy dừng là đúng phía an toàn, nhưng đây là lỗi cách tính, đã sửa ở PR sau. Người dùng tự ghi phiếu lúc 11:39, sổ đã khớp.
+- Khách thứ hai (web thấp hơn Sheet): bảng booking ghi một chuyến tháng 10 dưới một tên khách không có trong bảng ghép tên, còn một tab khách đã tính tiền chuyến đó. Chuyến nằm ở hàng chờ "chưa rõ khách" nên sổ không có chuyến để ghi giá; máy không đoán khách là đúng. Cần người trả lời tên đó là khách nào.
 
-Lượt 12:05–12:12: 235 khớp, 1 lệch (khách −49,5 triệu ở trên), không sửa gì. Tổng nợ 68.362.305.665 đ, giảm đúng 40 triệu của phiếu người dùng ghi.
+Lượt 12:05–12:12: 235 khớp, 1 lệch (khách thứ hai ở trên), không sửa gì. Tổng nợ giảm đúng bằng phiếu người dùng ghi.
 
 ## Điểm mù tìm thêm sau lượt đầu
 
-Phép so chỉ thấy khách trong danh sách đóng băng từ mốc 20/10. Đo trên `hao` 4/11/2026: 13 tab ngoài danh sách đó, 7 tab có dòng tiền; đa số là bản sao, tab cũ đã xem lúc nạp, nhưng **2 tab mới có phát sinh tháng 10/2026, còn nợ hơn 330 triệu**, không nằm trong tổng Sheet lẫn tổng web. Hai con số khớp với nhau nên đối soát không báo. Từ FinanceBullkk/webdebit#301, mỗi lượt báo các tab này ở đầu tab Việc cần làm (`outside_tabs`), không đổi tiền.
+Phép so chỉ thấy khách trong danh sách đóng băng từ mốc 20/10. Đo trên `hao` 4/11/2026: 13 tab ngoài danh sách đó, 7 tab có dòng tiền; đa số là bản sao, tab cũ đã xem lúc nạp, nhưng **2 tab mới có phát sinh tháng 10/2026, còn nợ**, không nằm trong tổng Sheet lẫn tổng web. Hai con số khớp với nhau nên đối soát không báo. Từ FinanceBullkk/webdebit#301, mỗi lượt báo các tab này ở đầu tab Việc cần làm (`outside_tabs`), không đổi tiền.
 
 **Đính chính cùng ngày:** bản đầu của mục này và câu trên web ghi 2 tab đó "chưa có trên TONG". Sai: `in_summary` của bộ đọc sổ gốc so với CSV đóng băng chứ không so với TONG thật. Đọc TONG thật thì cả 2 tab đã có ở khối tháng 10/2026 và số khớp tab. Đã sửa ở [`MAY-TAO-SO-01`](../decisions/may-tao-so-01.md).
 

@@ -39,3 +39,5 @@
 .ov-go:hover,.ov-month:hover{background:#eaf2fb}
 .ov-link{min-height:40px;padding:0;border:0;background:none;color:#174b82;font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .ov-go:focus-visible,.ov-month:focus-visible,.ov-link:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* Điện thoại (DIEN-THOAI-SEP-01): 12 cột tháng chừng 25px, nhãn chỉ ghi tháng (T12, không /2025, không "đến ngày") để không đè nhau; số đủ khi chạm tháng. */
+@media (max-width:760px){.ov-name{font-size:12px;letter-spacing:-.3px;white-space:nowrap}.ov-name .ov-year,.ov-name small{display:none}}

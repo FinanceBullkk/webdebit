@@ -95,6 +95,13 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .tq .icon-btn svg{width:18px;height:18px}
 #dashboard{max-width:1204px;padding:20px 28px 0;display:flex;flex-direction:column;gap:16px}
 .tq #error{margin:16px 28px 0;max-width:1144px}
+/* XUAT-SO-01: dòng báo của nút Tải cả sổ, cùng chỗ với #error; giữ tới lượt bấm sau để người đọc kịp. */
+.tq .export-status{margin:16px 28px 0;max-width:1144px;padding:10px 14px;border:1px solid var(--edge);border-radius:8px;background:#fff;font-weight:600;overflow-wrap:anywhere}
+.tq .export-status.is-busy{color:var(--blue);background:#eaf2fc;border-color:#cde2fb}
+.tq .export-status.is-ok{color:var(--teal);background:#e3f4f1;border-color:#b6e0d8}
+.tq .export-status.is-bad{color:var(--red);background:#fdecea;border-color:#ebb7b4}
+.tq .export-status.is-wait{color:var(--amber);background:#fdf3e1;border-color:#efd59c}
+.tq #export-books:disabled{cursor:progress;color:var(--ink-m)}
 .tq .empty{margin:10px 0 0;color:var(--ink-m)}
 
 /* Dải đầu: câu trả lời chính, nền xanh nhạt; trái là Còn phải thu + hạn trả, phải là thẻ Thu tháng. */
@@ -110,7 +117,9 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .pill.credit{background:#dff3ee;border-color:#cfe9e2;color:var(--teal)}
 .brk{display:flex;gap:3px;margin-top:12px;font-size:13px;font-variant-numeric:tabular-nums}
 .brk>div{box-sizing:border-box;padding-bottom:3px;white-space:nowrap;overflow:hidden}
-.brk .in{flex:none;border-bottom:2px solid var(--blue);color:var(--blue)}
+/* Vạch Trong hạn rộng theo tỷ lệ (tối thiểu 9.5em, đặt trong JS) nhưng được co: khi gần 100% nó nhường đủ 9.5em cho Quá hạn,
+   không đẩy khối Quá hạn ra ngoài dải làm cả trang cuộn ngang trên điện thoại. */
+.brk .in{flex:0 1 auto;border-bottom:2px solid var(--blue);color:var(--blue)}
 .brk .late{flex:1 1 0;min-width:9.5em;border-bottom:2px solid var(--red);color:var(--red);text-align:right}
 .tq .age-bar{display:flex;gap:3px;height:18px;margin-top:6px;border-radius:6px;overflow:hidden}
 .tq .age-bar button{min-width:3px;height:18px;padding:0;border:0;cursor:pointer;transition:opacity .15s}
@@ -233,6 +242,10 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 @media (max-width:700px){
   .tq-page{margin-left:64px}
   .tq .page-head.topbar{padding:0 12px}
+  /* XUAT-SO-01: thanh đầu cao cố định, màn hẹp không đủ chỗ cho chữ: nút còn biểu tượng, tên nút vẫn đọc được bằng trình đọc. */
+  .tq #export-books{width:40px;padding:0}
+  .tq #export-books span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .tq .export-status{margin:12px 12px 0}
   #dashboard{padding:12px 12px 0}
   .strip{padding:12px}
   .owe,.month-card{flex-basis:100%}
@@ -246,5 +259,12 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
   .com-th span:nth-child(2),.com-line .cbar,.com-head .legend{display:none}
   .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
+  /* Điện thoại (DIEN-THOAI-SEP-01): bảng khách chỉ còn Khách · Quá hạn · Còn nợ, vừa màn, không cuộn ngang. Thanh hạn trả
+     chỉ có số khi rê chuột nên bỏ; hai cột ngày Trả, Đi hàng bỏ vì chấm màu trước tên đã gộp mức rủi ro. */
+  .dtable{min-width:0}
+  .dtable th.bar-h,.dtable td.bar,.dtable th[data-col="pay"],.dtable th[data-col="trip"],.dtable td.d{display:none}
+  .dtable td.who{width:auto}
+  /* Ba viên số cạnh Còn phải thu ghi chữ ngay (trên máy tính chữ nằm ở chú thích rê chuột). */
+  .owe-row .pill .sr-only{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}
 }
 @media (prefers-reduced-motion:reduce){.age-bar button{transition:none}}

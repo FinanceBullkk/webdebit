@@ -23,7 +23,7 @@ Theo đặc tả v3:
 - Thành tiền dòng (UNIT PRICE + phí) **khác số trên sổ** thì chặn, như rule "Subtotal khác TOTAL DUE".
 - Còn **Chặn** → chỉ xuất bản nháp có chữ DRAFT, tên file `_DRAFT`. Còn **Cảnh báo** → người lập tích xác nhận mới ra bản chính thức.
 - **Thông tin chứng từ người lập điền ở form**, trình duyệt nhớ (công ty theo bên phát hành, khách theo sổ); không lưu máy chủ, không đưa thông tin ngân hàng, MST, tên pháp lý khách vào repo (repo public). Điền sẵn HTH (tên, địa chỉ, email đang in trên mẫu) và Nông Sản Xanh (tên, MST 0319147624 theo đặc tả).
-- **Danh mục nơi đóng hàng/cảng** bản đầu (tỉnh Tây Nguyên, Đông/Tây Nam Bộ thường gặp; cảng Trung Quốc thường gặp). Ngoài danh mục thì cảnh báo; chính tả chuẩn "Dak Lak" (DAKLAK, DAK LAK cùng ra một tên).
+- **Danh mục nơi đóng hàng/cảng** bản đầu (tỉnh Tây Nguyên, Đông/Tây Nam Bộ thường gặp; cảng Trung Quốc thường gặp). Ngoài danh mục thì cảnh báo; chính tả chuẩn "Dak Lak" (DAKLAK, DAK LAK cùng ra một tên). Từ 10/11/2026 danh mục kèm tên tiếng Trung, thêm huyện kho, cảng và cửa khẩu theo [DIA-DIEM-01](dia-diem-01.md).
 - **Số debit note gợi ý** `<mã bên phát hành>-<yymm kỳ>-001` (HTH, NSX), người lập sửa được.
 - Trang 1 nhiều cảng mà vượt một trang thì thu nhỏ cả trang cho vừa (đặc tả: "luôn vừa 1 trang").
 

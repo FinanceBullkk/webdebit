@@ -8,7 +8,7 @@ Bản xem: canvas Design "Phụ phí hướng C" (riêng tư, của người dù
 
 Mỗi chuyến hiện chỉ có **một số phụ phí** (`trip_price_rev.other_fee_vnd`, cộng các `adjustment` có `field='other_fee_vnd'`). Thực tế có nhiều loại (neo, điện, ghép, health, kiểm định, bảo hiểm…). Tab khách trên Sheet có ba cột phí (`G H I`, tiêu đề chung "OTHER FEE"/"PHU PHI", không có nghĩa cố định) và khi nạp được cộng thành một số, nên không biết số đó gồm khoản gì. Thêm cột cố định cho mọi loại làm bảng quá rộng, phần lớn ô trống.
 
-Hướng C: **danh mục loại phụ phí** dùng chung + **dòng phụ phí** từng chuyến (một chuyến nhiều dòng) + **mỗi sổ chọn tối đa 3 loại hiện thành cột riêng**, còn lại gộp vào cột **Khác**.
+Hướng C: **danh mục loại phụ phí** dùng chung + **dòng phụ phí** từng chuyến (một chuyến nhiều dòng) + **mỗi sổ chọn tối đa 3 loại hiện thành cột riêng**, còn lại gộp vào cột **Khác**. (Từ 13/11/2026 theo [`COT-PHU-PHI-01`](../docs/decisions/cot-phu-phi-01.md): không giới hạn số cột riêng, mọi sổ mặc định bảy cột theo debit note, có Bật/Tắt tất cả và Về mặc định.)
 
 ## Người dùng và luồng (bước 1)
 
@@ -34,7 +34,7 @@ Bị chặn: tháng khóa (mục Hành vi), số tiền không đọc được, 
 
 - Sổ khách có cụm cột **PHỤ PHÍ** = các cột riêng của sổ (0–3) + **Khác**; dòng Tổng tháng có tổng từng cột. Thành tiền = đơn giá + tổng mọi dòng phụ phí.
 - Khung **Chi tiết phụ phí** bên phải: dòng phụ phí của chuyến (loại, số tiền, ghi chú, nhãn "cột riêng" / "chi hộ"), tổng, form thêm; đổi loại, sửa số, xóa từng dòng; chế độ áp cho nhiều chuyến.
-- Màn **Cài đặt loại phụ phí**: danh mục, tính chất (phí dịch vụ / chi hộ), số chuyến đang dùng ở sổ này, bật cột riêng (tối đa 3), thêm loại, đổi tên, ngừng dùng.
+- Màn **Cài đặt loại phụ phí**: danh mục, tính chất (phí dịch vụ / chi hộ), số chuyến đang dùng ở sổ này, bật cột riêng (không giới hạn từ `COT-PHU-PHI-01`; nút Bật tất cả, Tắt tất cả, Về mặc định), thêm loại, đổi tên, ngừng dùng.
 - Backend lưu từng dòng phụ phí, mọi thao tác ghi Lịch sử trước → sau và người làm; tổng tiền, phân bổ, số dư như hiện nay.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)

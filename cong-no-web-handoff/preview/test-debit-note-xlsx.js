@@ -34,7 +34,7 @@ const trip = (id, container, day, port, price, lines = []) => ({ id, month: '202
   origin: 'DAKLAK', destination: port, unit_price_vnd: String(price), status: 'confirmed', is_missing_price: false, is_fee_only: false,
   fee_lines: lines, amount_vnd: String(price + lines.reduce((sum, line) => sum + Number(line.amount_vnd), 0)) });
 const ledger = { trips: [
-  trip(1, 'CSQU3054383', '03', 'XIAMEN', 80000000, [{ fee_type_id: 1, amount_vnd: '2000000' }]),
+  trip(1, 'MAUU5500008', '03', 'XIAMEN', 80000000, [{ fee_type_id: 1, amount_vnd: '2000000' }]),
   trip(2, 'TSTU1000019', '06', 'QINGDAO', 75000000),
   { id: 3, month: '2026-09-01', container: null, event_date: '2026-09-10', status: 'confirmed', is_fee_only: true, unit_price_vnd: null, amount_vnd: '25000000',
     fee_lines: [{ fee_type_id: 11, amount_vnd: '25000000', note: 'BK-001' }] },
@@ -56,10 +56,11 @@ test('DEBIT-NOTE-02 Excel đối chiếu: tiêu đề cố định hàng 9, đ�
     ['I', 'TRUCKING'], ['J', 'GENERATOR / ELECTRICITY FEE'], ['K', 'OVERSTAY'], ['L', 'HC FEE'], ['M', 'CANCELLATION FEE'], ['N', 'AMD FEE'], ['O', 'TOTAL (VND)']]);
   assert.match(sheet, /<pane ySplit="9" topLeftCell="A10" activePane="bottomLeft" state="frozen"\/>/);
   assert.doesNotMatch(sheet, /mergeCell/);
-  assert.match(sheet, /<c r="B10" s="6" t="inlineStr"><is><t xml:space="preserve">CSQU3054383<\/t>/);
+  assert.match(sheet, /<c r="B10" s="6" t="inlineStr"><is><t xml:space="preserve">MAUU5500008<\/t>/);
   assert.match(sheet, /<c r="C10" s="6" t="inlineStr"><is><t xml:space="preserve">Chủ hàng &lt;A&amp;B&gt;<\/t>/);
   assert.match(sheet, /<c r="D10" s="8"><v>46268<\/v><\/c>/);   // 03 Sep 2026 là ngày thật
-  assert.match(sheet, /<c r="E10" s="6" t="inlineStr"><is><t xml:space="preserve">Dak Lak<\/t>/);
+  assert.match(sheet, /<c r="E10" s="6" t="inlineStr"><is><t xml:space="preserve">Dak Lak {2}多乐省<\/t>/);   // DIA-DIEM-01
+  assert.match(sheet, /<c r="F10" s="6" t="inlineStr"><is><t xml:space="preserve">Xiamen {2}厦门港<\/t>/);
   assert.match(sheet, /<c r="G10" s="7"><v>80000000<\/v><\/c>/);
   assert.match(sheet, /<c r="K10" s="7"><v>2000000<\/v><\/c>/);
   assert.match(sheet, /<c r="O10" s="7"><v>82000000<\/v><\/c>/);
@@ -92,7 +93,8 @@ test('DEBIT-NOTE-02 bản in: trang 1 tóm tắt, trang chi tiết chỉ hiện 
   assert.match(html, /Net 15 days/);
   assert.match(html, /SAY VIETNAM DONG ONE HUNDRED EIGHTY-TWO MILLION ONLY/);
   assert.match(html, /Equivalent {2}折合美元<\/span><b>7,013.49 USD at 25,950 VND\/USD/);
-  assert.match(html, /<td>Xiamen<\/td><td class="num">1<\/td><td class="num">80,000,000<\/td><td class="num">2,000,000<\/td>/);
+  assert.match(html, /<td>Xiamen {2}<span class="dn-cn">厦门港<\/span><\/td><td class="num">1<\/td><td class="num">80,000,000<\/td><td class="num">2,000,000<\/td>/);
+  assert.match(html, /<td>Dak Lak <span class="dn-cn">多乐省<\/span><\/td><td>Xiamen <span class="dn-cn">厦门港<\/span><\/td>/);   // DIA-DIEM-01
   assert.match(html, /<td>Additional charges {2}附加费用<\/td><td class="num">–<\/td><td class="num">–<\/td><td class="num">25,000,000<\/td>/);
   assert.match(html, /<td>Subtotal {2}小计<\/td><td class="num">2<\/td><td class="num">155,000,000<\/td><td class="num">27,000,000<\/td>/);
   assert.match(html, /Payment Ref\. {2}<span>汇款附言<\/span><\/th><td class="b">HTH\/2609-001<\/td>/);

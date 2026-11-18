@@ -127,9 +127,16 @@
       const current = model.feeCells(info.lines, [typeId]).own[0];
       if (current === amount) { redraw(); down(); return; }
       if (!await confirmRecount([{ info, change: { set: { typeId, amountVnd: amount } } }])) { redraw(); ctx.findMark(spot)?.focus(); return; }
-      const message = await send('feeSet', { target: info.payload, fee_type_id: typeId, amount_vnd: amount === null ? null : amount.toString() });
-      if (message && td.isConnected) td.querySelector('.cell-error').textContent = message;
-      else if (!message) down();
+      // NHAP-NHANH-01: ô hiện số ngay, Thành tiền của dòng "…" tới khi máy chủ tính; lệnh "đặt loại = số" ghi nền.
+      const fields = { target: info.payload, fee_type_id: typeId, amount_vnd: amount === null ? null : amount.toString() };
+      try { api.quick('feeSet', fields, { patch: data => model.patchLedger(data, 'feeSet', fields), label: `${ctx.feeTypeName(typeId)} của ${info.what}` }); }
+      catch (problem) { showNotice(problem.message); if (td.isConnected) td.querySelector('.cell-error').textContent = problem.message; return; }
+      if (!td.isConnected) { ctx.findMark(spot)?.focus(); return; }
+      td.textContent = amount === null ? '' : model.formatVnd(amount);
+      td.classList.add('is-saving');
+      const total = td.closest('tr[data-row]')?.lastElementChild;
+      if (total && total !== td) { total.textContent = '…'; total.classList.add('is-saving'); }
+      down();
     });
   }
 
@@ -321,7 +328,7 @@
       const name = renaming === id ? `<input class="fee-rename" data-id="${id}" value="${escape(type.name)}" aria-label="Tên mới" maxlength="200">` : escape(type.name);
       const column = type.system_key === 'other' ? '<span class="fee-muted">luôn là cột Khác</span>'
         : system ? '<span class="fee-muted">hiện ở cột Khác</span>'
-        : `<label class="fee-colbox"><input type="checkbox" class="fee-col" data-id="${id}"${position >= 0 ? ' checked' : ''}${position < 0 && (columns.length >= 3 || !type.active) ? ' disabled' : ''} aria-label="Cột riêng ${escape(type.name)}">${position >= 0 ? `<span class="fee-pos">${position + 1}</span>` : ''}</label>`;
+        : `<label class="fee-colbox"><input type="checkbox" class="fee-col" data-id="${id}"${position >= 0 ? ' checked' : ''}${position < 0 && !type.active ? ' disabled' : ''} aria-label="Cột riêng ${escape(type.name)}">${position >= 0 ? `<span class="fee-pos">${position + 1}</span>` : ''}</label>`;
       const move = position >= 0 ? `<button type="button" class="fee-move" data-id="${id}" data-step="-1" ${position === 0 ? 'disabled' : ''} aria-label="Đưa ${escape(type.name)} sang trái">←</button> <button type="button" class="fee-move" data-id="${id}" data-step="1" ${position === columns.length - 1 ? 'disabled' : ''} aria-label="Đưa ${escape(type.name)} sang phải">→</button>` : '';
       const kind = type.system_key === 'discount' ? 'số âm' : system ? '–'
         : `<select class="fee-kind" data-id="${id}" aria-label="Tính chất ${escape(type.name)}"><option value="service"${type.kind === 'service' ? ' selected' : ''}>Phí dịch vụ</option><option value="pass_through"${type.kind === 'pass_through' ? ' selected' : ''}>Chi hộ</option></select>`;
@@ -330,13 +337,19 @@
         <td>${system ? '' : `<button type="button" class="fee-active" data-id="${id}" data-active="${type.active ? 'false' : 'true'}">${type.active ? 'Ngừng dùng' : 'Dùng lại'}</button>`}</td></tr>`;
     }).join('');
     settingsEl.innerHTML = `<div class="fee-panel"><header><h2>Cài đặt loại phụ phí</h2><button type="button" class="fee-settings-close">Đóng</button></header><div class="fee-panel-body">
-      <p class="fee-muted">Danh mục dùng chung cho mọi sổ. <b>Cột riêng</b> chỉ áp cho sổ đang mở: tối đa 3 loại, còn lại hiện ở cột Khác. Bỏ cột riêng không mất số. <b>Chi hộ</b> chỉ là nhãn, vẫn cộng nợ khách.</p>
-      ${columns.length >= 3 ? '<p class="fee-info">Đã đủ 3 cột riêng — bỏ chọn một cột trước khi chọn loại khác.</p>' : ''}
+      <p class="fee-muted">Danh mục dùng chung cho mọi sổ. <b>Cột riêng</b> chỉ áp cho sổ đang mở; loại không bật cột riêng hiện ở cột Khác. Bỏ cột riêng không mất số. <b>Chi hộ</b> chỉ là nhãn, vẫn cộng nợ khách.</p>
+      <div class="fee-colall" role="group" aria-label="Bật tắt cột riêng của sổ này"><button type="button" class="fee-col-all"${pickable().every(id => columns.includes(id)) ? ' disabled' : ''}>Bật tất cả</button><button type="button" class="fee-col-none"${columns.length ? '' : ' disabled'}>Tắt tất cả</button><button type="button" class="fee-col-default"${sameIds(columns, defaults()) || !defaults().length ? ' disabled' : ''} title="${escape(defaults().map(typeName).join(', '))}">Về mặc định</button></div>
       <p class="fee-error" role="alert">${escape(settingsError || typesError)}</p>
-      <table class="fee-types"><thead><tr><th>Loại</th><th>Tính chất</th><th class="num">Chuyến dùng ở sổ này</th><th>Cột riêng trên sổ này (${columns.length}/3)</th><th>Thứ tự</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="fee-types"><thead><tr><th>Loại</th><th>Tính chất</th><th class="num">Chuyến dùng ở sổ này</th><th>Cột riêng trên sổ này (${columns.length})</th><th>Thứ tự</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <form class="fee-newtype"><b>Thêm loại</b><input class="fee-new-name" placeholder="Tên loại, ví dụ Nâng hạ" aria-label="Tên loại mới" maxlength="200"><select class="fee-new-kind" aria-label="Tính chất loại mới"><option value="service">Phí dịch vụ</option><option value="pass_through">Chi hộ</option></select><button type="submit">Thêm loại</button></form>
     </div></div>`;
   }
+  // COT-PHU-PHI-01: không giới hạn số cột riêng; bật tất cả giữ thứ tự đang có rồi thêm theo danh mục.
+  const pickable = () => types().filter(type => type.active && !isSystem(type)).map(type => Number(type.id));
+  const defaults = () => types().filter(type => type.active && type.default_position != null)
+    .sort((a, b) => a.default_position - b.default_position).map(type => Number(type.id));
+  const sameIds = (a, b) => a.length === b.length && a.every((id, index) => id === b[index]);
+  const typeName = id => typeOf(id)?.name ?? `Loại #${id}`;
   function openSettings() { settingsError = ''; renaming = null; settingsEl.hidden = false; renderSettings(); settingsEl.querySelector('.fee-settings-close')?.focus(); }
   function closeSettings() { settingsEl.hidden = true; settingsEl.innerHTML = ''; renaming = null; root.querySelector('.fee-settings-open')?.focus(); }
   async function reloadTypes() {
@@ -364,6 +377,9 @@
       [ids[index], ids[next]] = [ids[next], ids[index]];
       setColumns(ids); return;
     }
+    if (event.target.closest('.fee-col-all')) { setColumns([...ctx.feeColumnIds, ...pickable().filter(id => !ctx.feeColumnIds.includes(id))]); return; }
+    if (event.target.closest('.fee-col-none')) { setColumns([]); return; }
+    if (event.target.closest('.fee-col-default')) { setColumns(defaults()); return; }
     const active = event.target.closest('.fee-active');
     if (active) { catalog({ command: 'set_fee_type_active', fee_type_id: Number(active.dataset.id), active: active.dataset.active === 'true' }); return; }
     const name = event.target.closest('td.fee-name[data-id]');

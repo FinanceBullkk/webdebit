@@ -51,7 +51,7 @@ Người nhập ghi được phiếu thu từ Sheet của nhiều sổ trên m�
 | Phiếu trùng (M4) | Hàng chờ đã loại phiếu trùng phiếu web (cùng số tiền, ±3 ngày) và dòng sổ gốc (cùng tháng, số tiền, chữ ngày); phiếu lệch sổ gốc thành "cần xem" | Không thêm luật |
 | Đòi nợ | `doi-no.js` đọc `dashboard/debt`, `reminders`, `customers` | Đọc thêm `GET /api/v7/inbox` |
 
-Số đo trên `hao` 1/11/2026: 13 phiếu (6 sẵn sàng, 7 cần xem) ở 12 sổ, tổng 3,19 tỷ.
+Số đo trên `hao` 1/11/2026: 13 phiếu (6 sẵn sàng, 7 cần xem) ở 12 sổ.
 
 ## Nguồn quyết định
 
@@ -78,3 +78,5 @@ Số đo trên `hao` 1/11/2026: 13 phiếu (6 sẵn sàng, 7 cần xem) ở 12 s
   - khung 1280×560.
 - [ ] `npm run check` xanh.
 - [ ] Trên `hao`: người dùng ghi các phiếu sẵn sàng qua hộp; số phiếu chờ giảm đúng; Lịch sử của sổ có dòng ghi phiếu với tên người làm.
+
+<!-- du-lieu-gia: 50.000.000 -->

@@ -2,7 +2,7 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, legacyCell, posts, focused: focusedSoon, settled } = require('./so-khach-v7-browser-world');
 
 // Tháng 9/2026 có thứ tự dòng: sổ gốc 21, 22, rồi chuyến web 11, 13, 14 (14 đang CHỜ KIỂM: ô giá chỉ đọc).
 function moreTrips(world) {
@@ -42,6 +42,8 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   assert.equal(await focused(page), 'trip-13:2:carrier');
+  // NHAP-NHANH-01: ô đổi chữ ngay, lệnh ghi đi lần lượt sau đó; chờ mọi lệnh có phản hồi rồi mới đếm.
+  await settled(page);
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/trips/info', '/api/v7/legacy/edit', '/api/v7/legacy/edit']);
 
   await page.keyboard.press('ArrowUp');
@@ -74,6 +76,7 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   assert.equal(await focused(page), 'trip-13:5:origin>INPUT');
   await page.keyboard.press('Escape');
   assert.equal(await focused(page), 'trip-13:5:origin');
+  await settled(page);
   assert.equal(posts(world).length, 3);
 }, moreTrips));
 
@@ -84,6 +87,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Tab');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('55.000.000'));
   assert.equal(await focused(page), 'trip-11:7:other_fee_vnd');
+  await settled(page);
   assert.deepEqual(posts(world).at(-1), ['/api/v7/trips/price', { ...posts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '55000000', other_fee_vnd: null }]);
   await price(13).click();
   await page.keyboard.press('Escape');
@@ -97,6 +101,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('56.000.000'));
   assert.equal(await focused(page), 'trip-13:6:unit_price_vnd');
+  await settled(page);
   assert.equal(posts(world).filter(([path]) => path === '/api/v7/trips/price').length, 2);
 
   // Cột phụ phí riêng (PHU-PHI-01): Enter ghi rồi xuống ô cùng cột hàng dưới.
@@ -109,7 +114,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:11"][data-fee-type="1"]')?.textContent === '1.000');
   assert.equal(await focused(page), 'trip-13:7:');
-  assert.equal(await own(13).evaluate(cell => cell === document.activeElement), true);
+  assert.equal(await focusedSoon(own(13)), true);
 }, moreTrips));
 
 test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu điểm về ô/nút đã mở; Esc kế tiếp mới đóng Lịch sử', async () => withPage(async ({ page, world }) => {
@@ -137,6 +142,7 @@ test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu đi�
   await esc('td.receipt[data-pid="PH-001"]:not([data-field])', '.void-prompt');
   await esc('.add-month-adjustment[data-month="2026-09-01"]', '.month-adjustment-input');
   await esc('.month-lock[data-month="2026-09-01"]', '.lock-ask');
+  await settled(page);
   assert.deepEqual(posts(world), []);
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
@@ -250,24 +256,28 @@ test('Lịch sử: mỗi sự kiện một câu có tên ngắn người làm; l
       after: { trip: { id: 11, field: 'carrier', value: 'Tàu thử' } } });
 }));
 
-test('lưới bảng giá: mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, giữ chữ đã gõ; hàng đầu đứng yên', async () => withPage(async ({ page }) => {
-  const at = () => page.evaluate(() => `${document.activeElement?.dataset.r}:${document.activeElement?.dataset.c}`);
+test('bảng giá (ma trận): mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, giữ chữ đã gõ; hàng đầu đứng yên', async () => withPage(async ({ page }) => {
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
-  await dialog.locator('.price-grid-main').waitFor();
-  await dialog.locator('input[data-r="0"][data-c="2"]').click();
-  await page.keyboard.type('KHO A');
+  await dialog.locator('.pm-grid').waitFor();
+  const uids = await dialog.locator('.pm-grid tbody tr').evaluateAll(nodes => nodes.map(node => node.dataset.row));
+  const at = () => page.evaluate(() => `${document.activeElement?.dataset.row}:${document.activeElement?.dataset.tier}`);
+  await dialog.locator('.pm-grid tbody tr').first().locator('input[data-tier="tt"]').click();
+  await page.keyboard.type('70000000');
   await page.keyboard.press('ArrowDown');
-  assert.equal(await at(), '1:2');
+  assert.equal(await at(), `${uids[1]}:tt`);
   await page.keyboard.press('ArrowDown');
-  assert.equal(await at(), '2:2');
+  assert.equal(await at(), `${uids[2]}:tt`);
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('ArrowUp');
-  assert.equal(await at(), '0:2');
+  assert.equal(await at(), `${uids[0]}:tt`);
   await page.keyboard.press('ArrowUp');
-  assert.equal(await at(), '0:2');
-  assert.equal(await dialog.locator('input[data-r="0"][data-c="2"]').inputValue(), 'KHO A');
+  assert.equal(await at(), `${uids[0]}:tt`);
+  assert.equal(await dialog.locator('.pm-grid tbody tr').first().locator('input[data-tier="tt"]').inputValue(), '70.000.000', 'rời ô thì giá viết lại có dấu chấm');
   assert.equal(await dialog.locator('.price-dirty').isVisible(), true);
+}, world => {
+  world.priceTable = { tt_shippers: [], locations: ['KHO A', 'KHO B', 'KHO C'].map(name => ({ name, aliases: [] })), periods: [{ valid_from: '2026-09-01', valid_to: null,
+    rates: ['KHO A', 'KHO B', 'KHO C'].map(location => ({ location, destination: '', tier: 'khach', unit_price_vnd: '50000000' })) }] };
 }));

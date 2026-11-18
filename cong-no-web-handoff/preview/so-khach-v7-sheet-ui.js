@@ -45,7 +45,14 @@
         const month = monthKey(rows.get(`${item.target_kind}-${item.target_id}`)?.month);
         if (item.status === 'MONTH_LOCKED') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Tháng ${monthLabel(month)} đang khóa nên chưa ghi được.</small></div><button type="button" class="price-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button></li>`;
         if (item.status === 'CONFLICT') return `<li>${item.batchable ? `<input type="checkbox" class="price-conflict-select" aria-label="Chọn ${what} để lấy giá Sheet" data-key="${escape(conflictKey(item))}" ${conflictSelection.has(conflictKey(item)) ? 'checked' : ''}>` : ''}<div class="what">${what} · Web ${vndText(item.web_unit_price_vnd)} đ · Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>${item.batchable ? 'Web đã có giá khác Sheet.' : 'Cần xử lý riêng; không thể ghi hàng loạt.'}</small></div><button type="button" class="price-use-sheet" data-kind="${escape(item.target_kind)}" data-id="${escape(item.target_id)}" data-price="${escape(item.sheet_unit_price_vnd)}" data-fee="${escape(item.sheet_other_fee_vnd ?? '')}">Lấy Sheet</button></li>`;
-        if (item.status === 'MANUAL') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí ${vndText(item.sheet_other_fee_vnd)} đ<small>Sheet có số âm (giảm trừ). Nhập tay tại ô của chuyến.</small></div></li>`;
+        if (item.status === 'MANUAL') {
+          // Hai lý do máy để người làm: phụ phí web đã chia theo loại (xét trước, như v7_price_queue), hoặc giá Sheet âm.
+          const row = rows.get(`${item.target_kind}-${item.target_id}`);
+          const typed = row?.has_typed_fee ?? row?.current?.has_typed_fee;
+          const negative = String(item.sheet_unit_price_vnd ?? '').startsWith('-');
+          if (negative && !typed) return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí ${vndText(item.sheet_other_fee_vnd ?? '0')} đ<small>Sheet có số âm (giảm trừ). Nhập tay tại ô của chuyến.</small></div></li>`;
+          return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí Sheet ${vndText(item.sheet_other_fee_vnd ?? '0')} đ, web ${vndText(item.web_other_fee_vnd ?? '0')} đ<small>Phụ phí trên web đã chia theo loại nên máy không tự sửa. Sửa tay ô phụ phí của chuyến, hoặc sửa Sheet cho khớp.</small></div></li>`;
+        }
         return `<li><div class="what">Dòng Sheet ${escape(item.source_row)} · ${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Khớp nhiều chuyến cùng container. Điền giá tay tại ô của đúng chuyến.</small></div></li>`;
       };
       const selectable = (data.sheet_prices?.review ?? []).filter(item => item.status === 'CONFLICT' && item.batchable);
@@ -106,7 +113,7 @@
       event.stopImmediatePropagation();
       openSheetDetail(button);
     });
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const action = event.target.closest('[data-sheet-decision]');
       if (!action) return;
       const detail = action.closest('.sheet-detail');
@@ -154,7 +161,7 @@
         if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
       } catch (error) { detailNotice(error.message); action.disabled = false; }
-    });
+    }));
     root.addEventListener('change', event => {
       const checkbox = event.target.closest('.price-conflict-select');
       if (!checkbox) return;
@@ -163,7 +170,7 @@
       renderSnapshot(ctx.snapshot);
       root.querySelector(`.price-conflict-select[data-key="${CSS.escape(checkbox.dataset.key)}"]`)?.focus();
     });
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet,.price-conflict-all,.price-conflict-confirm,.price-conflict-cancel,.price-conflict-write');
       if (!target || target.disabled || !ctx.snapshot) return;
       if (target.matches('.price-conflict-all')) {
@@ -262,13 +269,13 @@
       showNotice(result.complete === false
         ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi. Bấm "Ghi … giá từ Sheet" để ghi tiếp.`
         : `Đã ghi ${result.written} giá từ Sheet.`);
-    });
+    }));
     // Duyệt một chuyến tại hàng: cùng lệnh /api/v7/sheet/approve, chỉ dòng đó (source_rows). Chưa rõ kết quả thì bấm lại
     // gửi đúng khóa cũ để không dán trùng. Chuyến vào sổ chưa có giá nên tổng còn nợ không đổi lúc duyệt.
     const rowApprovals = new Map();
     let newJump = 0;
     const flash = row => { row.classList.remove('ps-flash'); void row.offsetWidth; row.classList.add('ps-flash'); };
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const button = event.target.closest('.sheet-row-approve,.sheet-new-next');
       if (!button || button.disabled || !ctx.snapshot) return;
       const items = newRows(ctx.snapshot);
@@ -313,7 +320,7 @@
       showNotice(!response.ok ? result.message || `Không duyệt được ${what}.`
         : result.review_count ? `Đã duyệt ${what}, nhưng nghi trùng với chuyến đã có nên thành "chờ kiểm": bấm nhãn chờ kiểm ở hàng đó để kết luận.`
           : `Đã duyệt ${what} vào tháng ${monthLabel(monthKey(item.event_date))}. Chưa có giá nên chưa tính tiền; có giá trên Sheet thì máy tự điền.`);
-    });
+    }));
     // ---- Sheet không còn dòng này (specs/v7-sheet-removed-trips.md): chỉ báo; xóa qua lệnh xóa chuyến có sẵn ----
     const removedRows = data => data.sheet_sync?.removed_items ?? [];
     const keepRequests = new Map();
@@ -329,7 +336,7 @@
       }
       if (items.length) root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
     }
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const button = event.target.closest('.sheet-removed-delete,.sheet-removed-keep,.sheet-removed-next,.sheet-removed-unlock');
       if (!button || !ctx.snapshot) return;
       event.stopImmediatePropagation();
@@ -384,6 +391,6 @@
       // Dòng hỏi cùng dạng xóa chuyến ở ô STT: nút Xóa hẳn/Thôi do so-khach-v7-edit-ui.js xử lý (lệnh tripDelete).
       row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
-    });
+    }));
     Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved });
 };

@@ -19,7 +19,7 @@ Vẫn để người quyết: giá Sheet khác giá web (`CONFLICT`), nhiều ch
 
 ## Ngày / nguồn
 
-3/11/2026, chat. Đối soát chỉ đọc lúc 20:19 cho ra `KHONG DAT`: 212/236 khách khớp. Claude đo trên `hao` (chỉ đọc, 236 sổ): 53 dòng giá Sheet kẹt `MONTH_LOCKED` ở 11 sổ, đều thuộc tháng 10/2026 (đã khóa từ 1/11). Trong đó 41 chuyến web và 12 dòng sổ gốc, chưa dòng nào có giá trên web; ghi hết thì tổng nợ tăng 2.842.302.125đ. 9 trong 20 khách lệch tổng có dòng loại này.
+3/11/2026, chat. Đối soát chỉ đọc lúc 20:19 cho ra `KHONG DAT`: 212/236 khách khớp. Claude đo trên `hao` (chỉ đọc, 236 sổ): 53 dòng giá Sheet kẹt `MONTH_LOCKED` ở 11 sổ, đều thuộc tháng 10/2026 (đã khóa từ 1/11). Trong đó 41 chuyến web và 12 dòng sổ gốc, chưa dòng nào có giá trên web; ghi hết thì tổng nợ tăng thêm đúng giá Sheet của 53 dòng này. 9 trong 20 khách lệch tổng có dòng loại này.
 
 Claude hỏi cách ghi, ba phương án: (1, đề xuất) người bấm, máy mở rồi khóa tháng; (2) máy tự ghi luôn; (3) giữ chặn, thêm nút mở khóa tại dòng. Người dùng chọn "Máy tự ghi luôn". Claude hỏi tiếp phạm vi: chỉ tháng đã khóa (đề xuất) hay mọi tháng. Người dùng chọn "Mọi tháng, cả tháng mở".
 

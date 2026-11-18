@@ -32,9 +32,11 @@ Cùng đợt sửa luật "container ở khách khác": chỉ báo khi chuyến 
 **Rà máy tự ghi 4/11/2026 (Claude, không đổi luật):** mở, ghi, khóa lại là ba lệnh riêng. API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở, và lượt sau thấy tháng đang mở nên không khóa lại. Từ nay lượt nền khóa lại tháng mà lần đổi khóa gần nhất là máy mở, cũ hơn 10 phút; tháng người mở giữ nguyên. Đo trên `hao` lúc rà: 99/99 lần máy mở đã khóa lại, chưa tháng nào bị bỏ mở. Cùng đợt: "Máy đã tự làm hôm nay" nạp lại từ Lịch sử ở lượt đầu sau khi API khởi động lại (trước đó chỉ ở RAM, mất mỗi lần triển khai), và mỗi lỗi của máy ghi một dòng journal.
 
 **Thử trên bản sao DB của `hao` (3/11/2026):** chạy máy cho cả 236 sổ.
-- Không lỗi; tổng nợ mọi sổ 64.729.039.261 trước và sau, không sổ nào đổi số dư.
+- Không lỗi; tổng nợ mọi sổ bằng nhau trước và sau, không sổ nào đổi số dư.
 - Mọi tháng máy mở đã khóa lại; tháng đang mở sẵn giữ nguyên.
 - Máy điền ngày 57 dòng sổ gốc và đưa 52 chuyến tháng 10 vào sổ (không chuyến nào vào chờ kiểm).
 - Hàng chờ từ 152 còn 43 dòng, đều là việc người quyết nêu ở trên.
 
 **Cập nhật 6/11/2026:** [`VIEC-DOI-CHIEU-01`](viec-doi-chieu-01.md) thêm một ngoại lệ do người dùng chọn: người chọn khoản trong bảng đối chiếu rồi xác nhận thì web mở tháng, ghi, khóa lại. Mọi đường khác người vẫn bị khóa tháng chặn.
+
+**Cập nhật 13/11/2026:** [`CHUYEN-KHONG-HOI-01`](chuyen-khong-hoi-01.md) thay vế "vẫn để người quyết: lệch ngày khi dòng cũ đã có ngày" cho **dòng sổ gốc**: lệch không quá 3 ngày thì giữ ngày sổ gốc, không hỏi. Chuyến web và các vế còn lại giữ nguyên.
