@@ -497,6 +497,8 @@ mã thoát 2, unit `failed`, không xóa gì.
 
 ### B1. Bản ghim và thư mục
 
+Từ 18/11/2026 (CHI-PHI-XE-01) bản dump gồm cả schema đội xe `doixe` khi DB có schema đó (cùng tên file `sokhach.dump`, cùng ảnh dữ liệu); manifest thêm `doixe_row_counts`, phục hồi so cả số dòng `doixe` và từ chối đích đã có `sokhach` hoặc `doixe`. Bản cũ (chỉ `sokhach`) vẫn kiểm và phục hồi được. Đổi `v7_backup.py` thì cài lại bản ghim theo mục này.
+
 Lấy file từ release đang chạy sau khi PR đã merge và `Deploy hao` xanh (hoặc chép từ commit), rồi so hash với
 `git show <commit>:cong-no-web-handoff/tools/v7_backup.py | sha256sum` ở một checkout; khác thì dừng. Ghi commit và hash
 vào `<evidence_dir>`. Công cụ coi thư mục hai cấp trên (`/opt/webdebit-backup`) là gốc mã, từ chối ghi backup vào đó;
