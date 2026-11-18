@@ -203,7 +203,9 @@ chạy lại một lần như trong `shared-browser.js` và được đếm riê
   như dưới đây, không thêm thử lại, không nới thời hạn.
 - **Ở máy:** `node scripts/flaky-repeat.js --rounds 10` (mặc định cả bộ browser, log ở `.flaky/`, đã ignore); đưa tên
   file để chạy riêng vài file. Máy mạnh hiếm khi đỏ lại được lỗi của runner 4 lõi; khi đó bật
-  `WEBDEBIT_TEST_CPU_SLOWDOWN=4` (`shared-browser.js` làm JS của trang chậm 4 lần qua CDP) để lộ ca chờ sai.
+  `WEBDEBIT_TEST_CPU_SLOWDOWN=4` (`shared-browser.js` làm JS của trang chậm 4 lần qua CDP) để lộ ca chờ sai. Làm chậm
+  đều không đổi thứ tự các phản hồi, nên ca đua giữa lượt đọc nền và phép đo vẫn xanh; khi đó cho fixture trả chậm ngẫu
+  nhiên một hai route (`setTimeout` trước `send`) trong một bản chép tạm của test để tái hiện, đừng commit bản chép.
 
 **Viết test trình duyệt không chập chờn.** Chờ đúng tín hiệu, không ngủ rồi đo: không `waitForTimeout`, không
 `setTimeout` trong `page.evaluate` để "chờ trang xử lý xong". Tín hiệu có sẵn: phản hồi mạng (`waitForResponse`, gắn
@@ -212,7 +214,9 @@ trang: `SoKhachV7Api.idle()` qua `settled(page)` (sổ khách), `ViecCanLam.idle
 `body[data-loads]` (Bảng thu, số lượt đọc đã vẽ), `body[data-loaded]` (Đội xe, Báo cáo tháng, Thông tin cty). Muốn kiểm
 "không xảy ra" thì chờ một tín hiệu cho biết trang đã xử lý xong (ví dụ hai lần hỏi `/api/v7/machine/now` của Máy
 chạy, vì lần sau chỉ đi khi lần trước đã vẽ) rồi mới kiểm, không đếm trong một cửa sổ giờ. Trang thiếu tín hiệu thì
-thêm tín hiệu chỉ đọc, không đổi hành vi.
+thêm tín hiệu chỉ đọc, không đổi hành vi. Đo bố cục (`boundingBox`) chỉ sau tín hiệu "hết đọc nền": phần tử đã hiện
+vẫn có thể bị lượt vẽ sau thay, và `boundingBox` tìm phần tử rồi mới đo nên trả `null` nếu lượt vẽ chen giữa (ca
+`undefined+undefined` ở `test-viec-can-lam-tong-browser.js`, 18/11).
 
 ### Khi nào chạy harness PostgreSQL ở máy
 

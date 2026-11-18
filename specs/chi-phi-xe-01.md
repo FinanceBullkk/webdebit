@@ -150,6 +150,7 @@ Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ
 3. **Bảng chi phí tháng**, mỗi dòng một chặng:
    - **Gọn:** Ngày, Container, Loại chặng (kèm dấu nối chuyến khách), 5 loại phí dùng nhiều nhất trong tháng, "Phí khác" (bấm sang Đủ cột), VETC, Tài xế chi, Tình trạng.
    - **Đủ cột:** thêm Xe, Nơi lấy, Nơi hạ, Kho, đủ 14 cột phí như Sheet, Người trả, Chuyến khách, Ghi chú; ba cột đầu đứng yên khi cuộn ngang.
+   - Bảng rộng hơn màn (người dùng báo 18/11/2026): dòng tiêu đề cột dính đầu màn khi lăn trang xuống, thanh kéo ngang dính đáy màn nên không phải lăn tới cuối bảng mới kéo được. Lăn chuột trên dòng tiêu đề cột hoặc thanh kéo ngang thì bảng chạy ngang (hết đường thì trang cuộn tiếp); lăn trên các dòng vẫn lên xuống như thường, Shift + lăn thì ngang ở mọi chỗ. Vẽ lại cùng bảng (lưu ô, lọc) giữ chỗ đang kéo ngang.
    - VETC tô xám, không vào phần hoàn. Dòng người khác trả hiện xám, không cộng vào "Tài xế chi".
    - Tình trạng: Chưa có phí, Chưa hoàn, ✓ Đã hoàn dd/mm, "<người> trả", Công ty trả, Đã bỏ.
    - Lọc nhanh: Chưa hoàn · Chưa nối chuyến khách · Chưa có phí (chip kèm số đếm, bấm lại hoặc ✕ để bỏ).
