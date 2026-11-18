@@ -20,5 +20,6 @@
 | [Nền UX · bước 01: người dùng và mục tiêu](ux-nen-nguoi-dung.md) | Ai dùng web thật (số liệu `hao`), khối lượng nghiệp vụ, câu trả lời của người dùng, mục tiêu đo được M1–M5, việc của từng vai; nền cho mọi thay đổi UX từ 1/11/2026 |
 | [UX bước 02: đường đi của dữ liệu và các màn](ux-luong-du-lieu.md) | Bốn hàng chờ đo trên cả 236 sổ, chặng nào máy làm, chặng nào người quyết, giữ/gộp/bỏ từng màn, câu hỏi Q1–Q3; ĐỀ XUẤT 1/11/2026 |
 | [UX bước 03: luồng thao tác](ux-buoc-03-luong-thao-tac.md) | Hộp ngoại lệ của người nhập, danh sách máy đã tự làm, số tin được cho sếp/người đòi nợ; trạng thái, chỗ máy chặn sai, dữ liệu cần thêm, giai đoạn P1–P3, câu hỏi Q4–Q5; ĐỀ XUẤT 1/11/2026 |
+| [Đội xe: bản đồ dữ liệu và kiến trúc](doi-xe-kien-truc-du-lieu.md) | ĐỀ XUẤT 19/11/2026: kiểm kê 10 nguồn dữ liệu nhà xe, 8 loại sự việc và 5 danh mục, mối liên hệ, dấu vết Sheet trong bản đang chạy, thứ tự 5 khối và việc cần người dùng chốt |
 
 Ưu tiên quyết định người dùng có phạm vi rõ hơn đề xuất cũ; code/fixture không tự duyệt chính sách. Hồ sơ này tóm tắt phần được phép chia sẻ từ bằng chứng gốc giữ ngoài repo. Không sao chép bảng khách, số dư từng khách, ID Sheet hoặc chứng từ. Từ mốc chuyển quy trình, thay đổi mới ghi ở repo; hồ sơ gốc là chứng cứ lịch sử, không là bản tài liệu sống thứ hai.
