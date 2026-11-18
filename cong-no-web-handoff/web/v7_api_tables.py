@@ -29,6 +29,7 @@ PAGES = {
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
     "/doi-no.html": "doi-no.html",
     "/bang-thu.html": "bang-thu.html",
+    "/doi-xe.html": "doi-xe.html",
     "/bao-cao-thang.html": "bao-cao-thang.html",
     "/may-chay.html": "may-chay.html",
     "/thong-tin-cty.html": "thong-tin-cty.html",
@@ -164,6 +165,26 @@ ERRORS = {
     "PRICE_NOT_FOUND": (409, "Có chuyến không tra được giá theo bảng. Tải lại để xem lý do."),
     "PRICE_TYPED_PRICE": (409, "Có chuyến đã gõ đơn giá tay; bảng giá không ghi đè. Tải lại rồi chọn lại."),
 }
+# CHI-PHI-XE-01: đội xe (schema doixe), thân lệnh kiểm ở v7_api_doixe.
+ERRORS.update({
+    "NGAY_TUONG_LAI": (422, "Ngày không được sau hôm nay."),
+    "CHANGED": (409, "Ô này vừa đổi ở máy khác. Tải lại rồi sửa."),
+    "CHANG_NOT_FOUND": (409, "Không còn chặng này. Tải lại."),
+    "CHANG_DA_BO": (409, "Chặng đã bỏ, không sửa được nữa."),
+    "THANG_KHOA_CHUYEN": (409, "Không chuyển chặng vào hay ra tháng đã khóa."),
+    "TRUNG_CHANG": (409, "Đã có chặng này (cùng ngày, container, loại chặng, xe)."),
+    "CONT_THIEU": (422, "Thiếu số container."),
+    "XE_KHONG_RO": (422, "Chưa rõ xe."),
+    "KHONG_DOI_NGUOI_TRA": (409, "Tháng đã khóa hoặc chặng đã hoàn: không đổi người trả. Muốn đổi thì hủy đợt hoàn hoặc mở khóa tháng trước."),
+    "NGUOI_NOT_FOUND": (422, "Không tìm thấy người này."),
+    "XE_NOT_FOUND": (422, "Không tìm thấy xe này."),
+    "UNG_NOT_FOUND": (409, "Không tìm thấy lần ứng. Tải lại."),
+    "DOT_NOT_FOUND": (409, "Không tìm thấy đợt hoàn. Tải lại."),
+    "DA_HUY": (409, "Khoản này đã hủy."),
+    "LY_DO_THIEU": (422, "Cần ghi lý do hủy."),
+    "DONG_THIEU": (422, "Chọn ít nhất một dòng."),
+    "DONG_DA_DOI": (409, "Các dòng vừa đổi ở máy khác. Tải lại rồi chọn lại."),
+})
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
               "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS", "INVALID_REVIEW"):
@@ -280,5 +301,13 @@ SQL["get_marks"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
 SQL["create_book_from_sheet"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.create_book_from_sheet("
                                  "j->>'book_name', j->>'commodity_name', j->>'book_mode', j->'openings', j->'legacy', j->'month_checks', "
                                  "(j->>'control_total')::bigint, j->>'report_sha256') FROM b;")
+# CHI-PHI-XE-01: đội xe. Lệnh ghi nhận nguyên thân lệnh (jsonb), hàm SQL kiểm lại; đọc nhận tham số đã kiểm ở v7_api_doixe.
+for _name in ("luu_chang", "sua_chang", "xoa_chang", "ghi_ung", "huy_ung", "ghi_hoan", "huy_hoan", "khoa_thang"):
+    SQL["doixe_" + _name] = f"SELECT doixe.{_name}(:'payload'::jsonb);"
+SQL["doixe_get_tong"] = "SELECT doixe.get_tong((:'payload'::jsonb->>'thang')::date);"
+SQL["doixe_get_so"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
+                       "SELECT doixe.get_so(j->>'loai', (j->>'id')::bigint, (j->>'thang')::date) FROM b;")
+SQL["doixe_get_lich_su"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
+                            "SELECT doixe.get_lich_su((j->>'nguoi')::bigint, (j->>'xe')::bigint) FROM b;")
 # /healthz: chỉ chứng minh đường psql của app tới DB còn chạy (audit DevOps 31/10, #6); không đọc sổ.
 SQL["healthz"] = "SELECT 1;"

@@ -8,6 +8,9 @@
 //
 //   node scripts/check.js            chạy tất cả
 //   node scripts/check.js --lint     chỉ lint (nhanh, dùng khi đang sửa)
+//   node scripts/check.js --skip=test:py[,lint:js]
+//                                    bỏ bước theo mã (chữ đầu tên bước). Chỉ CI dùng: job JS trên
+//                                    ubuntu bỏ test:py vì job `python` đã chạy unittest 3.12–3.14.
 //
 // Mã thoát khác 0 nếu bất kỳ bước nào hỏng. Bước bị bỏ qua (SKIP) không làm hỏng.
 
@@ -18,6 +21,11 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const HANDOFF = path.join(ROOT, "cong-no-web-handoff");
 const lintOnly = process.argv.includes("--lint");
+const skipKeys = process.argv
+  .filter((a) => a.startsWith("--skip="))
+  .flatMap((a) => a.slice("--skip=".length).split(","))
+  .map((k) => k.trim())
+  .filter(Boolean);
 
 // Ruff nằm trong .venv của dự án khi chạy ở máy, nằm trên PATH khi chạy trong CI.
 function ruffCommand() {
@@ -165,11 +173,22 @@ const steps = [
   },
 ];
 
+// Mã bước là chữ đầu của tên ("test:py", "lint:js"...). Mã gõ sai thì dừng hẳn: bỏ nhầm một bước
+// mà vẫn báo xanh là đúng kiểu lỗi lệnh này sinh ra để chặn.
+const stepKey = (step) => step.name.split(/\s+/)[0];
+const unknownSkip = skipKeys.filter((k) => !steps.some((step) => stepKey(step) === k));
+if (unknownSkip.length) {
+  console.error(`--skip có mã không tồn tại: ${unknownSkip.join(", ")}. Mã hợp lệ: ${[...new Set(steps.map(stepKey))].join(", ")}`);
+  process.exit(2);
+}
+
 const results = [];
 for (const step of steps) {
   if (lintOnly && step.lint === false) continue;
 
-  const reason = step.skip && step.skip();
+  const reason = skipKeys.includes(stepKey(step))
+    ? "bỏ theo --skip"
+    : step.skip && step.skip();
   if (reason) {
     console.log(`\n=== SKIP ${step.name}: ${reason}\n`);
     results.push({ name: step.name, status: "SKIP" });
