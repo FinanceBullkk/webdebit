@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 import v7_ai_explain
 import v7_api_doi_chieu
+import v7_api_doixe
 import v7_api_sheet
 import v7_api_zalo
 import v7_book_export
@@ -121,6 +122,11 @@ def declared_length(value: str, limit: int) -> int | None:
         return None
     digits = value.lstrip("0")
     return int(digits or "0") if len(digits) <= len(str(limit)) else limit + 1
+
+
+def body_limit(path: str) -> int:
+    """Trần thân POST: ảnh chứng từ lớn nhất, lệnh lưu chặng đội xe (tới 200 dòng dán) lớn hơn lệnh thường."""
+    return MAX_IMAGE_BODY if path == IMAGE_PATH else v7_api_doixe.MAX_CHANG_BODY if path == v7_api_doixe.CHANG_PATH else MAX_BODY
 
 
 def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()):
@@ -287,6 +293,7 @@ POST_HANDLERS = {
     "/api/v7/marks": v7_api_zalo.handle_mark,
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
     "/api/v7/machine/office": v7_machine.handle_office,
+    **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
 }
 MACHINE_READS = {"/api/v7/machine": v7_machine.view, "/api/v7/machine/now": v7_machine.now_view, "/api/v7/machine/summary": v7_machine.summary}
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
@@ -307,7 +314,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if headers.get("content-type", "").lower() != "application/json":
             raise ApiError(415, "INVALID_CONTENT_TYPE", "Cần gửi JSON.")
         parts = urlsplit(target)
-        if len(raw) > (MAX_IMAGE_BODY if parts.path == IMAGE_PATH else MAX_BODY):
+        if len(raw) > body_limit(parts.path):
             raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
         if parts.query:
             bad()
@@ -376,6 +383,12 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             return v7_company_info.handle_get(parts.query)
         except v7_company_info.InfoError as exc:
             raise ApiError(exc.status, exc.code, exc.message) from exc
+    elif parts.path == v7_api_doixe.PREFIX or parts.path.startswith(v7_api_doixe.PREFIX + "/"):
+        # CHI-PHI-XE-01: đọc đội xe (schema doixe), thẳng runner như mọi đọc không nằm trong bộ nhớ đọc; tên ngắn cho người làm.
+        function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
+        names = PRESENCE.names()
+        return 200, v7_api_doixe.with_names(runner.run(function, payload, actor),
+                                            lambda login: v7_presence.display_name(login, names))
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
@@ -622,7 +635,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             raw = b""
             if self.command == "POST":
-                limit = MAX_IMAGE_BODY if urlsplit(self.path).path == IMAGE_PATH else MAX_BODY
+                limit = body_limit(urlsplit(self.path).path)
                 length_value = declared_length(self.headers.get("Content-Length", ""), limit)
                 if length_value is None:
                     bad()
