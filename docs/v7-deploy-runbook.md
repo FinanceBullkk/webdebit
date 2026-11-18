@@ -1985,9 +1985,9 @@ Thứ tự với release: độc lập, vì release cũ và mới gọi cùng m�
 
 Rollback: `ALTER FUNCTION sokhach.get_ledger(bigint) RESET jit;` dưới `sokhach_owner`. Kết quả không đổi, chỉ chậm lại như trước.
 
-## Tổng quan không JIT (HIEU-NANG-02) — nâng DB
+## Tổng quan không JIT (HIEU-NANG-02) — nâng DB (ĐÃ CHẠY trên hao 18/11/2026)
 
-Spec [`hieu-nang-02`](../specs/hieu-nang-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_dashboard_debt() SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_dashboard_debt` trùng từng byte, và kết quả `get_safety_net` (hàm gọi nó) cũng vậy. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-09-v7-thu-thang-theo-so.sql` (hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_dashboard_debt`: `2026-11-06-v7-ngay-tra-that.sql`, `2026-10-29-v7-tong-quan-quan-ly-no.sql`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
+Đã chạy 18/11/2026, xem [nhật ký](deploys/2026-11-18-tong-quan-tat-jit.md). Spec [`hieu-nang-02`](../specs/hieu-nang-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_dashboard_debt() SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_dashboard_debt` trùng từng byte, và kết quả `get_safety_net` (hàm gọi nó) cũng vậy. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-09-v7-thu-thang-theo-so.sql` (hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_dashboard_debt`: `2026-11-06-v7-ngay-tra-that.sql`, `2026-10-29-v7-tong-quan-quan-ly-no.sql`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
 
 Thứ tự với release: độc lập, vì release cũ và mới gọi cùng một hàm. Chỉ đổi cấu hình của một hàm đọc nên không cần cửa sổ dừng ghi. Tránh phút :05–:15 khi máy đối soát chạy.
 

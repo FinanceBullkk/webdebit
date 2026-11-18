@@ -1,6 +1,6 @@
 # Tổng quan nhanh hơn: `get_dashboard_debt` chạy với JIT tắt (HIEU-NANG-02)
 
-Trạng thái: ĐÃ CHỐT. Việc do phiên MO-SO-NHANH-03 giao ngày 18/11/2026 (mục CÒN MỞ "`get_dashboard_debt` cũng bị JIT" trong [MO-SO-NHANH-03](mo-so-nhanh-03.md)): đo các hàm đọc nặng còn lại của V7, hàm nào thật sự tốn JIT thì tắt JIT trong khai báo hàm. Claude chọn cách làm theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Phạm vi: cấu hình của một hàm đọc là `get_dashboard_debt`. Không đổi thân hàm, luật tiền, bảng, view, dữ liệu, quyền, giao diện, cấu hình cụm, DB hay role.
+Trạng thái: ĐÃ CHỐT. Việc do phiên MO-SO-NHANH-03 giao ngày 18/11/2026 (mục CÒN MỞ "`get_dashboard_debt` cũng bị JIT" trong [MO-SO-NHANH-03](mo-so-nhanh-03.md)): đo các hàm đọc nặng còn lại của V7, hàm nào thật sự tốn JIT thì tắt JIT trong khai báo hàm. Claude chọn cách làm theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Phạm vi: cấu hình của một hàm đọc là `get_dashboard_debt`. Không đổi thân hàm, luật tiền, bảng, view, dữ liệu, quyền, giao diện, cấu hình cụm, DB hay role. ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 lúc 10:19, bản `da1708b`, [nhật ký](../docs/deploys/2026-11-18-tong-quan-tat-jit.md).
 
 Tiếp [HIEU-NANG-01](hieu-nang-01.md) (bộ nhớ đọc theo dấu dữ liệu: chỉ tính lại sau mỗi lệnh ghi) và [MO-SO-NHANH-03](mo-so-nhanh-03.md) (`get_ledger` chạy với JIT tắt).
 
@@ -67,10 +67,10 @@ DB thật trên `hao` được đo lúc 09:52 ngày 18/11/2026, chỉ đọc. M�
 
 - [x] `tests/test_v7_fee_sql_sync.py`: `get_dashboard_debt` chuẩn bằng bản DASH-08 (`2026-11-09-v7-thu-thang-theo-so.sql`) cộng đúng một mệnh đề `SET jit = off`; migration chỉ gồm `ALTER FUNCTION` trong một giao dịch.
 - [x] Harness case `HIEU-NANG.02`: `proconfig` là `search_path` cộng `jit=off`. Khi phiên ép JIT cho mọi câu (`jit_above_cost = 0`), `auto_explain` chỉ thấy câu `SELECT` ngoài cùng có JIT; câu chính lồng trong `get_dashboard_debt` không có. Phép thử của MO-SO-NHANH-03 chuyển sang cùng module `tools/test_pg_v7_backend_jit_off.py` và dùng chung hàm dò.
-- [ ] `test_pg_v7_backend.py --migration-test` xanh: chuỗi nâng của backend, locks và price có file mới, và catalog hàm trùng bản khởi tạo mới. `test_pg_v7_luoi_an_toan.py` xanh, `v7_schema_snapshot.py --check` xanh, `npm run check` xanh, `node scripts/check-secrets.js` sạch.
+- [x] `test_pg_v7_backend.py --migration-test` xanh (83 đạt, 2 bỏ qua là 7.11c và 7.15c, mục mở từ trước): chuỗi nâng của backend, locks và price có file mới, và catalog hàm trùng bản khởi tạo mới. `test_pg_v7_luoi_an_toan.py` xanh, `v7_schema_snapshot.py --check` khớp, `npm run check` xanh, `node scripts/check-secrets.js` sạch. CI của #470 xanh 17/17.
 - [x] Bản sao trên PC: băm 814/814 lần gọi trùng trước và sau khi chạy migration hai lượt, sau `RESET jit` và sau khi nâng lại. Dấu vân dữ liệu trùng. Catalog chỉ đổi cấu hình `get_dashboard_debt`, còn chủ và quyền giữ nguyên. Số đo sau ở mục Đầu ra.
-- [ ] Bản sao trên `hao`: như trên, cộng checker.
-- [ ] DB thật: backup và kiểm đọc lại, áp với `ON_ERROR_STOP`, so dấu vân và băm trước/sau, chạy checker; đo lại Tổng quan; lưới an toàn `--dry-run` không báo.
+- [x] Bản sao trên `hao` (dump 10:13): băm 94/94 lần gọi trùng ở cả bốn mốc như trên; dấu vân trùng; catalog chỉ đổi cấu hình `get_dashboard_debt`; checker 9/9; `get_dashboard_debt` từ 816–867 ms còn 235–236 ms; DB thử đã xóa.
+- [x] DB thật (10:19): backup và kiểm đọc lại, áp với `ON_ERROR_STOP` (116 ms), dấu vân và băm 94/94 trùng trước/sau, checker 9/9. Tổng quan (`get_dashboard_debt`, mỗi lần một psql mới như API) từ 784–788 ms còn 236–249 ms; không câu nào bị JIT; lưới an toàn `--dry-run` không báo ([nhật ký](../docs/deploys/2026-11-18-tong-quan-tat-jit.md)).
 
 ## Phạm vi agent
 
@@ -86,7 +86,7 @@ Chạy `ALTER FUNCTION sokhach.get_dashboard_debt() RESET jit;` dưới `sokhach
 
 - 18/11/2026, bản sao trên PC (backup giờ 09:00): số đo và `auto_explain` ở các bảng trên; băm, dấu vân và catalog như tiêu chí.
 - 18/11/2026 09:52, DB thật trên `hao` (chỉ đọc): bảng thứ hai ở trên. Bằng chứng ngoài Git ở `/srv/v7/backup-20261118-tong-quan-tat-jit/` (quyền 700).
-- Kết quả bản sao trên `hao` và DB thật: ghi ở nhật ký triển khai trong `docs/deploys/` sau đợt nâng.
+- 18/11/2026 10:13–10:16, bản sao trên `hao`; 10:19, DB thật; 10:21, release `da1708b`: [nhật ký triển khai](../docs/deploys/2026-11-18-tong-quan-tat-jit.md).
 
 ## CÒN MỞ
 
