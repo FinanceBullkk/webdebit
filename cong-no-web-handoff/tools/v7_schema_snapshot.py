@@ -186,7 +186,7 @@ def render_relation(rel: dict) -> list[str]:
     for pol, cmd, qual, check in rel["policies"] or []:
         out.append(f"CREATE POLICY {pol} ON {name} FOR {cmd}"
                    + (f" USING ({qual})" if qual else "") + (f" WITH CHECK ({check})" if check else "") + ";")
-    out += comment_line(obj if obj != "SEQUENCE" else "SEQUENCE", name, rel["comment"])
+    out += comment_line(obj, name, rel["comment"])
     for col in rel["columns"] or []:
         if kind != "S":
             out += comment_line("COLUMN", f"{name}.{col['name']}", col["comment"])
