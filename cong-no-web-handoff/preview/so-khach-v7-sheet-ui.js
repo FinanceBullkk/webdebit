@@ -113,7 +113,7 @@
       event.stopImmediatePropagation();
       openSheetDetail(button);
     });
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const action = event.target.closest('[data-sheet-decision]');
       if (!action) return;
       const detail = action.closest('.sheet-detail');
@@ -161,7 +161,7 @@
         if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
       } catch (error) { detailNotice(error.message); action.disabled = false; }
-    });
+    }));
     root.addEventListener('change', event => {
       const checkbox = event.target.closest('.price-conflict-select');
       if (!checkbox) return;
@@ -170,7 +170,7 @@
       renderSnapshot(ctx.snapshot);
       root.querySelector(`.price-conflict-select[data-key="${CSS.escape(checkbox.dataset.key)}"]`)?.focus();
     });
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet,.price-conflict-all,.price-conflict-confirm,.price-conflict-cancel,.price-conflict-write');
       if (!target || target.disabled || !ctx.snapshot) return;
       if (target.matches('.price-conflict-all')) {
@@ -269,13 +269,13 @@
       showNotice(result.complete === false
         ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi. Bấm "Ghi … giá từ Sheet" để ghi tiếp.`
         : `Đã ghi ${result.written} giá từ Sheet.`);
-    });
+    }));
     // Duyệt một chuyến tại hàng: cùng lệnh /api/v7/sheet/approve, chỉ dòng đó (source_rows). Chưa rõ kết quả thì bấm lại
     // gửi đúng khóa cũ để không dán trùng. Chuyến vào sổ chưa có giá nên tổng còn nợ không đổi lúc duyệt.
     const rowApprovals = new Map();
     let newJump = 0;
     const flash = row => { row.classList.remove('ps-flash'); void row.offsetWidth; row.classList.add('ps-flash'); };
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const button = event.target.closest('.sheet-row-approve,.sheet-new-next');
       if (!button || button.disabled || !ctx.snapshot) return;
       const items = newRows(ctx.snapshot);
@@ -320,7 +320,7 @@
       showNotice(!response.ok ? result.message || `Không duyệt được ${what}.`
         : result.review_count ? `Đã duyệt ${what}, nhưng nghi trùng với chuyến đã có nên thành "chờ kiểm": bấm nhãn chờ kiểm ở hàng đó để kết luận.`
           : `Đã duyệt ${what} vào tháng ${monthLabel(monthKey(item.event_date))}. Chưa có giá nên chưa tính tiền; có giá trên Sheet thì máy tự điền.`);
-    });
+    }));
     // ---- Sheet không còn dòng này (specs/v7-sheet-removed-trips.md): chỉ báo; xóa qua lệnh xóa chuyến có sẵn ----
     const removedRows = data => data.sheet_sync?.removed_items ?? [];
     const keepRequests = new Map();
@@ -336,7 +336,7 @@
       }
       if (items.length) root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
     }
-    root.addEventListener('click', async event => {
+    root.addEventListener('click', api.tracked(async event => {
       const button = event.target.closest('.sheet-removed-delete,.sheet-removed-keep,.sheet-removed-next,.sheet-removed-unlock');
       if (!button || !ctx.snapshot) return;
       event.stopImmediatePropagation();
@@ -391,6 +391,6 @@
       // Dòng hỏi cùng dạng xóa chuyến ở ô STT: nút Xóa hẳn/Thôi do so-khach-v7-edit-ui.js xử lý (lệnh tripDelete).
       row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
-    });
+    }));
     Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved });
 };

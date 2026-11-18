@@ -531,7 +531,10 @@
     // chuột), để không thay #app giữa lúc mở ô kế tiếp; ô vừa lưu đã đổi chữ tại chỗ (so-khach-v7-edit-ui.js).
     const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice,
       // Hoãn một nhịp: Tab/Enter đang dời tiêu điểm sang ô kế, vẽ sau khi tiêu điểm đã tới để giữ đúng ô đó.
-      onPatched: data => { snapshot = data; setTimeout(paintWhenFree); }, onSaving: paintStatus });
+      // CHO-GHI-01: nhịp vẽ này tính vào việc đang chạy (live.idle) để test chờ tới khi sổ đã vẽ bản đọc lại; đang gõ thì
+      // paintWhenFree tự hẹn lần sau, không giữ idle chờ.
+      onPatched: data => { snapshot = data; live.track(new Promise(done => { setTimeout(() => { try { paintWhenFree(); } finally { done(); } }); })); },
+      onSaving: paintStatus });
     const moneyText = (value, nullable = false) => {
       if (nullable && !value.trim()) return null;
       let number;
