@@ -15,15 +15,18 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime  # noqa: F401  test đọc `api.datetime`
+from datetime import datetime  # test đọc `api.datetime`; XUAT-SO-01 lấy giờ của file
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
 
 import v7_ai_explain
 import v7_api_doi_chieu
+import v7_api_doixe
 import v7_api_sheet
 import v7_api_zalo
+import v7_book_export
 import v7_booking_view
 import v7_company_info
 import v7_debit_note_config
@@ -89,6 +92,11 @@ from v7_psql import (
 
 PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến trình
 READS = v7_read_cache.ReadCache()   # HIEU-NANG-01: kết quả đọc nặng theo dấu dữ liệu, chỉ cho GET
+# XUAT-SO-01: file cả sổ, một lượt mỗi lúc trong tiến trình (mỗi lượt đọc mọi sổ trong một giao dịch).
+EXPORT_PATH = "/api/v7/xuat-so.xlsx"
+EXPORT_LOCK = threading.Lock()
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+VN = ZoneInfo("Asia/Ho_Chi_Minh")
 # Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): kết quả chiếu của mọi sổ, tính nền, chỉ trong RAM của tiến trình.
 INBOX = v7_inbox.Inbox(
     ledger_projections,
@@ -114,6 +122,11 @@ def declared_length(value: str, limit: int) -> int | None:
         return None
     digits = value.lstrip("0")
     return int(digits or "0") if len(digits) <= len(str(limit)) else limit + 1
+
+
+def body_limit(path: str) -> int:
+    """Trần thân POST: ảnh chứng từ lớn nhất, lệnh lưu chặng đội xe (tới 200 dòng dán) lớn hơn lệnh thường."""
+    return MAX_IMAGE_BODY if path == IMAGE_PATH else v7_api_doixe.MAX_CHANG_BODY if path == v7_api_doixe.CHANG_PATH else MAX_BODY
 
 
 def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()):
@@ -280,6 +293,7 @@ POST_HANDLERS = {
     "/api/v7/marks": v7_api_zalo.handle_mark,
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
     "/api/v7/machine/office": v7_machine.handle_office,
+    **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
 }
 MACHINE_READS = {"/api/v7/machine": v7_machine.view, "/api/v7/machine/now": v7_machine.now_view, "/api/v7/machine/summary": v7_machine.summary}
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
@@ -300,7 +314,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if headers.get("content-type", "").lower() != "application/json":
             raise ApiError(415, "INVALID_CONTENT_TYPE", "Cần gửi JSON.")
         parts = urlsplit(target)
-        if len(raw) > (MAX_IMAGE_BODY if parts.path == IMAGE_PATH else MAX_BODY):
+        if len(raw) > body_limit(parts.path):
             raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
         if parts.query:
             bad()
@@ -369,6 +383,12 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             return v7_company_info.handle_get(parts.query)
         except v7_company_info.InfoError as exc:
             raise ApiError(exc.status, exc.code, exc.message) from exc
+    elif parts.path == v7_api_doixe.PREFIX or parts.path.startswith(v7_api_doixe.PREFIX + "/"):
+        # CHI-PHI-XE-01: đọc đội xe (schema doixe), thẳng runner như mọi đọc không nằm trong bộ nhớ đọc; tên ngắn cho người làm.
+        function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
+        names = PRESENCE.names()
+        return 200, v7_api_doixe.with_names(runner.run(function, payload, actor),
+                                            lambda login: v7_presence.display_name(login, names))
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
@@ -496,6 +516,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_export(self, actor: str) -> None:
+        """XUAT-SO-01: dựng file cả sổ rồi gửi; kết quả tự kiểm ở header `X-Xuat-So`, journal ghi một dòng số đếm."""
+        if not EXPORT_LOCK.acquire(blocking=False):
+            raise ApiError(429, "EXPORT_BUSY", "Đang có một lượt xuất khác. Chờ khoảng một phút rồi bấm lại.")
+        started = time.monotonic()
+        prefix = "so-web-du-lieu-gia" if self.demo else "so-web-ban-sao" if self.real_copy else "so-web"
+        try:
+            result = v7_book_export.export(self.runner, actor, datetime.now(VN), names=with_display_names, prefix=prefix)
+        except ApiError:
+            raise
+        except Exception as exc:   # dữ liệu sổ khác hình dạng đã biết hay lỗi dựng file: báo gọn, không gửi nửa file
+            print(f"XUAT-SO-01: {actor} xuất lỗi {type(exc).__name__}", file=sys.stderr, flush=True)
+            raise ApiError(503, "EXPORT_FAILED", "Chưa xuất được cả sổ. Báo quản trị kiểm.") from exc
+        finally:
+            EXPORT_LOCK.release()
+        found = ",".join(problem["code"] for problem in result.problems) or "khớp"
+        print(f"XUAT-SO-01: {actor} tải cả sổ: {result.books} sổ, kiểm {found}, {len(result.data)} byte, "
+              f"{time.monotonic() - started:.1f} giây", file=sys.stderr, flush=True)
+        self.send_response(200)
+        for name, field in (("Content-Type", XLSX_TYPE), ("Content-Length", str(len(result.data))),
+                            ("Content-Disposition", f'attachment; filename="{result.filename}"'),
+                            ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                            ("X-Xuat-So", result.header())):
+            self.send_header(name, field)
+        self.end_headers()
+        self.wfile.write(result.data)
+
     def stream(self, actor: str, tab: str) -> None:
         """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
         presence = PRESENCE
@@ -580,9 +627,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
                 return
+            if self.command == "GET" and route.path == EXPORT_PATH:
+                # XUAT-SO-01: file cả sổ, sau xác thực danh tính như mọi /api/v7/*.
+                if route.query:
+                    bad()
+                self.send_export(actor)
+                return
             raw = b""
             if self.command == "POST":
-                limit = MAX_IMAGE_BODY if urlsplit(self.path).path == IMAGE_PATH else MAX_BODY
+                limit = body_limit(urlsplit(self.path).path)
                 length_value = declared_length(self.headers.get("Content-Length", ""), limit)
                 if length_value is None:
                     bad()

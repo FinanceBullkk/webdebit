@@ -1,6 +1,18 @@
 /* Client V7: server giữ số dư và phân bổ; key giữ nguyên khi chưa rõ kết quả. */
 (() => {
   'use strict';
+  // CHO-GHI-01: việc ghi/đọc sổ đang chạy trên trang (hàng đợi ghi nền, lệnh thường, chuỗi giá, đọc lại sổ, lệnh các phần
+  // gửi thẳng). Chỉ đếm, không đổi luồng: test trình duyệt chờ idle() — mọi lệnh đã có phản hồi và sổ đã đọc lại — thay vì
+  // chờ chữ trên màn hay hẹn giờ. Lệnh kẹt vì mất mạng không còn chạy nên không giữ idle() chờ mãi.
+  const work = new Set();
+  const track = promise => {
+    work.add(promise);
+    const drop = () => { work.delete(promise); };
+    promise.then(drop, drop);
+    return promise;
+  };
+  // Việc xong có thể mở việc khác ngay (lệnh chờ hàng đợi xong rồi mới gửi): hỏi lại tới khi trống thật.
+  const idle = async () => { while (work.size) await Promise.allSettled([...work]); };
   const routes = {
     paste: ['/api/v7/trips/paste', ['debt_month', 'trips']],
     price: ['/api/v7/trips/price', ['trip_id', 'unit_price_vnd', 'other_fee_vnd']],
@@ -178,7 +190,8 @@
       return response;
     };
     // gentle (hàng đợi ghi nền): vẽ qua onPatched để không thay #app giữa lúc người dùng đang gõ ô kế tiếp.
-    async function read({ gentle = false } = {}) {
+    const read = options => track(readLedger(options));
+    async function readLedger({ gentle = false } = {}) {
       const response = await (prefetched() ?? fetcher(`/api/v7/ledger?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' }));
       if (!response.ok) throw Error('Không đọc được sổ khách.');
       const next = await response.json();
@@ -209,7 +222,7 @@
     let inflight = null;
     function send() {
       // Còn `pending` sau khi gửi xong = chưa rõ kết quả: vẽ lại băng đầu sổ để hiện nút Thử lại (sending() đã tắt).
-      const run = sendOnce().finally(() => { if (inflight === run) inflight = null; if (pending) onSaving(); });
+      const run = track(sendOnce().finally(() => { if (inflight === run) inflight = null; if (pending) onSaving(); }));
       inflight = run;
       return run;
     }
@@ -294,7 +307,7 @@
       return done;
     }
     const runQueue = () => {
-      queueRun ??= loopQuick().finally(() => { queueRun = null; onSaving(); });
+      queueRun ??= track(loopQuick().finally(() => { queueRun = null; onSaving(); }));
       onSaving();
       return queueRun;
     };
@@ -354,8 +367,8 @@
     // Một vòng ghi một lúc: Thử lại (hay bấm đúp) trong lúc vòng đang chạy chỉ chờ vòng đó, không chạy vòng thứ hai trên cùng
     // `series` (hai vòng cùng tăng chỉ số sẽ bỏ sót một chuyến mà vẫn báo đã ghi đủ).
     // Câu báo vẽ sau khi vòng đã xong (running = null): chưa rõ kết quả thì đầu sổ hiện nút Thử lại, không còn "đang ghi".
-    const runSeries = () => (running ??= loopSeries().then(({ notice }) => { running = null; onNotice(notice); return outcome; },
-      error => { running = null; throw error; }));
+    const runSeries = () => (running ??= track(loopSeries().then(({ notice }) => { running = null; onNotice(notice); return outcome; },
+      error => { running = null; throw error; })));
     async function loopSeries() {
       const run = series, total = run.items.length;
       while (run.index < total) {
@@ -543,10 +556,12 @@
       sending: () => !!inflight,   // lệnh thường đang gửi (chưa trả lời): chưa phải "chưa rõ kết quả"
       pendingKey: () => pending?.body?.idempotency_key ?? null, outcomeOf: key => settled.get(key) ?? null,   // khóa của lệnh đang chờ: khung phiếu thu biết lệnh chờ có phải phiếu của mình
       // Chuỗi đang ghi (không phải chưa rõ kết quả): đầu sổ báo tiến độ thay cho nút Thử lại.
-      progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null) };
+      progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null),
+      // CHO-GHI-01: phần gửi lệnh thẳng (không qua submit) đăng ký việc của mình; tracked bọc trình nghe sự kiện async.
+      track, tracked: handler => (...args) => track(handler(...args)) };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),
-    sheetName, showCustomers: () => showCustomers() };
+    sheetName, showCustomers: () => showCustomers(), track, idle, busyCount: () => work.size };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;
 })();

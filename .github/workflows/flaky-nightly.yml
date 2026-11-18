@@ -1,0 +1,120 @@
+name: Flaky nightly
+
+# CHAP-CHON-01: bắt test trình duyệt chập chờn trước khi nó làm đỏ `main`. Chạy bộ browser (scripts/run-tests.js
+# browser) nhiều lượt trên ubuntu-latest và windows-latest, đếm ca nào đỏ mấy lần (scripts/flaky-repeat.js). Không
+# chạy lại ca đỏ cho xanh. Có ca đỏ thì job đỏ: GitHub gửi email báo run đỏ cho người sửa lịch cron gần nhất.
+# Cách đọc kết quả: docs/development.md, mục "Job đêm tìm test chập chờn". Không đụng tới test.yml (CI của PR).
+
+on:
+  schedule:
+    - cron: '30 19 * * *'   # 02:30 giờ Việt Nam, lúc không ai merge
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: Số lượt chạy bộ browser trên mỗi máy
+        type: number
+        default: 10
+      slowdown:
+        description: Làm JS của trang chậm đi bấy nhiêu lần (WEBDEBIT_TEST_CPU_SLOWDOWN); 0 là tắt
+        type: number
+        default: 0
+  # Nút chạy tay chỉ hiện khi file đã nằm trên `main`; PR sửa chính job này hay script của nó thì tự chạy để thử
+  # trước khi merge. Không thuộc `ci-ok` nên không chặn merge.
+  pull_request:
+    paths:
+      - .github/workflows/flaky-nightly.yml
+      - scripts/flaky-repeat.js
+      - scripts/flaky-reporter.js
+      - cong-no-web-handoff/preview/shared-browser.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flaky-nightly-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  browser:
+    name: browser × ${{ inputs.rounds || 10 }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Một lượt mất khoảng 3 phút trên windows-latest (đo 18/11/2026); 10 lượt cộng cài đặt còn xa 150 phút.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+      ROUNDS: ${{ inputs.rounds || 10 }}
+      WEBDEBIT_TEST_CPU_SLOWDOWN: ${{ inputs.slowdown || 0 }}
+      FLAKY_LABEL: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.playwright-browsers
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci --ignore-scripts
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        run: npx playwright install chromium
+      # Như test.yml: chỉ gọi apt khi Chromium không mở được (install-deps có lần treo quá 20 phút).
+      - name: Playwright system deps (only if Chromium cannot launch)
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          if node -e "require('playwright').chromium.launch().then(b => b.close())"; then
+            echo "Chromium mở được, bỏ qua apt."; exit 0
+          fi
+          for i in 1 2; do
+            timeout -k 30 240 npx playwright install-deps chromium && exit 0
+            echo "::warning::playwright install-deps lượt $i lỗi hoặc quá 4 phút"
+          done
+          exit 1
+      - name: Chạy bộ browser nhiều lượt
+        shell: bash
+        run: node scripts/flaky-repeat.js --rounds "$ROUNDS" --round-minutes 20 --out flaky-out
+      - name: Bảng ca đỏ vào trang tóm tắt
+        if: always()
+        shell: bash
+        run: |
+          if [ -f flaky-out/summary.md ]; then cat flaky-out/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload log từng lượt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flaky-${{ matrix.os }}
+          path: flaky-out
+          if-no-files-found: warn
+          retention-days: 14
+
+  report:
+    name: Bảng gộp hai máy
+    needs: browser
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: flaky-*
+          path: flaky
+      # Bảng gộp chỉ để đọc; job đỏ hay xanh là do hai job browser ở trên.
+      - name: Gộp bảng
+        shell: bash
+        run: |
+          dirs=()
+          for d in flaky/flaky-*; do [ -f "$d/summary.json" ] && dirs+=("$d"); done
+          if [ ${#dirs[@]} -eq 0 ]; then
+            echo "Không máy nào có summary.json: xem log job browser." >> "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
+          node scripts/flaky-repeat.js --merge "${dirs[@]}" >> "$GITHUB_STEP_SUMMARY" || true

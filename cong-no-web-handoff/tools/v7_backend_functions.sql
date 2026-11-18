@@ -1018,8 +1018,11 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
  FROM sokhach.event WHERE event.customer_id=p_customer
 $$;
 
+-- MO-SO-NHANH-03 (18/11/2026): JIT tắt trong hàm. Câu dựng bảng tháng có chi phí ước tính vượt ngưỡng JIT ở sổ lớn
+-- (sổ 104 ~800.000) nên mỗi lần mở sổ PostgreSQL biên dịch LLVM vài trăm hàm: ~3 giây cho vài chục ms chạy thật.
+-- Không đổi kết quả. Viết lại khai báo hàm này thì giữ SET jit = off (migration 2026-11-18-v7-mo-so-tat-jit.sql).
 CREATE OR REPLACE FUNCTION sokhach.get_ledger(customer_id bigint) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp SET jit = off AS $$
 DECLARE v_version bigint; v_active boolean; v_months jsonb; v_trips jsonb;
         v_adjustments jsonb; v_receipts jsonb; v_opening jsonb; v_legacy jsonb;
         v_events jsonb; v_flags jsonb; v_total numeric; v_pending bigint; v_locks jsonb;
@@ -2215,8 +2218,11 @@ BEGIN
 EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RETURN NULL;
 END $$;
 
+-- HIEU-NANG-02 (18/11/2026): JIT tắt trong hàm. Câu chính có chi phí ước tính ~180.000, vượt ngưỡng JIT mặc định (100.000),
+-- nên mỗi lần gọi PostgreSQL biên dịch LLVM ~620 hàm: ~0,5 giây trên hao cho ~0,25 giây chạy thật. Không đổi kết quả.
+-- Viết lại khai báo hàm này thì giữ SET jit = off (migration 2026-11-18-v7-tong-quan-tat-jit.sql).
 CREATE OR REPLACE FUNCTION sokhach.get_dashboard_debt() RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp SET jit = off AS $$
 -- DASH-03 (29/10/2026). Nhóm hạn trả theo tháng nợ (giờ VN): nợ tháng M đến hạn cuối tháng M+1,
 -- số tháng quá hạn = (tháng hiện tại - M) - 1: dưới 0 chưa đến hạn, 0 đến hạn cuối tháng này, 1-2, 3-6, từ 7.
 -- Rủi ro cao = có nợ quá hạn và (quá hạn từ 3 tháng, hoặc hơn 60 ngày chưa trả hay chưa trả lần nào, hoặc

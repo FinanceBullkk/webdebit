@@ -50,4 +50,4 @@ Bằng chứng gốc ngoài Git: `/srv/v7/backup-20261118-luoi-an-toan/` trên `
 ## Còn mở
 
 - Chưa có email thật nào của mục mới (chưa có lượt nào báo lỗi thật); email thử của máy canh (mục E3 của checklist) vẫn chưa ghi nhận.
-- Sổ 104 mở chậm (8 giây khi máy bận): ảnh hưởng cả trang sổ đó, ngoài phạm vi đợt này.
+- Sổ 104 mở chậm (8 giây khi máy bận): ảnh hưởng cả trang sổ đó, ngoài phạm vi đợt này. Nguyên nhân là JIT của PostgreSQL; xử lý ở [MO-SO-NHANH-03](../../specs/mo-so-nhanh-03.md), lên `hao` 08:55 cùng ngày ([nhật ký](2026-11-18-mo-so-tat-jit.md)).

@@ -175,7 +175,9 @@ test('điện thoại 390px: phiếu thu hai dòng, số tiền trong màn cùng
   assert.deepEqual(box, { side: 0, sumIn: true, sameLine: true, methodBelow: true, text: '12.345.000' });
   await shot('dien-thoai-390-phieu-thu');
   await page.setViewportSize({ width: 1280, height: 720 });
-  assert.equal(await page.locator('.pay-list tr.pay-row').first().evaluate(tr => getComputedStyle(tr).display), 'table-row');
+  // Đổi khổ thì sổ vẽ lại (matchMedia): locator.evaluate có thể bắt hàng cũ vừa bị gỡ (display ''), nên tìm và đọc trong
+  // cùng một lượt chạy trong trang.
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.pay-list tr.pay-row')).display), 'table-row');
   await settled(page);
   assert.deepEqual(world.requests, []);
 }, world => {

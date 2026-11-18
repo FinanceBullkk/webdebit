@@ -160,7 +160,6 @@ test('Khóa / mở khóa tháng: hỏi một câu dưới nút; Thôi hay Esc kh
   assert.equal(world.requests.length, 0);
   await lock.click();
   await page.locator('.lock-yes').click();
-  for (let i = 0; i < 100 && !world.requests.length; i++) await page.waitForTimeout(50);
   await settled(page);
   assert.deepEqual(posts(world).map(([path, body]) => [path, body.month, body.locked]), [['/api/v7/months/lock', todayMonth, true]]);
 }, world => { world.locks = [{ month: '2026-09-01', locked: false }, { month: todayMonth, locked: false }]; }));

@@ -17,11 +17,13 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `scripts/check-secrets.js` | Quét secrets và dữ liệu thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số container; stdlib Node) trên diff đã stage hoặc toàn bộ file đã theo dõi; `npm run check` chạy bản `--all` |
 | `scripts/hermes-office/` | Quản lý Hermes của tab Máy chạy (`MAY-CHAY-01`): cấu hình container khóa, cổng ra danh sách trắng, script kiểm cách ly, dữ liệu mẫu |
 | `scripts/sheet-capture/` | Apps Script chỉ ghi vết sửa Sheet nguồn vào log riêng (`Code.gs`) và test giả lập (`test.js`); spec `specs/sheet-capture.md` |
-| `scripts/` (còn lại) | `check.js` (`npm run check`), `run-tests.js` (bộ test JS theo tên file), luật nghiệp vụ; `agent-run.ps1` (giao Codex/Gemini) chỉ còn là lịch sử từ 29/10/2026 theo `CLAUDE-ALL-01` |
+| `scripts/` (còn lại) | `check.js` (`npm run check`), `run-tests.js` (bộ test JS theo tên file), `flaky-repeat.js` + `flaky-reporter.js` (chạy lặp, đếm test chập chờn), luật nghiệp vụ; `agent-run.ps1` (giao Codex/Gemini) chỉ còn là lịch sử từ 29/10/2026 theo `CLAUDE-ALL-01` |
 | `docs/` | Nghiệp vụ, quyết định (`decisions.md` mục lục + `decisions/<id>.md`), nhật ký triển khai tay (`deploys/`), quy trình (`development.md`; `multi-agent.md` chỉ còn là lịch sử), gói thiết kế debit note v4 (`debit-note-v4/`: SPEC, trang mẫu, dữ liệu mẫu) |
 | `specs/` | Spec từng thay đổi, theo `specs/_template.md` |
 | `cong-no-web-handoff/` | Mã web/tools/tests (Python + JS) đang phát triển |
+| `cong-no-web-handoff/schema/v7_schema_current.pgsql` | SINH TỰ ĐỘNG bởi `tools/v7_schema_snapshot.py`: định nghĩa hiện hành của mọi hàm/view/bảng/quyền V7, mỗi thứ một lần. Đọc ở đây thay vì dò migration; không sửa tay, không chạy trên `hao`; CI so với SQL nguồn |
 | `.github/workflows/test.yml` | CI chạy `npm run check` |
+| `.github/workflows/flaky-nightly.yml` | Hằng đêm (và chạy tay) chạy bộ test browser 10 lượt trên ubuntu và windows bằng `scripts/flaky-repeat.js`, bảng ca nào đỏ mấy lần; đỏ thì job đỏ ([cách đọc](docs/development.md#job-đêm-tìm-test-chập-chờn)) |
 | `.github/dependabot.yml` | Nâng phụ thuộc hằng tuần, gom một PR mỗi hệ (actions ghim SHA, npm, pip) |
 
 Không tạo, có chủ đích: `.mcp.json` (chưa cần MCP cho dự án), `.env.example` (mã chỉ đọc vài biến `WEBDEBIT_*`/`PG*`, không nạp `.env`), `sources/` (đã có `docs/source-register.md`), `.claude/rules/` (nội dung đã nằm trong `AGENTS.md`).
