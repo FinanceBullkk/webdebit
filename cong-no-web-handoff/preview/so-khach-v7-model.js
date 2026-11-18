@@ -522,6 +522,12 @@ const SoKhachV7Model = (() => {
     };
   }
 
+  // Bước xem lại bảng giá (BANG-GIA-05): giá một ô trước → sau, chỉ để hiển thị. Thiếu một bên (NULL ≠ 0) thì không có mức đổi.
+  function priceTableChange(beforeVnd, afterVnd) {
+    if (beforeVnd == null || afterVnd == null) return null;
+    return vnd(afterVnd) - vnd(beforeVnd);
+  }
+
   // Ghi giá từ Sheet (specs/v7-price-queue.md): tiền là chuỗi số nguyên từ server; phụ phí null = 0 khi có đơn giá (V7-BE).
   function sheetPriceAmount(item) {
     return vnd(item.sheet_unit_price_vnd) + (item.sheet_other_fee_vnd == null ? 0n : vnd(item.sheet_other_fee_vnd));
@@ -630,6 +636,14 @@ const SoKhachV7Model = (() => {
     }
     return { count: list.length, totalVnd, same: list.length > 0, fills };
   }
+  // Ô PS số lẻ (PS_BAD_AMOUNT), ví dụ =631579/2 = "315789.5": Sheet định dạng #,##0 hiện tròn 315.790 nên chỉ số thô thì
+  // người dùng không tìm được ô. Chỉ để hiện chữ; không bao giờ thành tiền (specs/v7-phu-phi-tu-ps.md: không tự làm tròn).
+  function psOddText(raw) {
+    const parts = /^(\d+)\.(\d+)$/.exec(String(raw ?? "").trim());
+    if (!parts) return null;
+    const whole = BigInt(parts[1]);
+    return { exact: `${formatVnd(whole)},${parts[2]}`, shown: formatVnd(parts[2][0] >= "5" ? whole + 1n : whole) };
+  }
   const feeLinesText = (lines, nameOf) => (lines ?? []).map(line => `${nameOf(line.fee_type_id)} ${formatVnd(vnd(String(line.amount_vnd), true))}`).join(" + ");
   // Số phụ phí gõ tay: trống → null (chỉ ô cột riêng: xóa trắng); khác 0; dấu theo loại (fee_type.sign).
   function parseFeeInput(text, sign, { allowBlank = false } = {}) {
@@ -668,7 +682,7 @@ const SoKhachV7Model = (() => {
   // Danh mục loại phí in trên chứng từ, đúng thứ tự cột. Tám loại đầu theo đặc tả v3; bốn loại sau là loại phụ phí sổ web
   // đang có mà danh mục v3 chưa có, chỉ thành cột khi phát sinh (CÒN MỞ: sếp gán vào tám loại hay giữ).
   const DN_FEES = [
-    { code: "LUMP_SUM", en: "LUMP-SUM", cn: "单价" }, { code: "STORAGE", en: "STORAGE", cn: "早装产生费用" },
+    { code: "LUMP_SUM", en: "UNIT PRICE", cn: "单价" }, { code: "STORAGE", en: "STORAGE", cn: "早装产生费用" },
     { code: "TRUCKING", en: "TRUCKING", cn: "拼柜" }, { code: "GENSET", en: "GENERATOR / ELECTRICITY FEE", cn: "发电机/电费" },
     { code: "OVERSTAY", en: "OVERSTAY", cn: "押车" }, { code: "HC_FEE", en: "HC FEE", cn: "卫生证" },
     { code: "CANCELLATION", en: "CANCELLATION FEE", cn: "取消订柜费" }, { code: "AMENDMENT", en: "AMD FEE", cn: "改单费" },
@@ -754,21 +768,80 @@ const SoKhachV7Model = (() => {
     return date.toISOString().slice(0, 10);
   }
 
-  // Danh mục nơi đóng hàng và cảng đến (bản đầu, CÒN MỞ: bộ lập bill bổ sung). Chuẩn chính tả: "Dak Lak", không "DAKLAK".
-  const DN_PLACES = ["Dak Lak", "Dak Nong", "Gia Lai", "Kon Tum", "Lam Dong", "Binh Phuoc", "Binh Duong", "Dong Nai", "Long Khanh",
-    "Tay Ninh", "Ho Chi Minh", "Long An", "Tien Giang", "Ben Tre", "Vinh Long", "Tra Vinh", "Dong Thap", "An Giang", "Can Tho",
-    "Hau Giang", "Soc Trang", "Kien Giang", "Bac Lieu", "Ca Mau", "Khanh Hoa", "Phu Yen", "Binh Dinh", "Quang Nam", "Quang Ngai",
-    "Binh Thuan", "Ninh Thuan", "Ba Ria - Vung Tau"];
-  const DN_PORTS = ["Xiamen", "Nansha", "Qingdao", "Shanghai", "Shekou", "Shenzhen", "Yantian", "Guangzhou", "Huangpu", "Ningbo",
-    "Tianjin", "Dalian", "Hong Kong", "Lianyungang", "Qinzhou", "Fangcheng", "Haikou", "Pingxiang", "Dongxing", "Hekou"];
+  // Danh mục nơi đóng hàng và cảng đến (DIA-DIEM-01): tên chuẩn chữ Latin kèm tên tiếng Trung đã đối chiếu nguồn bên Trung
+  // (Bộ Thương mại TQ, Baidu Baike, chính quyền Quảng Tây). Tỉnh theo ranh giới trước 7/2025 cho khớp Sheet. Huyện chưa có
+  // nguồn Trung hoặc tên Nôm hiếm (Chợ Gạo, Cái Bè) chỉ in tên tỉnh. Chuẩn chính tả: "Dak Lak", không "DAKLAK".
+  const DN_PLACES = [
+    { en: "Dak Lak", cn: "多乐省", aliases: ["Daklak"] }, { en: "Dak Nong", cn: "得农省", aliases: ["Daknong"] }, { en: "Gia Lai", cn: "嘉莱省" }, { en: "Kon Tum", cn: "昆嵩省", aliases: ["Kontum"] },
+    { en: "Lam Dong", cn: "林同省" }, { en: "Binh Phuoc", cn: "平福省" }, { en: "Binh Duong", cn: "平阳省" }, { en: "Dong Nai", cn: "同奈省" },
+    { en: "Tay Ninh", cn: "西宁省" }, { en: "Ho Chi Minh", cn: "胡志明市", aliases: ["TP HCM", "HCM"] }, { en: "Long An", cn: "隆安省" },
+    { en: "Tien Giang", cn: "前江省" }, { en: "Ben Tre", cn: "槟椥省" }, { en: "Vinh Long", cn: "永隆省" }, { en: "Tra Vinh", cn: "茶荣省" },
+    { en: "Dong Thap", cn: "同塔省" }, { en: "An Giang", cn: "安江省" }, { en: "Can Tho", cn: "芹苴市" }, { en: "Hau Giang", cn: "后江省" },
+    { en: "Soc Trang", cn: "朔庄省" }, { en: "Kien Giang", cn: "坚江省" }, { en: "Bac Lieu", cn: "薄辽省" }, { en: "Ca Mau", cn: "金瓯省" },
+    { en: "Khanh Hoa", cn: "庆和省" }, { en: "Phu Yen", cn: "富安省" }, { en: "Binh Dinh", cn: "平定省" }, { en: "Quang Nam", cn: "广南省" },
+    { en: "Quang Ngai", cn: "广义省" }, { en: "Binh Thuan", cn: "平顺省" }, { en: "Ninh Thuan", cn: "宁顺省" },
+    { en: "Ba Ria - Vung Tau", cn: "巴地头顿省", aliases: ["Vung Tau", "V Tau"] },
+    { en: "Phan Thiet", cn: "平顺省潘切市" }, { en: "Tanh Linh", cn: "平顺省性灵县" }, { en: "Bac Binh", cn: "平顺省北平县" },
+    { en: "Trang Bom", cn: "同奈省壮奔县", aliases: ["Bau Ham"] }, { en: "Dinh Quan", cn: "同奈省定贯县", aliases: ["D Quan"] }, { en: "Tan Phu", cn: "同奈省新富县" },
+    { en: "Cam My", cn: "同奈省锦美县" }, { en: "Long Thanh", cn: "同奈省隆城县" }, { en: "Long Khanh", cn: "同奈省隆庆市" },
+    { en: "Dong Xoai", cn: "平福省同帅市" }, { en: "Hon Quan", cn: "平福省" }, { en: "Tan Uyen", cn: "平阳省新渊市" },
+    { en: "Phu Giao", cn: "平阳省富教县" }, { en: "Dau Tieng", cn: "平阳省油汀县" }, { en: "Cu Chi", cn: "胡志明市古芝县" },
+    { en: "Hoc Mon", cn: "胡志明市福门县" }, { en: "Chau Duc", cn: "巴地头顿省周德县" }, { en: "Bao Loc", cn: "林同省保禄市" },
+    { en: "Buon Ho", cn: "多乐省" }, { en: "Krong Pac", cn: "多乐省克容帕县", aliases: ["Krong Pak"] }, { en: "Tan An", cn: "隆安省新安市" }, { en: "Tam Vu", cn: "隆安省" },
+    { en: "Cao Lanh", cn: "同塔省" }, { en: "Tan Chau", cn: "西宁省" }, { en: "Cho Gao", cn: "前江省" }, { en: "Cai Be", cn: "前江省" },
+  ];
+  // Viết tắt tỉnh/huyện ở cuối tên kho trên Sheet ("KIM CƯƠNG TB"). BT bỏ ngoài vì vừa là Bến Tre vừa là Bình Thuận.
+  const DN_PLACE_ABBR = { tb: "Trang Bom", dq: "Dinh Quan", bp: "Binh Phuoc", vt: "Ba Ria - Vung Tau", tg: "Tien Giang", pt: "Phan Thiet",
+    bd: "Binh Duong", dn: "Dong Nai", tn: "Tay Ninh", la: "Long An", dt: "Dong Thap" };
+  // Cảng đến của chuyến cảng và cửa khẩu của chuyến bộ. Cửa khẩu in theo cặp tên Trung "bên Trung—bên Việt" như văn bản bên Trung.
+  const DN_PORTS = [
+    { en: "Shanghai", cn: "上海港" }, { en: "Shekou", cn: "深圳蛇口港" }, { en: "Zhapu", cn: "嘉兴乍浦港" }, { en: "Qingdao", cn: "青岛港" },
+    { en: "Dalian", cn: "大连港" }, { en: "Xiamen", cn: "厦门港" }, { en: "Hong Kong", cn: "香港" },
+    { en: "Kaohsiung", cn: "高雄港", aliases: ["Kaohsiung - Taiwan"] }, { en: "Tianjin", cn: "天津港" }, { en: "Nansha", cn: "广州南沙港" },
+    { en: "Port Klang", cn: "巴生港" }, { en: "Port Klang North Port", cn: "巴生北港", aliases: ["N-Port Klang"] },
+    { en: "Port Klang Westport", cn: "巴生西港", aliases: ["W-Port Klang"] }, { en: "Singapore", cn: "新加坡港" }, { en: "Qinzhou", cn: "钦州港" },
+    { en: "Ningbo", cn: "宁波港" }, { en: "Qinhuangdao", cn: "秦皇岛港" }, { en: "Lianyungang", cn: "连云港" }, { en: "Taicang", cn: "太仓港" },
+    { en: "Humen", cn: "东莞虎门港" }, { en: "Shenzhen", cn: "深圳港" }, { en: "Yantian", cn: "深圳盐田港" }, { en: "Guangzhou", cn: "广州港" },
+    { en: "Huangpu", cn: "广州黄埔港" }, { en: "Fangcheng", cn: "防城港" }, { en: "Haikou", cn: "海口港" },
+    { en: "Pingxiang", cn: "凭祥" }, { en: "Dongxing", cn: "东兴" }, { en: "Hekou", cn: "河口" },
+    { en: "Lao Cai", cn: "河口—老街口岸" }, { en: "Thanh Thuy", cn: "天保—清水口岸" }, { en: "Huu Nghi", cn: "友谊关—友谊口岸" },
+    { en: "Chi Ma", cn: "爱店—支码口岸" }, { en: "Ta Lung", cn: "水口—驮隆口岸" }, { en: "Coc Nam", cn: "弄尧—谷南口岸" },
+    { en: "Mong Cai", cn: "东兴—芒街口岸", aliases: ["Mong Cai - Dong Hung"] }, { en: "Tan Thanh", cn: "浦寨—新清口岸" },
+  ];
   const titleCase = text => String(text ?? "").trim().replace(/\s+/g, " ").toLowerCase().replace(/(^|[\s(\-/])([a-z])/g, (_, lead, char) => lead + char.toUpperCase());
-  // Một tên nơi (có thể "GIA LAI + DAK LAK") → chữ chuẩn và cờ có trong danh mục.
+  const dnWords = text => String(text ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase().split(/[^a-z0-9&]+/).filter(Boolean);
+  const entryOf = item => typeof item === "string" ? { en: item, cn: "" } : item;
+  // Tên kho có địa danh ở đầu hoặc cuối ("CỬU LONG - BẾN TRE", "KIM CƯƠNG TB") → mục danh mục của địa danh đó. Địa danh nằm giữa
+  // tên ("KHO BÌNH THUẬN PHÁT") không tính: đó là tên công ty.
+  function placeInside(words, entries) {
+    const phrases = entries.flatMap(entry => [entry.en, ...(entry.aliases ?? [])].map(name => ({ words: dnWords(name), entry })))
+      .sort((a, b) => b.words.length - a.words.length);
+    const same = (list, at, words) => words.every((word, index) => list[at + index] === word);
+    const core = words.slice();
+    while (core.length > 1 && /^\d+$/.test(core.at(-1))) core.pop();
+    const abbr = core.length > 1 ? DN_PLACE_ABBR[core.at(-1)] : undefined;
+    for (const list of abbr ? [core, core.slice(0, -1)] : [core]) {
+      const fits = phrase => phrase.words.length <= list.length;
+      const found = [phrases.find(phrase => fits(phrase) && same(list, list.length - phrase.words.length, phrase.words)),
+        phrases.find(phrase => fits(phrase) && same(list, 0, phrase.words))].filter(Boolean);
+      // Có cả hai đầu ("KRÔNG PẮC-DAK LAK") thì lấy địa danh cụ thể hơn: tên Trung dài hơn là có cả huyện.
+      if (found.length) return found.map(phrase => phrase.entry).sort((a, b) => b.cn.length - a.cn.length)[0];
+    }
+    return abbr ? entries.find(entry => entry.en === abbr) ?? null : null;
+  }
+  // Một tên nơi (có thể "GIA LAI + DAK LAK") → chữ chuẩn, tên tiếng Trung và cờ có trong danh mục. Ngoài danh mục thì giữ chữ
+  // gốc; nếu đọc được địa danh trong tên kho thì vẫn kèm tên Trung của địa danh đó.
   function dnPlace(raw, list) {
-    const catalog = new Map(list.map(name => [dnFold(name), name]));
+    const entries = list.map(entryOf);
+    const catalog = new Map(entries.flatMap(entry => [entry.en, ...(entry.aliases ?? [])].map(name => [dnFold(name), entry])));
     const parts = String(raw ?? "").split("+").map(part => part.trim()).filter(Boolean);
     const named = parts.map(part => catalog.get(dnFold(part)) ?? null);
-    return { text: parts.map((part, index) => named[index] ?? titleCase(part)).join(" + "), known: parts.length > 0 && named.every(Boolean) };
+    const cn = parts.map((part, index) => named[index]?.cn || (list === DN_PLACES ? placeInside(dnWords(part), entries)?.cn ?? "" : ""));
+    return { text: parts.map((part, index) => named[index]?.en ?? titleCase(part)).join(" + "), cn: cn.filter(Boolean).join(" + "),
+      known: parts.length > 0 && named.every(Boolean) };
   }
+  // Chữ in trên chứng từ: tên chuẩn rồi tên Trung ("Shanghai  上海港").
+  const dnPlaceText = place => [place.text, place.cn].filter(Boolean).join("  ");
 
   // Ô tiền của một dòng ở cột loại phí `code`: dòng container có LUMP-SUM và phí theo loại; dòng phí không gắn container
   // chỉ có số tiền ở đúng cột loại của nó. null = không có khoản.
@@ -831,11 +904,12 @@ const SoKhachV7Model = (() => {
     const totalVnd = sumOrNull([...rows.map(row => row.amountVnd), additionalVnd]);
     const groups = new Map();
     for (const row of rows) {
-      const item = groups.get(row.port.text) ?? { port: row.port.text, containers: 0, lumps: [], otherVnd: 0n };
+      const item = groups.get(row.port.text) ?? { port: row.port.text, portCn: row.port.cn, containers: 0, lumps: [], otherVnd: 0n };
       item.containers++; item.lumps.push(row.lumpSumVnd); item.otherVnd += row.feesVnd;
       groups.set(row.port.text, item);
     }
-    const summary = [...groups.values()].map(item => ({ port: item.port, containers: item.containers, lumpSumVnd: sumOrNull(item.lumps), otherVnd: item.otherVnd }))
+    const summary = [...groups.values()].map(item => ({ port: item.port, portCn: item.portCn, containers: item.containers,
+      lumpSumVnd: sumOrNull(item.lumps), otherVnd: item.otherVnd }))
       .sort((a, b) => b.containers - a.containers || a.port.localeCompare(b.port));
     const otherVnd = additionalVnd === null ? null : containerFeesVnd + additionalVnd;
     const subtotalVnd = lumpSumVnd === null || otherVnd === null ? null : lumpSumVnd + otherVnd;
@@ -865,7 +939,7 @@ const SoKhachV7Model = (() => {
     const twice = [...seen].filter(([, count]) => count > 1).map(([id]) => id);
     if (twice.length) block(`Container trùng trong chứng từ: ${twice.join(", ")}.`);
     const off = note.rows.filter(row => row.mismatch);
-    if (off.length) block(`Thành tiền LUMP-SUM + phí khác số trên sổ ở container: ${off.map(row => row.container).join(", ")}.`);
+    if (off.length) block(`Thành tiền đơn giá + phí khác số trên sổ ở container: ${off.map(row => row.container).join(", ")}.`);
     if (note.subtotalVnd !== null && note.totalVnd !== null && note.subtotalVnd !== note.totalVnd) block("Subtotal trang 1 khác TOTAL DUE.");
     const missing = [["Số debit note", doc.number], ["Dịch vụ", doc.service], ["Tên bên phát hành", doc.issuer?.name], ["MST bên phát hành", doc.issuer?.taxId],
       ["Tên pháp lý của khách", doc.buyer?.legal], ["Địa chỉ của khách", doc.buyer?.address], ["Người nhận tiền", doc.payment?.beneficiary],
@@ -885,7 +959,7 @@ const SoKhachV7Model = (() => {
     if (places.length) warn(`Nơi đóng hàng ngoài danh mục: ${places.join(", ")}.`);
     if (ports.length) warn(`Cảng đến ngoài danh mục: ${ports.join(", ")}.`);
     const zero = note.rows.filter(row => row.lumpSumVnd === 0n);
-    if (zero.length) warn(`${zero.length} container có LUMP-SUM bằng 0.`);
+    if (zero.length) warn(`${zero.length} container có đơn giá bằng 0.`);
     const thin = note.rows.filter(row => blank(row.carrier) || blank(row.shipper) || !validDay(row.date));
     if (thin.length) warn(`${thin.length} container thiếu hãng tàu, shipper hoặc ngày đóng hàng.`);
     if (note.pendingCount) info(`${note.pendingCount} chuyến đang CHỜ KIỂM không lên chứng từ.`);
@@ -906,12 +980,144 @@ const SoKhachV7Model = (() => {
     });
   }
 
-  return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  // GIA-O-01 (B): chữ dán vào ô Đơn giá (chép từ Sheet/Excel: dòng cách bằng xuống dòng, cột bằng Tab) → giá từng dòng.
+  // Một cột: mỗi dòng một giá, theo thứ tự. Hai cột có số container: ghép theo container (cột nào trước cũng được).
+  // Dòng trống là bỏ qua (null), không phải 0; dòng cuối trống do Sheet thêm thì bỏ. Ô không đọc được thành số tiền > 0 thì lỗi kèm số dòng.
+  const PASTE_CONTAINER = /^[A-Z]{4}\d{7}$/;
+  function parsePricePaste(text) {
+    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    const rows = lines.map((line, index) => {
+      const cells = line.split("\t").map(cell => cell.trim());
+      return { line: index + 1, cells, containerAt: cells.findIndex(cell => PASTE_CONTAINER.test(cell.replace(/\s+/g, "").toUpperCase())) };
+    });
+    const filled = rows.filter(row => row.cells.some(Boolean));
+    const withContainer = filled.filter(row => row.containerAt >= 0).length;
+    const mode = withContainer ? "container" : "order";
+    const errors = [];
+    if (withContainer && withContainer !== filled.length) errors.push("Có dòng có số container, có dòng không. Chép cả cột container cho mọi dòng, hoặc chỉ cột giá.");
+    const out = [];
+    for (const row of rows) {
+      const others = row.cells.filter((cell, index) => cell && index !== row.containerAt);
+      if (others.length > 1) { errors.push(`Dòng ${row.line}: có nhiều cột. Chép một cột giá, hoặc hai cột container và giá.`); continue; }
+      const container = mode === "container" && row.containerAt >= 0 ? row.cells[row.containerAt].replace(/\s+/g, "").toUpperCase() : null;
+      const raw = others[0] ?? "";
+      if (!raw) { out.push({ line: row.line, container, priceVnd: null }); continue; }
+      let value;
+      try { value = parseVnd(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { value = null; }
+      if (value === null || value <= 0n || value > 9223372036854775807n) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
+      out.push({ line: row.line, container, priceVnd: value.toString() });
+    }
+    return { mode, rows: out, errors };
+  }
+
+  // Kế hoạch ghi từ chữ đã đọc. `order`: khóa dòng của bảng tháng từ dòng đang đứng trở xuống ("trip-11", "legacy-21").
+  // Chỉ ghi chuyến web đã duyệt, có container, sửa được (tháng mở), chưa có giá hoặc giá khác. Dòng sổ gốc, chờ kiểm, đã loại,
+  // phí lẻ, tháng khóa, container không có hoặc trùng, dòng dán thừa: nêu lý do, không ghi. Nợ trước → sau cộng đúng tiền từng
+  // chuyến (đơn giá mới + phụ phí đang có, trừ Thành tiền đang tính).
+  function planPricePaste(parsed, snapshot, order = []) {
+    const trips = (snapshot?.trips ?? []).filter(trip => !trip.deleted);
+    const legacy = (snapshot?.legacy_rows ?? []).filter(row => row.kind !== "receipt");
+    const byKey = key => {
+      const [kind, id] = [key.slice(0, key.indexOf("-")), key.slice(key.indexOf("-") + 1)];
+      return kind === "trip" ? { kind, row: trips.find(trip => String(trip.id) === id) } : { kind, row: legacy.find(row => String(row.id) === id) };
+    };
+    const box = value => String(value ?? "").replace(/\s+/g, "").toUpperCase();
+    const items = parsed.rows.map((pasted, index) => {
+      const base = { line: pasted.line, priceVnd: pasted.priceVnd, container: pasted.container };
+      if (pasted.priceVnd === null) return { ...base, status: "empty" };   // dòng trống là bỏ qua, kể cả sau chuyến cuối
+      let target;
+      if (parsed.mode === "container") {
+        const hits = [...trips.filter(trip => box(trip.container) === pasted.container).map(row => ({ kind: "trip", row })),
+          ...legacy.filter(row => box(row.current?.container ?? row.display?.container) === pasted.container).map(row => ({ kind: "legacy", row }))];
+        if (hits.length !== 1) return { ...base, status: "skip", reason: hits.length ? "container có nhiều dòng trong sổ" : "không có trong sổ" };
+        target = hits[0];
+      } else {
+        if (index >= order.length) return { ...base, status: "skip", reason: "thừa, hết chuyến trong bảng tháng" };
+        target = byKey(order[index]);
+      }
+      const { kind, row } = target;
+      const container = kind === "trip" ? row?.container : row?.current?.container ?? row?.display?.container;
+      const info = { ...base, container: container || base.container, date: kind === "trip" ? row?.event_date : row?.current?.event_date };
+      if (!row) return { ...info, status: "skip", reason: "không có trong sổ" };
+      if (kind === "legacy") return { ...info, status: "skip", reason: "dòng sổ gốc: sửa từng ô" };
+      if (row.status === "pending_review") return { ...info, status: "skip", reason: "chờ kiểm" };
+      if (row.status !== "confirmed") return { ...info, status: "skip", reason: "đã loại" };
+      if (row.is_fee_only || !row.container) return { ...info, status: "skip", reason: "dòng phí lẻ" };
+      if (row.editable !== true) return { ...info, status: "skip", reason: "tháng khóa" };
+      const oldPriceVnd = row.unit_price_vnd ?? null;
+      if (oldPriceVnd === pasted.priceVnd) return { ...info, status: "same", tripId: row.id, oldPriceVnd };
+      const fee = row.other_fee_vnd == null ? 0n : vnd(row.other_fee_vnd, true);
+      const oldAmountVnd = oldPriceVnd === null ? 0n : vnd(row.amount_vnd ?? "0", true);
+      const newAmountVnd = vnd(pasted.priceVnd) + fee;
+      return { ...info, status: "write", tripId: row.id, oldPriceVnd, otherFeeVnd: row.other_fee_vnd ?? null, deltaVnd: newAmountVnd - oldAmountVnd,
+        small: vnd(pasted.priceVnd) < 1000000n, overwrite: oldPriceVnd !== null };
+    });
+    // Hai dòng dán cùng một chuyến (ghép container), kể cả một dòng trùng giá đang có: nguồn có hai giá, không đoán dòng nào đúng, bỏ cả hai.
+    const matched = items.filter(item => item.status === "write" || item.status === "same");
+    const seen = new Map();
+    for (const item of matched) seen.set(item.tripId, (seen.get(item.tripId) ?? 0) + 1);
+    for (const item of matched) if (seen.get(item.tripId) > 1) Object.assign(item, { status: "skip", reason: "dán hai lần cho cùng chuyến" });
+    const finalWrites = items.filter(item => item.status === "write");
+    const beforeVnd = vnd(snapshot?.total_outstanding_vnd ?? "0", true);
+    const deltaVnd = finalWrites.reduce((sum, item) => sum + item.deltaVnd, 0n);
+    return { items, writes: finalWrites, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
+  }
+
+  // NHAP-NHANH-01 (specs/nhap-nhanh-01.md): bản sổ đã vá theo một lệnh vừa gõ, để ô hiện ngay trong lúc lệnh còn ghi nền.
+  // Không đổi bản gốc; lệnh có thể đổi tiền (đơn giá, phụ phí, ô *_vnd) thì dòng mang `saving: true` (ô Thành tiền hiện "…");
+  // sửa chữ, ngày thì không. Không tính tiền: Thành tiền, số tổng tháng
+  // và còn nợ giữ nguyên số máy chủ tới lần đọc lại. Lệnh không vá được (không thấy dòng, loại lệnh khác) thì trả null.
+  const QUICK_ACTIONS = ["tripInfo", "legacyEdit", "price", "tripDelete", "legacyDelete", "feeSet"];
+  function patchLedger(ledger, action, fields) {
+    if (!ledger || !QUICK_ACTIONS.includes(action)) return null;
+    const copy = { ...ledger, trips: [...(ledger.trips ?? [])], legacy_rows: [...(ledger.legacy_rows ?? [])] };
+    const same = (a, b) => a != null && b != null && String(a) === String(b);
+    const tripAt = id => copy.trips.findIndex(row => same(row.id, id));
+    const legacyAt = id => copy.legacy_rows.findIndex(row => same(row.id, id));
+    const money = action === "price" || action === "feeSet" || String(fields?.field ?? "").endsWith("_vnd");
+    const mark = row => (money ? { saving: true } : row.saving ? { saving: true } : {});
+    const editTrip = (id, change) => {
+      const at = tripAt(id);
+      if (at < 0) return false;
+      copy.trips[at] = { ...copy.trips[at], ...change, ...mark(copy.trips[at]) };
+      return true;
+    };
+    const editLegacy = (id, current, top = {}) => {
+      const at = legacyAt(id);
+      if (at < 0 || !copy.legacy_rows[at].current) return false;
+      copy.legacy_rows[at] = { ...copy.legacy_rows[at], ...top, current: { ...copy.legacy_rows[at].current, ...current }, ...mark(copy.legacy_rows[at]) };
+      return true;
+    };
+    // "Đặt loại = số" (feeSet): bỏ mọi khoản cùng loại, thêm một khoản bằng số đó; số trống thì chỉ bỏ.
+    const setFee = (lines, typeId, amount) => [...(lines ?? []).filter(line => Number(line.fee_type_id) !== Number(typeId)),
+      ...(amount == null ? [] : [{ id: null, fee_type_id: Number(typeId), amount_vnd: String(amount), note: null }])];
+    let done = false;
+    if (action === "tripInfo") done = editTrip(fields.trip_id, { [fields.field]: fields.value });
+    else if (action === "price") done = editTrip(fields.trip_id, { unit_price_vnd: fields.unit_price_vnd ?? null,
+      other_fee_vnd: fields.other_fee_vnd ?? null, is_missing_price: fields.unit_price_vnd == null });
+    else if (action === "legacyEdit") done = editLegacy(fields.legacy_row_id, { [fields.field]: fields.value });
+    else if (action === "tripDelete") { done = tripAt(fields.trip_id) >= 0; copy.trips = copy.trips.filter(row => !same(row.id, fields.trip_id)); }
+    else if (action === "legacyDelete") { done = legacyAt(fields.legacy_row_id) >= 0; copy.legacy_rows = copy.legacy_rows.filter(row => !same(row.id, fields.legacy_row_id)); }
+    else if (action === "feeSet") {
+      const target = fields.target ?? {};
+      if (target.trip_id != null) {
+        const at = tripAt(target.trip_id);
+        done = at >= 0 && editTrip(target.trip_id, { fee_lines: setFee(copy.trips[at].fee_lines, fields.fee_type_id, fields.amount_vnd) });
+      } else if (target.legacy_row_id != null) {
+        const at = legacyAt(target.legacy_row_id);
+        done = at >= 0 && editLegacy(target.legacy_row_id, {}, { fee_lines: setFee(copy.legacy_rows[at].fee_lines, fields.fee_type_id, fields.amount_vnd) });
+      }
+    }
+    return done ? copy : null;
+  }
+
+  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
-    parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnCell, debitNote, debitNoteChecks, suggestNumber };
+    parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;

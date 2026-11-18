@@ -32,9 +32,9 @@ Trạng thái: phần đo và phần hỏi người dùng **XONG** (1/11/2026); 
 
 - **Người nhập:** mùa cao điểm khoảng 800–1.000 chuyến một tháng, tức 35–40 chuyến mỗi ngày làm việc. Phiếu thu ít hơn nhiều, khoảng 65–100 phiếu một tháng (3–4 phiếu mỗi ngày). Nhập chuyến là việc chiếm khối lượng; ghi phiếu thu là việc ít nhưng đụng thẳng tới tiền.
 - **Khách:** sổ có 236 khách, nhưng mỗi tháng chỉ 40–65 khách có chuyến. Tháng 9–10 có 3 khách từ 100 chuyến trở lên, 4 khách 30–99 chuyến, 3 khách 10–29 chuyến và 30 khách dưới 10 chuyến.
-- **Nợ trên web lúc đo:** 67 khách còn nợ, tổng 67,90 tỷ (cao hơn thực tế vì thiếu phiếu thu sau 21/10).
+- **Nợ trên web lúc đo:** 67 khách còn nợ (số nợ trên web cao hơn thực tế vì thiếu phiếu thu sau 21/10).
   - 5 khách chiếm **70%** số nợ, 10 khách chiếm **81%**, 20 khách chiếm **90%**.
-  - Theo tháng phát sinh: T10–T11 là 8,79 tỷ (14 khách); T8–T9 là **43,48 tỷ** (36 khách); T5–T7 là 8,95 tỷ (20 khách); trước T5 là 6,67 tỷ (23 khách).
+  - Theo tháng phát sinh: T10–T11 chiếm 13% (14 khách); T8–T9 chiếm **64%** (36 khách); T5–T7 chiếm 13% (20 khách); trước T5 chiếm 10% (23 khách).
 
 ## 3. Web đang được dùng thế nào
 
@@ -57,7 +57,7 @@ Trong 10 ngày từ 21/10 tới 30/10, `event` có 6.555 dòng. Bỏ các script
 2. **Web đang chậm hơn Sheet.** Từ 21/10, phiếu thu và chuyến mới trên Sheet không tự vào sổ web. Sổ web vì vậy không đủ tin để dùng thay Sheet, và người dùng không có lý do mở nó. Đây là vòng luẩn quẩn: không ai dùng thì không ai duyệt, không ai duyệt thì sổ không đúng.
 3. **Phần lớn việc ghi trên web là làm lại việc của Sheet.** 63 trên 69 lần lệch chọn "theo Sheet". Trong giai đoạn song song, bước "giải quyết lệch" gần như chỉ là bấm xác nhận điều Sheet đã nói.
 4. **Khóa tháng đang là bước cản khi sửa.** Mẫu "mở khóa, sửa, khóa lại trong 1 phút" lặp nhiều lần. Có thể một phần là thử nghiệm, nhưng đúng là điều người nhập sẽ gặp khi sửa tháng cũ.
-5. **Giá trị tiền dồn vào ít khách và nợ cũ.** 10 khách giữ 81% nợ; 59,10 tỷ (87%) là nợ phát sinh từ tháng 9 trở về trước.
+5. **Giá trị tiền dồn vào ít khách và nợ cũ.** 10 khách giữ 81% nợ; 87% số nợ phát sinh từ tháng 9 trở về trước.
 
 ## 5. Giả thuyết cần kiểm (chưa chứng minh)
 
@@ -103,7 +103,7 @@ Mục tiêu phụ cho người xem: sếp trả lời được "tổng nợ, ai 
 | Người nhập | Làm trên Sheet, chưa dùng web | Đưa lô container từ booking sheet vào sổ khách | 35–40 chuyến/ngày, 40–65 khách/tháng | Trùng, sót container |
 | | | Gán giá: tự tính theo bảng giá hoặc nhập tay, tùy khách; thêm phụ phí | Theo từng chuyến | Sai đơn giá, thiếu/thừa phụ phí |
 | | | Ghi phiếu thu và khớp với nợ | 3–4 phiếu/ngày | Nhầm khách, nhầm tháng, nhầm số tiền |
-| | | Làm debit note gửi khách | Cuối tháng, mỗi khách có chuyến | Số không khớp sổ |
+| | | Làm debit note gửi khách (file Excel qua Zalo/WeChat) | Từng khách, rải rác khi khách hỏi (người dùng 12/11/2026) | Số không khớp sổ; chọn nhầm tài khoản nhận tiền |
 | | | Tra nợ khi khách hoặc sếp hỏi | Chưa đo | Trả lời theo số cũ |
 | Sếp | Mở xem web | Xem tổng nợ, khách nợ nhiều, nợ quá hạn, ai cần đòi | Chưa đo (không có nhật ký xem) | Tin vào số web khi web đang thiếu dữ liệu |
 | Người đòi nợ | Mở xem web | Lấy tin nhắc gửi khách | 1 lần ghi nhận (30/10) | Nhắc theo số chưa trừ phiếu thu mới |

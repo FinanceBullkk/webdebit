@@ -3,6 +3,22 @@
 .strip .owe{flex:3 1 520px}
 .mock-note{margin:0 auto 0 12px;padding:2px 10px;border-radius:999px;background:#fff4dc;color:#7a4a00;font-size:13px;font-weight:600;white-space:nowrap}
 
+/* Sổ lớn: hàng riêng trên ô tình trạng. */
+.big-row{display:flex;gap:8px;margin-top:10px}
+.big-row+.sit-cards{margin-top:8px}
+.big-lbl{flex:0 0 100px;display:flex;flex-direction:column;justify-content:center;line-height:1.25}
+.big-lbl b{font-size:14px;font-weight:700}
+.big-lbl small{color:var(--ink-m);font-size:12.5px}
+.big-card{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:1px;padding:3px 12px;border:1px solid #162d48;border-radius:10px;background:#fff;color:var(--ink-1)}
+.big-card:hover{background:#f4f6f9}
+.bc1,.bc2{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap}
+.bc1 .nm{min-width:0;margin-right:auto;overflow:hidden;font-weight:700;text-overflow:ellipsis}
+.big-row .big-card .amt{color:var(--ink-1);font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+.bc1 .pct{color:var(--ink-m);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.bc2{align-items:center;color:var(--ink-m);font-size:12.5px}
+.bc2 .st{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bc2 .dd{margin-left:auto;font-variant-numeric:tabular-nums}
+
 /* Thẻ 12 tháng: hai hình chồng, mỗi hình một thang (không hai trục trên một hình). */
 .trend-card{flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:6px;padding:12px 16px 10px;border-radius:12px;background:#fff;box-shadow:0 1px 3px #1f29371f}
 .tr-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
@@ -63,4 +79,4 @@
 .age{display:inline-flex;align-items:center;gap:6px;color:var(--ink-m)}
 .age.hot{color:var(--red);font-weight:700}
 .age.none{color:var(--ink-l)}
-@media (max-width:700px){.sit-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.trend-card{flex-basis:100%}.sit .sl{white-space:normal}.tr-head{flex-wrap:wrap}.tr-months{font-size:11px}.mock-note{position:fixed;right:8px;bottom:8px;z-index:5;margin:0;box-shadow:0 1px 3px #1f29371f}}
+@media (max-width:700px){.sit-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.trend-card{flex-basis:100%}.sit .sl{white-space:normal}.tr-head{flex-wrap:wrap}.tr-months{font-size:11px}.mock-note{position:fixed;right:8px;bottom:8px;z-index:5;margin:0;box-shadow:0 1px 3px #1f29371f}.big-row{flex-direction:column}.big-lbl{flex:none}.big-card{flex:none;padding:6px 12px}.bc2{flex-wrap:wrap}.bc2 .dd{margin-left:0}}

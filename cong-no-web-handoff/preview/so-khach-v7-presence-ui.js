@@ -87,7 +87,8 @@
     // Câu báo sổ vừa đổi kèm tên người cùng mở sổ, để biết ai vừa sửa (chống ghi đè vẫn do phiên bản sổ).
     ctx.presenceStale = message => {
       const others = presence?.people().filter(presence.sameBook).map(person => person.name) ?? [];
-      if (message !== live.stale || !others.length) return message;
+      // NHAP-NHANH-01: câu của hàng đợi ghi nền có thêm "Chưa lưu ô …:" ở đầu.
+      if (!String(message).includes(live.stale) || !others.length) return message;
       return message.replace('Sổ vừa thay đổi.', `Sổ vừa thay đổi (${[...new Set(others)].join(', ')} cũng đang mở sổ này).`);
     };
   };

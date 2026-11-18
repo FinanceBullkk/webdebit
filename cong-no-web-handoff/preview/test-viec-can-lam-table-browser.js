@@ -280,6 +280,53 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('sheet-giu')).length), 0);
     });
   });
+  test('Đã xem, hết báo: nút ở dòng giá/PS/chuyến máy không ghi được, ghi theo dấu vân không cần chuyến, mất mạng gửi lại cùng khóa', async () => {
+    const posted = [], lost = [];
+    const price = 'b'.repeat(64), ps = 'c'.repeat(64), trip = 'd'.repeat(64);
+    const detail = { ...ledger, version: 9,
+      sheet_prices: { ready: [], review: [
+        { status: 'AMBIGUOUS', closable: true, target_kind: '', target_id: '', container: 'FAKE20', date: '2026-11-01', source_fingerprint: price },
+        { status: 'CONFLICT', closable: false, target_kind: 'trip', target_id: 12, container: 'FAKE12', date: '2026-11-01', web_unit_price_vnd: '8500000',
+          web_other_fee_vnd: null, sheet_unit_price_vnd: '9000000', sheet_other_fee_vnd: null, source_fingerprint: sha }] },
+      ps_fees: { ready: [], review: [{ status: 'AMBIGUOUS', closable: true, container: 'FAKE21', message: 'Cont khớp nhiều chuyến', source_fingerprint: ps }] },
+      sheet_sync: { removed_items: [], items: [
+        { sync_state: 'NEW', closable: true, closed: false, container: 'FAKE22', event_date: '2026-08-02', candidate_books: [], source_fingerprint: trip },
+        { sync_state: 'NEW', closable: true, closed: true, container: 'FAKE23', event_date: '2026-08-03', candidate_books: [], source_fingerprint: 'e'.repeat(64) },
+        { sync_state: 'NEW', closable: false, closed: false, container: 'FAKE24', event_date: '2026-11-03', candidate_books: [], source_fingerprint: 'f'.repeat(64) }] } };
+    await withPage({ posted, ledger: detail }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-close-source]').first().waitFor();
+      // Chỉ ba dòng đóng được có nút; dòng đã đóng không hiện; dòng giá khác web (CONFLICT) vẫn chỉ có nút giữ theo chuyến.
+      assert.deepEqual(await page.locator('[data-close-source]').evaluateAll(nodes => nodes.map(node => node.dataset.closeSource.split(':')[0])), ['price', 'trip', 'ps']);
+      assert.equal(await page.getByText('FAKE23').count(), 0);
+      assert.equal(await page.locator('[data-keep-price="trip:12"]').count(), 1);
+      assert.match(await page.locator('li', { hasText: 'FAKE21' }).first().innerText(), /Cont khớp nhiều chuyến/);
+      await page.locator(`[data-close-source="price:${price}"]`).click();
+      assert.match(await page.locator('.action-description').innerText(), /Ẩn việc · nợ không đổi/);
+      await page.route('**/api/v7/sheet/tasks/keep', async route => { lost.push(route.request().postDataJSON()); await route.abort(); });
+      await page.locator('[data-action-write]').click();
+      await page.getByText('Thử lại', { exact: true }).waitFor();
+      await page.unroute('**/api/v7/sheet/tasks/keep');
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.deepEqual(posted[0].body, lost[0]);   // gửi lại đúng yêu cầu cũ, cùng khóa
+      assert.equal(posted[0].route, '/api/v7/sheet/tasks/keep');
+      assert.deepEqual({ ...posted[0].body, idempotency_key: 'k' }, { customer_id: 2, expected_version: 9, idempotency_key: 'k', task_kind: 'source', scope: 'price', source_fingerprint: price });
+      assert.equal('target_id' in posted[0].body || 'target_kind' in posted[0].body, false);
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator(`[data-close-source="ps:${ps}"]`).click();
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[1].body.scope, 'ps');
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator(`[data-close-source="trip:${trip}"]`).click();
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[2].body.scope, 'trip');
+    });
+  });
   test('Lấy giá Sheet và ghi phiếu thiếu ngày đều xem lại nợ, giữ yêu cầu khi thử lại', async () => {
     const posted = [];
     const detail = { ...ledger, trips: [{ id: 12, container: 'FAKE12', status: 'confirmed', unit_price_vnd: '8500000', other_fee_vnd: null, amount_vnd: '8500000' }],
@@ -364,7 +411,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     const road = { ...ledger, sheet_road: { snapshot_sha256: sha, items: [
       { sync_state: 'NEW', sync_reason: '', container: 'MAUU0000021', event_date: '2026-10-02', message: 'Chuyến bộ theo CONT_BO, chưa có trên sổ' },
       { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' },
-      { sync_state: 'CONFLICT', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', container: 'MAUU0000023', event_date: '2026-10-04' }] } };
+      { sync_state: 'CONFLICT', sync_reason: 'DIFFERENT_FIELDS', container: 'MAUU0000023', event_date: '2026-10-04' }] } };
     await withPage({ ledger: road, unsorted: [{ customer_id: 2 }] }, async page => {
       // Sổ tải chậm như trên máy CI (lần đầu đếm ngay sau khi bấm nên ra 0 dòng ở CI, xanh ở máy nhanh).
       await page.route('**/api/v7/ledger*', async route => { await new Promise(done => setTimeout(done, 500)); await route.continue(); });
@@ -374,7 +421,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await rows.count(), 3);
       assert.match(await rows.nth(0).innerText(), /MAUU0000021[\s\S]*Chuyến bộ theo CONT_BO, chưa có trên sổ/);
       assert.match(await rows.nth(1).innerText(), /MAUU0000022[\s\S]*Container ở khách khác/);
-      assert.match(await rows.nth(2).innerText(), /MAUU0000023[\s\S]*Container đã có trong sổ · tab khách chưa có dòng riêng/);
+      assert.match(await rows.nth(2).innerText(), /MAUU0000023[\s\S]*Sheet khác thông tin trong sổ/);
       assert.equal(await page.locator('[data-trip-book]').count(), 0);
       assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 3);
     });
@@ -454,8 +501,11 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       const started = [];
       page.on('request', request => { if (/\/api\/v7\/(dashboard|dashboard\/debt|customers)$/.test(request.url())) started.push(new URL(request.url()).pathname); });
       const release = await holdApi(page, /\/api\/v7\/dashboard$/);
+      // Trang gọi /inbox ngay khi script chạy, trước sự kiện load mà reload() chờ: máy chủ giả trả nhanh thì phản hồi
+      // về trước khi reload() xong. Phải gắn chờ trước reload(), gắn sau thì lỡ sự kiện và chờ đủ 30 giây.
+      const inboxRead = page.waitForResponse(/\/api\/v7\/inbox$/);
       await page.reload();
-      await page.waitForResponse(/\/api\/v7\/inbox$/);
+      await (await inboxRead).finished();
       await page.waitForFunction(() => document.querySelector('.loading'));
       assert.equal(await page.locator('.band-count').count(), 0, 'việc từ Sheet đã về nhưng số Tổng quan chưa về thì chưa vẽ');
       assert.deepEqual(started.sort(), ['/api/v7/customers', '/api/v7/dashboard', '/api/v7/dashboard/debt'], 'không chờ dashboard xong mới đọc hai nguồn kia');
@@ -511,11 +561,13 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       window.seen.scroll = document.scrollingElement.scrollTop;
     });
   };
+  // Mọi lượt đọc nền của trang đã xong và đã vẽ (hoặc bỏ vì cũ): ViecCanLam.idle() ở viec-can-lam.js, thay cho ngủ 80 ms.
+  const backgroundDone = page => page.evaluate(() => window.ViecCanLam.idle());
   const backgroundRefresh = async page => {
     const finished = Promise.all(['/api/v7/price-table/status', '/api/v7/dashboard/debt', '/api/v7/inbox'].map(url => page.waitForResponse(response => response.url().includes(url))));
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await finished;
-    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+    await backgroundDone(page);
   };
   test('tự tải lại khi dữ liệu không đổi: không đụng tới bảng, dòng mở và ô đang gõ còn nguyên', async () => withPage(designFixture(), async page => {
     await openForTyping(page);
@@ -546,7 +598,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       const failed = page.waitForResponse(response => response.url().includes('/api/v7/ledger'));
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await failed;
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+      await backgroundDone(page);
       assert.equal(await page.locator('.work-detail [role=alert]').count(), 0);
       assert.equal(await page.locator('[data-manual-price="1"]').inputValue(), '9,5');
       opts.ledgerStatus = 200;
@@ -586,16 +638,12 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       await page.waitForFunction(() => document.querySelector('[data-manual-price="2"]') && !document.querySelector('[data-manual-price="1"]'));
       assert.equal(posted.at(-1).body.expected_version, 7);
       release();
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 150)));
+      await backgroundDone(page);   // bản đọc cũ đã về và đã bị bỏ, không phải chưa kịp về
       assert.equal(await page.locator('[data-manual-price="1"]').count(), 0, 'bản đọc cũ về muộn không được đè lại');
     });
   });
-  test('soát máy: chữ trước/sau, chuyến chờ kiểm, đường mở đúng sổ; tìm khách và bàn phím', async () => withPage({}, async page => {
-    await page.locator('[data-tab="may"]').click();
-    const machine = await page.locator('.auto-list').innerText();
-    assert.match(machine, /nơi đi: — →\s*KHO MẪU/);
-    assert.match(machine, /chờ kiểm/);
-    assert.equal(await page.locator('.auto-list li', { hasText: 'KHO MẪU' }).locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  // Việc máy đã ghi xem ở tab Đã làm, đọc từ Lịch sử DB (HOAT-DONG-01, test-viec-can-lam-doi-chieu-browser.js).
+  test('tìm khách và bàn phím', async () => withPage({}, async page => {
     await page.locator('#customer-search').fill('明珠'); await page.locator('#customer-results a').waitFor();
     assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   }));

@@ -136,7 +136,7 @@ const MayChayModel = (() => {
       else if (elapsed !== null) text = duration(elapsed);   // job chưa báo được số đếm ở trạm này: chỉ nói số giây đã qua, không vẽ tỉ lệ giả
     }
     if (key === 'chot' && s.d && f >= 1) { text = run.tooMany ? 'dừng' : 'qua'; if (run.tooMany) state = 'stop'; }
-    if (key === 'tim' && s.d && f > 0 && !run.countsOnly) text = run.live ? `${run.customers.filter(c => c.judged).length}/${run.customers.length} khách` : `${run.customers.filter(c => t >= c.decided).length}/${run.customers.length} khách`;
+    if (key === 'tim' && s.d && f > 0 && !run.countsOnly) text = run.live ? `${run.customers.filter(c => c.judged).length}/${Math.max(run.different ?? 0, run.customers.length)} khách` : `${run.customers.filter(c => t >= c.decided).length}/${run.customers.length} khách`;   // đang quét file: khách chưa vào danh sách nhưng job đã báo số lệch
     if (key === 'ghi' && s.d && f > 0 && !run.countsOnly) {
       const list = run.customers.filter(c => c.wrote);
       text = `${list.filter(c => t >= c.done).length}/${list.length} khách`;

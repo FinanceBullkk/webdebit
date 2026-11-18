@@ -111,8 +111,6 @@ def validate_fee(function: str, body: dict) -> tuple[str, dict]:
         ids = body["fee_type_ids"]
         if type(ids) is not list or any(not positive_int(i) for i in ids) or len(set(ids)) != len(ids):
             bad()
-        if len(ids) > 3:
-            bad("FEE_COLUMNS_MAX", ERRORS["FEE_COLUMNS_MAX"][1])
     if "name" in required and (type(body["name"]) is not str or not body["name"].strip() or len(body["name"]) > 200):
         bad()
     if "kind" in required and body["kind"] not in ("service", "pass_through"):
@@ -260,7 +258,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if function == "review_trip" and (not isinstance(body.get("reason"), str) or not body["reason"].strip()):
         bad("REVIEW_REASON_REQUIRED", "Cần ghi lý do kết luận chuyến CHỜ KIỂM.")
     # Bảng giá: chỉ kiểm hình dạng; nội dung (ngày, giá, kho, chồng ngày) do save_price_table kiểm.
-    if function == "save_price_table" and type(body.get("price_table")) is not dict:
+    if function in ("save_price_table", "preview_price_table") and type(body.get("price_table")) is not dict:
         bad()
     if function == "apply_price_table":
         ids = body.get("trip_ids")
@@ -318,6 +316,17 @@ def _receipt_book(parts_query: str) -> tuple[str, dict]:
     return "get_receipt_book", {"month": query["month"][0]}
 
 
+
+def _activity(parts_query: str) -> tuple[str, dict]:
+    """HOAT-DONG-01: không có tham số là hôm nay; có thì đúng một `day` dạng yyyy-mm-dd (ngày tương lai do SQL chặn)."""
+    query = parse_qs(parts_query, keep_blank_values=True)
+    if not parts_query:
+        return "get_activity", {"day": None}
+    if set(query) != {"day"} or len(query["day"]) != 1 or not valid_date(query["day"][0]):
+        bad("INVALID_DAY", ERRORS["INVALID_DAY"][1])
+    return "get_activity", {"day": query["day"][0]}
+
+
 def _sheet_queue(parts_query: str) -> tuple[str, dict]:
     query = parse_qs(parts_query, keep_blank_values=True)
     if parts_query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
@@ -368,6 +377,7 @@ GET_ROUTES = {
     "/api/v7/receivables/matrix": _matrix,
     "/api/v7/receivables/detail": _detail,
     "/api/v7/receipt-book": _receipt_book,
+    "/api/v7/activity": _activity,
     "/api/v7/sheet-queue": _sheet_queue,
     "/api/v7/receipt-images": lambda parts_query: _receipt_images(parts_query, with_id=False),
     "/api/v7/receipt-image": lambda parts_query: _receipt_images(parts_query, with_id=True),

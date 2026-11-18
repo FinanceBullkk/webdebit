@@ -33,11 +33,37 @@ def check_sheet_keep(pg):
     for index, (kind, target, ident) in enumerate(((None, "trip", trip), ("removed", "legacy", trip), ("price", None, trip), ("price", "trip", None))):
         reject_call(pg, "keep_sheet_task", customer, version(pg, customer), f"bad-{index}", kind, target, ident,
                     "a" * 64, json.dumps(current), error="INVALID_SHEET_RESOLUTION")
-    migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-02-v7-giu-viec-sheet.sql").read_text(encoding="utf-8")
+    # PS-HOI-01: 'ps' giữ một dòng Phụ phí PS cần xem; như 'price', đo trên đơn giá và phụ phí của chuyến, không đổi tiền.
+    ps_args = (customer, version(pg, customer), "keep-ps", "ps", "trip", trip, "d" * 64, json.dumps(current))
+    require(call(pg, "keep_sheet_task", *ps_args)["kept"] and months(pg, customer) == before, "keep ps changed money")
+    require(call(pg, "get_ledger", customer)["events"][0]["after"]["field"] == "task_ps", "keep ps audit missing")
+    reject_call(pg, "keep_sheet_task", customer, version(pg, customer), "bad-ps", "ps", "trip", trip,
+                "d" * 64, json.dumps({**current, "other_fee_vnd": "9"}), error="STALE_LEDGER")
+    # K3: 'source' đóng một dòng Sheet theo dấu vân, không có chuyến đích; chỉ ghi Lịch sử, không đổi tiền.
+    source = {"scope": "price"}
+    source_args = (customer, version(pg, customer), "keep-source", "source", None, None, "e" * 64, json.dumps(source))
+    result = call(pg, "keep_sheet_task", *source_args)
+    require(result["kept"] and call(pg, "keep_sheet_task", *source_args) == result and months(pg, customer) == before,
+            "keep source changed money or retry result")
+    audit = call(pg, "get_ledger", customer)["events"][0]["after"]
+    require(audit["field"] == "task_source" and audit["target"] == {"kind": "source", "scope": "price"}
+            and audit["sheet_value"] == "e" * 64, "keep source audit missing")
+    reject_call(pg, "keep_sheet_task", *source_args[:-1], json.dumps({"scope": "ps"}), error="IDEMPOTENCY_CONFLICT")
+    for index, (kind, target, ident, fingerprint, value) in enumerate((
+            ("source", "trip", None, "e" * 64, source), ("source", None, trip, "e" * 64, source),
+            ("source", None, None, "bad", source), ("source", None, None, "e" * 64, {"scope": "money"}),
+            ("source", None, None, "e" * 64, {"scope": "price", "extra": 1}), ("source", None, None, "e" * 64, {}),
+            ("source", None, None, "e" * 64, [1]), ("source", None, None, None, source), ("nope", None, None, "e" * 64, source))):
+        reject_call(pg, "keep_sheet_task", customer, version(pg, customer), f"bad-source-{index}", kind, target, ident,
+                    fingerprint, json.dumps(value), error="INVALID_SHEET_RESOLUTION")
+    folder = ROOT / "cong-no-web-handoff/tools/migrations"
+    migrations = [(folder / name).read_text(encoding="utf-8")
+                  for name in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-16-v7-nguon-het-bao.sql")]
     catalog = "SELECT pg_get_functiondef('sokhach.keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)'::regprocedure)"
     original = pg.value(catalog)
-    pg.sql(migration)
-    pg.sql(migration)
+    for _ in range(2):
+        for migration in migrations:
+            pg.sql(migration)
     require(pg.value(catalog) == original, "migration changed canonical definition")
     pg.true("NOT has_function_privilege('sokhach_reader','sokhach.keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)','EXECUTE')", "reader can keep")
     desired = {"unit_price_vnd": "120", "other_fee_vnd": "5"}

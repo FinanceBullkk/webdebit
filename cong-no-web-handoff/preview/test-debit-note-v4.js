@@ -1,0 +1,368 @@
+/* DEBIT-NOTE-03: mẫu debit note v4 (docs/debit-note-v4/SPEC.md) — số của dữ liệu mẫu, chia trang, 6 phép kiểm, dựng từ sổ V7. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const model = require('./so-khach-v7-model.js');
+const v4 = require('./debit-note-v4.js');
+
+const ROOT = path.join(__dirname, '..', '..');
+const config = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'debit-note-config.default.json'), 'utf8'));
+const sample = name => JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'debit-note-v4', 'data', `${name}.json`), 'utf8'));
+const KEYS = { lump_sum: 'LUMP_SUM', storage: 'STORAGE', generator_electricity: 'GENSET', overstay: 'OVERSTAY', hc_fee: 'HC_FEE' };
+const blocks = doc => v4.checks(doc).filter(item => item.level === 'block');
+
+test('Dữ liệu mẫu ra đúng mục "expected": số container, tổng từng cột, Total, Outstanding, cột hiện', () => {
+  for (const name of ['sample-14', 'sample-30', 'sample-8-an-cot']) {
+    const data = sample(name), doc = v4.fromSample(data, config), want = data.expected;
+    assert.equal(doc.total.count, want.container_count, name);
+    for (const [key, value] of Object.entries(want.column_totals)) assert.equal(doc.total.cells[KEYS[key]] ?? 0n, BigInt(value), `${name} ${key}`);
+    assert.equal(doc.total.amount, BigInt(want.total_amount), name);
+    assert.equal(doc.account.thisNote, BigInt(want.this_debit_note), name);
+    assert.equal(doc.account.outstanding, BigInt(want.outstanding_balance), name);
+    if (want.visible_fee_columns) assert.deepEqual(doc.columns.map(column => column.code), want.visible_fee_columns.map(key => KEYS[key]), name);
+    assert.deepEqual(blocks(doc), [], name);
+  }
+});
+
+test('Định dạng: phẩy ngăn nghìn, 0 là "–", số âm trong ngoặc, ngày "04 Nov 2026", bỏ dấu tiếng Việt, tách tên Hán', () => {
+  assert.equal(v4.money(1070000000n), '1,070,000,000');
+  assert.equal(v4.money(0n), '–');
+  assert.equal(v4.money(-6594000000n), '(6,594,000,000)');
+  assert.equal(v4.money(null), '');
+  assert.equal(v4.dateText('2026-11-04'), '04 Nov 2026');
+  assert.equal(v4.periodText('2026-11'), 'Nov 2026');
+  assert.equal(v4.latin('Công ty Đồng Tháp'), 'Cong ty Dong Thap');
+  assert.deepEqual(v4.splitName('SAMPLE 样本'), { en: 'SAMPLE', zh: '样本' });
+});
+
+test('Chia trang (SPEC mục 6): Total luôn kèm ít nhất 3 dòng; 16 → 1, 17 → 14 + 3, 30 → 20 + 10, 60 → 20 + 23 + 17', () => {
+  // Sức chứa một hàng chữ đo trên trang mẫu: đơn 16, đầu 20, giữa 23, cuối 17.
+  const cap = { single: 16, first: 20, middle: 23, last: 17 };
+  const split = count => v4.paginate(Array.from({ length: count }, (_, index) => index), (kind, rows) => rows.length <= cap[kind])
+    .map(page => `${page.kind}:${page.rows.length}`).join(' + ');
+  assert.equal(split(16), 'single:16');
+  assert.equal(split(17), 'first:14 + last:3');
+  assert.equal(split(30), 'first:20 + last:10');
+  assert.equal(split(60), 'first:20 + middle:23 + last:17');
+  assert.equal(split(1), 'single:1');
+  // Dòng nào cũng không vừa (chữ quá dài) vẫn ra trang, không lặp mãi.
+  assert.equal(v4.paginate([1, 2], () => false).map(page => page.rows.length).join('+'), '1+1');
+});
+
+test('Sáu phép kiểm (SPEC mục 7) chặn từng ca cố tình sai, câu báo nêu phép và các con số', () => {
+  const fresh = () => v4.fromSample(sample('sample-14'), config);
+  const cases = [
+    [1, doc => { doc.rows[2].amount += 1n; }, /Phép 1: dòng 3 HTHU2611210: Amount 75,000,001 ≠ 70,000,000 \+ – \+ – \+ 5,000,000 \+ – = 75,000,000\./],
+    [2, doc => { doc.total.amount += 1000n; }, /Phép 2: Total Amount 1,070,001,000 ≠ tổng Amount các dòng 1,070,000,000\./],
+    [3, doc => { doc.total.cells.STORAGE = 0n; }, /Phép 3: tổng cột STORAGE in – ≠ cộng các dòng 5,000,000\./],
+    [4, doc => { doc.total.count = 15; }, /Phép 4: có 14 dòng container nhưng dòng Total ghi 15 containers\./],
+    [5, doc => { doc.account.thisNote = 1n; }, /Phép 5: This debit note 1 ≠ Total Amount 1,070,000,000\./],
+    [6, doc => { doc.account.outstanding += 1n; }, /Phép 6: Opening 25,406,128,759 \+ This debit note 1,070,000,000 − Payments 6,594,000,000 ≠ Outstanding 19,882,128,760\./],
+  ];
+  for (const [rule, tamper, message] of cases) {
+    const doc = fresh();
+    tamper(doc);
+    const found = blocks(doc);
+    assert.ok(found.some(item => item.rule === rule && message.test(item.text)), `phép ${rule}: ${found.map(item => item.text).join(' | ')}`);
+  }
+  // Phí nằm ở cột bị ẩn cũng là sai phép 1 (in ra không cộng được).
+  const hidden = v4.fromSample(sample('sample-8-an-cot'), config);
+  hidden.rows[0].cells.HC_FEE = 1000n;
+  assert.ok(blocks(hidden).some(item => item.rule === 1 && /cột không hiện \(HC_FEE\)/.test(item.text)));
+});
+
+// Sổ V7 (bản GET) có cột phụ phí riêng Điện, Neo; loại khác rơi vào Khác; tháng có điều chỉnh 1.000.000.
+function ledger() {
+  const trip = (id, extra) => ({ id, month: '2026-11-01', status: 'confirmed', deleted: false, carrier: 'IAL', shipper: 'Công ty Ánh', origin: 'TIEN GIANG',
+    destination: 'QINGDAO', is_missing_price: false, is_fee_only: false, fee_lines: [], ...extra });
+  return {
+    trips: [
+      trip(1, { container: 'TGHU1111111', event_date: '2026-11-09', unit_price_vnd: '70000000', amount_vnd: '75000000', fee_lines: [{ fee_type_id: 1, amount_vnd: '5000000' }] }),
+      trip(2, { container: 'TGHU2222222', event_date: '2026-11-02', unit_price_vnd: '80000000', amount_vnd: '82000000',
+        fee_lines: [{ fee_type_id: 4, amount_vnd: '1500000' }, { fee_type_id: 5, amount_vnd: '500000' }] }),
+      trip(3, { container: 'TGHU3333333', event_date: '2026-11-03', status: 'pending_review', unit_price_vnd: '1', amount_vnd: '1' }),
+      trip(4, { container: '', event_date: '2026-11-20', unit_price_vnd: null, amount_vnd: '300000', is_fee_only: true, fee_lines: [{ fee_type_id: 3, amount_vnd: '300000' }] }),
+      trip(5, { container: 'TGHU5555555', month: '2026-10-01', event_date: '2026-10-30', unit_price_vnd: '9', amount_vnd: '9' }),
+    ],
+    legacy_rows: [{ kind: 'trip', month: '2026-11-01', editable: false, source_total_vnd: '60000000', fee_lines: [],
+      display: { container: 'ABCU1234560', carrier: 'SITC', shipper: 'B', date: '2026-11-02', from: 'Dak Lak', to: 'Nansha', unit_price: '60000000' } }],
+    months: [{ month: '2026-11-01', prior_months_vnd: '1000000000', charges_vnd: '218300000', received_vnd: '500000000', end_of_month_vnd: '718300000' }],
+    receipts: [{ date: '2026-11-04', voided_by_event: null }, { date: '2026-11-15', voided_by_event: 9 }],
+    outgoing_offsets: [{ date: '2026-11-10', voided_by_event: null }],
+  };
+}
+const feeTypes = [{ id: 1, name: 'Neo' }, { id: 2, name: 'Điện' }, { id: 3, name: 'Khác' }, { id: 4, name: 'Phụ phí ban đầu' }, { id: 5, name: 'Health cert' }];
+const build = (data = ledger()) => v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config,
+  form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'SAMPLE', nameZh: '样本' } } });
+
+const SEVEN = ['Storage 早装产生费用', 'Trucking 拼柜', 'Generator / electricity fee 发电机/电费', 'Overstay 押车', 'HC fee 卫生证',
+  'Cancellation fee 取消订柜费', 'AMD fee 改单费'];
+test('Từ sổ V7: bảy cột phí luôn in (DEBIT-NOTE-04), phí vào đúng cột theo loại, xếp theo ngày rồi số container, phí lẻ cuối bảng', () => {
+  const doc = build();
+  assert.deepEqual(doc.columns.map(column => `${column.en} ${column.cn}`), ['Unit price 单价', ...SEVEN, 'Other fees 其他费用']);
+  assert.deepEqual(doc.rows.map(row => [row.no, row.container, row.date]), [[1, 'ABCU1234560', '2026-11-02'], [2, 'TGHU2222222', '2026-11-02'],
+    [3, 'TGHU1111111', '2026-11-09'], [null, '', '2026-11-20']]);
+  // Health cert vào HC fee dù sổ không chọn làm cột riêng; Phụ phí ban đầu không thuộc bảy loại → Other fees.
+  assert.deepEqual(doc.rows[1].cells, { LUMP_SUM: 80000000n, OTHER: 1500000n, HC_FEE: 500000n });
+  assert.equal(doc.rows[1].shipper, 'Cong ty Anh');   // không in tiếng Việt
+  assert.deepEqual([doc.rows[1].place.text, doc.rows[1].pod.text], ['Tien Giang', 'Qingdao']);
+  assert.deepEqual(doc.rows[3].cells, { LUMP_SUM: null, OTHER: 300000n });
+  assert.equal(doc.total.count, 3);
+  assert.equal(doc.total.amount, 217300000n);
+  assert.deepEqual(doc.total.cells, { LUMP_SUM: 210000000n, STORAGE: 0n, TRUCKING: 0n, GENSET: 0n, OVERSTAY: 5000000n, HC_FEE: 500000n,
+    CANCELLATION: 0n, AMENDMENT: 0n, OTHER: 1800000n });
+  // Cột cả tháng bằng 0 in "–" ở mọi dòng và ở Total.
+  assert.equal(v4.money(v4.cellValue(doc.rows[0], 'STORAGE')), '–');
+  assert.deepEqual(blocks(doc), []);
+  assert.ok(v4.checks(doc).some(item => item.level === 'info' && /1 chuyến đang CHỜ KIỂM/.test(item.text)));
+  // Other fees chỉ in khi có số; cột riêng ngoài bảy loại (Bảo hiểm) in khi có số, đứng trước Other fees.
+  const plain = ledger();
+  plain.trips.forEach(trip => { trip.fee_lines = trip.fee_lines.filter(line => line.fee_type_id === 1); });
+  plain.trips[3].is_fee_only = false; plain.trips[3].container = 'TGHU4444444'; plain.trips[3].unit_price_vnd = '300000';
+  const insured = { ...ledger() };
+  insured.trips[0].fee_lines.push({ fee_type_id: 6, amount_vnd: '100000' });
+  insured.trips[0].amount_vnd = '75100000';
+  const types = [...feeTypes, { id: 6, name: 'Bảo hiểm' }];
+  const codes = data => v4.fromLedger(data, '2026-11', { model, feeTypes: types, feeColumnIds: [6, 1], config, form: {} }).columns.map(column => column.code);
+  assert.deepEqual(codes(plain), ['LUMP_SUM', 'STORAGE', 'TRUCKING', 'GENSET', 'OVERSTAY', 'HC_FEE', 'CANCELLATION', 'AMENDMENT']);
+  assert.deepEqual(codes(insured), ['LUMP_SUM', 'STORAGE', 'TRUCKING', 'GENSET', 'OVERSTAY', 'HC_FEE', 'CANCELLATION', 'AMENDMENT', 'INSURANCE', 'OTHER']);
+});
+
+test('Bảy cột phí vừa A4 ngang: cột phí co theo số, tiêu đề xuống dòng, chữ thu nhỏ đều khi cần; chứng từ ít cột in như cũ', () => {
+  const width = layout => layout.no + layout.container + layout.line + layout.date + layout.place + layout.pod + layout.amount
+    + layout.fees.reduce((a, b) => a + b, 0);
+  const doc = build();
+  const layout = v4.columnLayout(doc);
+  assert.ok(layout.compact && width(layout) + layout.shipperMin <= 1034, `bảng rộng ${width(layout)} + Shipper ${layout.shipperMin} > 1034`);
+  assert.ok(layout.fees.every((fee, index) => fee <= doc.columns[index].width), layout.fees.join(','));
+  assert.ok(layout.fees[0] >= 70, String(layout.fees[0]));   // Unit price đủ cho số Total in đậm
+  const html = v4.pageHtml(doc, 'single', doc.rows);
+  assert.match(html, /font-weight: 700">Generator \/ electricity fee</);   // tiêu đề phí được xuống dòng
+  // Tên Trung dài và nhiều chữ: chữ bảng thu nhỏ đều (không dưới 80%) hoặc tên Trung xuống dòng; vẫn vừa bề ngang.
+  const data = ledger();
+  data.trips.forEach(trip => Object.assign(trip, { origin: 'Kim Cuong Tb', destination: 'Mong Cai', shipper: 'Cong ty Thu Nghiem Rat Dai Ten' }));
+  const cn = v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [], config: { ...config, show_place_cn: true }, form: {} });
+  const tight = v4.columnLayout(cn);
+  assert.ok(tight.zoom >= 0.8 && width(tight) + tight.shipperMin <= 1034, JSON.stringify(tight));
+  const page = v4.pageHtml(cn, 'single', cn.rows);
+  if (tight.zoom < 1) assert.match(page, new RegExp(`data-blk="TABLE"[^>]*font-size: ${12 * tight.zoom}px`));
+  if (tight.stack) assert.match(page, /<span style="display: block">Kim Cuong Tb<\/span><span style="display: block">同奈省壮奔县<\/span>/);
+  // Mẫu ít cột (sample-14: 5 cột) vẫn như cũ: bề rộng cấu hình, cỡ chữ 12px, tiêu đề một dòng.
+  // Excel v4 cũng có đủ bảy cột, cột trống cả tháng in "–" ở dòng Total.
+  const sheet = readSheet(unzip(require('./debit-note-v4-xlsx.js').xlsx(doc))['xl/worksheets/sheet1.xml']);
+  for (const column of doc.columns.slice(1, 8)) assert.ok(sheet.find(`${column.en}\n${column.cn}`), column.code);
+  const few = v4.fromSample(sample('sample-14'), config);
+  const plain = v4.columnLayout(few);
+  assert.deepEqual([plain.fees, plain.zoom, plain.compact], [few.columns.map(column => column.width), 1, false]);
+  assert.doesNotMatch(v4.pageHtml(few, 'single', few.rows), /font-weight: 700">Unit price</);
+});
+
+test('ACCOUNT STATUS từ months[] của máy chủ: Opening = nợ trước tháng; Payments = thu + cấn trừ + điều chỉnh; Outstanding = cuối tháng', () => {
+  const doc = build();
+  assert.deepEqual(doc.account, { opening: 1000000000n, openingDate: '2026-11-01', thisNote: 217300000n, payments: 499000000n, paymentsDate: '2026-11-10',
+    outstanding: 718300000n, received: 500000000n, adjustments: 1000000n });
+  assert.ok(v4.checks(doc).some(item => item.level === 'info' && /điều chỉnh 1,000,000 đ.*Payments received/.test(item.text)));
+  // Máy chủ trả số cuối tháng không khớp: phép 6 chặn.
+  const data = ledger();
+  data.months[0].end_of_month_vnd = '718300001';
+  assert.ok(blocks(build(data)).some(item => item.rule === 6));
+  // Thành tiền của sổ khác đơn giá + phí: phép 1 chặn; thiếu giá: chặn, không coi là 0.
+  const off = ledger();
+  off.trips[0].amount_vnd = '76000000';
+  assert.ok(blocks(build(off)).some(item => item.rule === 1 && /TGHU1111111: Amount 76,000,000/.test(item.text)));
+  // Bảng có gì xuất nấy (12/11/2026): chuyến chưa có giá không chặn; Unit price và Amount trống (không in 0), phí vẫn in,
+  // Total cộng mọi ô đang in.
+  const missing = ledger();
+  Object.assign(missing.trips[0], { is_missing_price: true, unit_price_vnd: null });
+  const blank = build(missing);
+  assert.deepEqual(blocks(blank), []);
+  const row = blank.rows.find(item => item.container === 'TGHU1111111');
+  assert.equal(row.amount, null);
+  assert.equal(v4.cellValue(row, 'LUMP_SUM'), null);
+  assert.equal(v4.cellValue(row, 'OVERSTAY'), 5000000n);
+  assert.equal(blank.total.amount, 217300000n - 75000000n + 5000000n);
+  assert.equal(blank.total.amount, Object.values(blank.total.cells).reduce((a, b) => a + b, 0n));
+  assert.match(v4.pageHtml(blank, 'single', blank.rows), /TGHU1111111/);
+  // Không có số tháng của máy chủ: ô ACCOUNT STATUS trống, không chặn.
+  const noMonth = build({ ...ledger(), months: [] });
+  assert.deepEqual(blocks(noMonth), []);
+  assert.equal(noMonth.account.opening, null);
+  // Không còn cảnh báo nơi/cảng ngoài danh mục hay số container sai.
+  const odd = ledger();
+  Object.assign(odd.trips[0], { container: 'XXXX', origin: 'NOI LA' });
+  assert.deepEqual(v4.checks(build(odd)).filter(item => item.level === 'warn'), []);
+});
+
+test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường], không cột B/L, dòng cuối trang không kẻ, Total chữ navy', () => {
+  const doc = build();
+  const html = v4.pageHtml(doc, 'single', doc.rows, 1, 1);
+  for (const block of ['LH', 'INFO', 'TABLE', 'BOTTOM']) assert.match(html, new RegExp(`data-blk="${block}"`));
+  for (const label of ['[Issue date]', '[Tax ID]', '[Phone]', '[Customer legal name &amp; address]', '[Beneficiary]', '[Bank]', '[Account no.]', '[SWIFT code]'])
+    assert.ok(html.includes(label), label);
+  assert.doesNotMatch(html, /B\/L no\./);
+  assert.doesNotMatch(html, /Attn|\[Contact\]/);   // bỏ dòng Attn 联系人 (12/11/2026)
+  assert.match(html, /Total, 3 containers<span style="font-weight: 400"> · 合计<\/span>/);
+  assert.match(html, /color: #14304F">217,300,000<\/span><\/div><\/div>/);
+  const rows = html.match(/<div data-row [^>]*>/g);
+  assert.equal(rows.length, 4);
+  assert.ok(rows.slice(0, -1).every(row => row.includes('border-bottom: 1px solid #B8C0CB')) && !rows.at(-1).includes('border-bottom'));
+  assert.match(html, /Payments received · 本期已收款<\/span><span>10 Nov 2026<\/span><span style="text-align: right; padding-left: 0; margin-right: -0.333em">\(499,000,000\)/);
+  assert.match(html, /Page 1 of 1/);
+  assert.doesNotMatch(html, /[À-ỹ]/u);   // không chữ tiếng Việt có dấu
+  // Trang đầu: không Total, không khối thanh toán, chân trang "Continued"; trang giữa: đầu trang rút gọn.
+  const first = v4.pageHtml(doc, 'first', doc.rows.slice(0, 2), 1, 2);
+  assert.doesNotMatch(first, /data-total|data-blk="BOTTOM"/);
+  assert.match(first, /Continued on next page · 续下页<\/span><span>Page 1 of 2/);
+  assert.match(v4.pageHtml(doc, 'middle', doc.rows.slice(2, 3), 2, 3), /Debit Note No\. 账单号 HTH-2611-001 · Bill to 客户 SAMPLE 样本 · Billing Period 账单期间 Nov 2026 · Currency 币种 VND/);
+});
+
+// Đọc lại zip "stored": kiểm chữ ký, CRC, lấy nội dung từng file.
+function unzip(bytes) {
+  const zlib = require('node:zlib');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const end = bytes.length - 22;
+  assert.equal(view.getUint32(end, true), 0x06054b50);
+  let at = view.getUint32(end + 16, true);
+  const files = {};
+  for (let index = 0; index < view.getUint16(end + 10, true); index++) {
+    const size = view.getUint32(at + 20, true), nameLength = view.getUint16(at + 28, true), local = view.getUint32(at + 42, true);
+    const name = Buffer.from(bytes.subarray(at + 46, at + 46 + nameLength)).toString('utf8');
+    const start = local + 30 + view.getUint16(local + 26, true);
+    const data = Buffer.from(bytes.subarray(start, start + size));
+    assert.equal(zlib.crc32(data), view.getUint32(at + 16, true), name);
+    files[name] = data.toString('utf8');
+    at += 46 + nameLength;
+  }
+  return files;
+}
+
+// Đọc sheet: ô → chữ (gộp mọi đoạn <t>) hoặc số, có chữ đậm không; vùng gộp; bề rộng cột; tìm ô theo chữ.
+function readSheet(xmlText) {
+  const cells = new Map();
+  for (const match of xmlText.matchAll(/<c r="([A-Z]+\d+)" s="\d+"(?: t="inlineStr")?(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const [, ref, inner = ''] = match;
+    const texts = [...inner.matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(item => item[1]);
+    const value = /<v>([^<]*)<\/v>/.exec(inner)?.[1];
+    cells.set(ref, { text: texts.length ? texts.join('') : value ?? '', bold: /<b\/>/.test(inner) });
+  }
+  const merges = [...xmlText.matchAll(/<mergeCell ref="([^"]+)"\/>/g)].map(item => item[1]);
+  const widths = [...xmlText.matchAll(/<col min="\d+" max="\d+" width="([\d.]+)"/g)].map(item => Number(item[1]));
+  const find = text => [...cells].find(([, item]) => item.text === text)?.[0];
+  return { cells, merges, widths, find, text: ref => cells.get(ref)?.text };
+}
+const rowOf = ref => Number(ref.replace(/[A-Z]+/, ''));
+
+test('Excel v4 theo thiết kế: đầu trang, hai khối cạnh nhau, bảng không gộp ô, Total và ACCOUNT STATUS thẳng cột Amount, chỉ Times New Roman', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const doc = v4.fromSample(sample('sample-8-an-cot'), config);
+  const files = unzip(xlsx.xlsx(doc));
+  assert.deepEqual(Object.keys(files).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']);
+  const xmlText = files['xl/worksheets/sheet1.xml'], sheet = readSheet(xmlText);
+  // 12 cột: No. … POD, Unit price, Storage, Generator, Overstay, Amount (không HC fee, không B/L).
+  assert.equal(sheet.widths.length, 12);
+  assert.equal(sheet.text('A3'), 'HTH LOGISTICS DV TM CO.,LTD');
+  assert.equal(sheet.text('H3'), 'DEBIT NOTE  账单');
+  for (const range of ['A3:G3', 'H3:L3', 'A4:L4']) assert.ok(sheet.merges.includes(range), range);
+  assert.deepEqual(['A7', 'A8', 'C7', 'C8'].map(sheet.text), ['BILL TO', '客户', 'SAMPLE 样本', '[Customer legal name &amp; address]']);
+  assert.ok(![...sheet.cells.keys()].some(ref => /Attn|Contact/.test(sheet.text(ref) ?? '')), 'không còn dòng Attn 联系人');
+  assert.ok(sheet.cells.get('C7').bold);
+  assert.deepEqual(['G7', 'G8', 'I7'].map(sheet.text), ['DOCUMENT', '单据信息', 'Debit Note No. 账单号']);
+  // Bảng: tiếng Anh đậm + tiếng Trung thường trong cùng ô; dữ liệu là số và ngày thật; trong bảng không gộp ô.
+  const header = rowOf(sheet.find('Amount\n金额'));
+  assert.deepEqual(['A', 'B', 'H', 'I', 'J', 'K', 'L'].map(col => sheet.text(`${col}${header}`)), ['No.\n序号', 'Container no.\n柜号', 'Unit price\n单价', 'Storage\n早装产生费用',
+    'Generator / electricity fee\n发电机/电费', 'Overstay\n押车', 'Amount\n金额']);
+  assert.match(xmlText, /<r><rPr><b\/><sz val="9"\/>[^<]*<color [^>]*\/><rFont [^>]*\/><\/rPr><t xml:space="preserve">Storage<\/t><\/r><r><rPr><sz val="9"\/>/);
+  const first = header + 1, total = header + 9;
+  assert.deepEqual(['A', 'B', 'H', 'I', 'L'].map(col => sheet.text(`${col}${first}`)), ['1', 'HTHU2611078', '70000000', '2500000', '72500000']);
+  assert.equal(sheet.text(`E${first}`), String((Date.UTC(2026, 10, 2) - Date.UTC(1899, 11, 30)) / 86400000));
+  assert.ok(sheet.merges.every(range => range.match(/\d+/g).map(Number).every(row => row < header || row >= total)), sheet.merges.join(' '));
+  assert.equal(sheet.text(`A${total}`), 'Total, 8 containers · 合计');
+  assert.deepEqual(['H', 'L'].map(col => sheet.text(`${col}${total}`)), ['570000000', '585000000']);
+  // ACCOUNT STATUS: số ở cột Amount (L); PAYMENT bên trái cùng hàng; chân trang.
+  const opening = rowOf(sheet.find('Opening balance · 期初余额'));
+  assert.deepEqual([0, 1, 2, 3].map(k => sheet.text(`L${opening + k}`)), ['25406128759', '585000000', '-6594000000', '19397128759']);
+  assert.equal(rowOf(sheet.find('PAYMENT')), opening);
+  for (const label of ['INFORMATION', '付款信息', 'ACCOUNT STATUS', 'For reference only', '[Beneficiary]', '[Bank]', '[Account no.]', '[SWIFT code]', '[Issue date]',
+    'Debit Note HTH-2611-001 · Billing queries 账单查询: hth.logs@gmail.com']) assert.ok(sheet.find(label), label);
+  // Kiểu: chỉ Times New Roman, nền tiêu đề #E6EBF2; in A4 ngang vừa bề ngang, lặp hàng tiêu đề bảng.
+  assert.deepEqual([...new Set([...files['xl/styles.xml'].matchAll(/<name val="([^"]+)"/g)].map(item => item[1]))], ['Times New Roman']);
+  assert.match(files['xl/styles.xml'], /FFE6EBF2/);
+  assert.match(xmlText, /<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"\/>/);
+  assert.ok(files['xl/workbook.xml'].includes(`'Debit Note'!$${header}:$${header}`));
+  assert.doesNotMatch(xmlText, /HC fee/);
+  assert.equal(xlsx.baseName(doc), 'HTH-2611-001_SAMPLE_2026-11');
+});
+
+test('Excel v4: cột tiền đủ rộng cho số lớn nhất (không ra ####); chỉ có Unit price thì tên khối thành hàng riêng; tên dài tự ngắt hàng', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const doc = v4.fromSample(sample('sample-30'), config);
+  const widths = xlsx.widths(doc);
+  doc.columns.forEach((column, k) => assert.ok(widths[7 + k] >= v4.money(doc.total.cells[column.code]).length + 2, column.code));
+  assert.ok(widths.at(-1) >= v4.money(doc.account.outstanding).length + 2);
+  const only = sample('sample-14');
+  only.containers = only.containers.map(item => ({ ...item, storage: 0, generator_electricity: 0, overstay: 0, hc_fee: 0, amount: item.lump_sum }));
+  const thin = readSheet(unzip(xlsx.xlsx(v4.fromSample(only, config)))['xl/worksheets/sheet1.xml']);
+  assert.equal(thin.widths.length, 9);
+  assert.deepEqual(['A7', 'F7'].map(thin.text), ['BILL TO · 客户', 'DOCUMENT · 单据信息']);
+  assert.ok(thin.find('PAYMENT INFORMATION · 付款信息') && thin.find('ACCOUNT STATUS · 账户情况 · For reference only 仅供参考'));
+  const long = sample('sample-14');
+  long.customer = { ...long.customer, name_en: 'SAMPLE INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD', name_zh: '样本国际物流（深圳）有限公司',
+    legal_name_address: 'Room 1203, Block B, Sample Century Building, No. 1234 Example Road, Futian District, Shenzhen, Guangdong, China' };
+  const xmlText = unzip(xlsx.xlsx(v4.fromSample(long, config)))['xl/worksheets/sheet1.xml'], wide = readSheet(xmlText);
+  const lines = [7, 8, 9, 10, 11].map(row => wide.text(`C${row}`)).filter(Boolean);
+  assert.ok(lines.length >= 3);
+  assert.ok(lines.join(' ').startsWith('SAMPLE INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 样本国际物流（深圳）有限公司 Room 1203'), lines.join(' | '));
+  assert.doesNotMatch(xmlText, /<row r="(7|8|9|10)" ht="(?!15")/);   // các hàng của khối DOCUMENT không bị kéo cao
+});
+
+test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 chỉ in khi cấu hình show_place_cn bật; cột Excel rộng theo chữ', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const placeCells = on => {
+    const doc = v4.fromLedger(ledger(), '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config: { ...config, show_place_cn: on },
+      form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'SAMPLE', nameZh: '样本' } } });
+    const sheet = readSheet(unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml']);
+    const second = rowOf(sheet.find('Amount\n金额')) + 2;   // dòng 2: TGHU2222222, Tien Giang → Qingdao
+    return { excel: [sheet.text(`F${second}`), sheet.text(`G${second}`)], widths: sheet.widths, html: v4.pageHtml(doc, 'single', doc.rows) };
+  };
+  const off = placeCells(false), on = placeCells(true);
+  assert.deepEqual(off.excel, ['Tien Giang', 'Qingdao']);
+  assert.deepEqual(on.excel, ['Tien Giang  前江省', 'Qingdao  青岛港']);
+  assert.ok(on.widths[5] > off.widths[5] && on.widths[6] > off.widths[6]);
+  assert.doesNotMatch(off.html, /青岛港/);
+  assert.match(on.html, /white-space: nowrap(; font-size: [\d.]+px)?">Qingdao 青岛港</);   // bảy cột phí luôn in: chữ có thể thu nhỏ
+});
+
+test('Tên tiếng Trung cùng dòng (người dùng 11/11/2026): nhiều cột phí và tên dài thì chữ hai cột nơi/cảng thu nhỏ, không dưới 9px, không xuống dòng', () => {
+  const doc = v4.fromSample(sample('sample-14'), { ...config, show_place_cn: true });
+  doc.rows.forEach(row => { if (!row.feeOnly) { row.place = { text: 'Kim Cuong Tb', cn: '同奈省壮奔县', known: true }; row.pod = { text: 'Mong Cai', cn: '东兴—芒街口岸', known: true }; } });
+  const html = v4.pageHtml(doc, 'single', doc.rows);
+  const size = Number(html.match(/white-space: nowrap; font-size: ([\d.]+)px">Kim Cuong Tb 同奈省壮奔县</)[1]);
+  assert.ok(size >= 9 && size < 12, String(size));
+  assert.doesNotMatch(html, /Kim Cuong Tb<br>/);
+  const off = v4.pageHtml(v4.fromSample(sample('sample-14'), config), 'single', v4.fromSample(sample('sample-14'), config).rows);
+  assert.doesNotMatch(off, /white-space: nowrap; font-size/);   // cờ tắt: bố cục v4 như cũ
+});
+
+test('ACCOUNT STATUS tùy chọn (người dùng 12/11/2026): không tích thì bản in và Excel không có khối, không chặn khi thiếu số tháng, phép 5–6 không chạy', () => {
+  const off = data => v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config,
+    form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'SAMPLE', nameZh: '样本' }, accountStatus: false } });
+  const doc = off(ledger());
+  assert.equal(doc.showAccount, false);
+  assert.equal(build().showAccount, true);   // không truyền thì in như trước
+  const html = v4.pageHtml(doc, 'single', doc.rows, 1, 1);
+  assert.match(html, /PAYMENT/);
+  assert.doesNotMatch(html, /ACCOUNT STATUS|Opening balance|Outstanding balance/);
+  assert.ok(!v4.checks(doc).some(item => /điều chỉnh .*Payments received/.test(item.text)));
+  // Thiếu số tháng của máy chủ hay số cuối tháng lệch: không chặn vì không in khối đó.
+  assert.deepEqual(blocks(off({ ...ledger(), months: [] })), []);
+  const data = ledger();
+  data.months[0].end_of_month_vnd = '718300001';
+  assert.deepEqual(blocks(off(data)), []);
+  // Excel: không có khối, chân trang vẫn có.
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const sheet = readSheet(unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml']);
+  assert.ok(sheet.find('PAYMENT') && sheet.find('[Beneficiary]'));
+  for (const label of ['ACCOUNT STATUS', 'Opening balance · 期初余额', 'For reference only']) assert.ok(!sheet.find(label), label);
+  assert.ok(sheet.find('Debit Note HTH-2611-001 · Billing queries 账单查询: hth.logs@gmail.com'));
+});

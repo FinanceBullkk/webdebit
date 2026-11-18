@@ -64,8 +64,10 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     assert.deepEqual(await page.locator('#heat-body tr[data-row="1"] td.tot').allInnerTexts(), ['0,08', '0,08']);
     assert.match(await page.locator('#scope-receivable').innerText(), /80\.000 đ/);
     assert.match(await page.locator('#recon').innerText(), /Khớp/);
-    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), 'dư 0,02');
-    assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ (dư)');
+    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), '(0,02)');
+    assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ trả thừa');
+    // Không có khách trả trước: chân bảng một dòng tổng.
+    assert.deepEqual(await page.locator('#heat-foot tr').evaluateAll(rows => rows.map(row => row.className)), ['net']);
     assert.match(await page.locator('#heat-body .group').first().innerText(), /Sầu riêng · cảng/);
     // TRANG-KHACH-01 (PR A4): tên khách mở trang khách ở thẻ Tình hình.
     assert.equal(await page.locator('#heat-body a[href="/so-khach-v7-live.html?customer=1&the=tinh-hinh"]').count(), 1);
@@ -143,13 +145,30 @@ test('real matrix page loads API data, validates totals, changes year, filters a
       nodes: [...document.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(el).position !== 'sticky').slice(0, 8).map(el => [el.tagName, el.className, Math.round(el.getBoundingClientRect().right)]) }));
     assert.equal(overflow.scrollWidth <= overflow.width, true, JSON.stringify(overflow));
     if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'receivables-matrix-390.png'), fullPage: true });
-    await page.locator('.table-wrap').evaluate(el => { el.scrollLeft = el.scrollWidth; });
-    const mobileTotals = await page.evaluate(() => {
-      const wrap = document.querySelector('.table-wrap').getBoundingClientRect();
-      const [year, all] = [...document.querySelectorAll('#heat-head th.tot')].map(th => th.getBoundingClientRect());
-      return { visible: year.left >= wrap.left && all.right <= wrap.right + 1, separated: year.right <= all.left + 1 };
-    });
-    assert.equal(mobileTotals.visible && mobileTotals.separated, true, JSON.stringify(mobileTotals));
+    // DIEN-THOAI-THANG-01: dưới 760px danh sách theo khách thay ma trận; cùng khách, cùng thứ tự; tổng cuối bằng dòng tổng
+    // ma trận; chạm khách bung các tháng còn số, chạm tháng mở đúng ngăn kéo, Esc trả tiêu điểm về tháng đó.
+    assert.equal(await page.locator('.table-wrap').isVisible(), false);
+    // DIEN-THOAI-NUT-01: khung ô lọc (bấm đâu cũng vào ô), nút năm, ô chọn, Làm mới và ô "Chỉ khách còn nợ" (cả nhãn) cao ít nhất 44px.
+    const low = await page.evaluate(() => ['.filter:has(#find)', '#year-prev', '#year-next', '#commodity', '#sort', '#refresh-data', 'label:has(#only-open)']
+      .map(sel => [sel, Math.round(document.querySelector(sel)?.getBoundingClientRect().height ?? 0)]).filter(([, height]) => height < 44));
+    assert.deepEqual(low, []);
+    assert.deepEqual(await page.locator('#only-open').evaluate(el => [el.offsetWidth, el.offsetHeight]), [22, 22]);
+    assert.deepEqual(await page.locator('.pl-name').allInnerTexts(), await page.locator('#heat-body tr[data-row] td.khach a').allTextContents());
+    assert.equal(await page.locator('.pl-item').first().locator('.pl-since').innerText(), 'Nợ từ T1');
+    assert.equal(await page.locator('.pl-item').first().locator('.pl-strip i').count(), 12);
+    assert.equal(await page.locator('.pl-foot.net b').innerText(), await page.locator('#heat-foot tr:last-child td:last-child').textContent());
+    assert.equal(await page.locator('.pl-item').first().locator('.pl-months').isVisible(), false);
+    await page.locator('.pl-row').first().click();
+    const months = await page.locator('.pl-item').first().locator('.pl-month').evaluateAll(nodes => nodes.map(node => node.innerText.replace(/\s+/g, ' ').trim()));
+    assert.deepEqual(months, [`Tháng 1/${currentYear} 0,1 ›`, `Tháng 2/${currentYear} · trả thừa (0,02) ›`]);
+    await page.locator('.pl-item').first().locator('.pl-month[data-month="2"]').click();
+    await page.locator('#drawer-body').getByText('FAKE-B').waitFor();
+    assert.equal(await page.locator('.pl-month.active').getAttribute('data-month'), '2');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.pl-month[data-month="2"]').first().evaluate(el => el === document.activeElement), true);
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'receivables-list-390.png'), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    assert.deepEqual([await page.locator('.table-wrap').isVisible(), await page.locator('.phone-list').isVisible()], [true, false]);
   } finally {
     await browser.close();
     app.close();
@@ -240,6 +259,43 @@ test('matrix refresh reads new data while preserving selected year', async () =>
     assert.equal(await page.locator('#year-cur').innerText(), String(currentYear));
     assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
   } finally { await browser.close(); app.close(); }
+});
+
+// Chuẩn kế toán (VAS 21/IAS 1): phải thu và khách trả trước không bù trừ — dải đầu tách hai số, chân bảng ba dòng
+// Phải thu / Trừ: khách trả trước / Còn phải thu ròng; số âm ghi trong ngoặc; ba dòng cùng dính đáy màn, không chồng nhau.
+test('khách trả trước: chân bảng ba dòng như sổ kế toán, số âm trong ngoặc', async () => {
+  const zero = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), '0']));
+  const one = (id, name, value) => ({ customer_id: id, name, commodity: 'Sầu riêng', transport_mode: 'CẢNG',
+    months: { ...zero, '1': value }, total_year_vnd: value, total_all_vnd: value, oldest_open_month: currentYear + '-01-01' });
+  const many = Array.from({ length: 30 }, (_, i) => one(10 + i, 'Khách N' + i, '1000000'));
+  const payload = year => year !== currentYear ? { as_of: currentYear + '-10-26', year, years_available: [currentYear], customers: [], grand_total_year_vnd: '0', grand_total_all_vnd: '0' }
+    : { as_of: currentYear + '-10-26', year, years_available: [currentYear],
+      customers: [one(1, 'Khách A', '80000000'), one(2, 'Khách C', '-30000000'), ...many],
+      grand_total_year_vnd: '80000000', grand_total_all_vnd: '80000000' };
+  const app = server({ matrixPayload: payload });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await launchShared();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
+    await page.locator('#heat-body .khach').first().waitFor();
+    assert.match(await page.locator('.summary').innerText(), /Khách trả trước/);
+    assert.match(await page.locator('#scope-receivable').innerText(), /110 triệu/);
+    assert.match(await page.locator('#scope-credit').innerText(), /30 triệu/);
+    assert.match(await page.locator('#scope-status').innerText(), /1 trả trước/);
+    const foot = await page.locator('#heat-foot tr').evaluateAll(rows => rows.map(row => [row.className, row.cells[0].innerText, row.cells[row.cells.length - 1].innerText]));
+    assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng' + String.fromCharCode(10) + '32 khách', '80']]);
+    assert.equal(await page.locator('#heat-body tr[data-row="2"] td.tot.all').innerText(), '(30)');
+    assert.match(await page.locator('#recon').innerText(), /Khớp/);
+    // Ba dòng dính đáy khi bảng dài hơn màn: dòng ròng sát đáy, hai dòng trên xếp liền, không chồng lên nhau.
+    const clipped = await page.locator('#heat-foot td.khach').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).length);
+    assert.equal(clipped, 0);
+    const boxes = await page.locator('#heat-foot tr td.khach').evaluateAll(cells => cells.map(cell => { const r = cell.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
+    assert.equal(Math.abs(boxes[2][1] - 720) <= 1 && Math.abs(boxes[1][1] - boxes[2][0]) <= 1 && Math.abs(boxes[0][1] - boxes[1][0]) <= 1, true, JSON.stringify(boxes));
+  } finally {
+    await browser.close();
+    app.close();
+  }
 });
 
 test('mở từ Tổng quan (?tuoi=&con-no=1): tô cột tháng của nhóm tuổi, chỉ khách còn nợ, bỏ chọn nhóm', async () => {

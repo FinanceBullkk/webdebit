@@ -1,0 +1,348 @@
+# Đội xe: chặng, thu, chi và nhập liệu trên web (CHI-PHI-XE-01)
+
+Trạng thái: luồng đợt 1 ĐÃ CHỐT (người dùng, 18/11/2026, sau khi bấm thử bản trên canvas: "Chốt, code đi"); mô hình dữ liệu và đợt 2–3 vẫn ĐỀ XUẤT (Claude). Những gì người dùng đã chốt ghi ở [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md). Chỗ ghi CÒN MỞ phải hỏi lại trước khi code phần đó.
+
+## Mục tiêu
+
+Người dùng chốt ngày 18/11/2026:
+
+- Web giúp công ty **quản lý chi phí vận hành đội xe**.
+- Có đủ dữ liệu để phân tích **vì sao xe chạy không có lời**.
+- **Nhập liệu trên web**, thay các Sheet rời hiện nay.
+
+Sổ hoàn tiền tài xế chỉ là một phần của mục tiêu này.
+
+## Hiện trạng (đo 18/11/2026)
+
+Chỉ đọc. Bản sao dữ liệu nằm ngoài Git, ở `captures/nha-xe/`.
+
+Đội xe gồm 18 xe của công ty (nhóm VTP, NSX) và 5 xe thuê ngoài (Trần Hùng). Cùng một chuyến đang được ghi rải ở bốn nơi:
+
+| Nơi ghi | Người ghi | Ghi gì của chuyến |
+| --- | --- | --- |
+| Sheet booking + sheet điều xe | Điều xe | Container, kho, shipper, ngày đóng, nhà xe, số xe |
+| File điều xe "XE TIN PHAT" | Điều xe | Phí hạ, hạ sớm, hạ khác, phụ thu; các lần ứng và quyết toán |
+| Sheet chi phí "TÀI XẾ" (đủ 16 tài xế) và file "BK TÍN PHÁT" (bản riêng 8 xe, trùng với sheet kia) | Hai nhân viên | Phí nâng, nâng hạ, cầu đường, neo, xí cont, VETC, sửa vặt |
+| File công nợ cảng (Tín Phát, Trần Hùng) | Kế toán | Cước, đóng ghép, phát sinh tính cho công ty hàng |
+
+Số đo:
+
+- **Chặng hàng đã có trên nguồn chuyến của web.** File công nợ Tín Phát tháng 10/2026 có 204 dòng: 123 chặng chở hàng và 81 chặng phụ (chuyển cảng, trả rỗng, rút/thả mooc).
+  - Cả 123 chặng hàng có container trong `CONT_NGUON`, nguồn chuyến của web; 122 chặng lệch ngày không quá 10 ngày.
+  - Trần Hùng: 58/58 chặng hàng có trong `CONT_NGUON`, cả 58 lệch không quá 10 ngày.
+  - Chặng phụ không có trong booking.
+- **Web chưa biết xe nào chở container nào.** Ô `carrier` của chuyến trên web là hãng tàu.
+  - Tab tổng hợp trong file điều xe, kéo từ sheet booking và sheet điều xe, có nhà xe và số xe cho 255/256 container tháng 10.
+  - Nhưng tab này ghi nhà xe "TP" cho cả xe Trần Hùng. Muốn phân biệt xe mình với xe thuê phải dựa vào biển số.
+  - Danh sách xe gốc là tab THONG TIN CHUNG của file điều xe: 23 xe, gồm 18 xe mình (hai mã số thuế, 12 và 6 xe) và 5 xe Trần Hùng (mã số thuế riêng). Người dùng xác nhận 5 xe Trần Hùng trong danh sách này ngày 18/11/2026.
+- **Một container có thể do nhiều xe chạy.** Sheet điều xe chỉ có một ô số xe cho mỗi container, là xe chở hàng.
+  - Tháng 10 có 4 chặng phụ do xe khác công ty với xe trong sheet điều xe chạy (mỗi file công nợ có 2).
+  - Một container theo dõi được qua 3 chặng, 3 xe, 2 công ty, ghi ở 3 file: xe Trần Hùng chở hàng, xe mình rút mooc, một xe Trần Hùng khác chuyển cảng.
+  - Vì vậy gán xe phải theo từng chặng, không theo container.
+- **Phí cảng của một chuyến nằm ở hai file.** Kiểm 42 chuyến tháng 10 có phí nâng ở sheet tài xế: cả 42 đều có trong file điều xe, ở đó phí nâng bằng 0 và các phí hạ được ghi.
+- **Dầu** nằm ở sheet "THEO DOI DAU" (người dùng chỉ ra 18/11/2026). Sheet gồm hai phần:
+  - Sổ mua dầu: 1.635 lần đổ từ 4/2025 đến 10/2026 cho 20 đầu kéo, qua 5 tài khoản mua dầu. Mỗi tài khoản có hạn mức, chiết khấu, thanh toán, công nợ còn lại. Tab KIEM_TRA ghi 36 chỗ đã sửa khi gom dữ liệu. Cột ODO trống ở mọi dòng. Tháng 11/2026 chưa có dòng nào.
+  - Sổ dầu khoán: mỗi ảnh đồng hồ một dòng; lấy km chặng × định mức theo vùng (4 mức) để so với lít đổ. Mới chạy từ 26/10/2026: 47 dòng, 14 xe, 10 dòng thiếu hoặc trùng ODO; chưa có đơn giá, thành tiền. Bảy tab ẩn là hai bản thiết kế cũ của phần này.
+  - Đơn giá dầu trên sổ đổi bậc từ đầu tháng 3/2026, cùng mức ở các tài khoản: CÒN MỞ (7).
+  - Dầu tài xế tự trả trong sheet chi phí gần như không có, nên sổ mua dầu là nguồn dầu chính.
+- **Định phí** nằm ở sheet "HỒ SƠ GIẤY TỜ XE & MOOC": 64 phương tiện (21 đầu kéo, 43 mooc).
+  - Có phí bảo hiểm năm cho 18 đầu kéo.
+  - Có giấy thuê tài chính hoặc thế chấp của 33 phương tiện, nhưng không có số tiền trả góp.
+  - Đăng kiểm chỉ có hạn, không có phí.
+- **Sửa chữa và lốp** chỉ thấy trong cột phát sinh + ghi chú của sheet chi phí.
+  - Tháng 10 có 148 dòng phát sinh: 123 dòng nhắc tới lốp, 42 dòng sửa vặt. Dòng lớn nhất chỉ vài triệu, không thấy sửa chữa lớn.
+  - Một nửa số tiền nằm trong ô ghi nhiều khoản cùng lúc. Có lẫn tiền cọc cont và phí đăng kiểm.
+- **Lương tài xế** chưa có sheet; làm sau (người dùng chốt 18/11/2026).
+- **Hai sheet chi phí trùng nhau.** "TÀI XẾ T10" có đủ 16 tài xế. 86 dòng tháng 10 của file BK đều có trong đó: 85 dòng cùng số tiền, 1 dòng lệch. Cộng cả hai file sẽ tính trùng.
+- **Đã từng thử làm lãi lỗ trên Excel.** File BK tháng 3–4 có cột doanh thu, lợi nhuận, lương chuyến, đổ dầu.
+  - 464 dòng, không dòng nào có doanh thu; cột lương trống; cột dầu có 1 dòng.
+  - Lợi nhuận vì vậy ra âm đúng bằng chi phí.
+  - Từ tháng 5, mẫu file bỏ hẳn phần doanh thu.
+- **Doanh thu giữa các tài xế chênh 6,5 lần.** Theo file công nợ Tín Phát tháng 10: tài xế cao nhất có 22 dòng, thấp nhất có 4 dòng.
+
+## Thu, chi và debit
+
+- **Thu** là tiền đội xe được nhận: cước và phát sinh tính cho công ty hàng.
+- **Chi** là tiền đội xe bỏ ra để chạy xe, trả ngay hay còn nợ đều tính.
+- **Debit** là ai còn nợ ai. Số này tăng khi có bảng kê hoặc khi ứng tiền, giảm khi trả.
+- Một khoản phát sinh có thể có cả dòng thu lẫn dòng chi, với số tiền khác nhau. Ví dụ cùng một chuyến tháng 10: số neo tính cho công ty hàng gấp 5 lần số neo tài xế thực chi. Đây là hai dòng riêng, không gộp chung một cột.
+- **Chi hộ** (trả giùm rồi đòi lại đúng số) không phải thu, cũng không phải chi của đội xe. Khoản nào là chi hộ: CÒN MỞ (13).
+
+| Khoản | Thu | Chi | Debit |
+| --- | --- | --- | --- |
+| Cước, phát sinh tính cho công ty hàng | Có | | Công ty hàng nợ đội xe |
+| Phí nâng hạ, VETC, neo, sửa vặt | | Có, theo chặng | Tài xế chi thì công ty nợ tài xế tới khi hoàn |
+| Dầu, lốp, sửa chữa lớn | | Có, theo xe | Mua chịu thì nợ nơi bán |
+| Trả góp hoặc khấu hao, bảo hiểm, đăng kiểm, phí đường bộ, GPS, lương cứng | | Có, theo xe từng tháng | |
+| Tiền ứng tài xế | | | Tài xế nợ công ty tới khi quyết toán |
+| Cước thuê xe ngoài | | Có | Mình nợ nhà xe |
+
+## Mô hình dữ liệu (ĐỀ XUẤT)
+
+Dùng một schema PostgreSQL riêng tên `doixe`, nằm cùng cơ sở dữ liệu với sổ khách. Schema này chỉ đọc bảng của `sokhach`, không ghi vào đó.
+
+| Bảng | Một dòng là | Ghi chú |
+| --- | --- | --- |
+| `xe` | một phương tiện: đầu kéo hoặc mooc | Biển số chuẩn, loại, nhóm (VTP, NSX, thuê ngoài), ngày vào, ngày ra |
+| `tai_xe` | một tài xế | |
+| `chang` | một chặng một xe chạy | Ngày, xe, tài xế, loại chặng (hàng, chuyển cảng, trả rỗng, rút mooc, thả mooc, khác), container, nơi lấy, nơi hạ. Chặng hàng trỏ tới chuyến khách theo container + ngày |
+| `dong_thu` | một khoản thu của chặng | Loại theo danh mục, số tiền, có phải chi hộ không |
+| `dong_chi` | một khoản chi | Gắn với chặng, **hoặc** với phương tiện + tháng. Loại theo danh mục. Người trả: tài xế, công ty, người đi lệnh, mua chịu. Mua chịu thì ghi nơi bán (tài khoản dầu, gara) để ra công nợ phải trả. Lần đổ dầu là một dòng chi gắn đầu kéo, có số lít và ODO lúc đổ |
+| `dinh_muc_dau` | một mức dầu theo vùng | Lít/100 km; dùng để so lít đổ giữa hai lần đổ với km các chặng đã chạy |
+| `ung`, `dot_hoan` | một lần ứng, một đợt hoàn | Đợt hoàn gom các dòng chi do tài xế trả |
+| `dinh_phi` | một khoản cố định của xe | Số tiền, kỳ, từ ngày đến ngày; web tự chia theo ngày |
+
+Không lưu số tổng nào cho người sửa tay. Web tự tính:
+
+- **Lãi chặng** = tổng dòng thu − tổng dòng chi của chặng.
+- **Lãi xe trong tháng** = tổng lãi chặng − chi phí xe trong tháng − phần định phí chia theo ngày.
+- **Số dư tài xế** = tổng tài xế chi − tổng đã hoàn − tổng đã ứng (ĐÃ CHỐT).
+- **Chi phí trên km, số ngày xe nằm:** tính khi có số km, CÒN MỞ (11).
+
+## Ai nhập gì (ĐỀ XUẤT)
+
+| Người | Nhập trên web | Thay cho |
+| --- | --- | --- |
+| Điều xe | Gán xe, tài xế cho từng chặng: chặng hàng lấy sẵn từ booking, chặng phụ thêm mới | Cột số xe ở sheet điều xe |
+| Hai nhân viên | Chi phí từng chặng (chọn chặng, gõ hoặc dán tiền theo cột như Sheet, chọn người trả); ghi ứng, đợt hoàn | Sheet chi phí tài xế, file BK, phần phí cảng của file điều xe |
+| Kế toán | Đợt 2: thu theo bảng giá tuyến + phát sinh, bảng kê gửi công ty hàng. Đợt 3: dầu, sửa chữa, lốp, định phí, lương | File công nợ cảng, các file chi phí khác |
+
+Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ XUẤT.
+
+## Mặc định cho đợt 1 (ĐÃ CHỐT 18/11/2026)
+
+Để code được đợt 1 mà không phải chờ các câu hỏi chưa có người trả lời, Claude đề xuất bốn mặc định sau. Người dùng đồng ý ngày 18/11/2026 khi giao việc: "code và mockup lên canvas cho mình test trước". Trước khi code giao diện, dựng mockup bấm thử được trên canvas Claude Design để người dùng test.
+
+1. **Chặng tạo ra từ dòng chi phí.**
+   - Nhân viên dán hoặc nhập dòng chi phí như Sheet hiện nay. Mỗi dòng đã có container, ngày, tài xế, xe, nên tạo luôn chặng.
+   - Chặng hàng tự nối chuyến khách theo container.
+   - Màn để điều xe gán xe trước: làm ở đợt sau. Mặc định này thay cho câu 12.
+2. **Tiền theo người nhận ứng; chặng và chi phí theo phương tiện.**
+   - Người nhận ứng thường là tài xế, nhưng cũng có thể là người đi lệnh. Vì vậy khối "LẦN ỨNG" vẫn ghi được dù câu 2 trả lời theo cách nào.
+   - Mặc định này thay cho câu 3; câu 2 không còn chặn đợt 1.
+3. **Khóa tháng như sổ khách** (`V7-SO`, `V7-CSM`).
+   - Mặc định chỉ tháng hiện tại mở. Ai cũng mở hoặc khóa được, mỗi lần đều ghi Lịch sử. Tháng đã khóa thì sửa bằng dòng điều chỉnh.
+   - Lý do: sau khi đã hoàn tiền cho tài xế, nếu chi phí tháng cũ bị sửa ngầm thì số dư sẽ đổi mà không ai hay.
+   - Mặc định này thay cho câu 4.
+4. **Bản thử dùng dữ liệu sao chép tháng 10 và 11/2026.** Ngày chạy thật và số dư đầu của từng người nhận ứng sẽ chốt sau khi người dùng nghiệm thu bản thử. Nạp dữ liệu thật cần người dùng duyệt riêng. Câu 5 vẫn còn mở.
+
+## Người dùng và luồng đợt 1 (bước 1)
+
+ĐÃ CHỐT 18/11/2026 theo bản bấm thử trên canvas Claude Design (trang "Đội xe", dữ liệu giả); người dùng thử rồi trả lời "Chốt, code đi". Quyết định: [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md) mục 12.
+
+**Người thao tác:**
+
+- Hai nhân viên văn phòng và điều xe, làm trên máy tính màn 1280×720.
+- Tài xế **không** dùng web ở đợt 1.
+- Người quản lý xem số liệu.
+- Đăng nhập và quyền theo `ACCESS-01`, như sổ khách.
+
+**Màn Đội xe** (mục "Đội xe" ở menu trái):
+
+1. **Bảng Người nhận ứng** (tài xế và người đi lệnh): số dòng chưa hoàn, hai cột "Công ty còn nợ" và "Đang giữ tiền ứng" thay cho số âm; người công ty nợ nhiều xếp đầu, rồi tới người giữ tiền ứng; hàng Tổng ở cuối.
+2. **Bảng Xe:** biển số, tài xế đang chạy, số chặng và số chặng chưa có phí của tháng đang chọn (nút chọn tháng ngay trên bảng). Hai nhóm: xe công ty, xe thuê ngoài. Xe thuê chưa có sổ ở đợt 1 (không bấm mở được).
+3. Một ô tìm theo tên người hoặc số biển, lọc cả hai bảng.
+
+**Sổ người** (bấm một người):
+
+1. Đầu sổ: ← về Đội xe, tên người (bấm để gõ tìm và đổi sang người hoặc xe khác), dòng phụ (tài xế xe nào, hay người đi lệnh). Thanh tháng có ổ khóa trên tháng đã khóa.
+2. **Thẻ tiền** viết như sổ: số dư đầu tháng + tài xế chi − công ty đã hoàn − công ty đã ứng = số dư cuối, dòng cuối bằng chữ: "Công ty còn nợ <người>" hoặc "<người> đang giữ tiền ứng". Bên cạnh là danh sách ứng và đợt hoàn của tháng (khoản đã hủy vẫn hiện, gạch ngang, kèm lý do), nút "+ Ghi ứng" và "Hoàn tiền".
+3. **Bảng chi phí tháng**, mỗi dòng một chặng:
+   - **Gọn:** Ngày, Container, Loại chặng (kèm dấu nối chuyến khách), 5 loại phí dùng nhiều nhất trong tháng, "Phí khác" (bấm sang Đủ cột), VETC, Tài xế chi, Tình trạng.
+   - **Đủ cột:** thêm Xe, Nơi lấy, Nơi hạ, Kho, đủ 14 cột phí như Sheet, Người trả, Chuyến khách, Ghi chú; ba cột đầu đứng yên khi cuộn ngang.
+   - Bảng rộng hơn màn (người dùng báo 18/11/2026): dòng tiêu đề cột dính đầu màn khi lăn trang xuống, thanh kéo ngang dính đáy màn nên không phải lăn tới cuối bảng mới kéo được. Lăn chuột trên dòng tiêu đề cột hoặc thanh kéo ngang thì bảng chạy ngang (hết đường thì trang cuộn tiếp); lăn trên các dòng vẫn lên xuống như thường, Shift + lăn thì ngang ở mọi chỗ. Vẽ lại cùng bảng (lưu ô, lọc) giữ chỗ đang kéo ngang.
+   - VETC tô xám, không vào phần hoàn. Dòng người khác trả hiện xám, không cộng vào "Tài xế chi".
+   - Tình trạng: Chưa có phí, Chưa hoàn, ✓ Đã hoàn dd/mm, "<người> trả", Công ty trả, Đã bỏ.
+   - Lọc nhanh: Chưa hoàn · Chưa nối chuyến khách · Chưa có phí (chip kèm số đếm, bấm lại hoặc ✕ để bỏ).
+   - Hàng Tổng cuối bảng chỉ cộng dòng của người này.
+4. Nút Lịch sử (khung bên phải) và nút khóa/mở tháng ở đầu bảng.
+
+**Sổ xe** (bấm một xe công ty): mọi chặng của xe trong tháng, ai trả cũng hiện; thẻ tóm tắt số chặng (hàng, phụ), tài xế chi, người đi lệnh chi, công ty trả VETC, tổng chi phí chặng; nút mở sổ tài xế của xe. Không có ứng, hoàn.
+
+**Nhập chi phí:**
+
+1. Luôn có một hàng trống ngay dưới các dòng đã lưu. Gõ rồi Enter: thành dòng nháp, con trỏ về ô Ngày của hàng trống. Ngày gõ dạng ngày/tháng (năm hiện tại) hoặc ngày/tháng/năm.
+2. Dán vào hàng trống một khối chép từ tab tài xế trên Sheet: đủ 29 cột hoặc bắt đầu từ cột NGÀY. Thứ tự cột: STT, TRÂN/GL, NGÀY (tháng/ngày/năm), SỐ CONT, CONT KÉO, TỈNH, KHO, TÀI XẾ, Số xe, NƠI LẤY, NƠI HẠ, TÊN HÀNG, 13 cột phí từ PHÍ NÂNG tới PHÁT SINH, GHI CHÚ, VETC CTY THANH TOÁN, NỔ MÁY PHÁT, cột tổng không tiêu đề. Dòng tiêu đề và dòng trống tự bỏ.
+   - Số xe chỉ có chữ số, khớp theo các chữ số cuối của biển (ít nhất 4 chữ số); trống thì lấy xe của sổ đang mở.
+   - Loại chặng đoán từ ghi chú: "trả rỗng"/"hạ rỗng", "chuyển cảng", "rút mooc", "thả mooc"; còn lại là Hàng.
+   - Tài xế của chặng: người đang mở sổ (sổ tài xế) hoặc tài xế đang chạy xe đó (sổ người đi lệnh, sổ xe). Người trả mặc định: người đang mở sổ; ở sổ xe là tài xế của xe.
+3. Dòng nháp có ô đỏ khi bị chặn; ô lỗi giữ nguyên chữ đã dán để sửa tại chỗ. Thanh nháp: "Lưu n dòng" (chỉ dòng hết lỗi), "Bỏ nháp". Lưu xong, dòng lỗi vẫn ở lại để sửa.
+4. **Bị chặn:** ngày sau hôm nay (giờ VN); tiền lẻ, âm hoặc không phải số; có tiền mà thiếu ngày hoặc container; thiếu ngày hoặc container; chưa rõ xe; trùng chặng (ngày + container + loại + xe). Dán lại cùng khối không tạo dòng trùng: dòng đã có bị bỏ và đếm trong câu báo.
+5. **Chỉ cảnh báo:** cột tổng của Sheet khác tổng web tính (Tình trạng ghi "Sheet ghi tổng …").
+6. Chặng hàng tự nối chuyến khách theo container, lệch không quá 10 ngày, chọn chuyến gần ngày nhất: dấu ✓ (rê chuột thấy khách, ngày, tuyến) hoặc cờ "chưa nối". Không nối được vẫn lưu. Nơi lấy và nơi hạ trống thì lấy tuyến của chuyến khách lúc lưu.
+
+**Ghi ứng:** hộp nhập số tiền (đọc thành chữ, ví dụ "= 3 triệu"), ngày chuyển (mặc định hôm nay, không sau hôm nay), ghi chú không bắt buộc; thấy "Số dư sau khi ghi: trước → sau"; nút "Ghi ứng <số tiền>". Bấm hai lần hay mất mạng rồi gửi lại chỉ ghi một lần.
+
+**Hoàn tiền theo đợt:** bấm "Hoàn tiền" thì bảng chỉ còn các dòng chưa hoàn của mọi tháng, nhóm theo tháng, tích sẵn hết.
+
+- Số tiền thực chuyển mặc định bằng tổng các dòng đang chọn, sửa được, đọc thành chữ; ngày chuyển không sau hôm nay.
+- Khác tổng thì báo: chuyển ít hơn thì phần thiếu trừ vào tiền ứng đang giữ; nhiều hơn thì phần dư như ứng thêm.
+- Nút nhanh "Trừ tiền ứng đang giữ: chuyển …" khi người đó đang giữ tiền ứng. Cho chuyển 0 (quyết toán trừ hết vào ứng).
+- Ghi xong, các dòng ghi "✓ Đã hoàn dd/mm". Số dư vẫn theo công thức đã chốt.
+
+**Hủy:** bấm một lần ứng hoặc đợt hoàn để xem chi tiết; hủy bắt buộc lý do, thấy số dư trước → sau. Hủy đợt hoàn thì các dòng của đợt trở lại chưa hoàn. Khoản đã hủy vẫn hiện, gạch ngang.
+
+**Khóa tháng:** chung cả đội xe, mặc định chỉ tháng hiện tại (giờ VN) mở. Ai cũng mở hoặc khóa được; mỗi lần ghi Lịch sử.
+
+- Tháng khóa hoặc dòng đã hoàn: sửa số tiền không ghi đè mà thêm dòng điều chỉnh ngay dưới dòng gốc (dòng mới, chờ hoàn); xóa chặng thì chặng gạch ngang và thêm dòng trừ lại. Riêng VETC không vào phần hoàn nên ở dòng đã hoàn (tháng mở) vẫn sửa thẳng.
+- Thêm chặng vào tháng khóa được, gắn nhãn "sau khóa".
+- Sửa chữ (ngày, container, loại, xe, nơi, kho, ghi chú) ghi đè, có Lịch sử. Không chuyển chặng vào hay ra tháng khóa. Không đổi người trả khi tháng khóa hoặc dòng đã hoàn.
+- Tháng mở, dòng chưa hoàn: sửa thẳng, có Lịch sử; xóa chặng thì chặng biến khỏi bảng, Lịch sử giữ bản trước.
+
+**Lịch sử:** khung bên phải; ở Đội xe là cả đội, ở sổ người là việc của người đó (gồm chặng người đó lái), ở sổ xe là chặng của xe. Mỗi việc ghi lúc nào, ai, việc gì, trước → sau, lý do hủy. Khóa/mở tháng hiện ở mọi nơi.
+
+**Ngoài đợt 1:** sổ xe thuê ngoài; thu, lương, dầu, lãi lỗ (đã chốt làm sau). Bản thử không có màn thêm, sửa xe hay người nhận ứng: danh mục nạp sẵn cùng dữ liệu bản thử; màn sửa danh mục CÒN MỞ, làm khi người dùng cần.
+
+## Đối chiếu cột Sheet chi phí hiện tại (bước 2)
+
+Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁT" dùng chung một mẫu: dòng 2 là tiêu đề, dòng 1 là tổng từng cột.
+
+| Cột Sheet | Trường web | Ghi chú |
+| --- | --- | --- |
+| STT, TRÂN/GL | — | Đang bị dùng để ghi ngày hoàn ("14/10") và "da tt" |
+| NGÀY | `chang.ngay` | Chuỗi tháng/ngày/năm (`10/2/2026` = 2/10) |
+| SỐ CONT, CONT KÉO | `chang.container` | Một container có thể đi nhiều chặng |
+| TỈNH, KHO, NƠI LẤY, NƠI HẠ, TÊN HÀNG | thông tin chặng | Chặng hàng lấy sẵn từ chuyến khách |
+| TÀI XẾ, Số xe | `chang.tai_xe`, `chang.xe` | Biển số ghi không thống nhất giữa các file |
+| PHÍ NÂNG, NÂNG HẠ, CẦU ĐƯỜNG, NEO, XÍ CONT/TRÁI TUYẾN/XE NÂNG, ĐẢO CONT, CONT MỚI, DỜI CONT, MUA SEAL, BÃI CHỜ, ĐIỀU ĐỘ, ĐỔ DẦU, PHÁT SINH, NỔ MÁY PHÁT | `dong_chi`, người trả = tài xế | Danh mục phí, cách làm như `PHU-PHI-01` |
+| GHI CHÚ | ghi chú dòng chi | Diễn giải phát sinh (vá vỏ, tưới vỏ…) |
+| CẦU ĐƯỜNG (VETC) CTY THANH TOÁN | `dong_chi`, người trả = công ty | Không cộng vào phần hoàn tài xế |
+| Cột cuối không tiêu đề | tổng tài xế chi của chặng | Đã kiểm trên 3 dòng mẫu ở hai file: bằng tổng phí tài xế trả, không gồm VETC |
+
+**Code dùng lại được:**
+
+- Đăng nhập, danh tính người thao tác, Lịch sử dạng sự kiện.
+- Khóa trùng lệnh ở `so-khach-v7-api.js`.
+- Lưới nhập kiểu Sheet và dán khối (`NHAP-SHEET-01`); danh mục và dòng phụ phí (`PHU-PHI-01`).
+- Chuyến khách đồng bộ từ `CONT_NGUON`; triển khai, backup mỗi giờ, canh lỗi email trên `hao`.
+
+**Còn thiếu:** schema `doixe`, API `/api/v7/doixe/*`, màn Đội xe.
+
+## Phiếu chi xe mới (từ 11/2026)
+
+18/11/2026 người dùng gửi mẫu "PHIẾU CHI XE" mới của nhà xe, áp dụng từ tháng 11/2026, mỗi phiếu một chuyến.
+
+- **Đầu phiếu:** tài xế, biển số, ngày; số cont cắt, số cont kéo (nếu có), nơi lấy, nơi hạ; kho đóng hàng; tỉnh (ghi rõ huyện, tỉnh, km); loại hàng.
+- **Dòng phí:** Hoá đơn, Phí nâng, Phí cầu đường, Neo kho (số ngày), Xí cont, Cont mới, Đổ dầu, Số tiếng máy phát, Đảo cont, Dời cont, Hạ sớm/kiểm hoá, Phát sinh khác (ghi rõ), Tổng cộng. Mỗi dòng có ô ghi chú.
+
+| Phiếu mới | Web | Tình trạng |
+| --- | --- | --- |
+| Phí nâng, Cầu đường, Xí cont, Cont mới, Đổ dầu, Đảo cont, Dời cont, Phát sinh khác | loại phí có sẵn | Khớp |
+| Neo kho (số ngày) | tiền ở loại phí Neo; số ngày ở `chang.neo_ngay` | ĐÃ LÀM |
+| Số tiếng máy phát | số giờ ở `chang.may_gio`; tiền vẫn ở loại phí Nổ máy | ĐÃ LÀM phần giờ; tiền CÒN MỞ (câu 6) |
+| Hạ sớm/kiểm hoá | loại phí mới `hasom` "Hạ sớm/KH", tài xế chi | ĐÃ LÀM; chi hộ theo `DOI-XE-THU-01` |
+| Km trong ô Tỉnh | `chang.km` | ĐÃ LÀM |
+| Hoá đơn | — | CÒN MỞ (câu 17) |
+| Số cont cắt + số cont kéo trên một phiếu | một chặng một container | CÒN MỞ (câu 19) |
+| — (không còn trên phiếu) | Nâng hạ, Mua seal, Bãi chờ, Điều độ | Giữ trong danh mục vì dữ liệu tháng 10 còn dùng; Gọn chỉ hiện 5 phí dùng nhiều nhất trong tháng |
+
+ĐÃ CHỐT 18/11/2026 (người dùng "Làm phần chắc chắn"), migration `2026-11-18-v7-doi-xe-phieu-chi.sql`:
+
+- Loại phí `hasom` "Hạ sớm/KH": tài xế chi, vào phần hoàn, không có cột Sheet (`cot_sheet` NULL) nên nhập tại ô ở Đủ cột.
+- Ba ô số lượng của chặng: Km (1–9999), Ngày neo (1–365), Giờ máy (1–999). Số nguyên, trống là NULL, không phải 0. Không phải tiền: không vào "Tài xế chi", sửa ghi đè cả ở tháng khóa (không thêm dòng điều chỉnh), mọi lần sửa vào Lịch sử trước → sau. Hiện ở Đủ cột, sau cột Kho.
+- Dán khối từ tab tài xế: ô NỔ MÁY PHÁT ghi số kèm đơn vị giờ ("5H", "3 TIẾNG") thành Giờ máy, không thành tiền. Ô chỉ có số vẫn là tiền như cũ. Ô TỈNH có "… km" thì lấy số km.
+- Chưa sửa dữ liệu đã nạp: 218 chặng bản thử tháng 10–11 vẫn để số giờ máy phát trong ghi chú. Chuyển sang Giờ máy là nạp dữ liệu, cần người dùng đồng ý riêng.
+
+## Phân kỳ
+
+| Đợt | Nội dung | Thay cho |
+| --- | --- | --- |
+| 1 | Xe, tài xế, chặng (gán xe cho chuyến booking, chặng phụ), chi phí chặng, ứng, hoàn, số dư tài xế | Sheet chi phí tài xế, file BK, phí cảng trong file điều xe |
+| 2 | Thu theo bảng giá tuyến + phát sinh, bảng kê và debit công ty hàng; phải trả xe thuê ngoài | File công nợ cảng |
+| 3 | Chi phí xe theo tháng (dầu, sửa chữa, lốp, định phí, lương), lãi lỗ theo chặng/xe/tháng, phân tích vì sao lỗ | Sổ mua dầu và sổ dầu khoán, phí bảo hiểm trong hồ sơ xe |
+
+Đợt 1 làm trước theo lựa chọn của người dùng. Thứ tự đợt 2 và đợt 3: CÒN MỞ (14).
+
+## Nguồn quyết định
+
+- [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md): mục tiêu, phạm vi, nhập trên web, công thức số dư.
+- Áp dụng nguyên các quy tắc tiền chung của `AGENTS.md`: VND nguyên, NULL không phải 0, mọi thao tác tiền ghi người làm và trước → sau, hủy bắt buộc lý do, cấm ngày ghi tương lai.
+- Khóa tháng: ĐÃ CHỐT 18/11/2026, chung cả đội xe, cách làm như sổ khách (`V7-SO`, `V7-CSM`); xem `CHI-PHI-XE-01` mục 12.
+
+## Hành vi và bất biến
+
+- Tiền là số nguyên VND. Số Sheet có phần lẻ (ví dụ công thức `=giá*70%`) bị chặn khi dán; người nhập tự làm tròn.
+- Ô phí trống là NULL: không hiện 0 và không cộng vào tổng.
+- Chặng hàng chỉ đọc chuyến khách, không làm đổi số nợ của sổ khách. Schema `doixe` không ghi vào bảng nào của `sokhach`.
+- Xe mình hay xe thuê xác định theo danh sách xe, không theo chữ "nhà xe".
+- Tiền của một dòng (chặng gốc, dòng điều chỉnh, dòng trừ lại) thuộc về người trả của chặng. "Tài xế chi" = tổng các cột phí, kể cả Nổ máy phát, trừ VETC (công ty trả).
+- Số dư người nhận ứng = số dư đầu + tổng tiền các dòng người đó trả − tổng đợt hoàn chưa hủy − tổng lần ứng chưa hủy. Số dư đầu tháng = số dư đầu + mọi khoản trước tháng đó, theo ngày chặng, ngày hoàn, ngày chuyển ứng.
+- Một dòng thuộc tối đa một đợt hoàn chưa hủy. Đợt hoàn chỉ gồm dòng của đúng người trả, chưa hoàn, có tiền khác 0; số tiền thực chuyển là số nguyên ≥ 0.
+- Tháng khóa và dòng đã hoàn: số tiền đã ghi không bị ghi đè; mọi thay đổi tiền là dòng mới.
+- Lần ứng và đợt hoàn không xóa, chỉ hủy kèm lý do. Lịch sử chỉ thêm, ghi người làm, lúc làm, trước → sau.
+- Bấm lặp hoặc gửi lại sau mất mạng với cùng mã yêu cầu trả kết quả cũ, không ghi lần hai; cùng mã mà khác nội dung bị từ chối.
+- Mọi số tổng và số dư tính lại được từ các dòng gốc.
+
+## Chỗ dễ sai trong dữ liệu hiện tại
+
+1. Dòng không có ngày, không có container nhưng vẫn có tiền nâng hạ, và vẫn được cộng vào tổng tab.
+2. Cột STT và TRÂN/GL bị dùng để ghi ngày hoàn và "da tt".
+3. Sheet chi phí ghi ngày dạng tháng/ngày, file điều xe ghi ngày/tháng.
+4. Biển số chỉ ghi phần số ở file này, ghi đủ mã tỉnh ở file khác.
+5. Cột nhà xe ghi "TP" cho cả xe thuê ngoài.
+6. Một container của xe thuê ngoài lại mang biển số xe mình trong tab tổng hợp của file điều xe.
+7. Trong file công nợ tháng 10, hai tài xế khác nhau cùng ghi một biển số.
+8. Tiền có phần lẻ do công thức nhân phần trăm.
+
+## Tiêu chí nghiệm thu (đợt 1)
+
+- [ ] Trên bản thử (dữ liệu sao chép), dán chi phí tháng 10 của cả 16 tài xế. Chặng hàng nối được chuyến khách, lệch không quá 10 ngày; chặng phụ ghi đúng loại; không có chặng nào bị tạo hai lần khi dán lại cùng một khối.
+- [ ] Dán 1 tab tài xế tháng 10/2026: tổng "tài xế chi" và tổng từng cột phí khớp dòng tổng của tab, trừ các dòng bị chặn đã liệt kê.
+- [x] Ghi ứng, ghi đợt hoàn, hủy từng loại: số dư đổi đúng; Lịch sử có người làm, trước → sau, lý do hủy. Bằng chứng: `tools/test_pg_doixe.py` (PostgreSQL dùng một lần, dữ liệu giả), 18/11/2026. Còn kiểm lại trên bản thử khi có dữ liệu.
+- [x] Bấm hai lần hoặc mất mạng giữa chừng không tạo hai lần ứng hay hai đợt hoàn. Bằng chứng: harness (ba lệnh song song cùng mã chỉ ghi một), `test-doi-xe-browser.js` (mất trả lời rồi bấm lại dùng lại mã, bấm đúp không gửi thêm).
+- [x] Harness PostgreSQL cho schema `doixe` chạy xanh; `npm run check` xanh (job CI `postgres-doixe`, PR #477, #478).
+- [x] Kiểm trình duyệt 1280×720 (và 1265×560): bàn phím, nhập sai, tải chậm, thiếu quyền. Bằng chứng: `test-doi-xe-browser.js` trên máy chủ giả; chưa phải nghiệm thu trên dữ liệu thật.
+- [ ] Hai nhân viên và điều xe tự đi hết luồng trên bản thử với dữ liệu một tháng, và xác nhận.
+
+## Phạm vi agent
+
+- Agent: claude (theo `CLAUDE-ALL-01`).
+- Review: opus (có ghi tiền).
+- Đợt code 1, mỗi PR một phần, làm tuần tự:
+  1. Tài liệu: spec này, `docs/decisions/chi-phi-xe-01.md`, `docs/decisions.md`.
+  2. Schema `doixe` và hàm ghi: một migration mới trong `cong-no-web-handoff/tools/migrations/`, harness `cong-no-web-handoff/tools/test_pg_doixe.py`, chuỗi `--migration-test`, job CI. Triển khai tay lên `hao` theo `DEPLOY-CLAUDE-01`.
+  3. API `/api/v7/doixe/*` trong `cong-no-web-handoff/web/` kèm test unit.
+  4. Màn Đội xe trong `cong-no-web-handoff/preview/` (file riêng), mục menu, test model và trình duyệt.
+- Cấm: nạp dữ liệu thật hay bản sao lên `hao` khi người dùng chưa đồng ý; ghi Google Sheet; ghi vào schema `sokhach`.
+
+## Hoàn tác
+
+Revert PR. Không có dữ liệu.
+
+## Bằng chứng
+
+Đọc nguồn ngày 18/11/2026, chỉ đọc:
+
+- 2 file công nợ cảng tháng 10/2026.
+- Sheet "TÀI XẾ T10".
+- File Drive "XE TIN PHAT" và "BK TÍN PHÁT - TRÂN".
+- Tab `CONT_NGUON` (cột số cont, ngày đóng, booking, chủ hàng).
+- Sheet "THEO DOI DAU" (18 tab) và "HỒ SƠ GIẤY TỜ XE & MOOC" (10 tab).
+
+Các số trong mục Hiện trạng được đo bằng script đọc file, không sửa nguồn. Chưa có code, chưa có bản thử.
+
+## Câu hỏi mở
+
+1. ~~Số dư = tài xế chi − đã hoàn − đã ứng, một số dư chung mỗi tài xế?~~ ĐÃ TRẢ LỜI 18/11/2026: đúng.
+2. Khối "LẦN ỨNG" trong file điều xe (nhiều lần 20 triệu một tháng) là ứng cho từng tài xế, hay cho người đi lệnh trả phí cảng?
+3. ~~Tiền theo tài xế, chặng và chi phí theo xe?~~ ĐÃ TRẢ LỜI 18/11/2026 bằng mặc định 2: tiền theo người nhận ứng; chặng và chi phí theo phương tiện, mỗi chặng ghi cả xe lẫn tài xế.
+4. ~~Có khóa tháng như sổ khách không?~~ ĐÃ TRẢ LỜI 18/11/2026: có, chung cả đội xe (`CHI-PHI-XE-01` mục 12).
+5. Bắt đầu từ tháng nào, và số dư đầu của từng tài xế lấy ở đâu? Nạp dữ liệu thật cần người dùng duyệt riêng.
+6. ~~Cột "Nổ máy phát" có tính vào phần hoàn tài xế không?~~ ĐÃ TRẢ LỜI 18/11/2026: có. CÒN MỞ (phát hiện khi nạp bản thử 18/11/2026): trên Sheet tháng 10–11 cột này ghi **số giờ** máy phát ("3 tiếng", "2H"), không có ô nào là tiền. Khi nạp, số giờ vào ghi chú. Cần hỏi người dùng: tiền nổ máy tính thế nào (giờ × đơn giá, hay khoản khác). Cột giờ riêng ĐÃ LÀM 18/11/2026 (`chang.may_gio`, mục Phiếu chi xe mới); dán khối nhận "5H" thành giờ.
+7. Dầu: ĐÃ TRẢ LỜI 18/11/2026, nguồn là sheet "THEO DOI DAU". Còn hỏi:
+   - Đơn giá đổi bậc từ đầu tháng 3/2026 có đúng là giá thật không?
+   - Tháng 11/2026: người dùng cho biết có lẽ chưa ghi (18/11/2026). Khi cần, lấy lại từ hóa đơn, bảng kê của nơi bán.
+   - Có giữ cách khoán dầu theo 4 mức định mức không?
+8. Lương: ĐÃ TRẢ LỜI 18/11/2026, làm sau khi có sheet tính lương.
+9. Định phí: phí bảo hiểm có trong hồ sơ xe. Còn thiếu số tiền trả góp từng xe (lịch trả nợ thuê tài chính, thế chấp), phí đường bộ, GPS. Người dùng sẽ hỏi rồi làm sau (18/11/2026).
+10. Sửa chữa lớn và thay cả bộ lốp không thấy trong sheet chi phí: đang trả và ghi ở đâu? Người dùng sẽ hỏi rồi làm sau (18/11/2026).
+11. Định vị: người dùng chưa biết (18/11/2026). Tạm lấy km từ ảnh đồng hồ (ODO), như sổ dầu khoán đang làm.
+12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay? Đọc sheet chỉ lấy được xe chở hàng; chặng phụ vẫn phải nhập trên web.
+13. Khoản nào là chi hộ (đòi lại công ty hàng đúng số đã trả)?
+    ĐỀ XUẤT 18/11/2026 (phiên đợt 2, spec `doi-xe-thu-01`, PR #474; người dùng chưa xác nhận danh sách): người dùng chốt phí nâng và phí hạ cảng do đội xe chịu trong cước, không phải chi hộ; đo trên debit tháng 9–10 thì kiểm hóa (cột HẠ KH), hạ sớm, cân, xí cont, cont mới được thu lại đúng số đã chi, tức là chi hộ. Đề nghị thêm cờ "chi hộ" vào danh mục phí `doixe.loai_phi` (dữ liệu, không cố định trong code) để lãi lỗ đợt 3 loại được cả hai phía. Danh mục đợt 1 chưa có các cột phí cảng của file điều xe (PHỤ THU NL, HẠ SỚM, HẠ KH, PHÍ HẠ) do người đi lệnh trả: thêm cùng lúc với cờ, ở một migration riêng.
+14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
+15. Cước các chặng của 5 xe Trần Hùng: công ty hàng trả thẳng cho Trần Hùng, hay trả cho mình rồi mình trả lại Trần Hùng? Nếu qua mình thì phần chênh là lãi của đội xe và phải vào lãi lỗ.
+16. Ba tài khoản dầu đã ngưng vẫn còn số nợ (số tròn) trên sổ mua dầu. Người dùng chưa rõ đã trả hay chưa (18/11/2026); cần đối chiếu với nơi bán.
+17. Dòng "Hoá đơn" trên phiếu chi mới là tiền gì? Nếu là phần phí nâng/hạ có hóa đơn thì trùng dòng Phí nâng, không được cộng hai lần vào Tổng (hỏi 18/11/2026).
+18. Sheet tab tài xế của hai nhân viên có đổi cột theo phiếu chi mới không? Dán khối đọc theo vị trí 29 cột cũ (`loai_phi.cot_sheet`); đổi cột thì phải sửa bộ dán trước khi dán tháng 11 (hỏi 18/11/2026).
+19. Một phiếu có cả số cont cắt lẫn số cont kéo là hai chặng (hai container) hay một chặng (hỏi 18/11/2026)?

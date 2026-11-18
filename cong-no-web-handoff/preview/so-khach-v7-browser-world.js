@@ -14,9 +14,9 @@ const monthOf = iso => `${iso.slice(0, 7)}-01`;
 
 // Danh mục phụ phí giả (PHU-PHI-01): như danh mục khởi tạo, id cố định để test chọn được.
 const feeCatalog = () => [
-  { id: 1, name: 'Neo', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 1 },
-  { id: 2, name: 'Điện', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 2 },
-  { id: 3, name: 'Ghép', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 3 },
+  { id: 1, name: 'Neo', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 1, default_position: 3 },
+  { id: 2, name: 'Điện', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 2, default_position: 2 },
+  { id: 3, name: 'Ghép', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 3, default_position: 1 },
   { id: 4, name: 'Bảo hiểm', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 4 },
   { id: 7, name: 'Khác', kind: 'service', sign: 'positive', system_key: 'other', active: true, sort: 100 },
   { id: 8, name: 'Giảm trừ', kind: 'service', sign: 'negative', system_key: 'discount', active: true, sort: 101 },
@@ -126,7 +126,7 @@ function applyFee(world, url, body) {
   world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before: { targets: before, batch_count: infos.length },
     after: { targets: infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines })), batch_count: infos.length } });
   world.version += 1;
-  return [200, { ok: true }];
+  return [200, { ok: true, version: world.version }];   // như _change_trip_fees → _finish_command
 }
 
 function apply(world, url, body) {
@@ -149,7 +149,6 @@ function apply(world, url, body) {
   if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER' }];
   if (url.startsWith('/api/v7/trips/fees/')) return applyFee(world, url, body);
   if (url === '/api/v7/books/fee-columns') {
-    if (body.fee_type_ids.length > 3) return [422, { error: 'FEE_COLUMNS_MAX', message: 'Sổ chỉ được chọn tối đa 3 cột phụ phí.' }];
     world.events.unshift({ kind: 'set_book_fee_columns', actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z',
       before: { fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })) }, after: { fee_columns: body.fee_type_ids } });
     world.feeColumns = [...body.fee_type_ids];
@@ -229,6 +228,14 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
+  if (url === '/api/v7/sheet/tasks/keep' && body.task_kind === 'ps') {
+    const item = world.psFees?.review.find(row => row.keepable && row.target_kind === body.target_kind && row.target_id === body.target_id
+      && row.source_fingerprint === body.source_fingerprint);
+    if (!item || body.expected_version !== world.version) return [409, { error: 'STALE_SHEET', message: 'Dòng PS đã đổi.' }];
+    world.psFees.review = world.psFees.review.filter(row => row !== item);
+    world.psFees.review_count = world.psFees.review.length;
+    return [200, { kept: true, version: ++world.version }];
+  }
   if (url === '/api/v7/sheet/tasks/keep') {
     const item = world.sheetSync.removed_items?.find(row => row.trip_id === body.target_id);
     if (!item || item.source_fingerprint !== body.source_fingerprint) return [409, { error: 'STALE_SHEET' }];
@@ -286,7 +293,9 @@ function apply(world, url, body) {
   }
   if (url === '/api/v7/trips/price') {
     const trip = world.trips.find(row => row.id === body.trip_id);
-    Object.assign(trip, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd, is_missing_price: false });
+    // Như máy chủ: Thành tiền = đơn giá + phụ phí.
+    Object.assign(trip, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd, is_missing_price: false,
+      amount_vnd: body.unit_price_vnd == null ? null : String(BigInt(body.unit_price_vnd) + BigInt(body.other_fee_vnd ?? 0)) });
     event('price_edit', { price: {} }, { price: {} });
   } else if (url === '/api/v7/months/lock') {
     world.locks = world.locks.map(row => row.month === body.month ? { ...row, locked: body.locked } : row);
@@ -316,6 +325,13 @@ function apply(world, url, body) {
     if (delta !== 0n) world.adjustments.push({ id: world.adjustments.length + 1, month: old.month, trip_id: null, legacy_row_id: row.id, amount_vnd: delta.toString(), note: null });
     row.current = next;
     event(url.endsWith('delete') ? 'legacy_delete' : 'legacy_edit', { legacy: { ...old, field: body.field, value: old[body.field] } }, { legacy: { ...next, field: body.field, value: next[body.field] } });
+  } else if (url === '/api/v7/price-table/preview') {
+    // BANG-GIA-05: xem trước không ghi gì, không tăng version; số do test đặt như lệnh lưu. world.previewFail: máy chủ chưa tính được.
+    if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' }];
+    if (world.previewFail) return [503, { error: 'DB_UNAVAILABLE', message: 'Sổ tạm thời không truy cập được.' }];
+    return [200, { price_table: body.price_table, version: world.version, repriced_trips: (world.repricedTrips ?? []).map(trip => ({ tier: 'khach', ...trip })),
+      repriced_delta_vnd: world.repricedDelta ?? '0', locked_trips: world.lockedTrips ?? 0, no_price_trips: world.noPriceTrips ?? 0,
+      typed_trips: world.typedTrips ?? 0, ready_count: world.readyAfter ?? 0, ready_total_vnd: '0' }];
   } else if (url === '/api/v7/price-table') {
     if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' }];
     const before = world.priceTable ?? { tt_shippers: [], locations: [], periods: [] };
@@ -351,9 +367,11 @@ function apply(world, url, body) {
     event('paste', {}, { trips: body.trips });
   } else return [404, { error: 'NOT_FOUND' }];
   world.version += 1;
-  return [200, { ok: true }];
+  // Như API thật (_finish_command): lệnh ghi trả phiên bản sổ mới.
+  return [200, { ok: true, version: world.version }];
 }
 
+const WRITE_DELAY = Number(process.env.WEBDEBIT_TEST_WRITE_DELAY_MS) || 0;
 async function withPage(fn, setup = () => {}) {
   const world = makeWorld();
   setup(world);
@@ -398,6 +416,18 @@ async function withPage(fn, setup = () => {}) {
     if (url.pathname === '/api/v7/marks' && req.method === 'GET') { send(200, { marks: world.marks ?? [] }); return; }
     if (url.pathname === '/api/v7/zalo/links' && req.method === 'GET') { send(200, { links: world.zaloLinks ?? [] }); return; }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
+    // DEBIT-NOTE-03: cấu hình debit note do test đặt (world.debitConfig); không đặt thì như máy chủ cũ chưa có route.
+    if (url.pathname === '/api/v7/debit-note/config' && req.method === 'GET') {
+      (world.debitConfigReads ??= []).push(url.search);
+      if (world.debitConfig) send(200, { config: world.debitConfig }); else send(404, { error: 'NOT_FOUND' });
+      return;
+    }
+    // THONG-TIN-CTY-01: danh bạ khách và tài khoản nhận tiền do test đặt (world.companyInfo); không đặt thì như chưa bật job.
+    if (url.pathname === '/api/v7/company-info' && req.method === 'GET') {
+      (world.companyInfoReads ??= []).push(url.search);
+      send(200, world.companyInfo ?? { available: false });
+      return;
+    }
     if (url.pathname === '/api/v7/receipt-images') {
       send(200, { images: world.images.filter(image => !image.removed).map(({ id, pid, sha256, content_type }) => ({ id, pid, sha256, content_type })) });
       return;
@@ -433,8 +463,10 @@ async function withPage(fn, setup = () => {}) {
       req.on('data', chunk => chunks.push(chunk));
       req.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        world.requests.push({ path: url.pathname, body });
-        send(...apply(world, url.pathname, body));
+        // NHAP-NHANH-01: WEBDEBIT_TEST_WRITE_DELAY_MS=<ms> làm mọi lệnh ghi tới máy chủ giả chậm như runner CI chậm, để lộ
+        // test còn đọc world.requests trước khi hàng đợi ghi nền gửi hết (chạy: set biến rồi npm run test:browser).
+        const run = () => { world.requests.push({ path: url.pathname, body }); send(...apply(world, url.pathname, body)); };
+        if (WRITE_DELAY) setTimeout(run, WRITE_DELAY); else run();
       });
       return;
     }
@@ -485,4 +517,33 @@ async function viewMonth(page, key) {
   await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
 }
 
-module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth };
+// NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào (trang chọn lại đúng ô sau khi vẽ). Một lần
+// locator.evaluate có thể bắt ô cũ vừa bị thay, nên hỏi lại tới khi đúng (mỗi lần locator tìm ô mới), tối đa `timeout`.
+async function focused(locator, timeout = 2000) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const ok = await locator.evaluate(node => node === document.activeElement).catch(() => false);
+    if (ok || Date.now() > end) return ok;
+    await new Promise(done => setTimeout(done, 50));
+  }
+}
+
+// CHO-GHI-01: chờ trang hết việc ghi/đọc sổ — mọi lệnh đã gửi (hàng đợi ghi nền NHAP-NHANH-01, lệnh thường, chuỗi giá, lệnh
+// các phần gửi thẳng) đã có phản hồi, sổ đã đọc lại và vẽ bản đó (SoKhachV7Api.idle, so-khach-v7-api.js). Chờ đúng trạng
+// thái chứ không chờ chữ "Đang lưu…" hay hẹn giờ; kiểm lệnh đã gửi (posts, world.requests) sau bước này. Lệnh kẹt vì lỗi
+// hay mất mạng không còn chạy nên không chờ mãi. Hạn giờ đếm ở Node vì test có thể đã cài đồng hồ giả trong trang.
+async function settled(page, timeout = 5000) {
+  let timer;
+  const late = new Promise((_, fail) => {
+    timer = setTimeout(async () => {
+      const busy = await page.evaluate(() => window.SoKhachV7Api.busyCount()).catch(() => '?');
+      fail(Error(`settled: trang còn ${busy} việc ghi/đọc sổ sau ${timeout} ms`));
+    }, timeout);
+  });
+  const idle = page.evaluate(() => window.SoKhachV7Api.idle());
+  idle.catch(() => {});   // quá hạn rồi trang mới đóng: không thành lỗi lạc
+  try { await Promise.race([idle, late]); }
+  finally { clearTimeout(timer); }
+}
+
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused, settled };

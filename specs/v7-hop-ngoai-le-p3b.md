@@ -6,7 +6,7 @@ Trạng thái: ĐỀ XUẤT (Claude, 1/11/2026). Giai đoạn P3 của [UX bư�
 
 ## Người dùng và luồng (bước 1)
 
-- **Máy** (P3b-0, luôn chạy, không ghi gì): dòng booking chọn sổ theo **tên khách + mặt hàng**. Tên khách của một sổ là `display_name` trong bảng gán tên (ví dụ sổ "KK - DỪA" có tên khách "KK"), không có thì là tên sổ. Khách có nhiều sổ thì dòng dừa vào sổ dừa, dòng thanh long vào sổ thanh long. Hôm nay mọi dòng của khách đó đổ vào sổ trùng tên.
+- **Máy** (P3b-0, luôn chạy, không ghi gì): dòng booking chọn sổ theo **tên khách + mặt hàng**. Tên khách của một sổ là `display_name` trong bảng gán tên (ví dụ sổ "KHACH A - DỪA" có tên khách "KHACH A"), không có thì là tên sổ. Khách có nhiều sổ thì dòng dừa vào sổ dừa, dòng thanh long vào sổ thanh long. Hôm nay mọi dòng của khách đó đổ vào sổ trùng tên.
 - **Máy** (P3b, công tắc `WEBDEBIT_AUTO_SHEET=trips`, mặc định tắt): sau mỗi lượt hộp ngoại lệ tính xong, với mỗi sổ có chuyến mới, máy bấm thay "Duyệt" cho những chuyến đủ điều kiện Q2:
   - (a) khớp đúng một sổ và **mặt hàng trên Sheet trùng mặt hàng của sổ**;
   - (b) chuyến đang ở trạng thái "chuyến mới", tức container chưa có ở chuyến web mọi sổ, sổ gốc mọi sổ, sổ này (luật ±3 ngày hoặc không ngày cùng tháng);

@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho ghi phiếu thu từ Sheet (THU-SHEET-01, specs/v7-receipt-queue.md). Máy chủ giả, tiền giả, không chạm DB. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, posts } = require('./so-khach-v7-browser-world');
+const { withPage, posts, settled } = require('./so-khach-v7-browser-world');
 
 const item = (date, amount, extra = {}) => ({ customer_tab: 'Khách Thử Sửa', source_row: 40, debt_month: '2026-09',
   amount_vnd: amount, note: date ? `${date.slice(8)}/${date.slice(5, 7)}/${date.slice(0, 4)} tt` : 'da tt', date, status: 'READY', ...extra });
@@ -23,6 +23,7 @@ test('Ghi phiếu thu từ Sheet: khung xác nhận có từng phiếu và tổn
   await shot('thu-sheet-2-xac-nhan');
   await page.locator('.receipt-cancel').click();
   assert.equal(await page.locator('.receipt-panel').count(), 0);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await button.click();
   await page.locator('.receipt-write').click();
@@ -31,6 +32,7 @@ test('Ghi phiếu thu từ Sheet: khung xác nhận có từng phiếu và tổn
   assert.equal(path, '/api/v7/sheet/receipts');
   assert.deepEqual(Object.keys(body).sort(), ['customer_id', 'expected_version', 'idempotency_key', 'snapshot_sha256']);
   assert.equal(body.snapshot_sha256, 'e'.repeat(64));
+  await settled(page);
   assert.equal(world.requests.length, 1);
   assert.equal(world.receipts.length, 2);
   assert.match(await page.locator('.live-notice').innerText(), /Đã ghi 2 phiếu thu từ Sheet\./);
@@ -51,26 +53,29 @@ test('Ghi phiếu thu từ Sheet: Sheet đổi giữa chừng thì không ghi g�
   assert.equal(await page.locator('.receipt-approve').count(), 0);
 }, withReceipts));
 
-test('Phiếu thu Sheet cần xem: không ngày, ngày tương lai, web đã xóa, Sheet sửa phiếu cũ có nút tới khoản cũ', async () => withPage(async ({ page, world, shot }) => {
+test('Phiếu thu Sheet cần xem: không ngày, ngày tương lai, web đã xóa, phiếu đã hủy, Sheet sửa phiếu cũ có nút tới khoản cũ', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('.receipt-approve').count(), 0);
   const strip = page.locator('.receipt-strip');
-  assert.match(await strip.innerText(), /Phiếu thu Sheet cần xem:\s*4/);
+  assert.match(await strip.innerText(), /Phiếu thu Sheet cần xem:\s*5/);
   await strip.locator('.receipt-review-toggle').click();
   const panel = page.locator('.receipt-panel');
   const text = await panel.innerText();
   assert.match(text, /Sheet không ghi ngày thu\./);
   assert.match(text, /Ngày thu 05\/11\/2026 sau hôm nay\./);
   assert.match(text, /Web đã xóa khoản thu sổ gốc này/);
+  assert.match(text, /Phiếu ghi từ dòng này đã bị hủy trên web, Sheet vẫn còn\. Máy không ghi lại\./);
+  assert.equal(await panel.locator('.receipt-goto').count(), 1);   // phiếu đã hủy không mượn câu và nút của "Sheet sửa phiếu cũ"
   assert.match(text, /Sheet đã sửa phiếu thu tháng 9\/2026: web còn khoản thu sổ gốc 48\.000\.000 đ không thấy trên Sheet\./);
   await shot('thu-sheet-3-can-xem');
   await panel.locator('.receipt-goto').click();
   assert.equal(await page.evaluate(() => document.activeElement.dataset.id), '31');
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, world => {
   world.legacy.push({ id: 31, month: '2026-09-01', kind: 'receipt', source_total_vnd: '48000000', editable: false,
     display: { row: 5, raw_date: '14/10/2026 tt' }, current: { month: '2026-09-01', deleted: false } });
-  world.sheetReceipts = { snapshot_sha256: 'f'.repeat(64), ready: [], ready_count: 0, review_count: 4, review: [
+  world.sheetReceipts = { snapshot_sha256: 'f'.repeat(64), ready: [], ready_count: 0, review_count: 5, review: [
     item(null, '65000000', { status: 'NO_DATE' }), item('2026-11-05', '1000000', { status: 'FUTURE_DATE' }),
-    item('2026-09-03', '5000000', { status: 'WEB_DELETED' }),
+    item('2026-09-03', '5000000', { status: 'WEB_DELETED' }), item('2026-10-20', '7000000', { status: 'WEB_VOIDED' }),
     item('2026-10-14', '47000000', { status: 'SHEET_EDITED', web_legacy: [{ id: 31, amount_vnd: '48000000' }] })] };
 }));

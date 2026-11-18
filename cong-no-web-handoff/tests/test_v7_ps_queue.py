@@ -148,19 +148,34 @@ class QueueTest(unittest.TestCase):
         khac_only = ledger([trip(lines=[line(91, 1, 300000)])])
         self.assertEqual(project([ps_row(khac="300000")], khac_only)["ready_count"], 0)
 
+    def test_kept_ps_row_hides_until_ps_or_web_changes(self):
+        # PS-HOI-01: "Không thu, hết báo" giữ đúng dòng PS và tiền chuyến lúc trả lời; đổi một bên thì hỏi lại.
+        from v7_sheet_task_keep import ps_identity
+        row, book = ps_row(neo="1500000"), ledger([trip()])
+        item = project([row], book)["review"][0]
+        self.assertEqual((item["status"], item["keepable"], item["source_fingerprint"]), ("WEB_NO_FEE", True, ps_identity(row)))
+        book["events"] = [{"id": 1, "kind": "sheet_conflict_resolved", "after": {
+            "field": "task_ps", "target": {"kind": "trip", "id": 11}, "sheet_value": ps_identity(row),
+            "target_value": {"unit_price_vnd": "1000000", "other_fee_vnd": None}, "decision": "keep_web"}}]
+        self.assertEqual(project([row], book)["review"], [])
+        self.assertEqual(len(project([ps_row(neo="1600000")], book)["review"]), 1)
+        book["trips"][0]["other_fee_vnd"] = "5"
+        self.assertEqual(len(project([row], book)["review"]), 1)
+        self.assertFalse(project([ps_row(neo="1500000")], ledger([trip(), trip(12)]))["review"][0]["keepable"])
+
     def test_review_statuses(self):
         cases = [
-            (ps_row(neo="1500000"), ledger([trip(lines=[line(91, 1, 1000000)])]), "TOTAL_DIFF", "Web 1.000.000 đ · PS 1.500.000 đ"),
-            (ps_row(neo="1500000"), ledger([trip()]), "WEB_NO_FEE", "PS 1.500.000 đ · web chưa có phụ phí"),
+            (ps_row(neo="1500000"), ledger([trip(lines=[line(91, 1, 1000000)])]), "TOTAL_DIFF", "Sổ khách tính 1.000.000 đ phụ phí, PS ghi 1.500.000 đ"),
+            (ps_row(neo="1500000"), ledger([trip()]), "WEB_NO_FEE", "PS ghi 1.500.000 đ phụ phí, sổ khách chưa thu"),
             (ps_row(neo="1500000"), ledger([trip(lines=[line(91, 6, 1500000)])]), "TYPED_CONFLICT", "Web đã phân loại khác PS"),
             (ps_row(neo="1500000", date="2026-09-20"),
              ledger([trip(date="2026-09-20", month="2026-09-01", lines=[line(91, 1, 1500000)])]), "MONTH_LOCKED", "Tháng 09/2026 đang khóa"),
             (ps_row(neo="1500000") | {"problems": [{"field": "ghep", "code": "PS_TYPO", "value": "1"}]},
              ledger([trip(lines=[line(91, 1, 1000000)])]), "PS_TYPO", "Ghép = 1 trên PS, có thể gõ sai"),
             (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip()]), "WEB_NO_FEE",
-             "PS 4.500.000 đ · web chưa có phụ phí"),
+             "PS ghi 4.500.000 đ phụ phí, sổ khách chưa thu"),
             (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip(lines=[line(91, 3, 3000000)])]), "TOTAL_DIFF",
-             "Web 3.000.000 đ · PS 4.500.000 đ"),
+             "Sổ khách tính 3.000.000 đ phụ phí, PS ghi 4.500.000 đ"),
             (ps_row(neo="1500000") | {"source_error": "B4 PS trùng dòng", "ps_match_count": 2}, ledger([trip()]),
              "PS_SOURCE_ERROR", "Bộ lập bill báo lỗi: B4 PS trùng dòng"),
             (ps_row(neo="1500000"), ledger([trip(), trip(12)]), "AMBIGUOUS", "Cont khớp nhiều chuyến hoặc nhiều dòng PS cùng một chuyến"),
@@ -315,6 +330,11 @@ class QueueTest(unittest.TestCase):
         bad = {"problems": [{"field": "khac", "code": "PS_BAD_AMOUNT", "value": "315789.5"}]}
         result = project([ps_row(neo="1500000") | bad], ledger([trip(lines=[line(91, 3, 1500000)])]))
         self.assertEqual((result["ready_count"], [r["status"] for r in result["review"]]), (0, ["PS_BAD_AMOUNT"]))
+        # PS-O-KHAC-01: trang hiện đúng ô và chữ bảng chi phí ghi; dòng khác không có hai trường này.
+        self.assertEqual((result["review"][0]["ps_field"], result["review"][0]["ps_value"]), ("Khác", "315789.5"))
+        self.assertEqual((only_typo["review"][0]["ps_field"], only_typo["review"][0]["ps_value"]), ("Ghép", "1"))
+        plain = project([ps_row(neo="1500000")], ledger([trip()]))["review"][0]
+        self.assertEqual((plain["status"], plain["ps_field"], plain["ps_value"]), ("WEB_NO_FEE", None, None))
 
     def test_auto_ps_takes_ready_and_locked_but_keeps_notes(self):
         ready = {"before": [{"note": None}], "after": [{"note": None}]}
@@ -342,9 +362,10 @@ class BestColumnsTest(unittest.TestCase):
         book = {"fee_columns": [{"fee_type_id": c, "position": i + 1} for i, c in enumerate(current)], rows_key: rows}
         return best_columns(book, TYPES)
 
-    def test_replaces_only_columns_outside_the_top_last_first(self):
-        self.assertEqual(self.columns([4, 6, 5], [(4, 1500000), (10, 3000000)]), [4, 6, 10])
-        self.assertEqual(self.columns([4, 6, 5], [(10, 3000000), (8, 2000000), (4, 1)]), [4, 8, 10])
+    def test_appends_missing_top_types_and_never_replaces(self):
+        # COT-PHU-PHI-01: không giới hạn cột, nên cột đang có giữ nguyên chỗ, loại nhiều tiền chưa có cột thêm vào cuối.
+        self.assertEqual(self.columns([4, 6, 5], [(4, 1500000), (10, 3000000)]), [4, 6, 5, 10])
+        self.assertEqual(self.columns([4, 6, 5], [(10, 3000000), (8, 2000000), (4, 1)]), [4, 6, 5, 10, 8])
 
     def test_appends_when_there_is_room_and_ignores_system_types(self):
         self.assertEqual(self.columns([], [(10, 10000000), (4, 3500000), (3, 99000000)]), [10, 4])
@@ -353,7 +374,7 @@ class BestColumnsTest(unittest.TestCase):
     def test_keeps_columns_in_the_top_and_order(self):
         self.assertIsNone(self.columns([6, 4], [(4, 1000), (6, 500)]))
         self.assertIsNone(self.columns([4, 6, 5], [(4, 1000)]))
-        self.assertEqual(self.columns([4, 6, 5], [(4, 5), (6, 6), (5, 7), (10, 8)]), [10, 6, 5])
+        self.assertEqual(self.columns([4, 6, 5], [(4, 5), (6, 6), (5, 7), (10, 8)]), [4, 6, 5, 10])
         self.assertEqual(self.columns([4], [(10, 5)], rows_key="legacy_rows"), [4, 10])
 
     def test_deleted_and_rejected_rows_do_not_count(self):

@@ -28,7 +28,8 @@
   // SO-GON-02 (29/10/2026): bản live bỏ cột "Còn nợ cộng dồn" (luôn trống); còn nợ cuối tháng ở thanh tháng.
   // SO-GON-03 (29/10/2026): mỗi số tiền của tháng hiện một lần — thanh tháng chỉ ghi còn nợ cuối tháng (rê chuột xem
   // cách tính), dòng Tổng tháng chỉ cộng cột (phụ phí, Thành tiền, Đã thu).
-  // PHU-PHI-01: bản live có 0–3 cột phụ phí riêng của sổ chen giữa Đơn giá và Khác, nên số cột đổi theo sổ (useLiveColumns).
+  // PHU-PHI-01: bản live có các cột phụ phí riêng của sổ chen giữa Đơn giá và Khác, nên số cột đổi theo sổ (useLiveColumns).
+  // COT-PHU-PHI-01: không giới hạn số cột riêng (mặc định bảy).
   let labels = live
     ? ['STT', 'Số container', 'Hãng tàu', 'Shipper', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức',
       'Số tiền trả']
@@ -38,15 +39,19 @@
   const colTags = (from, to) => wide.slice(from, to).map((width, index) => `<col style="width:${width}px" class="col-${from + index}">`).join('');
   let widths = colTags(0, wide.length);
   let ownCount = 0;
+  let ownEmpty = [];   // cột riêng chưa có khoản nào trong sổ: hẹp, tên loại chữ nhỏ hai dòng (COT-PHU-PHI-01)
+  let feeOver = false;   // cột vẫn không vừa vùng sổ: bảng chuyến cuộn ngang trong khung, không cắt mất cột
   const tight = false;
   let showShipper = true;
   const shipperCell = html => showShipper ? html : '';
-  function useLiveColumns(ownNames, shipper = true) {
+  function useLiveColumns(ownNames, shipper = true, ownUsed = ownNames.map(() => true)) {
     showShipper = shipper;
     ownCount = ownNames.length;
     labels = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
-    // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên. Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
-    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownNames.map(() => 100), 100, 120];
+    // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên; cột riêng chưa có khoản nào trong sổ chỉ cần chỗ cho
+    // tên loại (xuống hai dòng) và dấu "–" (COT-PHU-PHI-01). Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
+    ownEmpty = ownNames.map((_, index) => !ownUsed[index]);
+    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownEmpty.map(empty => empty ? 60 : 100), 100, 120];
     const route = labels.indexOf('Tuyến');
     const spare = Math.floor(fitWidth) - 28 - wide.reduce((sum, value) => sum + value, 0);
     const extra = Math.max(0, spare);
@@ -58,6 +63,8 @@
       wide[route] -= fromRoute;
       if (shipper) wide[3] -= Math.min(-spare - fromRoute, wide[3] - 70);
     }
+    // Vẫn không vừa (nhiều cột riêng ở màn 1280): bảng chuyến cuộn ngang trong khung như màn hẹp; tiêu đề cột đi cùng bảng.
+    feeOver = Boolean(fitWidth) && wide.reduce((sum, value) => sum + value, 0) + 28 > Math.floor(fitWidth);
     widths = colTags(0, wide.length);
   }
   let fitWidth = 0;
@@ -222,14 +229,14 @@
     const columnHead = labels.map((label, index) => {
       const fee = live && index >= feeStart() && index < tripCols() - 1;
       return `<th scope="col" class="${pay(index) ? 'pay ' : ''}${!live && index === 9 ? 'pay-start' : ''}`
-        + `${fee ? 'fee-h num' : live && index >= columns.unitPrice() ? `num ${index === columns.unitPrice() ? 'unit-h' : 'amount-h'}` : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
+        + `${fee ? `fee-h num${ownEmpty[index - feeStart()] ? ' fee-narrow' : ''}` : live && index >= columns.unitPrice() ? `num ${index === columns.unitPrice() ? 'unit-h' : 'amount-h'}` : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
     // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
     // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng. Khung Lịch sử nằm ngoài thẻ Sổ (mở được ở
     // mọi thẻ, nút ở đầu trang).
     const aside = `<aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2>`
       + `<button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
-    const book = `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
+    const book = `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}${live && feeOver ? ' fee-over' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
       + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`;
     root.innerHTML = (live
       ? [head, '<div id="the-so" class="tab-pane" role="tabpanel" aria-labelledby="tab-so"><div class="book-bar">'
@@ -349,7 +356,7 @@
     let snapshot = null;
     // Nút "Làm mới" đọc Sheet ngay (specs/v7-sheet-refresh.md); server chưa bật thì giữ chữ "Cập nhật …".
     let sheetRefresh = null;
-    let message = '';
+    let pendingText = '';
     const clockParts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
     const liveOpenMonth = clockParts.find(part => part.type === 'year').value + '-' + clockParts.find(part => part.type === 'month').value;
     const fmt = value => value === null || value === undefined ? '–'
@@ -381,8 +388,19 @@
     const feeTypeName = id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`;
     // Vẽ lại sổ từ bản đang có (không tải lại). Khung Ghi phiếu thu nằm ngoài #app (so-khach-v7-entry-ui.js) nên chữ đang gõ
     // ở đó không mất khi vẽ lại.
+    // Vẽ lại thay cả #app: ô đang được chọn bằng phím (Enter/Tab/mũi tên dời tới, chưa mở để gõ) được chọn lại theo data-* của nó.
     function redraw() {
-      if (snapshot) renderSnapshot(snapshot);
+      if (!snapshot) return;
+      const key = focusKey(document.activeElement);
+      renderSnapshot(snapshot);
+      if (key) root.querySelector(key)?.focus({ preventScroll: true });
+    }
+    function focusKey(node) {
+      if (!node || node === root || !root.contains(node) || typeof CSS === 'undefined') return null;
+      const attrs = Object.entries(node.dataset ?? {});
+      if (!attrs.length) return null;
+      return node.tagName.toLowerCase() + attrs.map(([name, value]) =>
+        `[data-${name.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${CSS.escape(value)}"]`).join('');
     }
     // Vẽ lại vì việc nền (đổi cỡ màn, danh sách khách hay dữ liệu phụ về muộn), không phải vì người dùng vừa bấm. Vẽ lại thay cả
     // #app nên xóa dòng hỏi, ô đang gõ, chi tiết đang mở trong #app: có những thứ đó thì hoãn, hết mới vẽ. Khung nằm ngoài #app
@@ -399,18 +417,27 @@
     // Đầu trang: tổng còn nợ, băng thông báo, nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) và dải nút của các phần ngay
     // dưới đầu trang ở thẻ Sổ (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet) — SO-GON-04 L7. Tên khách và thanh thẻ:
     // so-khach-v7-tabs-ui.js.
+    // THONG-BAO-01: băng đầu sổ chỉ còn tình trạng kéo dài; tin của từng thao tác hiện nổi ở góc (cong-no-thong-bao.js).
+    const statusIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+      + '<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>';
+    function statusRows(data) {
+      const row = (text, extra = '', kind = '') => `<div class="book-status-row${kind ? ` is-${kind}` : ''}">${statusIcon}<span>${escape(text)}</span>${extra}</div>`;
+      // GIA-O-01 (B): chuỗi giá đang ghi thì báo tiến độ, không đưa nút Thử lại (bấm vào giữa lúc đang ghi không có gì để thử lại).
+      const run = api.progress?.();
+      return (run?.running ? row(`Đang ghi giá đã dán: ${Math.min(run.done + 1, run.total)}/${run.total}…`)
+        : api.saving?.() ? row('Đang lưu…', '', 'saving')   // NHAP-NHANH-01: ô đã hiện, lệnh đang ghi nền
+        // Lệnh đang gửi mà sổ vẽ lại (bản hoãn của hàng đợi ghi nền) thì chưa có gì để Thử lại.
+        : api.hasPending() && !api.sending?.() ? row(pendingText || 'Chưa rõ thao tác vừa gửi đã lưu chưa.', '<button type="button" class="retry-command">Thử lại thao tác vừa gửi</button>', 'error') : '')
+        + (data?.sheet_sync?.unavailable ? row('Không đọc được chuyến mới từ Sheet.') : '')
+        + (data && data.status !== 'active' ? row('Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.') : '');
+    }
     function headView(data, active) {
-      const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
-      const shown = (message && message !== 'Đã lưu.') || !active || sheetNotice;
-      const text = message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.');
-      const notice = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${shown ? '' : 'hidden'}>${escape(text)}</p>`
-        + `<button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
-      const newCount = data.sheet_sync?.new_count ?? 0;
+      const notice = `<div class="book-status" role="status">${statusRows(data)}</div>`;
       // SO-GON-06: một thanh việc — bên trái việc cần làm (nút ghi/duyệt và các ô "cần xem" phần khác chèn vào), bên phải giờ
       // Sheet, Làm mới và menu "Cài đặt ▾" (cài đặt phụ phí, bảng giá, ẩn con trỏ).
       const price = ctx.priceButtons?.(active) ?? { task: '', setting: '' };
-      const barButtons = (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
-        + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
+      // Chuyến mới từ Sheet duyệt tại hàng (DUYET-TAI-HANG-01); dải "n chuyến mới chờ duyệt" do so-khach-v7-sheet-ui.js chèn.
+      const barButtons = (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
         + (ctx.receiptButton?.(data, active) ?? '') + price.task;
       const settings = '<details class="book-settings"><summary>Cài đặt</summary><div class="settings-menu" role="group" aria-label="Cài đặt sổ">'
         + `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${price.setting}</div></details>`;
@@ -429,8 +456,12 @@
       // Cột Shipper chỉ hiện khi có dòng có shipper: chuyến web, dòng sổ gốc, chuyến Sheet chờ duyệt (các dòng sổ vẽ ra).
       const shipperRows = [...(data.trips ?? []).filter(row => !row.deleted),
         ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted).flatMap(row => [row.current, row.display]),
-        ...(data.sheet_sync?.items ?? []).filter(row => row.sync_state === 'NEW' || !row.existing_id)];
-      useLiveColumns(feeColumnIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''));
+        ...(data.sheet_sync?.items ?? []).filter(row => row.sync_state === 'NEW' || !row.existing_id),
+        ...(data.sheet_sync?.waiting_items ?? [])];
+      const usedTypes = new Set([...(data.trips ?? []).filter(row => !row.deleted), ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted)]
+        .flatMap(row => row.fee_lines ?? []).map(line => Number(line.fee_type_id)));
+      useLiveColumns(feeColumnIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''),
+        feeColumnIds.map(id => usedTypes.has(id)));
       const updated = document.querySelector('#updated-at');
       const time = new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${time} · tự tải mỗi 60 giây`;
@@ -455,6 +486,7 @@
       monthsAfterRender();
       locAfterRender(data);
       ctx.feeAfterRender?.();
+      ctx.phoneAfterRender?.();
       ctx.focusBack(focus);
       // SO-GON-05: cột chữ lấy phần bề ngang dư theo bề ngang thật của vùng sổ; lần đầu hoặc vừa đổi cỡ thì vẽ lại một lần.
       const width = root.querySelector('#the-so .ledger-book')?.clientWidth ?? 0;
@@ -480,16 +512,29 @@
         }, 150);
       });
     }
+    // Tin sau thao tác: nổi ở góc (THONG-BAO-01). Còn lệnh chưa rõ kết quả thì câu vào băng đầu sổ cạnh nút Thử lại, không
+    // nổi, vì đó là tình trạng phải xử lý chứ không phải tin đã xong.
+    const paintStatus = () => { const status = root.querySelector('.book-status'); if (status) status.innerHTML = statusRows(snapshot); };
     function showNotice(value) {
-      message = ctx.presenceStale ? ctx.presenceStale(value) : value;
-      const status = root.querySelector('.live-notice');
-      // "Đã lưu." trơn không hiện băng vàng: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
-      if (status) { status.textContent = message; status.hidden = !message || message === 'Đã lưu.'; }
-      const retry = root.querySelector('.retry-command');
-      if (retry) retry.hidden = !api.hasPending();
+      const message = ctx.presenceStale ? ctx.presenceStale(value) : value;
+      const toast = window.CongNoThongBao;
+      if (api.hasPending() && !api.saving?.()) { pendingText = message; toast?.hide(); }
+      else {
+        pendingText = '';
+        // "Đã lưu." trơn không báo: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
+        if (message === 'Đã lưu.') toast?.hide(); else toast?.show(message);
+      }
+      paintStatus();
     }
     // Danh sách khách về sau sổ thì vẽ lại từ bản đang có, không xóa ô đang gõ dở hay dòng hỏi đang mở.
-    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice });
+    // NHAP-NHANH-01: bản sổ vá ngay sau khi gõ và bản đọc lại của hàng đợi ghi nền vẽ khi rảnh (không đang gõ, không đang nhấn
+    // chuột), để không thay #app giữa lúc mở ô kế tiếp; ô vừa lưu đã đổi chữ tại chỗ (so-khach-v7-edit-ui.js).
+    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice,
+      // Hoãn một nhịp: Tab/Enter đang dời tiêu điểm sang ô kế, vẽ sau khi tiêu điểm đã tới để giữ đúng ô đó.
+      // CHO-GHI-01: nhịp vẽ này tính vào việc đang chạy (live.idle) để test chờ tới khi sổ đã vẽ bản đọc lại; đang gõ thì
+      // paintWhenFree tự hẹn lần sau, không giữ idle chờ.
+      onPatched: data => { snapshot = data; live.track(new Promise(done => { setTimeout(() => { try { paintWhenFree(); } finally { done(); } }); })); },
+      onSaving: paintStatus });
     const moneyText = (value, nullable = false) => {
       if (nullable && !value.trim()) return null;
       let number;
@@ -532,10 +577,27 @@
     firstRead();
     // Đang nhập hoặc đang mở chi tiết thì không tự cập nhật (vẽ lại sẽ xóa ô đang gõ hoặc đóng khung đang xem).
     const BUSY_OPEN = 'input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,'
-      + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden])';
+      + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden]),'
+      // Menu "Cài đặt ▾" đang mở: vẽ lại (đổi cỡ màn…) đóng mất menu giữa lúc người dùng chọn mục.
+      + '.book-settings[open]';
+    // NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ khi không đang gõ trong sổ và không đang nhấn chuột (vẽ lúc đó thay mất ô
+    // vừa nhấn, cú bấm không tới). Khung đang mở (Lịch sử, chi tiết…) không chặn: lần đọc sau khi ghi vẫn vẽ ngay như trước.
+    let pointerHeld = false, paintWait = 0;
+    if (typeof document.addEventListener === 'function') {
+      document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+      // Nhả chuột và click đi cùng một lượt của trình duyệt: không hẹn giờ nào chen giữa, gỡ cờ ngay là đủ.
+      for (const name of ['pointerup', 'pointercancel']) document.addEventListener(name, () => { pointerHeld = false; }, true);
+    }
+    function paintWhenFree() {
+      clearTimeout(paintWait);
+      const now = document.activeElement;
+      const typing = pointerHeld || (now && root.contains(now) && now.matches('input:not([type="checkbox"]),textarea,select'))
+        || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
+      if (typing) paintWait = setTimeout(paintWhenFree, 300); else redraw();
+    }
     const openInBook = () => root.querySelector(`${BUSY_OPEN},.fee-own-input`)
       || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
-    const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || openInBook();
+    const busy = () => api.hasPending() || api.saving?.() || ctx.busyChecks.some(check => check()) || openInBook();
     async function refresh(manual = false) {
       if (refreshing) return;
       if (busy()) {

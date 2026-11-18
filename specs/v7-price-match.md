@@ -12,6 +12,7 @@ Trước khi làm hàng chờ "Ghi N giá", đo trên dữ liệu thật bao nhi
 - Khách: tên tab khớp tên sổ web (chỉ chuẩn hóa khoảng trắng). Nếu không khớp thì xét tên hiển thị theo Sheet và tên phụ (`display_name`, `aliases` của `/api/v7/customers`). Tên phụ trùng ở hai sổ thì bỏ, không đoán. Cột `customer_basis` ghi `name` hoặc `alias`.
 - Ngày khớp đúng trước (`exact_date`). Không có thì xét lệch tối đa 3 ngày (`near_date`), giống ngưỡng JOIN-01.
 - Dòng Sheet **không có ngày** (chủ yếu lịch sử cũ): ghép theo container trong cùng khách (`container_only`), chỉ khi container đó có đúng một dòng web. Dòng Sheet có ngày không bao giờ rơi về cách này.
+- Từ 13/11/2026 ([`GHEP-KHONG-NGAY-01`](../docs/decisions/ghep-khong-ngay-01.md)): dòng Sheet không ngày đã có đơn giá, mà web có dòng **không ngày** cùng container tính đúng số đó (cùng đơn giá, cùng tổng tính tiền), thì chỉ ghép với (các) bản sao giống hệt đó (`undated_copy`). Chỉ chen vào khi container còn dòng web chưa giá, tức chỗ `container_only` đang ra `AMBIGUOUS`; còn lại giữ `container_only`. Bản sao không bao giờ được ghi.
 - Báo cáo ghi rõ dòng nào ghép theo cách nào.
 - Không dùng số dòng Sheet làm khóa.
 - Không xét chuyến web đã xóa hoặc đã loại (`rejected`).

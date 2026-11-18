@@ -60,6 +60,17 @@ class ProjectionTest(unittest.TestCase):
         self.assertEqual([r["month"] for r in result["ready"]] + [result["review"][0]["month"]],
                          ["2026-10", "2026-10", "2026-10", "2026-09"])
 
+    def test_undated_row_with_an_identical_undated_copy_leaves_the_review_list(self):
+        # GHEP-KHONG-NGAY-01: bản sao không ngày giống hệt đã nằm trong sổ; chuyến có ngày chưa giá cùng container
+        # không làm dòng Sheet không ngày thành "khớp nhiều chuyến".
+        copy = legacy_row(21, "FAKEU0000001", None)
+        copy["current"] |= {"unit_price_vnd": "50000000", "counted_vnd": "50000000"}
+        book = ledger(trips=[trip()], legacy=[copy])
+        result = project_prices(SNAPSHOT | {"rows": [row(date=None, total=50000000)], "row_count": 1}, book, CUSTOMERS)
+        self.assertEqual((result["ready_count"], result["review_count"]), (0, 0))
+        differs = project_prices(SNAPSHOT | {"rows": [row(date=None, total=50840000)], "row_count": 1}, book, CUSTOMERS)
+        self.assertEqual(([r["status"] for r in differs["review"]], differs["ready_count"]), (["AMBIGUOUS"], 0))
+
     def test_typed_fee_is_manual_even_when_price_missing(self):
         book = ledger(trips=[trip() | {"has_typed_fee": True}])
         result = project_prices(SNAPSHOT | {"rows": [row()], "row_count": 1}, book, CUSTOMERS)

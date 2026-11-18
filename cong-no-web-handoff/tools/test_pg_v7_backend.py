@@ -56,13 +56,19 @@ from pg_v7_harness import (
     trip_json,
     version,
 )
+from test_pg_v7_backend_activity import check_activity
 from test_pg_v7_backend_bang_thu import check_bang_thu
 from test_pg_v7_backend_can_du import check_can_du
 from test_pg_v7_backend_chan_trung import check_chan_trung
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_doi_no import check_doi_no
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
+from test_pg_v7_backend_jit_off import (
+    check_dashboard_debt_jit_off,
+    check_ledger_jit_off,
+)
 from test_pg_v7_backend_khoa_chu import check_khoa_chu
+from test_pg_v7_backend_kiem_tab import check_kiem_tab
 from test_pg_v7_backend_ledger_events import check_ledger_events
 from test_pg_v7_backend_locks import (
     check_csm_locks,
@@ -100,6 +106,7 @@ from test_pg_v7_backend_opening import (
 from test_pg_v7_backend_price import check_price_table
 from test_pg_v7_backend_ps_fee import check_ps_fee
 from test_pg_v7_backend_ra_ghi_tien import check_ra_ghi_tien
+from test_pg_v7_backend_read_stamp import check_read_stamp
 from test_pg_v7_backend_receipt_images import check_receipt_images
 from test_pg_v7_backend_receipts import (
     check_atomic,
@@ -206,7 +213,7 @@ CASES = [
     case("PRB.01", "BEHAVIOR", "PR-B fee commands atomic batch, signs, locks, legacy delta and cache", check="fee_commands", functions=("add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee")),
     case("PRB.02", "BEHAVIOR", "PR-B catalog audit, columns, idempotency and grants", check="fee_catalog", functions=("add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active", "set_book_fee_columns", "get_fee_types")),
     case("BANG-GIA.01", "BEHAVIOR", "Price table by effective date: lookup, save guards, batch apply, source, migration",
-         check="price_table", functions=("save_price_table", "apply_price_table", "get_price_table", "get_price_status")),
+         check="price_table", functions=("save_price_table", "preview_price_table", "apply_price_table", "get_price_table", "get_price_status")),
     case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
          functions=("get_ledger", "record_receipt", "void_receipt")),
 ]
@@ -255,6 +262,10 @@ CASES.append(case("CHAN-TRUNG.01", "BEHAVIOR", "Undated original-book row holds 
 CASES.append(case("KHOA-CHU.01", "BEHAVIOR", "Locked month: four text fields editable with audit; money, date, container, delete still locked",
                   check="khoa_chu", functions=("edit_trip_info", "_change_legacy", "resolve_sheet_conflict")))
 
+# KIEM-TAB-01 16/11/2026 (K4): chạy sau KHOA-CHU.01, migration của nó là bản mới nhất của edit_trip_info/resolve_sheet_conflict.
+CASES.append(case("KIEM-TAB.01", "BEHAVIOR", "Empty string and NULL are one value for text fields in Sheet resolution and trip edit; money untouched",
+                  check="kiem_tab", functions=("edit_trip_info", "resolve_sheet_conflict")))
+
 # ZALO-GROUP-01 1/11/2026: gắn group ↔ sổ, dấu tin; trạng thái tính từ phiếu thu, không đổi số tiền.
 CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message marks: status from receipts, cancel with reason, no money change",
                   check="zalo_group", functions=("link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks")))
@@ -270,7 +281,23 @@ CASES.append(case("BANG-THU.01", "BEHAVIOR", "Receipt book: money by payment dat
 CASES.append(case("MO-SO-NHANH.02", "BEHAVIOR", "get_ledger_events returns the same events and version as get_ledger, read only, app only",
                   check="ledger_events", functions=("get_ledger_events", "_ledger_events", "get_ledger")))
 
-CHECKS = {"ledger_events": check_ledger_events, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+# MO-SO-NHANH-03 18/11/2026: get_ledger lập kế hoạch không JIT (sổ 104 mất ~3 giây biên dịch LLVM mỗi lần mở).
+CASES.append(case("MO-SO-NHANH.03", "BEHAVIOR", "get_ledger plans every statement without JIT even when the session forces JIT",
+                  check="ledger_jit_off", functions=("get_ledger",)))
+
+# HIEU-NANG-02 18/11/2026: get_dashboard_debt lập kế hoạch không JIT (~0,5 giây biên dịch LLVM mỗi lần gọi trên hao).
+CASES.append(case("HIEU-NANG.02", "BEHAVIOR", "get_dashboard_debt plans its statements without JIT even when the session forces JIT",
+                  check="dashboard_debt_jit_off", functions=("get_dashboard_debt",)))
+
+# HOAT-DONG-01 9/11/2026: việc đã ghi theo ngày, mọi sổ, cả máy lẫn người; chỉ đọc, chỉ app.
+CASES.append(case("HOAT-DONG.01", "BEHAVIOR", "Activity of one VN day across books, machine and people, same shape as Lịch sử, read only, app only",
+                  check="activity", functions=("get_activity",)))
+
+# HIEU-NANG-01 13/11/2026: dấu dữ liệu cho bộ nhớ đọc của API; đổi sau mọi lệnh ghi, đứng yên khi đọc.
+CASES.append(case("HIEU-NANG.01", "BEHAVIOR", "Read stamp changes after every committed write to any sokhach table, not on reads, locks or rollbacks",
+                  check="read_stamp", functions=("get_read_stamp",)))
+
+CHECKS = {"kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -392,16 +419,24 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql", "2026-11-13-v7-dau-doc.sql", "2026-11-16-v7-bao-cao-thang.sql", "2026-11-16-v7-chuan-hoa-chu.sql", "2026-11-16-v7-nguon-het-bao.sql", "2026-11-18-v7-luoi-an-toan.sql", "2026-11-18-v7-mo-so-tat-jit.sql", "2026-11-18-v7-tong-quan-tat-jit.sql", "2026-11-18-v7-doi-xe.sql", "2026-11-18-v7-doi-xe-phieu-chi.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
+    # COT-PHU-PHI-01: mọi sổ có đúng bảy cột mặc định theo thứ tự chứng từ.
+    require(copy.value("SELECT count(*) FROM sokhach.customer c WHERE (SELECT string_agg(f.name,',' ORDER BY b.position) "
+                       "FROM sokhach.book_fee_column b JOIN sokhach.fee_type f ON f.id=b.fee_type_id WHERE b.customer_id=c.id)"
+                       " IS DISTINCT FROM 'Lưu bãi,Ghép,Điện,Neo,Health + KĐ,Phí hủy,Sửa bill'") == "0", "default fee columns")
     # MO-SO-NHANH-02: rollback chạy được, rồi nâng lại về đúng bản chuẩn (so catalog ở dưới).
     ledger_events = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql").read_text(encoding="utf-8")
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql").read_text(encoding="utf-8"))
     copy.true("to_regprocedure('sokhach.get_ledger_events(bigint)') IS NULL AND to_regprocedure('sokhach._ledger_events(bigint)') IS NULL",
               "rollback left the new functions")
     copy.sql(ledger_events)
+    # MO-SO-NHANH-03: CREATE OR REPLACE get_ledger ở trên xóa cấu hình hàm; runbook bắt chạy lại file JIT sau đó.
+    copy.true("'jit=off' <> ALL(coalesce((SELECT proconfig FROM pg_proc WHERE oid='sokhach.get_ledger(bigint)'::regprocedure),'{}'))",
+              "re-running ledger-events should reset get_ledger config")
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql").read_text(encoding="utf-8"))
     # Chuỗi trên viết tay nên dễ thiếu file mới; migration chỉ đổi dữ liệu thì so catalog không phát hiện được.
     outside_chain = {"2026-10-16-ledger-f2f3.sql",  # DB legacy webdebit_ledger, không thuộc V7
                      "2026-10-24-v7-shipper.sql", "2026-10-26-v7-ledger-shipper-read.sql"}  # chạy ở cuối hàm này
@@ -509,6 +544,7 @@ def main() -> int:
     ap.add_argument("--sheet-keep-only", action="store_true", help="focused row-scoped Sheet keep checks")
     ap.add_argument("--bang-thu-only", action="store_true", help="focused receipt book checks")
     ap.add_argument("--tao-so-only", action="store_true", help="focused machine-created book checks")
+    ap.add_argument("--activity-only", action="store_true", help="focused activity-by-day checks")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--expect-red", action="store_true", default=True,
                       help="default: missing command functions may fail")
@@ -518,6 +554,7 @@ def main() -> int:
                 and (not args.sheet_keep_only or c["id"] == "VCL-GIU.01")
                 and (not args.bang_thu_only or c["id"] == "BANG-THU.01")
                 and (not args.tao_so_only or c["id"] == "MAY-TAO-SO.01")
+                and (not args.activity_only or c["id"] == "HOAT-DONG.01")
                 and (not args.fee_migration_only or c["id"] == "CSM.03")]
     if args.list:
         for c in CASES:

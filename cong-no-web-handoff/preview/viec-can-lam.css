@@ -114,6 +114,7 @@ svg{flex:none;vertical-align:middle}
 .dc-link{height:36px;padding:0 8px;border:0;background:transparent;color:#1c5cab;font:inherit;font-weight:700;cursor:pointer}.dc-link.quiet{color:#52514e;font-weight:600;text-decoration:underline}.dc-link:disabled{opacity:.55;cursor:default}
 .dc-left{min-height:44px;padding-block:4px;background:#fdf6e7;color:#6e4300}.dc-left strong:first-child{font-size:15px}.dc-left .dc-hint{flex:1 1 240px;min-width:0}.dc-left .dc-num{font-size:17px}
 .dc-left.ok{background:#dff3ee;color:#0f5f58}.dc-left.unknown{background:#f3f5f8;color:#3a3936}
+.dc-hints{margin-top:8px;padding:10px 14px;border:1px solid #e5c98d;border-radius:10px;background:#fffaf0;color:#3a3936}.dc-hints p{margin:0}.dc-hints ul{margin:6px 0 0;padding-left:20px}.dc-hints li{margin-top:4px;line-height:1.45}
 .dc-rows{overflow:auto;max-height:260px;border-bottom:1px solid #e9edf1;background:#fafbfc}
 .dc-rows table{width:100%;min-width:820px;border-collapse:collapse;font-variant-numeric:tabular-nums}.dc-rows th,.dc-rows td{padding:4px 8px;text-align:left;font-weight:400;white-space:nowrap}
 .dc-rows thead th{position:sticky;top:0;background:#fafbfc;color:#52514e;font-size:13px;font-weight:600}.dc-rows tbody tr{border-top:1px solid #eef0f3}.dc-rows tbody th{font-weight:600}.dc-rows .num{text-align:right}.dc-rows input{width:18px;height:18px;margin:0;accent-color:#1c5cab}
@@ -124,6 +125,92 @@ svg{flex:none;vertical-align:middle}
 .dc-open-book{margin-left:auto;color:#1c5cab;font-weight:700;white-space:nowrap}.dc-loading{margin:0;padding:8px 0}.dc-failed{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0;color:#b42318}
 .dc-side{margin-top:10px;color:#3a3936}.dc-side summary{min-height:32px;cursor:pointer}.dc-side ul{margin:4px 0 0;padding-left:20px}
 .may-panel .dc-lead{margin-top:0}
+/* HOAT-DONG-01: tab Đã làm chọn ngày, lọc máy/người; dòng dài xuống hàng, giờ và người làm thẳng cột. */
+.act-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}.act-bar .btn{display:inline-flex;align-items:center;gap:2px;font-variant-numeric:tabular-nums}
+.act-date{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:#52514e}.act-date input{height:36px;padding:0 8px;border:1px solid #d7dce3;border-radius:8px;font:inherit;color:#1a1a19}
+.dc-filter{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}.dc-filter .filter-chip{height:36px}
+.dc-tag{display:inline-block;margin-right:4px;padding:1px 8px;border:1px solid var(--critical);border-radius:10px;background:var(--critical-soft);color:var(--critical);font-size:13px;font-weight:700;white-space:nowrap}
+.act-filter{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}.act-filter .filter-chip{height:36px}
+.act-scroll{background:#fff;border:1px solid #e3e7ec;border-radius:10px}
+.act-table{width:100%;min-width:900px;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.act-table thead th{padding:7px 8px;background:#f7f9fb;border-bottom:1px solid #d7dce3;color:#3a3936;font-size:13.5px;text-align:left;white-space:nowrap}
+.act-table thead th:first-child,.act-table td:first-child{padding-left:14px}
+.act-table td,.act-table tbody th{padding:6px 8px;border-bottom:1px solid #f0f2f5;text-align:left;vertical-align:top;font-weight:400}
+.act-group-head th{padding:12px 14px 6px!important;background:#fff;border-bottom:1px solid #d7dce3!important}
+.act-group+.act-group .act-group-head th{border-top:6px solid #f3f5f8}
+.act-group-title{font-size:15px;font-weight:700;color:#1a1a19}.act-group-title b{margin-left:4px;color:#1c5cab}
+.act-group-kinds{margin-left:12px;font-size:13px;color:#52514e;font-weight:400}
+.act-time{width:52px;color:#52514e;white-space:nowrap}
+.act-table .auto-kind{display:inline-block;min-width:44px;padding:0 8px;border-radius:10px;background:#eef1f5;color:#52514e;font-size:12.5px;font-weight:600;text-align:center;white-space:nowrap}
+.act-table .auto-kind.machine{background:#dbe8f7;color:#1c5cab}
+.act-book{width:190px;max-width:190px;font-weight:600!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-label{width:150px;font-weight:600;white-space:nowrap}
+.act-what{min-width:260px;overflow-wrap:anywhere}.act-note{width:170px;color:#52514e;font-size:13px}
+.act-open{width:64px;text-align:right!important;white-space:nowrap}.act-open a{color:#1c5cab;font-weight:600}
 
 
 .page-head .presence:empty{display:none}
+.dc-ai { margin-top: 1rem; padding-top: .75rem; border-top: 1px solid var(--line, #ddd); }
+.dc-ai-preview { margin-top: .75rem; }
+.dc-ai-preview pre { max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #f5f7f8; padding: .75rem; font-size: .8rem; }
+.dc-ai-preview [role="status"] { white-space: pre-wrap; }
+/* Tab TONG (KIEM-TONG-01): một dòng dưới dòng đầu trang, cùng nhịp; danh sách mở ngay dưới. Việc sửa nằm trên Sheet. */
+.tong-line{min-height:34px}.tong-line>i{background:#e8a33d}.viec-status .tong-line strong{font-size:16px;color:#1a1a19}.tong-line .dc-link{margin-left:auto}
+.tong-list{margin:2px 0 8px}.tong-list .work-scroll{margin-top:0;border:1px solid #d7dce3;border-radius:10px;background:#fff}.tong-list .inbox-note{margin:6px 2px 0}
+.tong-table{min-width:720px}.tong-table tbody>tr>*{padding:7px 8px;border-top:1px solid #e9edf1;vertical-align:top}.tong-table td.num{white-space:nowrap}
+.tong-table tbody th{padding-left:14px;max-width:260px;font-size:15px;text-align:left;overflow-wrap:anywhere}.tong-alias{display:block;font-size:13px;font-weight:400;color:#52514e}
+/* Tab Đã làm trên điện thoại (DIEN-THOAI-SEP-01): bảng 7 cột rộng 900px làm cột Việc ra ngoài màn. Mỗi việc thành một khối:
+   dòng 1 giờ · người làm · sổ · Mở sổ; dòng 2 việc và chi tiết; dòng 3 ghi chú. */
+@media (max-width:760px){
+  .act-table{min-width:0}
+  .act-table,.act-table tbody{display:block}
+  .act-table thead{display:none}
+  .act-table tr.act-group-head{display:block}
+  .act-table tr.act-group-head th{display:block}
+  .act-table tbody tr:not(.act-group-head){display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:baseline;gap:4px 8px;padding:10px 12px;border-bottom:1px solid #f0f2f5}
+  .act-table tbody tr:not(.act-group-head)>*{display:block;padding:0!important;border:0}
+  .act-table .act-book{white-space:normal;overflow-wrap:anywhere;font-weight:700}
+  .act-table .act-label{grid-column:1/-1;grid-row:2;font-weight:600}
+  .act-table .act-what{grid-column:1/-1;grid-row:3}
+  .act-table .act-note{grid-column:1/-1;grid-row:4}
+  .act-table .act-note:empty{display:none}
+  .act-table .act-open{width:auto;text-align:right}
+  .act-table .act-open a{display:inline-flex;align-items:center;min-height:32px}
+}
+/* GIA-TUYEN-01: hàng tuyến gõ giá một lần cho các chuyến bên dưới; chuyến của tuyến thụt vào. Cột thao tác của hàng tuyến
+   co theo nội dung (nút giá gần nhất + ô + nút ghi) nên tên tuyến không bị cắt; ô và nút vẫn thẳng mép phải với các chuyến. */
+.detail-items li.price-group{grid-template-columns:150px 0 minmax(0,1fr) 0 auto;background:#f7f9fc;border-top-color:#dfe5ec}
+.detail-items li.price-group.pending-action{background:#eef3f9}
+.price-group .detail-description{color:var(--ink);font-weight:600;white-space:normal;overflow:visible;line-height:1.35;padding:6px 0}  /* tên tuyến dài hay chữ rộng: xuống dòng, không cắt */
+.use-last{flex:none;height:38px;padding:0 12px;border:1px solid #b9c3cf;border-radius:19px;background:#fff;color:#1c5cab;font:inherit;font-size:13.5px;font-weight:600;white-space:nowrap;cursor:pointer}
+.use-last:hover{border-color:#1c5cab}.use-last:disabled{opacity:.55;cursor:default}
+.detail-items li.price-child>b:first-child{padding-left:18px;font-weight:600}
+.detail-actions .btn.group-write{width:auto;min-width:128px;padding:0 12px;white-space:nowrap}
+.detail-actions .btn.group-write:disabled{border-color:#d7dce3;background:#eef1f5;color:#52514e;opacity:1;cursor:default}
+.detail-actions input[aria-invalid="true"]{border-color:#b42318;background:#fdecea}
+.detail-actions input:disabled{background:#eef1f5;color:#52514e}
+/* Khối "Sheet cần sửa" (KIEM-TAB-01 3d): thẻ từng chỗ sai và bản dựng lại vùng ô; đỏ và cam theo token trạng thái, nền ô giữ như Sheet. */
+.sheet-fix{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:8px;min-width:0}.sf-card,.sf-region{min-width:0;max-width:100%}.sf-lead,.sf-codes{margin:0;color:#1a1a19}.sf-codes{color:#52514e}
+.sf-card{padding:12px 14px;border:1px solid var(--line);border-left:4px solid var(--critical);border-radius:var(--radius);background:var(--surface)}
+.sf-card.sf-warning{border-left-color:var(--warning)}
+.sf-card header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.sf-card h3{margin:0;font-size:15px}
+.sf-cells{color:var(--ink-2)}.sf-cells b{padding:1px 6px;border-radius:6px;background:var(--critical-soft);color:var(--critical)}.sf-card.sf-warning .sf-cells b{background:var(--warning-soft);color:var(--warning)}
+.sf-card header .btn{margin-left:auto}
+.sf-message,.sf-fix,.sf-sample{margin:6px 0 0}.sf-fix{color:#3a3936}.sf-sample code,.sf-notes code{padding:1px 5px;border-radius:5px;background:var(--head);font-family:inherit}
+.sf-region{margin-top:10px}.sf-loading,.sf-failed{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 0;color:var(--ink-2)}
+.sf-scroll{max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:#fff}.sf-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sf-grid{border-collapse:collapse;font-size:13px;white-space:nowrap}
+.sf-grid th,.sf-grid td{height:26px;padding:1px 6px;border:1px solid var(--line-soft);text-align:left;font-weight:400}
+.sf-grid thead th{position:sticky;top:0;background:var(--head);color:var(--ink-2);font-weight:600;text-align:center}
+.sf-grid .sf-rowno,.sf-grid .sf-corner{position:sticky;left:0;z-index:1;min-width:36px;background:var(--head);color:var(--ink-2);text-align:center;font-weight:600}
+.sf-grid .sf-gap{width:22px;min-width:22px;padding:0;color:var(--ink-3);text-align:center;background:var(--zebra)}
+.sf-cell{max-width:220px;overflow:hidden;text-overflow:ellipsis}.sf-bold{font-weight:700}.sf-right{text-align:right;font-variant-numeric:tabular-nums}.sf-center{text-align:center}
+.sf-formula{margin-left:4px;color:var(--ink-3);font-size:11px}
+.sf-grid td.sf-error{outline:2px solid var(--critical);outline-offset:-2px;background-color:var(--critical-soft)}
+.sf-grid td.sf-warning{outline:2px solid var(--warning);outline-offset:-2px;background-color:var(--warning-soft)}
+.sf-grid td.sf-suspect{outline:2px dashed var(--warning);outline-offset:-2px;background-color:var(--warning-soft)}
+.sf-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:8px;color:var(--ink-2)}
+.sf-legend{margin-left:auto;display:inline-flex;align-items:center;gap:6px}
+.sf-key{display:inline-block;width:14px;height:14px;border-radius:3px}.sf-key.sf-error{border:2px solid var(--critical);background:var(--critical-soft)}.sf-key.sf-suspect{border:2px dashed var(--warning);background:var(--warning-soft)}
+.sf-notes{margin:8px 0 0;padding-left:18px}.sf-notes .sf-note{margin:2px 0}.sf-notes .sf-error strong{color:var(--critical)}.sf-notes .sf-warning strong,.sf-notes .sf-suspect strong{color:var(--warning)}
+@media (max-width:640px){.sheet-fix{position:sticky;left:0;max-width:calc(100vw - 32px)}.sf-card{padding:10px}.sf-card header .btn{margin-left:0}.sf-legend{margin-left:0}.sf-grid{font-size:12.5px}}

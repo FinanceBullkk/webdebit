@@ -19,6 +19,7 @@ from typing import Any
 
 from v7_price_queue import DATE_WINDOW_DAYS, container_key, iso, targets
 from v7_sheet_queue import _name, read_snapshot
+from v7_sheet_task_keep import kept, ps_identity, ps_web_value, source_kept
 
 UNCLASSIFIED = ("other", "discount", "initial")
 # The fee migration (2026-10-28) stamped these on every "Phụ phí ban đầu" line; nobody typed them, and the event keeps them.
@@ -30,6 +31,10 @@ FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
 LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
 REVIEW = ("MONTH_LOCKED", "TOTAL_DIFF", "WEB_NO_FEE", "AMBIGUOUS", "PS_SOURCE_ERROR", "PS_TYPO", "PS_BAD_AMOUNT",
           "TYPED_CONFLICT", "FEE_TYPE_MISSING", "NEED_HEALTH", "NEED_KD")
+# Dòng người trả lời được "Không thu, hết báo" (PS-HOI-01): có chuyến đích và là câu hỏi về tiền, không phải việc máy
+# tự làm (tháng khóa) hay cấu hình (thiếu loại phí).
+SOURCE_CLOSABLE = ("AMBIGUOUS", "PS_SOURCE_ERROR", "PS_TYPO", "PS_BAD_AMOUNT")   # K3: khi không gắn được chuyến đích
+KEEPABLE = ("TOTAL_DIFF", "WEB_NO_FEE", "PS_TYPO", "PS_BAD_AMOUNT", "PS_SOURCE_ERROR", "TYPED_CONFLICT", "NEED_HEALTH", "NEED_KD")
 
 
 def load_ps_snapshot(path: str | Path) -> dict[str, Any]:
@@ -177,12 +182,12 @@ def message(status: str, row: dict, info: dict) -> str:
     month = info.get("month") or ""
     return {
         "MONTH_LOCKED": f"Tháng {month[5:7]}/{month[:4]} đang khóa",
-        "TOTAL_DIFF": f"Web {vnd_text(info.get('web_total') or 0)} · PS {vnd_text(info.get('ps_total') or 0)}",
-        "WEB_NO_FEE": f"PS {vnd_text(info.get('ps_total') or 0)} · web chưa có phụ phí",
+        "TOTAL_DIFF": f"Sổ khách tính {vnd_text(info.get('web_total') or 0)} phụ phí, PS ghi {vnd_text(info.get('ps_total') or 0)}",
+        "WEB_NO_FEE": f"PS ghi {vnd_text(info.get('ps_total') or 0)} phụ phí, sổ khách chưa thu",
         "AMBIGUOUS": "Cont khớp nhiều chuyến hoặc nhiều dòng PS cùng một chuyến",
         "PS_SOURCE_ERROR": f"Bộ lập bill báo lỗi: {row.get('source_error')}",
         "PS_TYPO": f"{LABELS.get(problem.get('field'), '')} = {problem.get('value')} trên PS, có thể gõ sai",
-        "PS_BAD_AMOUNT": f"{LABELS.get(problem.get('field'), '')} = {problem.get('value')} không đọc được",
+        "PS_BAD_AMOUNT": f"PS ghi {LABELS.get(problem.get('field'), '')} = {problem.get('value')}, không phải số đồng nguyên nên máy không đọc",
         "TYPED_CONFLICT": "Web đã phân loại khác PS",
         "FEE_TYPE_MISSING": "Danh mục chưa có loại " + ", ".join(LABELS[f] for f in info.get("missing", [])),
         "NEED_HEALTH": "PS đánh dấu Health cert — nhập giá tay",
@@ -190,7 +195,7 @@ def message(status: str, row: dict, info: dict) -> str:
     }.get(status, "")
 
 
-def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: list[dict]) -> dict:
+def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the split button, review for "PS cần xem"."""
     customer = ledger.get("customer_id")
     aliases = {_name(k): v for k, v in snapshot.get("customer_aliases", {}).items()}
@@ -230,13 +235,19 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
 
     def public(result: dict, status: str) -> dict:
         row, target, info = result["row"], result["target"], result["info"]
-        return {"key": row.get("key"), "source_row": row.get("source_row"), "container": row.get("container"),
+        # PS-O-KHAC-01: ô PS gõ sai hoặc số lẻ — trang hiện đúng chữ bảng chi phí ghi trong ô Khác, không tự đọc lại câu.
+        problem = (row.get("problems") or [{}])[0] if status in ("PS_TYPO", "PS_BAD_AMOUNT") else {}
+        return {"ps_field": LABELS.get(problem.get("field")) if problem else None,
+                "ps_value": None if problem.get("value") is None else str(problem["value"]),"key": row.get("key"), "source_row": row.get("source_row"), "container": row.get("container"),
                 "date": row.get("date"), "bill_month": row.get("bill_month"), "ps_source": row.get("ps_source"),
                 "target_kind": target["kind"] if target else "", "target_id": target["id"] if target else "",
                 "month": info["month"], "status": status, "message": message(status, row, info),
                 "ps_total": None if info["ps_total"] is None else str(info["ps_total"]),
                 "web_total": None if info["web_total"] is None else str(info["web_total"]),
-                "before": info["before"], "after": info["after"], "fill": bool(info.get("fill"))}
+                "before": info["before"], "after": info["after"], "fill": bool(info.get("fill")),
+                "source_fingerprint": ps_identity(row), "keepable": bool(target) and status in KEEPABLE,
+                # K3: dòng không gắn được chuyến đích (nhiều chuyến khớp, ô lỗi mà không có chuyến) chỉ đóng được theo dấu vân dòng Sheet.
+                "closable": not (bool(target) and status in KEEPABLE) and status in SOURCE_CLOSABLE}
     ready = [public(r, r["status"]) for r in results if r["status"] == "READY"]
     review = [public(r, r["status"]) for r in results if r["status"] in REVIEW]
     for result in results:   # Health/KĐ marks only remind; they never create money.
@@ -247,6 +258,11 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
             covered = {ids.get(field), ids.get("combined")} - {None}
             if result["row"].get(field) and not any(x.get("fee_type_id") in covered for x in target["lines"]):
                 review.append(public(result, status))
+    # PS-HOI-01: dòng người đã trả lời "Không thu, hết báo" không hiện nữa tới khi ô PS hoặc tiền chuyến trên web đổi.
+    if not include_kept:
+        review = [r for r in review if not (r["keepable"] and kept(ledger, "ps", r["target_kind"], r["target_id"],
+                  r["source_fingerprint"], ps_web_value(ledger, r["target_kind"], r["target_id"])))
+                  and not (r["closable"] and source_kept(ledger, "ps", r["source_fingerprint"]))]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}
 
@@ -260,10 +276,10 @@ def auto_ps(ps: dict[str, Any]) -> list[dict[str, Any]]:
     return [row for row in rows if keeps_notes(row)]
 
 
-def best_columns(ledger: dict, fee_types: list[dict], limit: int = 3) -> list[int] | None:
-    """Own columns after a machine split (MAY-PS-01): the book's largest typed fees, moving as few columns as possible.
+def best_columns(ledger: dict, fee_types: list[dict], top_n: int = 3) -> list[int] | None:
+    """Own columns after a machine split (MAY-PS-01): the book's largest typed fees get a column if they lack one.
 
-    Only columns outside that group are replaced, last first. None when nothing changes.
+    No column limit since COT-PHU-PHI-01, so existing columns are never replaced or reordered. None when nothing changes.
     """
     typed = {t["id"] for t in fee_types if t.get("active") and not t.get("system_key")}
     money: Counter = Counter()
@@ -273,14 +289,7 @@ def best_columns(ledger: dict, fee_types: list[dict], limit: int = 3) -> list[in
         for fee in row.get("fee_lines") or []:
             if fee.get("fee_type_id") in typed:
                 money[fee["fee_type_id"]] += abs(int(fee["amount_vnd"]))
-    top = sorted(money, key=lambda type_id: (-money[type_id], type_id))[:limit]
+    top = sorted(money, key=lambda type_id: (-money[type_id], type_id))[:top_n]
     current = [c["fee_type_id"] for c in sorted(ledger.get("fee_columns") or [], key=lambda c: c.get("position") or 0)]
-    columns = list(current)
-    for type_id in top:
-        if type_id in columns:
-            continue
-        if len(columns) < limit:
-            columns.append(type_id)
-        else:
-            columns[max(i for i, column in enumerate(columns) if column not in top)] = type_id
+    columns = current + [type_id for type_id in top if type_id not in current]
     return None if columns == current else columns

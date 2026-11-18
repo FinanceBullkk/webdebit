@@ -64,7 +64,34 @@ test('khách phải xem: bỏ máy đã sửa và web đi trước, máy ghi sai
   assert.deepEqual([...M.openIds({ customers: [{ customer_id: null, reason: 'CHI_CO_SHEET' }, { customer_id: 9, reason: 'HELD' }] })], [9]);
 });
 
-test('tỷ lệ số nợ: còn khách lệch thì không ghi tròn 100; chưa có tổng thì không có tỷ lệ', () => {
+test('web đi trước có chuyến cần xem thì thành khách phải xem, câu nói rõ chuyến nào (MAY-DOI-SOAT-01, 10/11/2026)', () => {
+  const old = { kind: 'ahead_old', container: 'MAUU0000001', date: '2026-10-03', amount_vnd: '70000000', days: 38 };
+  const moved = { kind: 'ahead_other_book', container: 'MAUU0000002', date: '2026-11-04', amount_vnd: '41000000', other: 'Mẫu Khác' };
+  const reconcile = { customers: [
+    { customer_id: 3, reason: 'WEB_AHEAD', status: 'LECH_TONG', difference_vnd: '600' },
+    { customer_id: 4, reason: 'WEB_AHEAD', status: 'LECH_TONG', difference_vnd: '70000000', hints: [old] },
+    { customer_id: 5, reason: 'FIXED', status: 'LECH_TONG', difference_vnd: '41000000', hints: [moved] },
+    { customer_id: 6, reason: 'FIXED', status: 'LECH_TONG', difference_vnd: '9' },
+  ] };
+  assert.deepEqual(M.openRows(reconcile).map(row => row.customer_id), [4, 5]);
+  assert.deepEqual(M.aheadRows(reconcile).map(row => row.customer_id), [3]);   // chỉ khách không có gì phải xem mới nằm ở "không cần làm gì"
+  assert.deepEqual(reconcile.customers.map(M.aheadToCheck), [false, true, true, false]);
+  const say = value => `[${value}]`;
+  assert.deepEqual(M.hintTexts(reconcile.customers[1], say), ['Chuyến MAUU0000001 ngày 03/10 ([70000000]) có giá trên web đã 38 ngày mà tab Sheet chưa có. Xem Sheet đã bỏ chuyến này chưa.']);
+  assert.deepEqual(M.hintTexts(reconcile.customers[2], say), ['Chuyến MAUU0000002 ngày 04/11 ([41000000]) web ghi ở sổ này, còn Sheet ghi ở tab Mẫu Khác. Xem chuyến thuộc khách nào.']);
+});
+
+test('Sheet cần sửa: chỉ khách HELD; nhãn nêu số chỗ khi máy đếm được, 0 hay chưa có số thì không nêu số (KIEM-TAB-01 3e)', () => {
+  assert.equal(M.isSheetFix({ reason: 'HELD' }), true);
+  assert.equal(M.isSheetFix({ reason: 'NO_EXACT_FIX' }), false);
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: 2 }), 'Sheet cần sửa · 2 chỗ');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: 1 }), 'Sheet cần sửa · 1 chỗ');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: 0 }), 'Sheet cần sửa');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD' }), 'Sheet cần sửa');
+  assert.equal(M.sheetFixLabel({ reason: 'HELD', sheet_fix_count: '2' }), 'Sheet cần sửa');   // không phải số nguyên thì không tin
+});
+
+test('tỷ lệ số nợ:còn khách lệch thì không ghi tròn 100; chưa có tổng thì không có tỷ lệ', () => {
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '88', counts: { KHOP: 1 }, total: 2 }), '88');
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '100', counts: { KHOP: 1 }, total: 2 }), 'gần 100');
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '100', counts: { KHOP: 2 }, total: 2 }), '100');
@@ -88,4 +115,22 @@ test('chỉ khác phụ phí khi mọi dòng cùng đơn giá; web chưa có gi�
   assert.equal(M.isFeeOnly({ kind: 'prices', rows: [{ web_unit_price_vnd: '60', sheet_unit_price_vnd: '65' }] }), false);
   assert.equal(M.isFeeOnly({ kind: 'prices', rows: [{ web_unit_price_vnd: null, sheet_unit_price_vnd: '65' }] }), false);
   assert.equal(M.isFeeOnly(statement.groups[1]), false);
+});
+
+test('máy đoán chỗ lệch: mỗi kiểu một câu, tiền theo hàm truyền vào, kiểu lạ bỏ qua (CHAN-DOAN-LECH-01)', () => {
+  const say = value => `[${value}]`;
+  const row = { hints: [
+    { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
+    { kind: 'price_review', status: 'MANUAL', row: 231, container: 'MAUU0000231', sheet_vnd: '101500000', web_vnd: '98000000', delta_vnd: '3500000' },
+    { kind: 'sheet_row_missing', row: 284, container: 'MAUU0000284 取消', sheet_vnd: '7700000', delta_vnd: '7700000' },
+    { kind: 'chain_break', month: '2026-10', sheet_end_vnd: '95000000', expected_end_vnd: '95000500', delta_vnd: '-500' },
+    { kind: 'moi_la' },
+  ] };
+  assert.deepEqual(M.hintTexts(row, say), [
+    'Phiếu PH-001 và PH-002 cùng ngày 31/10, cùng [8300000]: có thể ghi trùng. Hủy phiếu thừa thì nợ web tăng [8300000].',
+    'Dòng 231 (MAUU0000231): Sheet [101500000], web [98000000]. Máy không tự sửa vì dòng có phụ phí chia theo loại, sửa trên Sổ.',
+    'Dòng 284 (MAUU0000284 取消) trên Sheet có [7700000] mà web không có dòng nào. Xem có tính cho khách không.',
+    'Khối tháng 10 trên Sheet: số cuối tháng thiếu [-500] so với tháng trước chuyển sang + phát sinh − thu. Thường do ô số dư chuyển sang đầu khối trống hoặc trỏ sai dòng.',
+  ]);
+  assert.deepEqual(M.hintTexts({}, say), []);
 });

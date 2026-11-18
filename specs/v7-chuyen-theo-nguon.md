@@ -36,7 +36,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 | Đọc sổ gốc từ file tải | `v7_load_real_copy.workbook_rows`, `scan_tabs` | Không |
 | Điền ngày | Việc A của `MAY-KHOA-01`: mở khóa, `edit_legacy_trip`, khóa lại; người làm "Máy (theo Sheet)" | Áp thêm cho nguồn mới |
 | Giữ việc | `keep_sheet_task` ([`VCL-GIU-01`](../docs/decisions/vcl-giu-01.md)) | Thêm loại việc mới |
-| Lấy ngày Sheet khi lệch | `resolve_sheet_conflict` chỉ cho `keep_web` với `event_date`; muốn lấy ngày thì phải sửa tay ở tháng mở | Nút "Lấy theo booking" ở tháng mở (tháng khóa CÒN MỞ) |
+| Lấy ngày Sheet khi lệch | `resolve_sheet_conflict` chỉ cho `keep_web` với `event_date`; muốn lấy ngày thì phải sửa tay ở tháng mở | Nút "Lấy theo booking" ở tháng mở (tháng khóa CÒN MỞ). Từ 13/11/2026 dòng sổ gốc lệch không quá 3 ngày không còn hỏi ([`CHUYEN-KHONG-HOI-01`](../docs/decisions/chuyen-khong-hoi-01.md)) |
 | Gom nhóm theo sổ | `v7_inbox.summarize`: phiếu thu, chuyến bị xóa, chuyến mới, chuyến cần kiểm, lệch chữ, giá, PS | `trip_dup`, `source_only` |
 
 ## Giai đoạn
@@ -65,13 +65,32 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
   - ngày lấy từ nguồn;
   - giá khác: chữ giá của booking đọc được mà khác tổng trên sổ.
 
+### GĐ1b — Kiểm mỗi giờ trên `hao` (KIEM-BOOKING-01)
+
+Quyết định: [`KIEM-BOOKING-01`](../docs/decisions/kiem-booking-01.md). Đây là mục A6/F5 của [checklist chuyển hẳn](../docs/chuyen-han-checklist.md).
+
+- **Chạy:** công cụ GĐ1 chạy trong lượt đối soát máy, ở tiến trình con song song, trên cùng bản tải xlsx.
+- **Nguồn:** `snapshot.json` (`CONT_NGUON`) và `road.json` (`CONT_BO`); chưa có booking 2025.
+- **Khoảng kiểm:** chuyến biển từ 12/2025, chuyến bộ từ 08/2025.
+- **Đầu ra:** `booking-check.json` cạnh `reconcile.json`, gồm:
+  - số đếm bảy nhóm;
+  - từng dòng: container, ngày sổ, tab, dòng, tiền, chuyến booking, gợi ý sổ, dòng đã ghép cùng chuyến, số ngày lệch;
+  - giờ lượt, giờ hai bản chụp, số dòng khớp.
+- **Bản chụp lỗi** (thiếu, hỏng, rỗng, cũ quá 3 giờ): giữ kết quả cũ, thêm `last_error`.
+- **API** `GET /api/v7/machine/booking` thêm `state`:
+  - `none`: chưa có kết quả;
+  - `error`: lượt mới nhất lỗi;
+  - `stale`: lỡ hai lượt theo lịch;
+  - `ok`.
+- **Màn:** khối "Kiểm Sheet sổ nợ với booking" ở cuối tab Máy chạy. Trên cùng là dòng trạng thái, rồi nút bốn nhóm đụng tiền, rồi ba nhóm để biết. Bấm nhóm thì mở bảng có lọc theo sổ và link mở sổ đúng tháng. Chưa có nút xử lý.
+
 ### GĐ2 — Bản chụp nguồn trên `hao`
 
 - **`CONT_BO`:** runner đọc theo tên cột như `CONT_NGUON`; thiếu cột thì dừng với lỗi rõ. Ghi `road.json` (mode 600, cùng thư mục, cùng timer). Dòng thiếu container hoặc ngày là `INVALID`.
   - Đã code 3/11/2026. Tám cột theo tên: SỐ CONT, SỐ XE, CHỦ HÀNG, CỬA KHẨU, KHO, SHIPPER, NGÀY ĐÓNG HÀNG, NGÀY KHỞI HÀNH. "/" là ô trống. Ngày là ngày đóng hàng, không có thì ngày khởi hành.
   - Dòng thiếu số xe hoặc cửa khẩu cũng là `INVALID`, vì `paste_trips` bắt buộc xe và nơi đến. Trùng container + ngày là `DUPLICATE`.
   - Đọc `CONT_BO` lỗi thì `snapshot.json` vẫn ghi, `road.json` giữ bản trước, runner thoát mã 1.
-  - Số 0 gõ nhầm trong 4 chữ cái đầu của số cont (mã chủ cont ISO chỉ có chữ) đọc thành chữ O, ví dụ `BM0U…` thành `BMOU…`. Kiểm Sheet 3/11/2026 thấy một chuyến tháng 10 của HOA HANH rơi vì lỗi này. Chỉ áp cho `CONT_BO`, vì chuyến biển đã dán theo mã cũ, đổi chung có thể làm dán trùng.
+  - Số 0 gõ nhầm trong 4 chữ cái đầu của số cont (mã chủ cont ISO chỉ có chữ) đọc thành chữ O, ví dụ `BM0U…` thành `BMOU…`. Kiểm Sheet 3/11/2026 thấy một chuyến tháng 10 của một chủ hàng rơi vì lỗi này. Chỉ áp cho `CONT_BO`, vì chuyến biển đã dán theo mã cũ, đổi chung có thể làm dán trùng.
 - **Booking 2025:** chưa làm (chỉ cần cho lịch sử trước 10/2026, `trip_dup`, `source_only`).
 - **Booking 2025:** công cụ đọc một lần bằng tài khoản dịch vụ chỉ đọc, ghi `booking-2025.json` kèm sha256. Theo phiên khác, tài khoản này đã đọc được file; nếu không thì người dùng chia sẻ thêm. Chỉ đọc lại khi người dùng báo file đổi.
 - **Báo phía Sheet:** giữ `CONT_BO` và dòng tiêu đề hiện có.
@@ -84,11 +103,12 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 - **Kết quả mới của mỗi sổ:**
   - `trip_dup`: nhóm dòng có tiền cùng một chuyến nguồn, theo ba trường hợp trùng của GĐ1, kể cả trường hợp đảo ngày/tháng;
   - `source_only`: chuyến nguồn trước 10/2026 không ghép dòng nào, kèm gợi ý sổ.
-  - Lệch ngày giữ ở nhóm chuyến cần kiểm như hiện nay.
+  - Lệch ngày giữ ở nhóm chuyến cần kiểm như hiện nay. Từ 13/11/2026 riêng dòng sổ gốc lệch không quá 3 ngày thì không hỏi ([`CHUYEN-KHONG-HOI-01`](../docs/decisions/chuyen-khong-hoi-01.md)).
 - **Gợi ý sổ cho chuyến bộ:** sổ mà các chuyến khác cùng CHỦ HÀNG đã ghép nhiều nhất. Chỉ để hiện, không dùng để ghi.
 - **Chuyến bộ mới tự vào sổ (ĐÃ CHỐT 3/11/2026, [quyết định](../docs/decisions/nguon-chuyen-01.md#hiệu-lực-và-giới-hạn); đã code).** Riêng `road.json`, thay vế "không tạo chuyến mới" ở trên. `web/v7_road_queue.py`:
   - `build_road_queue` gắn mỗi chuyến `CONT_BO` READY từ 10/2026 vào sổ của **đúng một tab khách** trong bản chụp giá (cùng container, ±3 ngày; dòng tab không ngày thì cùng tháng nợ). Tab đó phải ứng một sổ đang hoạt động, theo tên sổ hoặc tên khác.
   - Không gắn được thì chỉ đếm trong `stats`, không đoán: `NO_TAB` (chờ Sheet), `AMBIGUOUS_TAB`, `NO_BOOK`, `AMBIGUOUS_SOURCE` (hai chuyến nhận một dòng tab).
+  - **Theo chủ hàng (16/11/2026, [`CHUYEN-BO-CHU-HANG-01`](../docs/decisions/chuyen-bo-chu-hang-01.md)).** Chuyến chưa ở tab nào lấy sổ theo CHỦ HÀNG khi chủ hàng đó có ít nhất `OWNER_MIN_TRIPS` = 3 chuyến (mọi tháng) được tab xếp, đều một sổ; dòng mang `book_basis: "owner"`, không có `customer_tab`/`tab_row`, `tab_debt_month` là tháng của ngày. Tab còn dòng cùng container trong `TAB_FAR_DAYS` = 31 ngày (không ngày: tháng nợ liền kề) chưa dòng `CONT_BO` nào nhận thì `TAB_FAR`, chờ tab. Chủ hàng chưa rõ sổ vẫn `NO_TAB`. Dòng xếp theo tab giữ nguyên (`book_basis: "tab"`).
   - `project_road`: chuyến đã có ở sổ (chuyến web kể cả chờ kiểm, dòng sổ gốc, ±3 ngày hoặc không ngày cùng tháng) thì bỏ. Container dùng lại xa ngày hơn là chuyến mới.
   - Lệch tháng tab (`MONTH_DIFFERS`), khách khác (`OTHER_CUSTOMER`) và sổ gốc sổ khác (`OTHER_BOOK_LEGACY`) để người. Hai luật sổ khác dùng chung `other_book_checks` với chuyến biển; sổ cùng khách thì không hiện.
   - API: phần chiếu `sheet_road` của `GET /api/v7/ledger`. Chưa có `road.json` thì không có việc; file hỏng thì `unavailable`, sổ vẫn tính.
@@ -146,6 +166,23 @@ GĐ1:
   - Kết quả: nhóm trùng ra lại đúng (32 nhóm, 28 nhóm nguồn một chuyến; 5 dòng lệch 1–3 ngày). Ba số khác vì công cụ theo đúng luật (1), chặt hơn bản đo đầu; giải thích từng dòng ở mục Bằng chứng.
 - [x] `npm run check` xanh: CI của PR GĐ1 (ở máy, bước ruff chạy riêng bằng `.venv` vì worktree không có ruff trên PATH).
 
+GĐ1b (kiểm mỗi giờ):
+- [x] Unit `test_v7_booking_check`, gồm:
+  - bản chụp thành chuyến nguồn: bỏ ngày rác, gom trùng ngày, bỏ lặp tab trước;
+  - phân bảy nhóm, giấu nhóm trước khi có sổ và khách khác của chuyến bộ;
+  - bản chụp lỗi thì báo mã, giữ kết quả cũ;
+  - stdout không có tên;
+  - tiến trình con: báo lỗi, bị giết khi lượt lỗi, hết giờ.
+- [x] Unit `test_v7_booking_view`: lịch lượt, bốn trạng thái, route không vào DB. `test_v7_reconcile_auto`: thiếu bản chụp thì lượt vẫn đạt, số đối soát không đổi.
+- [x] Trình duyệt `test-may-chay-booking-browser.js`:
+  - nhóm và số, mở dòng, link sổ đúng tháng, lọc theo sổ;
+  - bốn trạng thái không hiện như "không có gì lệch";
+  - không chèn HTML;
+  - khổ điện thoại không tràn ngang, nút cao 40px.
+- [x] Chạy chỉ đọc trên dữ liệu thật ở `hao` 13/11/2026 (số đếm ở quyết định).
+- [x] Sau `Deploy hao`: một lượt timer ghi `booking-check.json`, có số đo ghi trong `docs/deploys/` ([16/11/2026](../docs/deploys/2026-11-16-kiem-booking.md)).
+- [ ] Người dùng tự đi hết khối trên `hao`.
+
 GĐ2:
 - [x] Test bộ đọc `CONT_BO` theo tên cột: đảo cột vẫn đọc được, thiếu cột thì dừng. `road.json` có `runner.created_at` và mode 600 (`test_webdebit_export_connector`, `test_sheet_sync_runner`).
 - [ ] Trên `hao`: bản chụp `road.json` đầu có số dòng không ít hơn số đo trên bản `CONT_BO` 16:46 3/11 bằng chính bộ đọc này (2.694 dòng có dữ liệu: 2.668 READY, 16 INVALID, 10 DUPLICATE).
@@ -157,8 +194,14 @@ GĐ3, phần chuyến bộ mới:
 - [x] Chạy chỉ đọc trên dữ liệu thật ở máy (CONT_BO 16:46 3/11, bản xuất Sheet 21:15, sổ qua API, chưa có bước kiểm sổ khác): 196 chuyến từ 10/2026 gắn được sổ, 10 chưa ở tab nào; 195 chuyến chưa có trên sổ ở 5 sổ, toàn tháng 10. Bốn sổ đã biết 40 chuyến; sổ thứ năm 155 chuyến là khách đang giữ ngoài đối soát (A3), web chưa có chuyến nào tháng 10.
 - [x] Trên bản sao DB của `hao`, với `road,prices` (3/11/2026; dump 14:51 UTC, bản chụp đóng băng, `road.json` do runner của nhánh ghi, 2.694 dòng):
   - dán 195 chuyến ở 5 sổ; 0 chờ kiểm, 0 vướng sổ khác, 0 lỗi;
-  - máy ghi 195 giá; tổng nợ tăng đúng 3.111.500.000đ, bằng giá tab dự tính, từng sổ khớp;
+  - máy ghi 195 giá; tổng nợ tăng đúng bằng giá tab dự tính, từng sổ khớp;
   - mọi tháng máy mở đã khóa lại.
+
+Chuyến bộ theo chủ hàng (`CHUYEN-BO-CHU-HANG-01`):
+- [x] Unit `test_v7_road_queue.OwnerBookTests`: container dùng lại có dòng `CONT_BO` riêng vào sổ chủ hàng và thành NEW dù sổ đã có chuyến 21 ngày trước; kho từng vào hai sổ, chủ hàng lạ, chủ hàng trống, chưa đủ 3 chuyến thì `NO_TAB`; dòng tab lệch 14 ngày hoặc không ngày tháng liền kề chưa ai nhận thì `TAB_FAR`, dòng tab xa 4 tháng thì không chặn; hai dòng `CONT_BO` cùng container cách 2 ngày cùng vào một sổ theo chủ hàng thì `AMBIGUOUS_SOURCE`, không thành hai chuyến. Bộ test cũ giữ nguyên ý (một dòng chủ hàng lạ cho `NO_TAB`; `stats` không còn khóa `BOOK: 0`).
+- [x] Chỉ đọc trên bản chụp `road.json`, `prices.json` của `hao` sáng 16/11/2026: 200 chuyến theo tab y hệt luật cũ từng dòng; 31 chuyến chờ thành 31 chuyến theo chủ hàng ở 6 sổ, 0 `TAB_FAR`.
+- [x] Chiếu `project_road` trên 242 sổ tải qua API sáng 16/11/2026 (kiểm sổ khác dựng lại từ chính các sổ đó, chặt hơn `other_book_checks` vì không xét ngày): 29 NEW ở 6 sổ; 2 CONFLICT `OTHER_CUSTOMER` ở một sổ đường bộ vì cùng container đã chạy cho một sổ đường bộ khác tháng 10. Dòng theo tab: 0 dòng hiện (đều đã có trong sổ).
+- Không chạy bản sao DB: chuyến theo chủ hàng đi đúng đường dán `_auto_road` → `paste_sheet_rows` đã thử trên bản sao 3/11/2026, và vào sổ chưa có giá nên tổng nợ không đổi. Kiểm sau deploy: nhật ký máy có các chuyến `road`, tổng nợ mọi sổ không đổi.
 
 GĐ3:
 - [ ] Unit phần chiếu:

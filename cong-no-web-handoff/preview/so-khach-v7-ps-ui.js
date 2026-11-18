@@ -8,27 +8,18 @@
   let psView = null;
   let psApproval = null;
   let psDone = new Set();
+  let nextJump = 0;
   const rowKey = item => `${item.target_kind}-${item.target_id}`;
   const linesText = lines => escape(model.feeLinesText(lines, ctx.feeTypeName));
   const what = item => `<span class="ps-cont">${escape(item.container ?? '')}</span> · ${escape(dateText(item.date))}`;
-  // Nhóm theo việc người nhập phải làm (bảng "Không tự tách" ở bước 1 của spec).
-  const GROUPS = [
-    ['Mở khóa tháng là tách được', ['MONTH_LOCKED']],
-    ['Sửa trên web (bấm ô Khác của chuyến để mở chi tiết phụ phí)', ['TOTAL_DIFF', 'NEED_HEALTH', 'NEED_KD', 'AMBIGUOUS', 'TYPED_CONFLICT', 'FEE_TYPE_MISSING']],
-    ['Sửa ở Sheet hoặc bộ lập bill (lần đọc sau tự cập nhật)', ['WEB_NO_FEE', 'PS_TYPO', 'PS_BAD_AMOUNT', 'PS_SOURCE_ERROR']],
-  ];
+  // PS-HOI-01: câu trả lời được bằng nút "không" (chỉ ghi Lịch sử, không đổi tiền); ô PS hoặc phí chuyến trên web đổi thì hỏi lại.
+  const ASK = new Set(['WEB_NO_FEE', 'PS_BAD_AMOUNT', 'PS_TYPO', 'TOTAL_DIFF', 'TYPED_CONFLICT', 'NEED_HEALTH', 'NEED_KD', 'PS_SOURCE_ERROR']);
   const HINTS = {
-    TOTAL_DIFF: 'Kiểm tab khách trên Sheet (sổ chính thức). Web sai thì sửa trong chi tiết phụ phí.',
-    NEED_HEALTH: 'Thêm khoản Health cert trong chi tiết phụ phí. Ghi xong thì dòng này tự hết.',
-    NEED_KD: 'Thêm khoản Kiểm định trong chi tiết phụ phí. Ghi xong thì dòng này tự hết.',
-    AMBIGUOUS: 'Phân loại tay ở đúng chuyến.',
-    TYPED_CONFLICT: 'Web đã có khoản khác PS. Kiểm Sheet rồi sửa trong chi tiết phụ phí.',
+    MONTH_LOCKED: 'Máy tự tách ở lượt chạy sau (tiền không đổi). Muốn tách ngay thì mở khóa tháng.',
+    AMBIGUOUS: 'Container khớp nhiều chuyến nên máy không biết chuyến nào: phân loại tay ở đúng chuyến.',
     FEE_TYPE_MISSING: 'Thêm loại đó trong Cài đặt phụ phí.',
-    WEB_NO_FEE: 'Ghi phí trên tab khách như mọi khi; có giá từ Sheet rồi thì chuyến này vào nút Tách.',
-    PS_TYPO: 'Sửa bảng PS, hoặc phân loại tay trên web.',
-    PS_BAD_AMOUNT: 'Sửa bảng PS, hoặc phân loại tay trên web.',
-    PS_SOURCE_ERROR: 'Sửa trong bộ lập bill.',
   };
+  const groupKey = item => `${item.status}|${item.message}`;
   function months(items) {
     const keys = [...new Set(items.map(item => monthKey(item.month)).filter(Boolean))].sort();
     return keys.map(key => `tháng ${monthLabel(key)}`).join(', ');
@@ -45,18 +36,170 @@
     }
     if (psView?.error) return `<div class="price-panel err ps-panel" role="alert"><p><strong>Chưa tách chuyến nào.</strong> ${escape(psView.error)}</p><div class="price-actions"><button type="button" class="ps-reload primary">Tải lại sổ</button></div></div>`;
     if (psView !== 'review') return '';
-    const line = item => {
-      const month = monthKey(item.month);
-      const jump = item.target_kind && root.querySelector(`[data-row="${CSS.escape(rowKey(item))}"]`)
-        ? `<button type="button" class="ps-jump" data-target="${escape(rowKey(item))}">Xem dòng</button>` : '';
-      const unlock = item.status === 'MONTH_LOCKED' && month
-        ? `<button type="button" class="ps-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button>` : '';
-      return `<li><div class="what">${what(item)} · ${escape(item.message)}${HINTS[item.status] ? `<small>${HINTS[item.status]}</small>` : ''}</div>${unlock}${jump}</li>`;
-    };
-    const review = ps.review ?? [];
-    const groups = GROUPS.map(([title, codes]) => [title, review.filter(item => codes.includes(item.status))]).filter(([, items]) => items.length);
-    return `<div class="price-panel ps-panel ps-review" role="region" aria-label="Phụ phí PS cần xem">${groups.map(([title, items]) => `<h3>${title}</h3><ul>${items.map(line).join('')}</ul>`).join('')}</div>`;
+    // Chỉ còn các dòng PS không gắn được chuyến nào trên sổ (ví dụ lỗi của bộ lập bill); dòng có chuyến hỏi ngay ở hàng.
+    const loose = (ps.review ?? []).filter(item => !item.target_kind)
+      .map(item => `<li><div class="what">${what(item)} · ${escape(item.message)}${HINTS[item.status] ? `<small>${HINTS[item.status]}</small>` : ''}</div></li>`).join('');
+    return `<div class="price-panel ps-panel ps-review" role="region" aria-label="Dòng PS không gắn được chuyến"><ul>${loose}</ul></div>`;
   }
+  // PS-O-KHAC-01 (13/11/2026, thay hàng hỏi của PS-TAI-HANG-01): mỗi chuyến có phụ phí phát sinh cần xem có một nhãn cam trong
+  // ô Khác; bấm nhãn mở hộp nhỏ cạnh ô: bảng chi phí ghi bao nhiêu, sổ khách đang tính bao nhiêu, chênh bao nhiêu, và hai nút
+  // ngang nhau. Nút "không" chỉ ghi Lịch sử, không đổi tiền (PS-HOI-01); nút "có" chỉ chỗ sửa vì web không cộng tiền theo PS.
+  const big = value => value == null || value === '' ? null : BigInt(value);
+  const money = value => `${model.formatVnd(value)} đ`;
+  const signed = value => `${value > 0n ? '+' : ''}${model.formatVnd(value)}`;
+  const SHEET_HOW = 'Ghi phụ phí trên tab khách ở Sheet; web tự cập nhật ở lần đọc Sheet sau.';
+  // Ô PS số lẻ: nói đúng tab, dòng, số thật và số Sheet đang hiện để người dùng tìm được ô (model.psOddText).
+  function badAmountText(item) {
+    const odd = model.psOddText(item.ps_value);
+    const field = item.ps_field === 'Khác' ? 'Phí khác' : item.ps_field ? `Ô ${item.ps_field}` : 'Ô';
+    const where = item.ps_source ? ` ở ${item.ps_source}` : '';
+    if (odd) return `${field}${where} là ${odd.exact} đ (trên Sheet hiện tròn ${odd.shown}), không phải số đồng nguyên nên máy không đọc được.`;
+    return item.ps_value != null ? `${field}${where} ghi "${item.ps_value}", không phải số đồng nguyên nên máy không đọc được.` : item.message;
+  }
+  function explain(item) {
+    const ps = big(item.ps_total), web = big(item.web_total) ?? 0n;
+    const nums = value => [['Bảng chi phí ghi', money(value)], ['Sổ khách đang tính', money(web)], ['Chênh', `${signed(value - web)} đ`, 'ps-diff']];
+    const cell = item.ps_value != null ? `${item.ps_field ?? ''} ${item.ps_value}`.trim() : null;
+    switch (item.status) {
+      case 'WEB_NO_FEE': return ps === null ? null : { chip: signed(ps), title: 'Phụ phí phát sinh chưa tính khách', nums: nums(ps),
+        no: 'Không tính khách', yes: 'Tính khách…', how: SHEET_HOW };
+      case 'TOTAL_DIFF': return ps === null ? null : { chip: signed(ps - web), title: 'Phụ phí phát sinh khác sổ khách', nums: nums(ps),
+        no: 'Sổ khách đúng', yes: 'Theo bảng chi phí…', how: 'Sửa phụ phí trên tab khách ở Sheet; web tự cập nhật ở lần đọc Sheet sau.' };
+      case 'PS_BAD_AMOUNT': return { chip: `${model.psOddText(item.ps_value)?.exact ?? item.ps_value ?? 'số lẻ'} ?`, title: 'Bảng chi phí ghi số lẻ',
+        text: badAmountText(item),
+        ask: 'Khoản này có tính khách không?', no: 'Không tính khách', yes: 'Tính khách…',
+        how: 'Ghi phụ phí (số đồng nguyên) trên tab khách ở Sheet; web tự cập nhật ở lần đọc Sheet sau.' };
+      case 'PS_TYPO': return { chip: `${cell ?? 'số lạ'} ?`, title: 'Bảng chi phí có thể gõ sai',
+        text: cell ? `Ô ${cell} nhỏ bất thường.` : item.message, ask: 'Số này có đúng không?', no: 'Số đúng, bỏ qua', yes: 'Gõ sai…',
+        how: 'Sửa trên bảng chi phí; lần đọc sau web tự cập nhật.' };
+      case 'TYPED_CONFLICT': return { chip: 'loại ?', title: 'Loại phụ phí khác bảng chi phí',
+        text: 'Tổng tiền bằng nhau, nhưng sổ khách chia loại phụ phí khác bảng chi phí.', ask: 'Giữ cách chia trên sổ khách?',
+        no: 'Giữ như sổ khách', fee: 'Chia lại từng khoản' };
+      case 'NEED_HEALTH': case 'NEED_KD': {
+        const name = item.status === 'NEED_HEALTH' ? 'Health cert' : 'Kiểm định';
+        return { chip: `${item.status === 'NEED_HEALTH' ? 'Health' : 'KĐ'} ?`, title: `Bảng chi phí đánh dấu ${name}`,
+          text: `Bảng chi phí đánh dấu chuyến này có ${name} nhưng không ghi giá.`, ask: `Chuyến này có tính ${name} không?`,
+          no: 'Không tính', fee: `Có tính: nhập giá ${name}` };
+      }
+      case 'PS_SOURCE_ERROR': return { chip: 'lỗi ?', title: 'Bộ lập bill báo lỗi ở dòng này', text: item.message,
+        no: 'Bỏ qua', yes: 'Cần sửa…', how: 'Sửa trong bộ lập bill; lần đọc sau web tự cập nhật.' };
+      case 'MONTH_LOCKED': return { chip: 'chờ tách', title: 'Chưa tách phụ phí: tháng đang khóa', text: HINTS.MONTH_LOCKED, unlock: true };
+      default: return { chip: '?', title: item.message || 'Phụ phí phát sinh cần xem', text: HINTS[item.status] ?? '' };
+    }
+  }
+  const keyOf = item => `${item.source_fingerprint}:${rowKey(item)}`;
+  const contList = items => items.length > 3 ? `${items.slice(0, 2).map(item => item.container).join(', ')} và ${items.length - 2} cont khác` : items.map(item => item.container).join(', ');
+  // Chuyến đang mở hộp, câu đã bấm "có…" (hiện cách làm), câu bỏ tick "trả lời luôn cho cont cùng khoản"; giữ qua lần vẽ lại.
+  let openKey = null;
+  const shown = new Set();
+  const alone = new Set();
+  let asked = { byRow: new Map(), groups: new Map() };
+  function decorateAsks(review) {
+    const groups = new Map();
+    for (const item of review.filter(item => item.keepable && ASK.has(item.status))) {
+      if (!groups.has(groupKey(item))) groups.set(groupKey(item), []);
+      groups.get(groupKey(item)).push(item);
+    }
+    const byRow = new Map();
+    for (const item of review.filter(item => item.target_kind && explain(item))) {
+      if (!byRow.has(rowKey(item))) byRow.set(rowKey(item), []);
+      byRow.get(rowKey(item)).push(item);
+    }
+    asked = { byRow, groups };
+    for (const [key, items] of byRow) {
+      const row = root.querySelector(`[data-row="${CSS.escape(key)}"]`);
+      if (!row) continue;   // tháng khác: hiện khi xem tháng đó
+      row.classList.add('ps-asked');
+      const cell = row.querySelector('td.fee-other') ?? row.querySelector('td:last-child');
+      const label = `${explain(items[0]).chip}${items.length > 1 ? ` · ${items.length}` : ''}`;
+      cell?.insertAdjacentHTML('afterbegin', `<button type="button" class="ps-chip" data-ps-row="${escape(key)}" aria-haspopup="dialog" `
+        + `aria-expanded="${openKey === key}" aria-label="Phụ phí phát sinh cần xem: ${escape(items[0].container ?? '')}">${escape(label)}</button>`);
+    }
+  }
+  function popItem(item) {
+    const view = explain(item);
+    const group = asked.groups.get(groupKey(item)) ?? [item];
+    const mates = group.filter(entry => entry !== item);
+    const month = monthKey(item.month);
+    const keep = item.keepable && view.no
+      ? `<button type="button" class="ps-keep primary" data-own="${escape(keyOf(item))}" data-keys="${escape(group.map(keyOf).join(' '))}">${escape(view.no)}</button>` : '';
+    const yes = view.fee ? `<button type="button" class="ps-fee-open" data-target="${escape(rowKey(item))}">${escape(view.fee)}</button>`
+      : view.yes ? `<button type="button" class="ps-yes" data-item="${escape(keyOf(item))}" aria-expanded="${shown.has(keyOf(item))}">${escape(view.yes)}</button>` : '';
+    const unlock = view.unlock && month ? `<button type="button" class="ps-unlock primary" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button>` : '';
+    return `<section class="ps-pop-item"><h3>${escape(view.title)}</h3>`
+      + (view.nums ? `<dl class="ps-nums">${view.nums.map(([label, value, cls]) => `<div${cls ? ` class="${cls}"` : ''}><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>` : '')
+      + (view.text ? `<p>${escape(view.text)}</p>` : '') + (view.ask ? `<p class="ps-q">${escape(view.ask)}</p>` : '')
+      + (keep && mates.length ? `<label class="ps-group"><input type="checkbox" class="ps-group-pick" data-item="${escape(keyOf(item))}"${alone.has(keyOf(item)) ? '' : ' checked'}> Trả lời luôn cho ${escape(contList(mates))} (cùng khoản)</label>` : '')
+      + `<div class="ps-pop-actions">${keep}${yes}${unlock}</div>`
+      + (view.how ? `<p class="ps-how"${shown.has(keyOf(item)) ? '' : ' hidden'}>${escape(view.how)}</p>` : '') + '</section>';
+  }
+  function placePop() {
+    const pop = root.querySelector('.ps-pop');
+    const chip = openKey && root.querySelector(`.ps-chip[data-ps-row="${CSS.escape(openKey)}"]`);
+    if (!pop || !chip) return;
+    const rect = chip.getBoundingClientRect();
+    const width = pop.offsetWidth, height = pop.offsetHeight;
+    pop.style.left = `${Math.max(8, Math.min(rect.right - width, innerWidth - width - 8))}px`;
+    pop.style.top = `${rect.bottom + 8 + height > innerHeight - 8 && rect.top - height - 8 > 0 ? rect.top - height - 8 : rect.bottom + 8}px`;
+  }
+  function renderPop() {
+    root.querySelectorAll('.ps-pop').forEach(node => node.remove());
+    const items = openKey && asked.byRow.get(openKey);
+    if (!items || !root.querySelector(`.ps-chip[data-ps-row="${CSS.escape(openKey)}"]`)) { openKey = null; return; }
+    root.insertAdjacentHTML('beforeend', `<div class="ps-pop" role="dialog" aria-label="Phụ phí phát sinh ${escape(items[0].container ?? '')}">`
+      + `<div class="ps-pop-head"><span>${what(items[0])}</span><button type="button" class="ps-pop-close" aria-label="Đóng">×</button></div>${items.map(popItem).join('')}</div>`);
+    placePop();
+  }
+  function openPop(key) {
+    openKey = key;
+    root.querySelectorAll('.ps-chip').forEach(chip => chip.setAttribute('aria-expanded', String(chip.dataset.psRow === key)));
+    renderPop();
+    root.querySelector('.ps-pop .ps-pop-actions button')?.focus({ preventScroll: true });
+  }
+  function closePop(focusChip) {
+    const key = openKey;
+    openKey = null;
+    root.querySelectorAll('.ps-pop').forEach(node => node.remove());
+    root.querySelectorAll('.ps-chip[aria-expanded="true"]').forEach(chip => chip.setAttribute('aria-expanded', 'false'));
+    if (focusChip && key) root.querySelector(`.ps-chip[data-ps-row="${CSS.escape(key)}"]`)?.focus();
+  }
+  // Nhãn nằm trong ô Khác (ô mở chi tiết phụ phí): bắt ở pha bắt sự kiện để bấm nhãn chỉ mở hộp. Bấm ngoài hộp thì đóng.
+  document.addEventListener('click', event => {
+    const chip = event.target.closest?.('.ps-chip');
+    if (chip && root.contains(chip)) {
+      event.stopPropagation();
+      event.preventDefault();
+      if (openKey === chip.dataset.psRow) closePop(); else openPop(chip.dataset.psRow);
+      return;
+    }
+    if (openKey && !event.target.closest?.('.ps-pop')) closePop();
+  }, true);
+  document.addEventListener('keydown', event => { if (openKey && event.key === 'Escape') { event.preventDefault(); closePop(true); } });
+  document.addEventListener('scroll', placePop, { capture: true, passive: true });
+  window.addEventListener?.('resize', placePop);
+  root.addEventListener('change', event => {
+    const pick = event.target.closest('.ps-group-pick');
+    if (!pick) return;
+    if (pick.checked) alone.delete(pick.dataset.item); else alone.add(pick.dataset.item);
+  });
+  root.addEventListener('click', event => {
+    const button = event.target.closest('.ps-pop-close,.ps-yes,.ps-fee-open');
+    if (!button) return;
+    if (button.matches('.ps-pop-close')) { closePop(true); return; }
+    if (button.matches('.ps-yes')) {
+      const key = button.dataset.item;
+      if (shown.has(key)) shown.delete(key); else shown.add(key);
+      button.setAttribute('aria-expanded', String(shown.has(key)));
+      const how = button.closest('.ps-pop-item')?.querySelector('.ps-how');
+      if (how) how.hidden = !shown.has(key);
+      placePop();
+      return;
+    }
+    // "Có tính" với khoản theo loại: mở đúng khung chi tiết phụ phí của chuyến (cùng chỗ bấm ô Khác).
+    const cell = root.querySelector(`[data-row="${CSS.escape(button.dataset.target)}"] td.fee-other`);
+    closePop();
+    cell?.click();
+  });
   // Cụm ô phụ phí của một dòng hiện theo danh sách khoản (khi xác nhận: kết quả dự kiến sau khi tách).
   function showLines(row, lines) {
     const cells = model.feeCells(lines, ctx.feeColumnIds);
@@ -84,25 +227,37 @@
     const bar = root.querySelector('.book-bar');
     if (!bar) return;
     if (ready.length && psView !== 'confirm') bar.querySelector('.book-tasks')?.insertAdjacentHTML('afterbegin', `<button type="button" class="ps-approve">Tách ${ready.length} phụ phí theo bảng PS</button>`);
-    // Một dải "cần xem" chung với giá từ Sheet (một ô trong thanh việc, SO-GON-06); chưa có dải đó thì tự tạo.
+    decorateAsks(review);
+    // Thanh việc chỉ báo số và nút "Đến dòng" (như "Đến chuyến" của chuyến mới); dòng không gắn chuyến mới cần nút Xem.
     let anchor = bar;
     while (anchor.nextElementSibling?.matches('.price-panel')) anchor = anchor.nextElementSibling;
+    const placed = review.filter(item => item.target_kind).length;
+    const loose = review.length - placed;
+    const conts = new Set(review.filter(item => item.target_kind).map(rowKey)).size;
+    if (!loose && psView === 'review') psView = null;
     const toggle = ps.unavailable ? '<span class="ps-unavailable">Chưa đọc được bảng PS; nút tách phụ phí tạm ẩn tới lần đọc sau.</span>'
-      : review.length ? `Phụ phí PS cần xem: <strong>${review.length}</strong> <button type="button" class="ps-review-toggle" aria-expanded="${psView === 'review'}">${psView === 'review' ? 'Đóng' : 'Xem'}</button>` : '';
-    const strip = toggle && root.querySelector('.price-strip:has(.price-review-toggle)');
-    if (strip) strip.insertAdjacentHTML('beforeend', `<span class="ps-sep">|</span>${toggle}`);
-    else if (toggle) bar.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip ps-strip">${toggle}</div>`);
+      : review.length ? (placed ? `<span><strong>${conts}</strong> cont có phụ phí phát sinh cần xem</span><button type="button" class="ps-next">Đến cont${conts > 1 ? ' tiếp' : ''}</button>` : '')
+        + (loose ? `${placed ? '<span class="ps-sep">·</span>' : ''}<span>${loose} dòng phụ phí phát sinh không gắn chuyến</span> <button type="button" class="ps-review-toggle" aria-expanded="${psView === 'review'}">${psView === 'review' ? 'Đóng' : 'Xem'}</button>` : '') : '';
+    if (toggle) bar.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip ps-strip">${toggle}</div>`);
     anchor.insertAdjacentHTML('afterend', panel(ps));
+    renderPop();
   }
-  root.addEventListener('click', async event => {
-    const target = event.target.closest('.ps-approve,.ps-cancel,.ps-review-toggle,.ps-reload,.ps-write,.ps-unlock,.ps-jump');
+  root.addEventListener('click', api.tracked(async event => {
+    const target = event.target.closest('.ps-approve,.ps-cancel,.ps-review-toggle,.ps-reload,.ps-write,.ps-unlock,.ps-next');
     if (!target || target.disabled || !ctx.snapshot) return;
-    if (target.matches('.ps-jump')) {
-      const row = root.querySelector(`[data-row="${CSS.escape(target.dataset.target)}"]`);
-      row?.scrollIntoView({ block: 'center' });
-      row?.classList.remove('ps-flash');
-      void row?.offsetWidth;
-      row?.classList.add('ps-flash');
+    if (target.matches('.ps-next')) {
+      // Lần lượt từng chuyến có câu hỏi: mở đúng tháng, cuộn tới hàng, con trỏ vào nút trả lời.
+      const keys = [...asked.byRow.values()].map(items => items[0]);
+      if (!keys.length) return;
+      const item = keys[nextJump++ % keys.length];
+      ctx.showMonth(monthKey(item.month));
+      const row = root.querySelector(`[data-row="${CSS.escape(rowKey(item))}"]`);
+      if (!row) { showNotice(`Không thấy chuyến ${item.container ?? ''} trên sổ đang xem.`); return; }
+      row.scrollIntoView({ block: 'center' });
+      row.classList.remove('ps-flash');
+      void row.offsetWidth;
+      row.classList.add('ps-flash');
+      openPop(rowKey(item));
       return;
     }
     if (target.matches('.ps-approve,.ps-cancel,.ps-review-toggle')) {
@@ -151,6 +306,47 @@
     showNotice(result.complete === false
       ? `Đã tách ${result.written} chuyến; còn ${result.remaining} chuyến chưa tách. Bấm "Tách … phụ phí theo bảng PS" để tách tiếp.`
       : `Đã tách phụ phí ${result.written} chuyến theo bảng PS. Tổng tiền không đổi${plan.same ? ` (${model.formatVnd(plan.totalVnd)} đ phụ phí)` : ''}; Lịch sử ghi từng chuyến.`);
-  });
+  }));
+  // "… hết báo": một lệnh giữ cho mỗi chuyến (keep_sheet_task 'ps'), lần lượt, đọc lại sổ giữa hai lệnh để có version mới.
+  // Chưa rõ kết quả thì bấm lại gửi đúng khóa cũ (không ghi Lịch sử hai lần).
+  const keepBodies = new Map();
+  root.addEventListener('click', api.tracked(async event => {
+    const button = event.target.closest('.ps-keep');
+    if (!button || button.disabled || !ctx.snapshot) return;
+    if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
+    // Bỏ tick "trả lời luôn cho cont cùng khoản" thì chỉ trả lời chuyến đang mở.
+    const wanted = (button.closest('.ps-pop-item')?.querySelector('.ps-group-pick')?.checked === false ? button.dataset.own : button.dataset.keys).split(' ');
+    button.disabled = true;
+    let done = 0;
+    for (const key of wanted) {
+      const [fingerprint, target] = key.split(':');
+      const split = target.indexOf('-');
+      let body = keepBodies.get(key);
+      if (!body) {
+        body = { customer_id: customerId, expected_version: ctx.snapshot.version, idempotency_key: crypto.randomUUID(), task_kind: 'ps',
+          target_kind: target.slice(0, split), target_id: Number(target.slice(split + 1)), source_fingerprint: fingerprint };
+        keepBodies.set(key, body);
+      }
+      let response, result;
+      try {
+        response = await fetch('/api/v7/sheet/tasks/keep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        result = await response.json();
+      } catch {
+        button.disabled = false;
+        showNotice(`Chưa rõ kết quả${done ? ` (đã xong ${done}/${wanted.length})` : ''}. Bấm lại để thử đúng thao tác đó.`);
+        return;
+      }
+      keepBodies.delete(key);
+      if (!response.ok) {
+        await api.read().catch(() => {});
+        showNotice(`${done ? `Đã trả lời ${done}/${wanted.length} cont. ` : ''}${result.message || 'Dòng PS hoặc sổ vừa đổi. Xem lại câu hỏi.'}`);
+        return;
+      }
+      done += 1;
+      if (done === wanted.length) openKey = null;
+      try { await api.read(); } catch { showNotice('Đã ghi câu trả lời; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+    }
+    showNotice(`Đã ghi câu trả lời cho ${done} cont; số nợ không đổi, Lịch sử ghi người chọn. Bảng chi phí đổi thì máy hỏi lại.`);
+  }));
   Object.assign(ctx, { psAfterRender });
 };

@@ -16,6 +16,8 @@ Người dùng/chủ nghiệp vụ chốt bảng giá theo ngày hiệu lực tr
 
 **Cập nhật 5/11/2026:** nguyên tắc "sửa bảng giá không tự đổi chuyến đã ghi" bị thay bởi [`BANG-GIA-02`](bang-gia-02.md): lưu bảng giá thì chuyến đang theo bảng tự đổi, trừ tháng khóa. Các nguyên tắc còn lại giữ nguyên.
 
+**Cập nhật 10/11/2026:** Q4 “không xét cảng đích” bị thay bởi [`BANG-GIA-03`](bang-gia-03.md): tra theo nơi đến; dòng cũ thiếu nơi đến chỉ áp khi bổ sung.
+
 **Cập nhật 29/10/2026:** backend (migration + hàm + API) ĐÃ TRIỂN KHAI trên `hao` bằng đợt tay, xem [nhật ký](../deploys/2026-10-29-bang-gia-chung-tu.md); giao diện chưa có. **Cập nhật 30/10/2026:** server chặn ghi đè đơn giá gõ tay (`PRICE_TYPED_PRICE`, migration `2026-10-29-v7-ra-ghi-tien.sql`) ĐÃ TRIỂN KHAI trên `hao`, xem [nhật ký](../deploys/2026-10-30-ra-ghi-tien.md).
 
 **Cập nhật 29/10/2026 (giao diện):** khung Bảng giá đầu tiên bị người dùng báo "không dùng được, không ai hiểu"; thay bằng giao diện lưới giống vùng bảng giá trên Sheet sau khi người dùng thử mockup v2 và chốt "Ổn, làm thật" (xem spec, giai đoạn 2). Không đổi quy tắc giá hay API.

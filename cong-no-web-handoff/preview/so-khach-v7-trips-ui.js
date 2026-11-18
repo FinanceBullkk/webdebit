@@ -10,7 +10,10 @@
     ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', shipper: 'shipper',
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
     : ({ OTHER_CUSTOMER: 'khách khác', OTHER_BOOK_LEGACY: 'đã có ở sổ gốc của sổ khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
-      CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
+      AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
+  // CHUYEN-KHONG-HOI-01: container đã có trong sổ, tab khách chưa có dòng riêng. Chỉ để xem: không nút, không tính là việc.
+  const WAITING_WHY = 'Container này đã có trong sổ và tab khách trên Sheet chưa có dòng riêng cho chuyến này. '
+    + 'Không cần làm gì trên web: tab có dòng riêng thì dòng này thành chuyến mới như thường.';
   // NHAP-SHEET-01: mọi ô chuyến (web và sổ gốc) sửa đè tại ô, kể cả tháng khóa; bấm STT để xóa hẳn.
   // Đổi ngày sang tháng khác (góp ý 23/10/2026): dòng vừa chuyển tô vàng ở tháng mới (ctx.moved, so-khach-v7-edit-ui.js).
   const movedTag = rowKey => moved.has(rowKey)
@@ -48,12 +51,15 @@
   // Sheet history in the ledger columns: amounts come from the copy as digit strings; no maths here.
   // The loader resolves every serial date to one reading (dd/mm/yyyy); anything left is text typed in the Sheet ("da tt").
   const curDay = (cur, t) => cur.event_date ? dateText(cur.event_date) : sheetDay(t.raw_date);
-  const countedCell = cur => num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd));
+  // NHAP-NHANH-01: dòng vừa sửa còn đang ghi nền (`saving` do bản vá đặt) — Thành tiền chờ số máy chủ, trang không tự tính.
+  const savingCell = () => '<td class="num is-saving" title="Đang lưu, chờ máy chủ tính">…</td>';
+  const countedCell = (cur, saving = false) => (saving ? savingCell()
+    : num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd)));
   // KHOA-CHU-01 (1/11/2026): tháng khóa vẫn sửa được bốn ô chữ (hãng tàu, shipper, nơi đi, nơi đến); container, ngày, tiền, xóa thì không.
   const legacyLocked = (trip, cur, t, stt, unitText) => [cell(stt || '–'), cell(cur.container || 'Phí lẻ'),
     infoCell('legacy', trip.id, 'carrier', cur.carrier ?? ''), shipperCell(infoCell('legacy', trip.id, 'shipper', cur.shipper ?? '')),
     cell(curDay(cur, t)), route(infoCell('legacy', trip.id, 'origin', cur.origin ?? ''), infoCell('legacy', trip.id, 'destination', cur.destination ?? '')),
-    num(unitText[0]), feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur)].join('');
+    num(unitText[0]), feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur, trip.saving)].join('');
   const legacyEditable = (trip, cur, t, stt, unitText) => {
     const what = cur.container || 'phí lẻ';
     const edit = (field, text, classes) => infoCell('legacy', trip.id, field, text, classes);
@@ -61,7 +67,7 @@
       edit('container', cur.container || 'Phí lẻ'), edit('carrier', cur.carrier ?? ''), shipperCell(edit('shipper', cur.shipper ?? '')),
       edit('event_date', curDay(cur, t)), route(edit('origin', cur.origin ?? ''), edit('destination', cur.destination ?? '')),
       edit('unit_price_vnd', unitText[0], `num ${unitText[1]}`), feeCells(`legacy:${trip.id}`, what, trip.fee_lines, cur.unit_price_vnd != null),
-      countedCell(cur)].join('');
+      countedCell(cur, trip.saving)].join('');
   };
   const legacySheet = (trip, t, stt) => [cell(stt), cell(t.container || 'Phí lẻ'), cell(t.carrier ?? ''), shipperCell(cell(t.shipper ?? '')),
     cell(t.date ? dateText(t.date) : sheetDay(t.raw_date)), routeText(t.from ?? '', t.to ?? ''),
@@ -106,7 +112,8 @@
     const amount = !trip ? empty('num') : pending && locked ? '<td class="num"><span class="row-tag review">chờ kiểm</span></td>'
       : pending ? `<td class="num review-cell"><button type="button" class="review-open row-tag review" data-trip="${trip.id}" aria-expanded="false" `
         + `aria-label="Kết luận chuyến ${escape(trip.container)} đang chờ kiểm">chờ kiểm</button></td>`
-      : trip.status === 'rejected' ? '<td class="num"><span class="trip-rejected row-tag rejected">đã loại</span></td>' : num(fmt(trip.amount_vnd));
+      : trip.status === 'rejected' ? '<td class="num"><span class="trip-rejected row-tag rejected">đã loại</span></td>'
+        : trip.saving ? savingCell() : num(fmt(trip.amount_vnd));
     return `<tr${rowKey ? ` data-row="${rowKey}"` : ''}${moved.has(rowKey) ? ' class="moved"' : ''}>${stt}
             ${infoCells}
             ${price}
@@ -116,11 +123,33 @@
   }
 
   // Chuyến Sheet chưa vào sổ: CHỜ DUYỆT (dòng mới) hoặc KHÁC (lệch chưa nối được dòng nào trong sổ).
-  const sheetPendingRows = rows => rows.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
-          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>`
-    + `${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${routeText(row.origin, row.destination)}
-          ${empty('num')}${feeEmpty()}${num('–')}
-          </tr>`).join('');
+  // DUYET-TAI-HANG-01: máy tự duyệt chuyến mới chắc chắn (v7_inbox._auto_trips); hàng còn lại ghi vì sao máy chưa duyệt
+  // và có nút Duyệt ngay ở cột Thành tiền. Ngày sau hôm nay thì không có nút (máy chặn FUTURE_DATE), tới ngày máy tự duyệt.
+  const todayVn = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  // Câu ngắn vì sao máy chưa tự duyệt (cùng điều kiện với _auto_trips); câu đủ ở chữ rê chuột.
+  const newWhy = (row, today) => String(row.event_date ?? '') > today ? ['Ngày sau hôm nay', 'Tới ngày máy tự duyệt; chưa duyệt tay được.']
+    : row.book_match === 'COMMODITY_UNKNOWN' ? ['Sheet chưa ghi mặt hàng', 'Máy chỉ tự duyệt khi mặt hàng trên Sheet khớp sổ. Đúng khách này thì bấm Duyệt.']
+      : row.book_match === 'COMMODITY_MISMATCH' ? [`Sheet ghi ${row.commodity ?? 'mặt hàng khác'}`, 'Mặt hàng trên Sheet khác sổ này. Chỉ duyệt khi chắc chuyến thuộc sổ này.']
+        : row.book_match === 'COMMODITY_OK' ? ['Tháng cũ đang khóa', 'Máy không tự thêm chuyến vào tháng khóa trước 10/2026. Bấm Duyệt nếu đúng.']
+          : ['Chưa chắc sổ này', 'Máy chưa chắc chuyến thuộc sổ này. Đúng khách này thì bấm Duyệt.'];
+  const sheetPendingRows = rows => {
+    const today = todayVn();
+    return rows.map(row => {
+      const isNew = row.sync_state === 'NEW';
+      const waiting = row.sync_state === 'WAITING';
+      const canApprove = isNew && row.source_row != null && String(row.event_date ?? '') <= today;
+      const tag = isNew ? `<small class="sheet-tag">CHỜ DUYỆT</small><small class="sheet-why" title="${escape(newWhy(row, today)[1])}">${escape(newWhy(row, today)[0])}</small>`
+        : waiting ? `<small class="sheet-tag">CHỜ TAB SHEET</small><small class="sheet-why" title="${escape(WAITING_WHY)}">Không cần làm gì</small>`
+          : `<small class="sheet-tag">KHÁC: ${conflictFields(row)}</small>`;
+      const act = canApprove ? `<td class="num sheet-new-act"><button type="button" class="sheet-row-approve" data-source-row="${escape(row.source_row)}" `
+        + `aria-label="Duyệt chuyến ${escape(row.container)} ngày ${escape(dateText(row.event_date))}">Duyệt</button></td>` : num('–');
+      return `<tr class="${isNew ? 'sheet-new' : waiting ? 'sheet-waiting' : 'sheet-conflict'}"${isNew && row.source_row != null ? ` data-sheet-new="${escape(row.source_row)}"` : ''}>
+          ${empty()}<td>${escape(row.container)}${tag}</td>`
+        + `${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${routeText(row.origin, row.destination)}
+          ${empty('num')}${feeEmpty()}${act}
+          </tr>`;
+    }).join('');
+  };
 
   // Dòng trong sổ mà Sheet có dữ liệu khác: tô KHÁC và nút Xem (khung đối chiếu ở so-khach-v7-sheet-ui.js).
   function conflictsAfterRender(data) {
@@ -130,7 +159,7 @@
       if (target) {
         target.classList.add('sheet-conflict');
         target.title = 'Chuyến Sheet có dữ liệu khác. Giữ nguyên sổ hiện có.';
-        const label = document.createElement('small'); label.textContent = `KHÁC: ${conflictFields(row)}`;
+        const label = document.createElement('small'); label.className = 'sheet-tag'; label.textContent = `KHÁC: ${conflictFields(row)}`;
         target.children[1]?.append(label);
         const button = document.createElement('button'); button.type = 'button'; button.className = 'sheet-diff';
         button.dataset.index = String(sheetRows.indexOf(row)); button.textContent = 'Xem';

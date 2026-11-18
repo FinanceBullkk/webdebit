@@ -1,5 +1,5 @@
 /* Menu trái dùng chung (3/11/2026): mọi trang đặt <aside class="app-nav" data-active="…"></aside> rồi nạp file này trước
- * script của trang. File vẽ nút ☰, ô Tìm khách, sáu mục điều hướng và số "sổ còn việc" trên mục Việc cần làm — cùng cách đếm
+ * script của trang. File vẽ nút ☰, ô Tìm khách, chín mục điều hướng và số "sổ còn việc" trên mục Việc cần làm — cùng cách đếm
  * với trang Việc cần làm (InboxTable.books: việc từ Sheet + chuyến thiếu giá, chờ kiểm, số dư đầu, sổ chưa gán mặt hàng).
  * Trang đã có số liệu thì báo qua AppNav.setCustomers / AppNav.setTodoCount (data-count="page") để khỏi đọc API hai lần;
  * trang khác thì file tự đọc. Không ghi gì lên server; chỉ lưu số đếm gần nhất trên máy (localStorage) và bản số liệu Việc cần
@@ -14,8 +14,11 @@ globalThis.AppNav = (() => {
     ['theo-thang', '/cong-no-theo-thang.html', 'Công nợ theo tháng', '<rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M4 10h16M9 3v4M15 3v4"></path>'],
     ['so-khach', '/so-khach-v7-live.html', 'Sổ khách', '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M5 17a3 3 0 0 1 3-3h11"></path>'],
     ['bang-thu', '/bang-thu.html', 'Bảng thu', '<rect x="3" y="6" width="18" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.5"></circle><path d="M6.5 9.5v.01M17.5 14.5v.01"></path>'],
+    ['bao-cao-thang', '/bao-cao-thang.html', 'Báo cáo tháng', '<path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v4h4M8 17v-3M12 17v-6M16 17v-4"></path>'],
     ['viec-can-lam', '/viec-can-lam.html', 'Việc cần làm', '<path d="M9 6h11M9 12h11M9 18h11"></path><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"></path>'],
     ['may-chay', '/may-chay.html', 'Máy chạy', '<rect x="4" y="6" width="16" height="11" rx="2"></rect><path d="M8 21h8M12 17v4M8 11h2M13 11h3"></path>'],
+    ['doi-xe', '/doi-xe.html', 'Đội xe', '<path d="M2.5 6.5h11v9h-11z"></path><path d="M13.5 9.5h4l3 3v3h-7z"></path><circle cx="6.5" cy="17.5" r="1.8"></circle><circle cx="16.5" cy="17.5" r="1.8"></circle>'],
+    ['thong-tin-cty', '/thong-tin-cty.html', 'Thông tin cty', '<path d="M4 21V5l8-3v19M12 9h8v12M7 8h2M7 12h2M7 16h2M15 13h2M15 17h2M2 21h20"></path>'],
   ];
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   const root = document.querySelector('aside.app-nav');

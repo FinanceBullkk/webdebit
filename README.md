@@ -19,18 +19,18 @@ npx playwright install chromium
 npm run check
 ```
 
-`requirements-dev.txt` chỉ có công cụ lint (ruff, ghim phiên bản, không ghim hash), không phải phụ thuộc chạy thật. `npm run check` ([scripts/check.js](scripts/check.js)) tự tìm Python và ruff trong `.venv`, rồi chạy tám bước: ruff, luật nghiệp vụ, link tài liệu, eslint, unittest của `cong-no-web-handoff/tests`, `test:unit`, `test:browser`, `test:viewer`; bước nào hỏng thì lệnh thoát khác 0. `npm run lint` chỉ chạy bốn bước lint.
+`requirements-dev.txt` chỉ có công cụ lint (ruff, ghim phiên bản, không ghim hash), không phải phụ thuộc chạy thật. `npm run check` ([scripts/check.js](scripts/check.js)) tự tìm Python và ruff trong `.venv`, rồi chạy tám bước: ruff, luật nghiệp vụ, link tài liệu, secrets và dữ liệu thật, eslint, unittest của `cong-no-web-handoff/tests`, `test:unit`, `test:browser`; bước nào hỏng thì lệnh thoát khác 0. `npm run lint` chỉ chạy năm bước lint.
 
 Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.txt` và `.venv/bin/python -m pip install -r requirements-dev.txt`, rồi chạy `npm run check` từ gốc repo. Cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12` để tạo venv. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
 
-`npm run test:unit` chạy sáu file JS không cần browser (gồm `scripts/test-business-rules.js`); `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless; `npm run test:viewer` chạy test trình duyệt viewer dữ liệu giả. `npm test` chạy cả ba bộ JS nhưng không chạy lint hay unittest Python, nên lệnh chuẩn là `npm run check`. Chưa tải Chromium thì hai bước trình duyệt báo SKIP.
+`npm run test:unit` chạy sáu file JS không cần browser (gồm `scripts/test-business-rules.js`); `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless. `npm test` chạy cả hai bộ JS nhưng không chạy lint hay unittest Python, nên lệnh chuẩn là `npm run check`. Chưa tải Chromium thì bước trình duyệt báo SKIP.
 
-[Workflow](.github/workflows/test.yml) chạy mọi job trên máy của GitHub từ 21/10/2026 (repo public): unittest Python 3.12/3.13/3.14 và các harness PostgreSQL 18.6 dùng một lần trên `ubuntu-latest`; job `javascript` chạy `npm run check` (Python 3.13 và 3.14 qua `uv`, 3.14 là bản `hao` chạy, Node theo `.node-version`) trên `ubuntu-latest` và `windows-latest`. Repo này không dùng runner tự host trên `hao` (máy DB thật), xem [Quy trình phát triển](docs/development.md#ci-trên-runner-github). File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
+[Workflow](.github/workflows/test.yml) chạy mọi job trên máy của GitHub từ 21/10/2026 (repo public): unittest Python 3.12/3.13/3.14 và các harness PostgreSQL 18.6 dùng một lần trên `ubuntu-latest`; job `javascript` chạy `npm run check` (Python 3.14 qua `uv`, bản `hao` chạy, Node theo `.node-version`) trên `ubuntu-latest` và `windows-latest`; bản ubuntu bỏ unittest vì job `python` đã chạy. Repo này không dùng runner tự host trên `hao` (máy DB thật), xem [Quy trình phát triển](docs/development.md#ci-trên-runner-github). File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
 
 ## Phạm vi mã
 
-- `cong-no-web-handoff/pilot/`: engine nhập/đối soát chỉ đọc từ file nguồn được cấp riêng.
-- `cong-no-web-handoff/web/`: code đọc sổ và truy vấn; không cấu hình DB thật trong repo.
+- `cong-no-web-handoff/web/`: API sổ khách V7 (`v7_ledger_api.py`) và adapter DB; không cấu hình DB thật trong repo.
+- `cong-no-web-handoff/preview/`: giao diện thật (các trang trong `PAGES` của `web/v7_api_tables.py`), fixture và test trình duyệt; `preview/mockups/` là bản xem thiết kế.
 - `cong-no-web-handoff/tools/`: schema/export/verify phục vụ phát triển. SQL hiện có không phải migration mới đã duyệt.
 - `cong-no-web-handoff/preview/`: prototype fixture giả trong bộ nhớ tab.
 - `cong-no-web-handoff/tests/`: unit và HTTP tests dùng fake DB.

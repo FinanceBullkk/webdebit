@@ -6,19 +6,30 @@
 }(typeof self !== 'undefined' ? self : this, () => {
   const big = value => (value === null || value === undefined ? null : BigInt(value));
 
-  const isAhead = row => row.reason === 'WEB_AHEAD' || (row.reason === 'FIXED' && row.status !== 'KHOP');
+  // Web đi trước mà có chuyến để lâu hoặc Sheet ghi ở tab sổ khác (MAY-DOI-SOAT-01, 10/11/2026): số vẫn giải thích được, nhưng người phải xem.
+  const AHEAD_CHECK = new Set(['ahead_old', 'ahead_other_book']);
+  const aheadToCheck = row => (row.hints ?? []).some(hint => AHEAD_CHECK.has(hint.kind));
+  const isAhead = row => (row.reason === 'WEB_AHEAD' || (row.reason === 'FIXED' && row.status !== 'KHOP')) && !aheadToCheck(row);
   const isDone = row => row.reason === 'FIXED' || row.reason === 'BOOK_CREATED';
   const abs = value => { const n = big(value); return n === null ? null : n < 0n ? -n : n; };
 
   // Khách phải xem, lệch lớn trước; máy ghi xong mà không khớp đứng đầu; chưa biết số lệch xếp sau cùng.
   function openRows(reconcile) {
-    const rows = (reconcile?.customers ?? []).filter(row => !isDone(row) && !isAhead(row));
+    const rows = (reconcile?.customers ?? []).filter(row => aheadToCheck(row) || (!isDone(row) && !isAhead(row)));
     const rank = row => (row.reason === 'VERIFY_FAILED' ? 0 : row.difference_vnd === null || row.difference_vnd === undefined ? 2 : 1);
     return [...rows].sort((a, b) => rank(a) - rank(b) || (abs(b.difference_vnd) > abs(a.difference_vnd) ? 1 : abs(b.difference_vnd) < abs(a.difference_vnd) ? -1 : 0));
   }
-  const aheadRows = reconcile => (reconcile?.customers ?? []).filter(row => row.reason === 'WEB_AHEAD');
+  const aheadRows = reconcile => (reconcile?.customers ?? []).filter(row => row.reason === 'WEB_AHEAD' && !aheadToCheck(row));
   const fixedRows = reconcile => (reconcile?.customers ?? []).filter(isDone);
   const openIds = reconcile => new Set(openRows(reconcile).map(row => row.customer_id).filter(Boolean));
+
+  // Khách máy giữ vì tab Sheet có chỗ sai (KIEM-TAB-01 đợt 3e): chip lọc đầu bảng và nhãn ở dòng. Số chỗ do máy đối soát đếm bằng cùng
+  // hàm với khối "Sheet cần sửa" (`sheet_fix_count`); chưa có số hoặc 0 thì không nêu số (khối khi mở tự nói chưa chỉ ra được ô).
+  const isSheetFix = row => row.reason === 'HELD';
+  function sheetFixLabel(row) {
+    const n = row.sheet_fix_count;
+    return Number.isInteger(n) && n > 0 ? `Sheet cần sửa · ${n} chỗ` : 'Sheet cần sửa';
+  }
 
   // Nợ tập trung ở vài khách lớn: đếm khách một mình dễ tưởng gần xong, nên kèm tỷ lệ theo tiền. Còn khách lệch thì chưa phải 100%.
   function share(reconcile) {
@@ -74,8 +85,63 @@
       lockedMonths: (statement.groups ?? []).filter(group => group.locked && items.some(item => item.id === group.id)).map(group => group.month) };
   }
 
+  // Tab TONG có cộng đủ các tab khách không (KIEM-TONG-01), từ `reconcile.tong` của lượt đối soát. null: lượt đó không có kết quả
+  // (file cũ, hoặc quá nhiều khách lệch nên máy bỏ qua). Dòng TONG khác sổ trước, rồi sổ để trống, rồi tên lạ, mỗi nhóm số lớn trước.
+  // Tên trên TONG không ứng sổ nào mà số bằng đúng số của đúng một sổ để trống (và không tên lạ nào khác cùng số) thì gộp thành một
+  // dòng "chỉ khác tên": đẳng thức tới từng đồng, như cách máy nhận lời giải thích. Số kỳ vọng của sổ đang lệch Sheet tính theo web,
+  // nên dòng của sổ đó được đánh dấu để người xem khách đó trước.
+  function tongView(reconcile) {
+    const tong = reconcile?.tong;
+    if (!tong || tong.skipped === 'TOO_MANY_DIFFERENT') return null;
+    if (!tong.month) return { skipped: tong.skipped ?? 'ERROR' };
+    const blanks = [...(tong.blank_on_tong ?? [])];
+    const unknown = [...(tong.unknown_names ?? [])];
+    const renamed = [];
+    for (const item of [...unknown]) {
+      const value = big(item.end_vnd);
+      const books = blanks.filter(row => big(row.expected_vnd) === value);
+      if (!value || books.length !== 1 || unknown.filter(row => big(row.end_vnd) === value).length !== 1) continue;
+      renamed.push({ kind: 'renamed', book: books[0].book, name: books[0].name, tong_name: item.name, tong_vnd: item.end_vnd, expected_vnd: books[0].expected_vnd });
+      blanks.splice(blanks.indexOf(books[0]), 1);
+      unknown.splice(unknown.indexOf(item), 1);
+    }
+    const bigFirst = key => (a, b) => { const x = abs(a[key]), y = abs(b[key]); return x > y ? -1 : x < y ? 1 : 0; };
+    const open = openIds(reconcile);
+    const rows = [
+      ...(tong.differs ?? []).map(row => ({ kind: 'differs', book: row.book, name: row.name, tong_vnd: row.tong_vnd, expected_vnd: row.expected_vnd,
+        gap_vnd: (big(row.tong_vnd) - big(row.expected_vnd)).toString() })).sort(bigFirst('gap_vnd')),
+      ...blanks.map(row => ({ kind: 'blank', book: row.book, name: row.name, tong_vnd: null, expected_vnd: row.expected_vnd })).sort(bigFirst('expected_vnd')),
+      ...unknown.map(row => ({ kind: 'unknown', book: null, name: row.name, tong_vnd: row.end_vnd, expected_vnd: null })).sort(bigFirst('tong_vnd')),
+      ...renamed,
+    ].map(row => ({ ...row, book_differs: row.book !== null && open.has(row.book) }));
+    const counts = Object.fromEntries(['differs', 'blank', 'unknown', 'renamed'].map(kind => [kind, rows.filter(row => row.kind === kind).length]));
+    const gap = big(tong.gap_vnd);   // cộng TONG − cộng số kỳ vọng: âm là TONG ghi ít hơn các sổ
+    return { month: tong.month, matched: tong.matched ?? 0, rows, counts, problems: counts.differs + counts.blank + counts.unknown,
+      gap_vnd: tong.gap_vnd ?? null, gap_sign: gap === null ? 0 : gap > 0n ? 1 : gap < 0n ? -1 : 0,
+      tong_sum_vnd: tong.tong_sum_vnd ?? null, expected_sum_vnd: tong.expected_sum_vnd ?? null };
+  }
+
   // Chỉ khác phụ phí khi mọi dòng cùng đơn giá hai bên; web chưa có đơn giá thì là giá.
   const isFeeOnly = group => group.kind === 'prices' && group.rows.every(row => row.web_unit_price_vnd !== null && row.web_unit_price_vnd === row.sheet_unit_price_vnd);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead };
+  // Máy đoán chỗ gây lệch (CHAN-DOAN-LECH-01): mỗi gợi ý một câu. `say` đổi chuỗi tiền thành chữ có đơn vị, không dấu.
+  const HINT_WHY = { MANUAL: ' vì dòng có phụ phí chia theo loại', CONFLICT: ' vì web đã có giá khác Sheet', MONTH_LOCKED: ' vì tháng đang khóa' };
+  const dayText = iso => (iso ? `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}` : '');
+  function hintText(hint, say) {
+    const where = hint.container ? ` (${hint.container})` : '';
+    if (hint.kind === 'receipt_twice') return `Phiếu ${hint.pids.join(' và ')} cùng ngày ${dayText(hint.date)}, cùng ${say(hint.amount_vnd)}: có thể ghi trùng. Hủy phiếu thừa thì nợ web tăng ${say(hint.delta_vnd)}.`;
+    if (hint.kind === 'price_review') return `Dòng ${hint.row}${where}: Sheet ${say(hint.sheet_vnd)}, web ${say(hint.web_vnd)}. Máy không tự sửa${HINT_WHY[hint.status] ?? ''}, sửa trên Sổ.`;
+    if (hint.kind === 'sheet_row_missing') return `Dòng ${hint.row}${where} trên Sheet có ${say(hint.sheet_vnd)} mà web không có dòng nào. Xem có tính cho khách không.`;
+    if (hint.kind === 'chain_break') return `Khối tháng ${Number(String(hint.month).slice(5, 7))} trên Sheet: số cuối tháng ${big(hint.delta_vnd) < 0n ? 'thiếu' : 'thừa'} ${say(hint.delta_vnd)} so với tháng trước chuyển sang + phát sinh − thu. Thường do ô số dư chuyển sang đầu khối trống hoặc trỏ sai dòng.`;
+    if (hint.kind === 'ahead_other_book') return `Chuyến ${hint.container} ngày ${dayText(hint.date)} (${say(hint.amount_vnd)}) web ghi ở sổ này, còn Sheet ghi ở tab ${hint.other}. Xem chuyến thuộc khách nào.`;
+    if (hint.kind === 'ahead_old') return `Chuyến ${hint.container} ngày ${dayText(hint.date)} (${say(hint.amount_vnd)}) có giá trên web đã ${hint.days} ngày mà tab Sheet chưa có. Xem Sheet đã bỏ chuyến này chưa.`;
+    return null;
+  }
+  const hintTexts =(row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
+  // K3: mỗi gợi ý kèm dấu vân dòng Sheet nếu người đóng được ("Đã xem, hết báo"); `closed`: dấu vân đã đóng (từ sổ và vừa bấm) thì không hiện.
+  const hintRows = (row, say, closed = new Set()) => (row.hints ?? []).filter(hint => !(hint.source_fingerprint && closed.has(hint.source_fingerprint)))
+    .map(hint => ({ text: hintText(hint, say), source: hint.closable && /^[0-9a-f]{64}$/.test(hint.source_fingerprint ?? '') ? hint.source_fingerprint : null }))
+    .filter(entry => entry.text);
+
+  return { openRows, aheadRows, fixedRows, openIds, isSheetFix, sheetFixLabel,share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, hintRows, tongView };
 }));

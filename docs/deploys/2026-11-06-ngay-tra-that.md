@@ -13,13 +13,13 @@
 
 | | Trước | Sau |
 | --- | ---: | ---: |
-| Rủi ro cao | 44 sổ, 24,48 tỷ quá hạn | 40 sổ, 23,36 tỷ quá hạn |
+| Rủi ro cao | 44 sổ | 40 sổ |
 | Theo dõi | 8 sổ | 12 sổ |
 | Không quá hạn | 17 sổ | 17 sổ |
 | Sổ có quá hạn mà quá 60 ngày chưa trả | 36/52 | 26/52 |
 | Sổ có ngày trả rõ | 20/63 | 43/63 |
 
-- Đổi nhãn: 4 sổ từ Rủi ro cao sang Theo dõi (1,124 tỷ quá hạn), không sổ nào đổi chiều ngược lại.
+- Đổi nhãn: 4 sổ từ Rủi ro cao sang Theo dõi, không sổ nào đổi chiều ngược lại.
 - Ngày trả đổi ở 27 sổ, 23 sổ lệch từ 15 ngày, 5 sổ có ngày trả sớm hơn bản cũ.
 - 20 sổ còn ngày trả không rõ: màn vẫn hiện "trong tháng", và ngày đó vẫn dùng để tính số ngày chưa trả.
 
@@ -42,7 +42,7 @@ Dump, restore vào DB tạm trên `hao`, chạy hai lần: lúc soạn PR và ng
 
 - Dừng timer `v7-reconcile-auto` (không có lượt đang chạy) và API, không còn kết nối khác. Ghi dấu vân tay, dump kèm hash, đọc lại được (34 bảng).
 - Áp migration với `ON_ERROR_STOP`: 121 ms, một `COMMIT`.
-- Catalog sau áp trùng bản thử. **Đối soát tổng khách: dấu vân tay (số dư từng khách từng tháng, số event, số dòng các bảng) không đổi**; 239 sổ, tổng 64.078.597.024 đ. Checker 9/9.
+- Catalog sau áp trùng bản thử. **Đối soát tổng khách: dấu vân tay (số dư từng khách từng tháng, số event, số dòng các bảng) không đổi**; 239 sổ. Checker 9/9.
 - Trên DB thật, so Tổng quan từng sổ và đối chiếu Bảng thu cho cùng số với bản thử.
 - Bật lại API và timer: `active`, loopback 403 (sống). API gián đoạn 16 giây, phần lớn do chạy các phép so ngay trong cửa sổ.
 

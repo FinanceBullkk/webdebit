@@ -25,9 +25,47 @@ def kept(ledger: dict, kind: str, target_kind: str, target_id: int, source: str,
     return bool(latest and latest.get("sheet_value") == source and latest.get("target_value") == current)
 
 
+SOURCE_SCOPES = ("price", "ps", "trip")
+
+
+def source_kept(ledger: dict, scope: str, source: str) -> bool:
+    """K3: dòng Sheet (theo dấu vân nội dung) đã được người bấm "Đã xem, hết báo". Chỉ cần dấu vân khớp: không có chuyến đích, không
+    có phần web để so; dòng Sheet đổi thì dấu vân đổi nên không còn khớp và việc hiện lại."""
+    for event in ledger.get("events", []):
+        after = event.get("after") or {}
+        if (event.get("kind") == "sheet_conflict_resolved" and after.get("field") == "task_source" and after.get("sheet_value") == source
+                and (after.get("target") or {}).get("scope") == scope):
+            return True
+    return False
+
+
+def closed_sources(ledger: dict, scope: str) -> set[str]:
+    """Dấu vân các dòng Sheet đã "Đã xem, hết báo" ở một nhóm (cho màn đối chiếu lọc gợi ý đã đóng)."""
+    return {(event.get("after") or {}).get("sheet_value") for event in ledger.get("events", [])
+            if event.get("kind") == "sheet_conflict_resolved" and (event.get("after") or {}).get("field") == "task_source"
+            and ((event.get("after") or {}).get("target") or {}).get("scope") == scope} - {None}
+
+
 def price_identity(row: dict) -> str:
     return fingerprint({key: row.get(key) for key in (
         "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd", "sheet_total_vnd")})
+
+
+def ps_identity(row: dict) -> str:
+    """Nội dung một dòng PS (PS-HOI-01): ô phí, cờ, lỗi nguồn. Ô PS đổi thì dòng đã giữ hỏi lại."""
+    return fingerprint({key: row.get(key) for key in (
+        "container", "date", "fees", "combined_vnd", "health", "kd", "source_error", "problems", "ps_match_count")})
+
+
+def ps_web_value(ledger: dict, target_kind: str, target_id) -> dict | None:
+    """Đơn giá và phụ phí đang tính của chuyến đích, cùng dạng `keep_sheet_task` đọc trong DB; web đổi thì hỏi lại."""
+    if target_kind == "trip":
+        row = next((t for t in ledger.get("trips", []) if t.get("id") == target_id and not t.get("deleted")), None)
+    else:
+        row = next(((r.get("current") or {}) for r in ledger.get("legacy_rows", []) if r.get("id") == target_id), None)
+    if row is None:
+        return None
+    return {field: None if row.get(field) is None else str(row.get(field)) for field in ("unit_price_vnd", "other_fee_vnd")}
 
 
 def trip_identity(row: dict) -> str:

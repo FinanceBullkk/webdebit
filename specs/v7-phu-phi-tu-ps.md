@@ -47,7 +47,7 @@ Sổ khách có nút "Tách N phụ phí theo bảng PS". Bấm một lần thì
 - Tiền dạng chuỗi có dấu phẩy ngăn nghìn. Cột Khác đã được bộ lập bill làm tròn thành số nguyên (các ô lẻ `315789.5` của bảng PS gốc thành `315,790` / `315,789`), không còn chữ ghi chú.
 - `Bảo hiểm` và `Đơn giá` (nhóm nhập tay) hiện trống ở mọi dòng.
 - 45 dòng có Lỗi: ngày đóng trống/sai 23, mặt hàng chưa rõ 14, PS trùng dòng 6, ngày đóng lệch tab booking 2.
-- So với `PS_DATA` (tab gom thô): 14 dòng PS có tiền không vào `CONT_MASTER` (không khớp booking hoặc trùng cont giữa hai tháng), tổng 33.000.000đ. Web theo `CONT_MASTER` vì đây là số bộ lập bill dùng để làm bill.
+- So với `PS_DATA` (tab gom thô): 14 dòng PS có tiền không vào `CONT_MASTER` (không khớp booking hoặc trùng cont giữa hai tháng). Web theo `CONT_MASTER` vì đây là số bộ lập bill dùng để làm bill.
 - `Chủ hàng` lấy từ booking: cùng kiểu tên với `BOOKING_DATA` mà runner đồng bộ chuyến đã gán sổ, không phải tên tab khách.
 
 **Có sẵn, dùng lại:**
@@ -159,7 +159,7 @@ Khi spec này được duyệt thì sửa mục tương ứng ở spec cha cho k
 **ĐÃ CODE** theo mockup đã duyệt: `preview/so-khach-v7-ps-ui.js` + `so-khach-v7-ps.css` (phần mới, nối bằng một dòng `ctx.psAfterRender` trong `so-khach-v7-ui.js`), `planPsFees`/`feeLinesText` trong model.
 - Nút "Tách N phụ phí theo bảng PS" ở đầu sổ; chuyến tách được tô vàng ở cụm cột phụ phí.
 - Khung xác nhận dưới đầu sổ: mỗi chuyến một dòng trước → sau, ô trong sổ hiện kết quả dự kiến. Nhãn "Tổng tiền không đổi" chỉ hiện khi model thấy mọi chuyến giữ tổng; lệch thì khóa nút Tách. Danh sách dài tự cuộn.
-- "Phụ phí PS cần xem" chung dải với "Giá từ Sheet cần xem", chia ba nhóm theo việc phải làm, có câu hướng dẫn, nút "Mở khóa tháng N" và "Xem dòng" (chỉ khi chuyến có trên sổ).
+- (Thay 9/11/2026 bởi [`PS-HOI-01`](../docs/decisions/ps-hoi-01.md): thành câu hỏi có nút "… hết báo".) "Phụ phí PS cần xem" chung dải với "Giá từ Sheet cần xem", chia ba nhóm theo việc phải làm, có câu hướng dẫn, nút "Mở khóa tháng N" và "Xem dòng" (chỉ khi chuyến có trên sổ).
 - `STALE_SHEET`/`STALE_LEDGER`: khung đỏ "Chưa tách chuyến nào" + Tải lại sổ. Mất mạng giữa chừng: giữ khóa lệnh để bấm lại không tách trùng. Thiếu bản chụp: dải báo, nút ẩn.
 
 **ĐÃ KIỂM CHỨNG (máy dev, máy chủ giả):** `test-so-khach-v7-ps-browser.js` 4 ca (1280×720), unit model; `npm run check`. **CÒN MỞ:** chưa thử tay trên sổ thật ở `hao`; tháng 5–6 đang khóa nên phải mở khóa mới tách được.
@@ -188,4 +188,6 @@ Spec: revert commit. Khi đã code: tắt timer runner PS (sổ trả `unavailab
 2. **Quyền đọc file bộ lập bill trên `hao`.** Cần kiểm `WEBDEBIT_SHEET_ID` có trỏ đúng file chứa `CONT_MASTER` không. Nếu không, cần thêm biến `WEBDEBIT_PS_SHEET_ID` và người dùng chia sẻ file (chỉ xem) cho tài khoản dịch vụ. Kiểm trước PR-1.
 3. **Gán khách theo `Chủ hàng`.** Chưa đo tỉ lệ tên chủ hàng của 108 cont ra được sổ qua tên phụ + bảng duyệt tên. Đo chỉ đọc trên `hao` ở PR-1; tỉ lệ thấp thì cân nhắc ghép theo cont trên mọi sổ rồi dùng tên chủ hàng để kiểm chéo.
 4. **Ngày đóng so với ngày chuyến web** (ngày xe nhập kho): chưa đo độ lệch. Nếu nhiều dòng lệch quá 3 ngày thì xét nới cửa sổ riêng cho PS.
-5. **14 dòng PS có tiền không vào `CONT_MASTER`** (33.000.000đ, tháng 5–6): web không thấy các khoản này. Nếu chúng là phí thật thì phải sửa trong bộ lập bill (khớp booking), không sửa ở web.
+5. **14 dòng PS có tiền không vào `CONT_MASTER`** (tháng 5–6): web không thấy các khoản này. Nếu chúng là phí thật thì phải sửa trong bộ lập bill (khớp booking), không sửa ở web.
+
+<!-- du-lieu-gia: 1.500.000 2.000.000 -->

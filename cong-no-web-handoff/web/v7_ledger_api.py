@@ -10,22 +10,32 @@ import json
 import os
 import re
 import socket
-import subprocess  # noqa: F401  test vá `api.subprocess.run`; lệnh psql dựng ở v7_psql
+import ssl
+import subprocess
 import sys
 import threading
 import time
-from datetime import datetime  # noqa: F401  test đọc `api.datetime`
+from datetime import datetime  # test đọc `api.datetime`; XUAT-SO-01 lấy giờ của file
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
 
+import v7_ai_explain
 import v7_api_doi_chieu
+import v7_api_doixe
 import v7_api_sheet
 import v7_api_zalo
+import v7_book_export
+import v7_booking_view
+import v7_company_info
+import v7_debit_note_config
 import v7_identity
 import v7_inbox
 import v7_machine
+import v7_month_report
 import v7_presence
+import v7_read_cache
 import v7_sheet_refresh
 import v7_zalo_chat
 from v7_api_sheet import (
@@ -81,6 +91,12 @@ from v7_psql import (
 # gọi qua `api.`. Muốn vá (patch) một biến toàn cục thì vá ở module định nghĩa nó.
 
 PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến trình
+READS = v7_read_cache.ReadCache()   # HIEU-NANG-01: kết quả đọc nặng theo dấu dữ liệu, chỉ cho GET
+# XUAT-SO-01: file cả sổ, một lượt mỗi lúc trong tiến trình (mỗi lượt đọc mọi sổ trong một giao dịch).
+EXPORT_PATH = "/api/v7/xuat-so.xlsx"
+EXPORT_LOCK = threading.Lock()
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+VN = ZoneInfo("Asia/Ho_Chi_Minh")
 # Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): kết quả chiếu của mọi sổ, tính nền, chỉ trong RAM của tiến trình.
 INBOX = v7_inbox.Inbox(
     ledger_projections,
@@ -108,6 +124,11 @@ def declared_length(value: str, limit: int) -> int | None:
     return int(digits or "0") if len(digits) <= len(str(limit)) else limit + 1
 
 
+def body_limit(path: str) -> int:
+    """Trần thân POST: ảnh chứng từ lớn nhất, lệnh lưu chặng đội xe (tới 200 dòng dán) lớn hơn lệnh thường."""
+    return MAX_IMAGE_BODY if path == IMAGE_PATH else v7_api_doixe.MAX_CHANG_BODY if path == v7_api_doixe.CHANG_PATH else MAX_BODY
+
+
 def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()):
     if value.lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"{host}:{port}"}:
         return value.lower()
@@ -131,7 +152,8 @@ def healthz_allowed(client_ip: str, headers, port: int) -> bool:
 
 
 def healthz(runner: Psql, now: float) -> tuple[int, dict]:
-    """`SELECT 1` qua đúng runner psql của app, kèm tuổi bản chụp Sheet; DB lỗi thì 503 (audit DevOps #6, #14)."""
+    """`SELECT 1` qua đúng runner psql của app, kèm tuổi bản chụp Sheet và tình trạng hộp việc (chỉ số đếm); DB lỗi thì 503
+    (audit DevOps #6, #14). Hộp việc không làm đỏ kiểm sống: máy canh đọc và tự quyết báo (CANH-BAO-01, bổ sung 18/11/2026)."""
     times = []
     for path in (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH):
         try:
@@ -144,7 +166,7 @@ def healthz(runner: Psql, now: float) -> tuple[int, dict]:
         db_ok = runner.run("healthz", {}, "healthz") == 1
     except ApiError:
         db_ok = False
-    body = {"ok": db_ok, "db": "ok" if db_ok else "error", "sheet_snapshot_age_seconds": age}
+    body = {"ok": db_ok, "db": "ok" if db_ok else "error", "sheet_snapshot_age_seconds": age, "inbox": INBOX.health(now)}
     return (200 if db_ok else 503), body
 
 
@@ -271,6 +293,7 @@ POST_HANDLERS = {
     "/api/v7/marks": v7_api_zalo.handle_mark,
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
     "/api/v7/machine/office": v7_machine.handle_office,
+    **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
 }
 MACHINE_READS = {"/api/v7/machine": v7_machine.view, "/api/v7/machine/now": v7_machine.now_view, "/api/v7/machine/summary": v7_machine.summary}
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
@@ -291,7 +314,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if headers.get("content-type", "").lower() != "application/json":
             raise ApiError(415, "INVALID_CONTENT_TYPE", "Cần gửi JSON.")
         parts = urlsplit(target)
-        if len(raw) > (MAX_IMAGE_BODY if parts.path == IMAGE_PATH else MAX_BODY):
+        if len(raw) > body_limit(parts.path):
             raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
         if parts.query:
             bad()
@@ -306,6 +329,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                           behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
     if method == "POST":
+        if parts.path == "/api/v7/ai/explain":
+            return v7_ai_explain.explain(raw, runner, actor)
         special = POST_HANDLERS.get(parts.path)
         if special is not None:
             status, body = special(raw, runner, actor)
@@ -322,6 +347,14 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, INBOX.view(runner)
+    elif parts.path == "/api/v7/machine/booking":
+        # KIEM-BOOKING-01: kết quả kiểm Sheet sổ nợ so với booking; file của lượt đối soát, không qua DB, sau xác thực danh tính.
+        if parts.query:
+            bad()
+        return 200, v7_booking_view.view()
+    elif parts.path == "/api/v7/report/month":
+        # BAO-CAO-THANG-01: chuyến theo tháng ngày chuyến, booking ↔ Sheet (file của phép kiểm booking) ↔ web (get_trip_month).
+        return 200, v7_month_report.handle_get(parts.query, runner, READS, actor)
     elif parts.path in MACHINE_READS:
         # MAY-CHAY-01: đọc file của job, không qua DB; vẫn sau xác thực danh tính như mọi route.
         if parts.query:
@@ -331,7 +364,31 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         return 200, body if parts.path == "/api/v7/machine/summary" else {**body, "auto": INBOX.auto_today()}
     elif parts.path == "/api/v7/sheet/doi-chieu":
         _, payload = validate_get("/api/v7/ledger", parts.query)
-        return 200, v7_api_doi_chieu.statement(payload["customer_id"], runner, actor)
+        return 200, v7_api_doi_chieu.statement(payload["customer_id"], v7_read_cache.CachedReads(runner, READS), actor)
+    elif parts.path == "/api/v7/sheet/vung-o":
+        # KIEM-TAB-01 3c: vùng ô của một chỗ sai để dựng lại; chỉ đọc Sheet, vùng do server tính, không nhận A1.
+        return 200, v7_api_doi_chieu.region(parts.query, v7_read_cache.CachedReads(runner, READS), actor)
+    elif parts.path == "/api/v7/ai/preview":
+        _, payload = validate_get("/api/v7/ledger", parts.query)
+        return 200, v7_ai_explain.preview(payload["customer_id"], runner, actor)
+    elif parts.path == "/api/v7/debit-note/config":
+        # DEBIT-NOTE-03: file cấu hình ngoài DB (mẫu, công ty, ngân hàng, tên phí); vẫn sau xác thực danh tính.
+        try:
+            return v7_debit_note_config.handle_get(parts.query)
+        except v7_debit_note_config.ConfigError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+    elif parts.path == "/api/v7/company-info":
+        # THONG-TIN-CTY-01: bản chụp Sheet thông tin khách hàng do timer ghi, ngoài DB; vẫn sau xác thực danh tính.
+        try:
+            return v7_company_info.handle_get(parts.query)
+        except v7_company_info.InfoError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+    elif parts.path == v7_api_doixe.PREFIX or parts.path.startswith(v7_api_doixe.PREFIX + "/"):
+        # CHI-PHI-XE-01: đọc đội xe (schema doixe), thẳng runner như mọi đọc không nằm trong bộ nhớ đọc; tên ngắn cho người làm.
+        function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
+        names = PRESENCE.names()
+        return 200, v7_api_doixe.with_names(runner.run(function, payload, actor),
+                                            lambda login: v7_presence.display_name(login, names))
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
@@ -343,8 +400,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             raise ApiError(exc.status, exc.code, exc.message) from exc
     else:
         function, payload = validate_get(parts.path, parts.query)
-    result = runner.run(function, payload, actor)
-    if method == "POST":
+    # HIEU-NANG-01: GET đọc nặng qua bộ nhớ theo dấu dữ liệu (dấu mới mỗi lượt: đọc ngay sau ghi thấy bản mới); POST đi thẳng.
+    result = READS.run(runner, function, payload, actor) if method == "GET" else runner.run(function, payload, actor)
+    if method == "POST" and function != "preview_price_table":   # xem trước không ghi gì
         touch_inbox(raw)
     if function == "list_customers" and parts.path == "/api/v7/customers":
         result = with_display_names(result)
@@ -352,7 +410,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         return 200, sheet_queue(result, parts.query)
     if function == "get_ledger":
         result = public_ledger(ledger_projections(runner, result, actor))
-    if function == "get_ledger_events":
+    if function in ("get_ledger_events", "get_activity"):
         result = with_actor_names(result)
     if function == "list_offset_sources":
         result = {"sources": result}
@@ -458,6 +516,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_export(self, actor: str) -> None:
+        """XUAT-SO-01: dựng file cả sổ rồi gửi; kết quả tự kiểm ở header `X-Xuat-So`, journal ghi một dòng số đếm."""
+        if not EXPORT_LOCK.acquire(blocking=False):
+            raise ApiError(429, "EXPORT_BUSY", "Đang có một lượt xuất khác. Chờ khoảng một phút rồi bấm lại.")
+        started = time.monotonic()
+        prefix = "so-web-du-lieu-gia" if self.demo else "so-web-ban-sao" if self.real_copy else "so-web"
+        try:
+            result = v7_book_export.export(self.runner, actor, datetime.now(VN), names=with_display_names, prefix=prefix)
+        except ApiError:
+            raise
+        except Exception as exc:   # dữ liệu sổ khác hình dạng đã biết hay lỗi dựng file: báo gọn, không gửi nửa file
+            print(f"XUAT-SO-01: {actor} xuất lỗi {type(exc).__name__}", file=sys.stderr, flush=True)
+            raise ApiError(503, "EXPORT_FAILED", "Chưa xuất được cả sổ. Báo quản trị kiểm.") from exc
+        finally:
+            EXPORT_LOCK.release()
+        found = ",".join(problem["code"] for problem in result.problems) or "khớp"
+        print(f"XUAT-SO-01: {actor} tải cả sổ: {result.books} sổ, kiểm {found}, {len(result.data)} byte, "
+              f"{time.monotonic() - started:.1f} giây", file=sys.stderr, flush=True)
+        self.send_response(200)
+        for name, field in (("Content-Type", XLSX_TYPE), ("Content-Length", str(len(result.data))),
+                            ("Content-Disposition", f'attachment; filename="{result.filename}"'),
+                            ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                            ("X-Xuat-So", result.header())):
+            self.send_header(name, field)
+        self.end_headers()
+        self.wfile.write(result.data)
+
     def stream(self, actor: str, tab: str) -> None:
         """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
         presence = PRESENCE
@@ -542,9 +627,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
                 return
+            if self.command == "GET" and route.path == EXPORT_PATH:
+                # XUAT-SO-01: file cả sổ, sau xác thực danh tính như mọi /api/v7/*.
+                if route.query:
+                    bad()
+                self.send_export(actor)
+                return
             raw = b""
             if self.command == "POST":
-                limit = MAX_IMAGE_BODY if urlsplit(self.path).path == IMAGE_PATH else MAX_BODY
+                limit = body_limit(urlsplit(self.path).path)
                 length_value = declared_length(self.headers.get("Content-Length", ""), limit)
                 if length_value is None:
                     bad()
@@ -599,13 +690,16 @@ class ThreadingHTTPServer(HTTPServer):
     request_queue_size = 128
 
     def __init__(self, server_address, handler, *, default_actor=None, dev_actor_mode=None,
-                 bind_and_activate=True):
+                 bind_and_activate=True, tailnet_https=False):
         name = handler.default_actor if default_actor is None else default_actor
         mode = handler.dev_actor_mode if dev_actor_mode is None else dev_actor_mode
         # ponytail: legacy local tools opt in by named actor; remove after callers pass explicit mode.
         enabled = name is not None if mode is None else mode
-        if (enabled or handler.behind_tailscale_serve) and not loopback(server_address[0]):
+        if (enabled or handler.behind_tailscale_serve) and not loopback(server_address[0]) and not tailnet_https:
             raise ValueError("dev actor and Tailscale Serve require a loopback bind")
+        if tailnet_https and (enabled or not handler.behind_tailscale_serve or
+                             ipaddress.ip_address(server_address[0]) not in ipaddress.ip_network("100.64.0.0/10")):
+            raise ValueError("tailnet HTTPS requires verified identity and no dev actor")
         self.dev_actor = None
         if enabled:
             if not isinstance(name, str) or not name.strip() or len(name) > 252 or any(ord(c) < 32 for c in name):
@@ -639,6 +733,12 @@ def main() -> None:
     )
     parser.add_argument("--serve-host", action="append", default=[],
                         help="Exact Host value accepted from Tailscale Serve; requires --behind-tailscale-serve")
+    parser.add_argument("--tailnet-https-ip", default=os.getenv("V7_TAILNET_HTTPS_IP"),
+                        help="Bind a second HTTPS listener to this node's Tailscale IPv4")
+    parser.add_argument("--tailnet-https-port", type=int, default=8445)
+    parser.add_argument("--tailnet-https-host", default=os.getenv("V7_TAILNET_HTTPS_HOST"))
+    parser.add_argument("--tailnet-tls-cert", default=os.getenv("V7_TAILNET_TLS_CERT"))
+    parser.add_argument("--tailnet-tls-key", default=os.getenv("V7_TAILNET_TLS_KEY"))
     parser.add_argument("--allowed-login", action="append", default=[],
                         help="Tailscale login allowed to use the ledger (ACCESS-01); repeatable, merged with "
                              "WEBDEBIT_ALLOWED_LOGINS (comma/space separated). Serve mode requires at least one")
@@ -654,13 +754,30 @@ def main() -> None:
     args = parser.parse_args()
     if args.serve_host and not args.behind_tailscale_serve:
         parser.error("--serve-host requires --behind-tailscale-serve")
-    for value in args.serve_host:
+    if any((args.tailnet_https_ip, args.tailnet_https_host, args.tailnet_tls_cert, args.tailnet_tls_key)):
+        if not all((args.tailnet_https_ip, args.tailnet_https_host, args.tailnet_tls_cert, args.tailnet_tls_key)):
+            parser.error("tailnet HTTPS requires IP, host, certificate and key")
+        if not args.behind_tailscale_serve or args.insecure_dev_actor is not None:
+            parser.error("tailnet HTTPS requires Serve mode and no dev actor")
+        if not 1 <= args.tailnet_https_port <= 65535:
+            parser.error("invalid tailnet HTTPS port")
+        try:
+            node_ip = subprocess.run(["tailscale", "ip", "-4"], check=True, capture_output=True,
+                                     text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            parser.error(f"cannot verify Tailscale IP: {type(exc).__name__}")
+        if args.tailnet_https_ip != node_ip:
+            parser.error("tailnet HTTPS IP does not match this Tailscale node")
+    accepted_hosts = args.serve_host + ([args.tailnet_https_host] if args.tailnet_https_host else [])
+    for value in accepted_hosts:
         try:
             port_value = urlsplit("//" + value).port or 443
         except ValueError:
             port_value = 0
         if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]*(?::[1-9][0-9]{0,4})?", value) or not 1 <= port_value <= 65535:
             parser.error("--serve-host requires lowercase fqdn[:port]")
+    if args.tailnet_https_host and not args.tailnet_https_host.endswith(f":{args.tailnet_https_port}"):
+        parser.error("tailnet HTTPS host must include the listener port")
     # ACCESS-01: the allowlist lives in the unit drop-in on the host, never in Git. Serve mode without it
     # must not start: every tailnet identity reaching Serve would otherwise be a valid ledger actor.
     allowed_env = os.getenv("WEBDEBIT_ALLOWED_LOGINS")
@@ -688,9 +805,9 @@ def main() -> None:
         args.db_user = args.db_user or os.getenv("V7_API_DB_USER", "postgres")
     if args.port == 8777:
         parser.error("port 8777 belongs to the read-only opening app")
-    # Trial API (DB user postgres) stays loopback-only; real access goes through tailscale serve -> loopback.
+    # API HTTP stays loopback-only; optional HTTPS binds only this node's Tailscale IPv4.
     if not loopback(args.host):
-        parser.error("V7 trial API only binds loopback; expose it with tailscale serve")
+        parser.error("V7 API HTTP only binds loopback; expose it with tailscale serve")
     Handler.runner = (
         PsqlDirect(args.direct_socket_dir, args.database, args.db_user)
         if args.direct_socket_dir
@@ -700,14 +817,24 @@ def main() -> None:
     Handler.default_actor = args.insecure_dev_actor
     Handler.dev_actor_mode = args.insecure_dev_actor is not None
     Handler.behind_tailscale_serve = args.behind_tailscale_serve
-    Handler.serve_hosts = tuple(args.serve_host)
+    Handler.serve_hosts = tuple(accepted_hosts)
     Handler.allowed_logins = allowed_logins
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()
+    secure = None
+    if args.tailnet_https_ip:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(args.tailnet_tls_cert, args.tailnet_tls_key)
+        secure = ThreadingHTTPServer((args.tailnet_https_ip, args.tailnet_https_port), Handler, tailnet_https=True)
+        secure.socket = context.wrap_socket(secure.socket, server_side=True)
+    plain = ThreadingHTTPServer((args.host, args.port), Handler)
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm
-    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    if secure is not None:
+        threading.Thread(target=secure.serve_forever, daemon=True).start()
+    plain.serve_forever()
 
 
 if __name__ == "__main__":

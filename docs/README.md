@@ -10,10 +10,11 @@
 | [Kiểm chứng](verification.md) | Kết quả thực chạy và giới hạn |
 | [Spec](../specs/README.md) | Thay đổi cụ thể và tiêu chí nghiệm thu |
 | [Định dạng báo cáo M1](m1-report-format.md) | Count evidence và quy tắc phân biệt NULL với 0 |
-| [Gói deploy và rollback M1](m1-deploy-rollback.md) | Gói runtime theo allowlist, preflight chỉ đọc và rollback; đã áp dụng trên `hao` tại `c439d13`, còn hồ sơ nghiệm thu |
+| [Gói deploy và rollback M1](m1-deploy-rollback.md) | Lịch sử: gói runtime theo allowlist, preflight chỉ đọc và rollback; đã áp dụng trên `hao` tại `c439d13`. Công cụ và viewer đã xóa khỏi repo 18/11/2026 |
 | [Đề xuất ACL M1](m1-acl-proposal.md) | Cấp quyền đọc năm view cho viewer, thu hồi membership maker; đã áp dụng trong đợt M1, giữ hồ sơ ngoài Git |
 | [Runbook triển khai V7](v7-deploy-runbook.md) | Đề xuất deploy DB riêng, backup/rollback và tổng duyệt Docker |
 | [Checklist chạy song song](song-song-checklist.md) | Điều kiện bắt đầu chạy song song Sheet–web: ai làm, bằng chứng gì, trạng thái |
+| [Checklist chuyển hẳn](chuyen-han-checklist.md) | Việc phải kiểm và phải làm trước khi bỏ Sheet sổ nợ, số đo từng lượt audit chỉ đọc, việc chủ sổ phải quyết (ĐỀ XUẤT) |
 | [Đối soát cuối ngày](doi-soat-cuoi-ngay.md) | Các bước người nhập chạy mỗi cuối ngày khi chạy song song |
 | [Audit UX/UI và hành trình người dùng](ux-audit-2026-10-31.md) | Phát hiện P0/P1/P2 trên sáu trang, kiến trúc đề xuất (sổ khách một tháng đang làm, hộp thư việc, từ điển giao diện, token), lộ trình ba đợt; ĐỀ XUẤT 31/10/2026 |
 | [Nền UX · bước 01: người dùng và mục tiêu](ux-nen-nguoi-dung.md) | Ai dùng web thật (số liệu `hao`), khối lượng nghiệp vụ, câu trả lời của người dùng, mục tiêu đo được M1–M5, việc của từng vai; nền cho mọi thay đổi UX từ 1/11/2026 |

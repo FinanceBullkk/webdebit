@@ -20,6 +20,22 @@ const inbox = (extra = {}) => ({ state: 'ready', sheet_at: '2026-11-06T03:15:00Z
     trip_items: [{ customer_id: 1, container: 'MAUU0000002', event_date: '2026-11-05', at: '2026-11-06T03:05:00+00:00' }],
     price_items: [{ customer_id: 3, container: 'MAUU0000003', date: '2026-11-04', before_unit_price_vnd: null, unit_price_vnd: '42000000', at: '2026-11-06T02:50:00+00:00' }] },
   books: [book(7, { prices: { ready: 0, review: 18 }, receipts: { ready: 0, review: 1, amount_vnd: '6100000', items: [] }, ps: { ready: 0, review: 1 } }), book(1, { sheet_matched: true, trips_check: { count: 3, reasons: {} } }), book(3, { sheet_matched: true, ps: { ready: 0, review: 6 } })], ...extra });
+// HOAT-DONG-01: việc đã ghi theo ngày (GET /api/v7/activity), cùng hình dạng với Lịch sử của sổ.
+const activityDays = {
+  '2026-11-06': { day: '2026-11-06', today: '2026-11-06', prev_day: '2026-11-03', next_day: null, total: 3,
+    events: [
+      { id: 30, customer_id: 1, customer: 'Mẫu An Phát', kind: 'receipt', actor: 'thu.ke@example.test', actor_name: 'Thu', at: '2026-11-06T03:20:00+00:00', before: {},
+        after: { pid: 'PH-007', date: '2026-11-05', method: 'CK', amount_vnd: '5000000', allocations: [] } },
+      { id: 29, customer_id: 3, customer: 'Mẫu Phú Gia', kind: 'price_edit', actor: 'may-theo-sheet', actor_name: 'Máy (theo Sheet)', at: '2026-11-06T02:50:00+00:00',
+        before: { price: { trip_id: 41, unit_price_vnd: null, other_fee_vnd: null } }, after: { price: { trip_id: 41, unit_price_vnd: '42000000', other_fee_vnd: null } } },
+      { id: 28, customer_id: 1, customer: 'Mẫu An Phát', kind: 'paste', actor: 'may-theo-sheet', actor_name: 'Máy (theo Sheet)', at: '2026-11-06T02:05:00+00:00', before: {},
+        after: { trips: [{ trip_id: 40, container: 'MAUU0000002', event_date: '2026-11-05', unitPriceVnd: null, status: 'confirmed', note: 'Chuyến đồng bộ' }, { trip_id: 42, container: 'MAUU0000004', event_date: '2026-11-05', unitPriceVnd: null, status: 'confirmed', note: 'Chuyến đồng bộ' }] } }],
+    trips: [{ id: 40, container: 'MAUU0000002' }, { id: 42, container: 'MAUU0000004' }, { id: 41, container: 'MAUU0000003' }], receipts: [], legacy_rows: [], fee_types: [] },
+  '2026-11-03': { day: '2026-11-03', today: '2026-11-06', prev_day: null, next_day: '2026-11-06', total: 1,
+    events: [{ id: 5, customer_id: 7, customer: 'Mẫu Đông Á', kind: 'void', actor: 'ke.toan@example.test', actor_name: 'Kế toán', at: '2026-11-03T08:00:00+00:00',
+      before: { pid: 'PH-002', amount_vnd: '1000000' }, after: { pid: 'PH-002', void_reason: 'ghi trùng' } }],
+    trips: [], receipts: [], legacy_rows: [], fee_types: [] },
+};
 const fees = [[34, 95], [32, 20], [29, 135], [21, 60], [null, 40], [18, 32], [25, 10], [null, 24], [31, 8], [14, 15], [22, 21], [40, 12], [null, 26], [27, 14], [19, 19], [33, 9], [12, 20], [26, 24]];
 const priceRows = fees.map(([web, delta], i) => ({ key: `legacy:${i + 1}`, status: 'CONFLICT', container: `MAUU ${100101 + i * 37}-${i % 9}`, date: `2026-10-${String(3 + i).padStart(2, '0')}`, source_row: 412 + i * 3,
   web_unit_price_vnd: '60000000', sheet_unit_price_vnd: '60000000', web_other_fee_vnd: web === null ? null : String(web * 100000), sheet_other_fee_vnd: String(((web ?? 0) + delta) * 100000), delta_vnd: String(delta * 100000), source_fingerprint: sha }));
@@ -46,7 +62,13 @@ function serverFor(opts = {}) {
       return;
     }
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? inbox()));
+    if (route === '/api/v7/activity') {
+      const day = new URL(req.url, 'http://x').searchParams.get('day') ?? '2026-11-06';
+      opts.activityAsked?.push(day);
+      return opts.activityStatus ? send(opts.activityStatus, {}) : send(200, activityDays[day] ?? { day, today: '2026-11-06', prev_day: '2026-11-03', next_day: '2026-11-06', total: 0, events: [], trips: [], receipts: [], legacy_rows: [], fee_types: [] });
+    }
     if (route === '/api/v7/sheet/doi-chieu') return send(opts.statementStatus ?? 200, value(opts.statement ?? statement()));
+    if (route === '/api/v7/ai/preview') return send(200, opts.aiPreview ?? { enabled: true, fingerprint: 'f'.repeat(64), packet: { customer_id: 7, customer: 'Mẫu Đông Á', checked_at: reconcile.checked_at, groups: [], partial: false } });
     if (route === '/api/v7/dashboard') return send(200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(200, { customers: [] });
     if (route === '/api/v7/customers') return send(200, { customers });
@@ -78,6 +100,24 @@ if (process.argv.includes('--preview')) {
   const port = Number(process.env.UX_PREVIEW_PORT ?? 18768);
   serverFor({}).listen(port, '127.0.0.1', () => process.stdout.write(`Fixture preview: http://127.0.0.1:${port}/viec-can-lam.html\n`));
 } else {
+  test('AI: chỉ gửi sau khi xem trước và đồng ý; câu trả lời không ghi sổ', async () => {
+    const posted = [];
+    await withPage({ posted, post: route => route === '/api/v7/ai/explain'
+      ? { status: 200, json: { text: 'Cần kiểm dòng Sheet.', usage: { input_tokens: 10, output_tokens: 5 } } }
+      : { status: 400, json: { message: 'Không được ghi.' } } }, async page => {
+      await opened(page);
+      await page.locator('[data-ai-preview="7"]').click();
+      await page.locator('[data-ai-send="7"]').waitFor();
+      assert.equal(posted.length, 0, 'xem trước không gọi Claude');
+      assert.match(await page.locator('.dc-ai-preview').innerText(), /Dữ liệu sẽ gửi Anthropic/);
+      await page.locator('[data-ai-send="7"]').click();
+      await page.getByText('Cần kiểm dòng Sheet.').waitFor();
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].route, '/api/v7/ai/explain');
+      assert.deepEqual(posted[0].body, { customer_id: 7, fingerprint: 'f'.repeat(64), consent: true });
+      assert.equal(await page.locator('.dc-ai-preview pre').evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'bản xem trước tự xuống dòng');
+    }, { width: 390, height: 720 });
+  });
   test('mở trang: trả lời số nợ có đúng không, khách lệch mở sẵn, đọc phụ phí thay vì hai số bằng nhau', async () => withPage({}, async page => {
     await opened(page);
     const line = await statusLine(page);
@@ -85,7 +125,7 @@ if (process.argv.includes('--preview')) {
     assert.match(line, /88% số nợ · 1 khách lệch/);
     assert.match(line, /Đối soát lúc 10:12 · lần tới 11:05/);
     assert.ok(await page.locator('.viec-status.warn').count());
-    assert.deepEqual(await page.locator('[data-tab]').allInnerTexts(), ['Số nợ lệch 1', 'Dọn chi tiết 3', 'Máy đã làm 3']);
+    assert.deepEqual(await page.locator('[data-tab]').allInnerTexts(), ['Số nợ lệch 1', 'Dọn chi tiết 3', 'Đã làm 3']);
     assert.equal(await page.locator('[data-tab="lech"]').getAttribute('aria-selected'), 'true');
     const row = await page.locator('.dc-customer').innerText();
     assert.match(row, /Mẫu Đông Á[\s\S]*5\.210[\s\S]*5\.274,2[\s\S]*−64,2[\s\S]*Sheet vừa sửa lúc 10:00, máy xem lại ở lượt sau/);
@@ -241,6 +281,100 @@ if (process.argv.includes('--preview')) {
     });
   });
 
+  test('Chỗ máy tìm ra: "Đã xem, hết báo" ở dòng Sheet máy không ghi được; ghi theo dấu vân, nợ không đổi, hiện lại khi sổ không còn nêu', async () => {
+    const posted = [];
+    const missing = 'a'.repeat(64), manual = 'b'.repeat(64), conflict = 'c'.repeat(64);
+    const hints = [
+      { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
+      { kind: 'sheet_row_missing', row: 304, container: 'MAUU0000304 取消', sheet_vnd: '25000000', delta_vnd: '25000000', closable: true, source_fingerprint: missing },
+      { kind: 'price_review', status: 'MANUAL', row: 90, container: 'MAUU0000090', sheet_vnd: '83000000', web_vnd: '84500000', delta_vnd: '-1500000', closable: true, source_fingerprint: manual },
+      { kind: 'price_review', status: 'CONFLICT', row: 91, container: 'MAUU0000091', sheet_vnd: '80000000', web_vnd: '81000000', delta_vnd: '-1000000', closable: false, source_fingerprint: conflict },
+    ];
+    const guess = { ...lech, reason: 'NOTHING_TO_WRITE', sheet_editing: false, difference_vnd: '-1500000', groups: [], hints, hints_explain: false };
+    const closedByServer = [];
+    await withPage({ posted, inbox: inbox({ reconcile: { ...reconcile, customers: [guess] } }),
+      statement: () => statement({ sheet_total_vnd: '5208500000', groups: [], reason: 'NOTHING_TO_WRITE', sheet_editing: false, closed_sources: closedByServer }) }, async page => {
+      await opened(page);
+      // Chỉ dòng Sheet không khớp chuyến và dòng phụ phí gõ tay có nút; phiếu trùng và giá CONFLICT thì không.
+      assert.equal(await page.locator('.dc-hints [data-dc-dong]').count(), 2);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'PH-001' }).locator('[data-dc-dong]').count(), 0);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 91' }).locator('[data-dc-dong]').count(), 0);
+      await page.locator(`[data-dc-dong="${missing}"]`).click();
+      assert.match(await page.locator('.action-description').innerText(), /Nợ không đổi, vẫn lệch Sheet; không ghi tiền/);
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].route, '/api/v7/sheet/tasks/keep');
+      assert.deepEqual({ ...posted[0].body, idempotency_key: 'k' }, { customer_id: 7, expected_version: 12, idempotency_key: 'k', task_kind: 'source', scope: 'price', source_fingerprint: missing });
+      assert.equal(await page.locator(`[data-dc-dong="${missing}"]`).count(), 0);   // hết báo ngay, không chờ lượt máy sau
+      assert.equal(await page.locator('.dc-hints li').count(), 3);
+      // Sổ đã ghi dấu vân (closed_sources): mở lại vẫn không hiện dòng 90.
+      closedByServer.push(manual);
+      await page.locator('[data-dc-open="7"]').first().click();
+      await page.locator('[data-dc-open="7"]').first().click();
+      await page.locator('.dc-hints li', { hasText: 'Dòng 90' }).waitFor({ state: 'detached' });   // chờ sổ tải lại xong, không đọc khung cũ
+      await page.locator('.dc-hints').waitFor();
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 90' }).count(), 0);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 304' }).count(), 0);   // dòng vừa đóng ở lượt trước cũng không quay lại
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 91' }).count(), 1);
+    });
+  });
+
+  test('máy đoán chỗ lệch: câu ở cột Vì sao, đủ danh sách khi mở; khách bị giữ nói khối tháng (CHAN-DOAN-LECH-01)', async () => {
+    const hints = [
+      { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
+      { kind: 'sheet_row_missing', row: 284, container: 'MAUU0000284 取消', sheet_vnd: '7700000', delta_vnd: '7700000' },
+      { kind: 'price_review', status: 'MANUAL', row: 231, container: 'MAUU0000231', sheet_vnd: '101500000', web_vnd: '98000000', delta_vnd: '3500000' },
+    ];
+    const guess = { ...lech, reason: 'NOTHING_TO_WRITE', sheet_editing: false, difference_vnd: '-16000000', groups: [], hints, hints_explain: true };
+    const held = { customer: 'Mẫu Kim Long', customer_id: 9, status: 'CHI_CO_WEB', reason: 'HELD', difference_vnd: null, web_total_vnd: '95000500', sheet_total_vnd: null,
+      held_reasons: { ANCHOR_CHAIN_MISMATCH: 2 }, hints: [{ kind: 'chain_break', month: '2026-10', sheet_end_vnd: '95000000', expected_end_vnd: '95000500', delta_vnd: '-500' }] };
+    await withPage({ inbox: inbox({ reconcile: { ...reconcile, customers: [guess, held] } }), statement: statement({ sheet_total_vnd: '5226033039', groups: [], reason: 'NOTHING_TO_WRITE', sheet_editing: false }) }, async page => {
+      await opened(page);
+      const why = await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-why').innerText();
+      assert.match(why, /^Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: Phiếu PH-001 và PH-002 cùng ngày 31\/10, cùng 8,3 tr: có thể ghi trùng\./);
+      assert.match(why, /Còn 1 chỗ nữa, mở để xem\./);
+      assert.doesNotMatch(why, /không có việc nào giải thích/);
+      assert.match(await page.locator('.dc-left').innerText(), /Các chỗ máy tìm ra ở dưới/);
+      const items = await page.locator('.dc-hints li').allInnerTexts();
+      assert.equal(items.length, 3);
+      assert.match(items[2], /Dòng 231 \(MAUU0000231\): Sheet 101,5 tr, web 98 tr\. Máy không tự sửa vì dòng có phụ phí chia theo loại, sửa trên Sổ\./);
+      const keptCell = page.locator('.dc-customer', { hasText: 'Kim Long' }).locator('.dc-why');
+      assert.equal(await keptCell.locator('.dc-tag').innerText(), 'Sheet cần sửa');   // nhãn đứng đầu ô (KIEM-TAB-01 3e), câu theo sau
+      const kept = (await keptCell.innerText()).replace(/^Sheet cần sửa\s+/, '');
+      assert.match(kept, /^Sheet có chỗ máy chưa đọc được, chưa so được\. Khối tháng 10 trên Sheet: số cuối tháng thiếu 500 đ so với/);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang ở 1280');
+    });
+  });
+
+  test('web đi trước có chuyến để lâu hoặc nằm ở tab sổ khác: khách thành phải xem, câu nói rõ chuyến nào', async () => {
+    const hints = [
+      { kind: 'ahead_other_book', container: 'MAUU0000002', date: '2026-11-04', amount_vnd: '41000000', other: 'Mẫu An Phát' },
+      { kind: 'ahead_old', container: 'MAUU0000001', date: '2026-09-29', amount_vnd: '70000000', days: 38 },
+    ];
+    const check = { ...lech, reason: 'WEB_AHEAD', sheet_editing: false, sheet_last_edit_at: null, difference_vnd: '111000000', web_ahead_vnd: '111000000', sheet_total_vnd: '5099000000', groups: [], hints };
+    const fine = { customer: 'Mẫu Phú Gia', customer_id: 3, status: 'LECH_TONG', reason: 'WEB_AHEAD', difference_vnd: '600000000', web_ahead_vnd: '600000000', groups: [] };
+    await withPage({ inbox: inbox({ reconcile: { ...reconcile, counts: { KHOP: 237, LECH_TONG: 2 }, customers: [check, fine] } }),
+      statement: statement({ sheet_total_vnd: '5099000000', web_ahead_vnd: '111000000', groups: [], reason: 'WEB_AHEAD', sheet_editing: false, sheet_last_edit_at: null }) }, async page => {
+      await opened(page);
+      assert.match(await statusLine(page), /1 khách lệch/);
+      const why = await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-why').innerText();
+      assert.match(why, /^Web đi trước Sheet, có chuyến cần xem: Chuyến MAUU0000002 ngày 04\/11 \(41 tr\) web ghi ở sổ này, còn Sheet ghi ở tab Mẫu An Phát\. Xem chuyến thuộc khách nào\./);
+      assert.match(why, /Chuyến MAUU0000001 ngày 29\/09 \(70 tr\) có giá trên web đã 38 ngày mà tab Sheet chưa có\. Xem Sheet đã bỏ chuyến này chưa\./);
+      assert.doesNotMatch(why, /Không cần làm gì/);
+      const panel = await page.locator('.dc-sheet').innerText();
+      assert.match(panel, /Web đi trước Sheet\s*· có chuyến cần xem ở dưới/);
+      assert.doesNotMatch(panel, /không phải lệch/);
+      assert.match(await page.locator('.dc-left').innerText(), /^Cần xem\s+Số khớp nếu tính phần web đi trước\. Xem các chuyến ở dưới\./);
+      assert.equal(await page.locator('.dc-left.ok').count(), 0);   // không tô xanh "Khớp" ở khách phải xem
+      assert.match(await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-gap').innerText(), /^\+111$/);   // web − Sheet, không trừ phần đi trước
+      assert.equal(await page.locator('.dc-hints li').count(), 2);
+      assert.match(await page.locator('.dc-side summary').innerText(), /1 khách web đi trước Sheet, không cần làm gì/);   // khách không có gì phải xem vẫn ở đây
+      if (process.env.UX_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.UX_SCREENSHOTS, 'viec-web-di-truoc-can-xem-1280.png') });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang ở 1280');
+    });
+  });
+
   test('nhiều khách: lệch lớn mở sẵn, đổi khách một bấm, đóng tay thì để đóng; tab chưa có sổ và web đi trước tính riêng', async () => {
     const rec = { ...reconcile, counts: { KHOP: 234, LECH_TONG: 3, CHI_CO_SHEET: 1 }, outside_tabs: [{ customer: 'TAB MẪU <101>', sheet_total_vnd: '120500000', last_month: '2026-10', reason: 'NOT_ON_TONG' }], customers: [
       { customer: 'Mẫu Lộc Phát', customer_id: 8, status: 'LECH_TONG', reason: 'SHEET_SHUFFLED', difference_vnd: '5000000', web_total_vnd: '100', sheet_total_vnd: '95', shuffled_months: ['2026-10'], groups: [] }, lech,
@@ -265,7 +399,7 @@ if (process.argv.includes('--preview')) {
       const reread = page.waitForResponse(/\/api\/v7\/inbox$/);
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await reread;
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+      await page.evaluate(() => window.ViecCanLam.idle());   // mọi lượt đọc nền đã vẽ, không ngủ rồi đoán
       assert.equal(await page.locator('.dc-detail').count(), 0, 'đóng tay thì tải nền không mở lại');
     });
   });
@@ -275,7 +409,7 @@ if (process.argv.includes('--preview')) {
     await withPage({ inbox: inbox({ reconcile: all }) }, async page => {
       assert.equal(await page.locator('.viec-status.warn,.viec-status.danger').count(), 0);
       assert.match(await statusLine(page), /239\/239 khách khớp Sheet[\s\S]*100% số nợ/);
-      assert.match(await page.locator('.dc-empty').innerText(), /Không có khách nào lệch\. Chưa cần làm gì\.[\s\S]*Máy kiểm lại lúc 11:05/);
+      assert.match(await page.locator('.dc-empty').innerText(), /Không có khách nào lệch\. Chưa cần làm gì\.[\s\S]*Máy kiểm lại lúc 11:05\. Email chỉ gửi khi máy lỗi hoặc dừng; khách lệch hiện ở đây\./);   // CANH-BAO-01 không email khách lệch
     });
     await withPage({ inbox: inbox({ reconcile: { ...all, last_error: { at: '2026-11-06T10:05:00+07:00', reason: 'HTTPError' } } }) }, async page => {
       assert.match(await page.locator('.status-error').innerText(), /Lần đối soát lúc 10:05 chưa chạy được \(HTTPError\)\. Số dưới đây là của lần trước\./);
@@ -330,18 +464,70 @@ if (process.argv.includes('--preview')) {
     });
   });
 
-  test('máy đã làm: mới nhất trước, có giờ và đường mở sổ; nhớ tab khi tải lại', async () => withPage({}, async page => {
+  test('đã làm: hôm nay cả máy lẫn người, mới nhất trước, câu như Lịch sử, lọc máy/người; nhớ tab khi tải lại', async () => withPage({}, async page => {
     await page.locator('[data-tab="may"]').click();
-    const items = await page.locator('.auto-list li').allInnerTexts();
-    assert.match(items[0], /10:05[\s\S]*Chuyến mới[\s\S]*MAUU0000002 · 05\/11\/2026/);
-    assert.match(items[1], /09:50[\s\S]*Giá[\s\S]*chưa giá → 42 tr/);
-    assert.match(items[2], /09:05[\s\S]*Sửa chữ[\s\S]*nơi đi: — → KHO MẪU/);
-    assert.equal(await page.locator('.auto-list li a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+    await page.locator('.act-table').waitFor();
+    // Bảng có cột, chia nhóm theo loại việc (Chuyến · Thu tiền · Giá và phụ phí …), mỗi nhóm có tiêu đề kèm số việc.
+    assert.deepEqual((await page.locator('.act-table thead th').allInnerTexts()).slice(0, 6), ['Giờ', 'Người làm', 'Sổ', 'Việc', 'Chi tiết', 'Ghi chú']);
+    assert.deepEqual((await page.locator('.act-group-title').allInnerTexts()).map(text => text.replace(/\s+/g, ' ')), ['Chuyến 1', 'Thu tiền 1', 'Giá và phụ phí 1']);
+    const cells = async group => page.locator(`[data-act-group="${group}"] tr:not(.act-group-head)`).first().locator('td,th').allInnerTexts();
+    assert.deepEqual((await cells('chuyen')).slice(0, 6), ['09:05', 'Máy', 'Mẫu An Phát', 'Dán lô chuyến', '2 chuyến: MAUU0000002 (05/11/2026) · MAUU0000004 (05/11/2026)', 'Chuyến đồng bộ']);
+    assert.deepEqual((await cells('thu')).slice(0, 4), ['10:20', 'Thu', 'Mẫu An Phát', 'Ghi phiếu thu']);
+    assert.match((await cells('thu'))[4], /^PH-007: 5\.000\.000 đ ngày 05\/11\/2026/);
+    assert.deepEqual((await cells('gia')).slice(0, 5), ['09:50', 'Máy', 'Mẫu Phú Gia', 'Sửa giá', 'Chuyến MAUU0000003 · Đơn giá: – → 42.000.000']);
+    assert.equal(await page.locator('.act-table a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=1');
     assert.match(await page.locator('.today-inline').innerText(), /Người nhập mẫu/);
+    assert.deepEqual((await page.locator('[data-act-filter]').allInnerTexts()).map(text => text.replace(/\s+/g, ' ')), ['Tất cả 3', 'Máy 2', 'Người 1']);
+    await page.locator('[data-act-filter="nguoi"]').click();
+    assert.equal(await page.locator('.act-table tbody tr:not(.act-group-head)').count(), 1);
+    await page.locator('[data-act-filter="may"]').click();
+    assert.equal(await page.locator('.act-table tbody tr:not(.act-group-head)').count(), 2);
+    assert.equal(await page.locator('[data-act-day]', { hasText: 'Sau' }).isDisabled(), true, 'hôm nay không có ngày sau');
     await page.reload();
-    await page.locator('.auto-list').waitFor();
+    await page.locator('.act-table').waitFor();
     assert.equal(await page.locator('[data-tab="may"]').getAttribute('aria-selected'), 'true');
   }));
+
+  // DIEN-THOAI-SEP-01: trên điện thoại mỗi việc là một khối nhiều dòng; cột Việc và Chi tiết nằm trong màn, không cuộn ngang.
+  test('đã làm trên điện thoại 390px: việc và chi tiết nằm trong màn, không cuộn ngang', async () => withPage({}, async page => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('[data-tab="may"]').click();
+    await page.locator('.act-table').waitFor();
+    const layout = await page.evaluate(() => ({
+      side: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      wrap: [...document.querySelectorAll('.act-scroll')].every(el => el.scrollWidth <= el.clientWidth),
+      outside: [...document.querySelectorAll('.act-table .act-label, .act-table .act-what, .act-table .act-open a')]
+        .filter(el => el.getBoundingClientRect().right > innerWidth).length,
+    }));
+    assert.deepEqual(layout, { side: 0, wrap: true, outside: 0 });
+    const item = await page.locator('[data-act-group="chuyen"] tr:not(.act-group-head)').first().innerText();
+    assert.match(item, /09:05[\s\S]*Máy[\s\S]*Mẫu An Phát[\s\S]*Dán lô chuyến[\s\S]*2 chuyến: MAUU0000002/);
+  }));
+
+  test('đã làm: lùi về ngày gần nhất có việc, chọn ngày bằng ô ngày, ngày trống nói rõ, lỗi có Thử lại', async () => {
+    const opts = { activityAsked: [] };
+    await withPage(opts, async page => {
+      await page.locator('[data-tab="may"]').click();
+      await page.locator('.act-table').waitFor();
+      await page.locator('[data-act-day="2026-11-03"]').click();
+      await page.waitForFunction(() => document.querySelector('[data-act-date]')?.value === '2026-11-03' && document.querySelector('.act-table'));
+      const item = await page.locator('.act-table tbody tr:not(.act-group-head)').innerText();
+      assert.match(item, /15:00[\s\S]*Kế toán[\s\S]*Mẫu Đông Á[\s\S]*Hủy phiếu\tPH-002: 1\.000\.000 đ\tLý do hủy: ghi trùng/);
+      assert.equal(await page.locator('.today-inline').count(), 0, 'ngày cũ không có dòng Đã ghi hôm nay');
+      assert.ok(opts.activityAsked.includes('2026-11-03'));
+      await page.locator('[data-act-date]').fill('2026-11-04');
+      await page.locator('.dc-empty', { hasText: 'Ngày 04/11/2026 không ai ghi gì.' }).waitFor();
+      await page.locator('[data-act-day="today"]').click();
+      await page.locator('.today-inline').waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      opts.activityStatus = 503;
+      await page.locator('[data-act-date]').fill('2026-11-01');
+      await page.locator('[data-act-retry]').waitFor();
+      opts.activityStatus = 0;
+      await page.locator('[data-act-retry]').click();
+      await page.locator('.dc-empty', { hasText: 'Ngày 01/11/2026 không ai ghi gì.' }).waitFor();
+    });
+  });
 
   test('bản gần nhất của tab: xem và đổi tab được, ô chọn và nút ghi khóa tới khi có bản mới', async () => withPage({}, async page => {
     await opened(page);

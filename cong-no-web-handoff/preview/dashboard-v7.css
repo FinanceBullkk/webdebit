@@ -95,6 +95,13 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .tq .icon-btn svg{width:18px;height:18px}
 #dashboard{max-width:1204px;padding:20px 28px 0;display:flex;flex-direction:column;gap:16px}
 .tq #error{margin:16px 28px 0;max-width:1144px}
+/* XUAT-SO-01: dòng báo của nút Tải cả sổ, cùng chỗ với #error; giữ tới lượt bấm sau để người đọc kịp. */
+.tq .export-status{margin:16px 28px 0;max-width:1144px;padding:10px 14px;border:1px solid var(--edge);border-radius:8px;background:#fff;font-weight:600;overflow-wrap:anywhere}
+.tq .export-status.is-busy{color:var(--blue);background:#eaf2fc;border-color:#cde2fb}
+.tq .export-status.is-ok{color:var(--teal);background:#e3f4f1;border-color:#b6e0d8}
+.tq .export-status.is-bad{color:var(--red);background:#fdecea;border-color:#ebb7b4}
+.tq .export-status.is-wait{color:var(--amber);background:#fdf3e1;border-color:#efd59c}
+.tq #export-books:disabled{cursor:progress;color:var(--ink-m)}
 .tq .empty{margin:10px 0 0;color:var(--ink-m)}
 
 /* Dải đầu: câu trả lời chính, nền xanh nhạt; trái là Còn phải thu + hạn trả, phải là thẻ Thu tháng. */
@@ -110,7 +117,9 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .pill.credit{background:#dff3ee;border-color:#cfe9e2;color:var(--teal)}
 .brk{display:flex;gap:3px;margin-top:12px;font-size:13px;font-variant-numeric:tabular-nums}
 .brk>div{box-sizing:border-box;padding-bottom:3px;white-space:nowrap;overflow:hidden}
-.brk .in{flex:none;border-bottom:2px solid var(--blue);color:var(--blue)}
+/* Vạch Trong hạn rộng theo tỷ lệ (tối thiểu 9.5em, đặt trong JS) nhưng được co: khi gần 100% nó nhường đủ 9.5em cho Quá hạn,
+   không đẩy khối Quá hạn ra ngoài dải làm cả trang cuộn ngang trên điện thoại. */
+.brk .in{flex:0 1 auto;border-bottom:2px solid var(--blue);color:var(--blue)}
 .brk .late{flex:1 1 0;min-width:9.5em;border-bottom:2px solid var(--red);color:var(--red);text-align:right}
 .tq .age-bar{display:flex;gap:3px;height:18px;margin-top:6px;border-radius:6px;overflow:hidden}
 .tq .age-bar button{min-width:3px;height:18px;padding:0;border:0;cursor:pointer;transition:opacity .15s}
@@ -141,14 +150,43 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .meter .today{position:absolute;top:-5px;width:3px;height:22px;margin-left:-1px;border-radius:2px;background:var(--ink-1)}
 .tq .month-card .left{display:inline-flex;align-items:center;gap:6px;align-self:flex-end;color:var(--ink-m);font-size:13px}
 
+/* Lọc chéo (DASH-08): nhãn phạm vi cạnh tên khối khi số của khối đang tính theo lọc; "cả công ty" xám ở thẻ chưa tách. */
+.scope-tag{display:inline-block;max-width:420px;margin:-3px 0 -3px 8px;padding:0 8px;border:1px solid #c9d8ea;border-radius:10px;background:#eef3f9;color:var(--blue);font-size:12.5px;font-weight:700;line-height:17px;vertical-align:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scope-tag.all{border-color:#dde1e6;background:#f1f2f4;color:var(--ink-m);font-weight:600}
+.com-line.none .cn{color:var(--ink-l);font-weight:400}
+
+/* Công nợ theo mặt hàng (DASH-07): mỗi mặt hàng một dòng là nút lọc; thanh xanh trong hạn, đỏ quá hạn (cùng màu ngoặc
+   Trong hạn / Quá hạn của dải đầu). Hai cột, dưới 700px một cột. */
+.com-band{padding:12px 20px 10px;border-radius:12px;background:#fff;border:1px solid var(--edge)}
+.com-head{display:flex;align-items:center;gap:12px}
+.com-head h2{margin:0;font-size:16px}
+.com-head .legend{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--ink-m);font-size:12.5px}
+.com-head .legend i{display:inline-block;width:14px;height:8px;margin-left:8px;border-radius:2px}
+.com-head .legend i.in,.cbar i.in{background:var(--blue)}
+.com-head .legend i.late,.cbar i.late{background:var(--t3)}
+.com-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;margin-top:4px}
+.com-th,.com-line{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) 76px 70px 46px;align-items:center;gap:10px}
+.com-th{padding:4px 6px;border-bottom:1px solid var(--edge);color:var(--ink-m);font-size:12.5px;font-weight:600}
+.com-th span:nth-child(n+3){text-align:right}
+.com-line{width:100%;min-height:40px;padding:0 6px;border:0;border-bottom:1px solid #eef0f3;background:transparent;color:var(--ink-1);font:inherit;text-align:left;cursor:pointer;font-variant-numeric:tabular-nums}
+.com-line:hover{background:#f6f8fb}
+.com-line[aria-pressed="true"]{background:#eef3f9;box-shadow:inset 3px 0 0 var(--blue)}
+.com-line.dim{opacity:.45}
+.com-line .cn{overflow:hidden;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+.com-line .cn.grey{color:var(--ink-m);font-weight:400}
+.cbar{display:block;height:12px}
+.cbar>span{display:flex;gap:1px;height:12px;border-radius:3px;overflow:hidden}
+.cbar i{display:block;min-width:2px}
+.com-line .ct{text-align:right;font-weight:700}
+.com-line .co{text-align:right;color:var(--red);font-weight:600}
+.com-line .cc{display:inline-flex;align-items:center;justify-content:flex-end;gap:3px;color:var(--ink-m)}
+.com-line .cc svg{width:13px;height:13px}
+
 /* Bảng khách: chip mức rủi ro lọc bảng; tiền bằng triệu, ô ngày là viên màu theo ngưỡng. */
 .tq .debtors{padding:14px 20px 12px;border-radius:12px;background:#fff;border:1px solid var(--edge)}
 .list-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .list-head h2{margin:0;font-size:16px}
-.com-pick{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:40px;box-sizing:border-box;padding:0 4px 0 10px;border:1px solid var(--ctl);border-radius:8px;background:#fff;color:var(--ink-m)}
-.com-pick select{height:36px;border:0;background:transparent;color:var(--ink-1);font:inherit;cursor:pointer}
-.com-pick select:disabled{cursor:not-allowed;color:var(--ink-l)}
-.com-pick[hidden]+.icon-btn{margin-left:auto}
+.list-head .icon-btn{margin-left:auto}
 .risk-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
 .rchip{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border:1px solid #d7dce3;border-radius:20px;background:#fff;color:var(--ink-1);font:inherit;cursor:pointer;font-variant-numeric:tabular-nums}
 .rchip:disabled{cursor:not-allowed;opacity:.6}
@@ -204,11 +242,29 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 @media (max-width:700px){
   .tq-page{margin-left:64px}
   .tq .page-head.topbar{padding:0 12px}
+  /* XUAT-SO-01: thanh đầu cao cố định, màn hẹp không đủ chỗ cho chữ: nút còn biểu tượng, tên nút vẫn đọc được bằng trình đọc. */
+  .tq #export-books{width:40px;padding:0}
+  .tq #export-books span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .tq .export-status{margin:12px 12px 0}
   #dashboard{padding:12px 12px 0}
   .strip{padding:12px}
   .owe,.month-card{flex-basis:100%}
   .big-money{font-size:30px}
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .com-band{padding:12px}
+  .com-grid{grid-template-columns:1fr}
+  .com-col+.com-col .com-th{display:none}
+  /* Màn hẹp: bỏ thanh và chú giải để tên mặt hàng đọc đủ; số vẫn đủ ba cột. */
+  .com-th,.com-line{grid-template-columns:minmax(0,1fr) 64px 62px 34px;gap:6px}
+  .com-th span:nth-child(2),.com-line .cbar,.com-head .legend{display:none}
+  .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
+  /* Điện thoại (DIEN-THOAI-SEP-01): bảng khách chỉ còn Khách · Quá hạn · Còn nợ, vừa màn, không cuộn ngang. Thanh hạn trả
+     chỉ có số khi rê chuột nên bỏ; hai cột ngày Trả, Đi hàng bỏ vì chấm màu trước tên đã gộp mức rủi ro. */
+  .dtable{min-width:0}
+  .dtable th.bar-h,.dtable td.bar,.dtable th[data-col="pay"],.dtable th[data-col="trip"],.dtable td.d{display:none}
+  .dtable td.who{width:auto}
+  /* Ba viên số cạnh Còn phải thu ghi chữ ngay (trên máy tính chữ nằm ở chú thích rê chuột). */
+  .owe-row .pill .sr-only{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}
 }
 @media (prefers-reduced-motion:reduce){.age-bar button{transition:none}}

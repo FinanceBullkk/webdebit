@@ -6,7 +6,12 @@ Một spec cho một thay đổi: đầu ra, phạm vi, nguồn quyết định,
 
 Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng spec.
 
+- [Kiểm tab trước khi ghi](v7-kiem-tab-truoc-khi-ghi.md): một kết luận sức khỏe tab dùng chung cho mọi đường ghi theo Sheet (tab lệch dòng, ô tổng mất công thức, số âm cột thu thì chặn đề xuất ghi và chỉ đúng ô cần sửa), tên riêng cho lệnh của máy và AI, hết báo theo dấu vân dòng Sheet, chuẩn hóa NULL/container ở biên; từ tám ca thật 16/11/2026 (ĐỀ XUẤT, chưa code).
 - [Máy tự đối soát](v7-may-doi-soat.md): so Sheet–web mỗi giờ, chỉ ghi khi đúng một tổ hợp việc khớp đúng tổng; [tự tạo sổ khách mới](v7-may-tao-so.md); [cảnh báo email khi máy lỗi hoặc dừng](v7-canh-bao.md).
+- [Kiểm tab trước khi ghi, đợt 1](v7-kiem-tab-dot1.md): `health` theo tab, phát hiện `row_shift` (tiền lệch một dòng so với container), miễn trừ bố cục hai dòng khai tay, chặn ghi ở bảng đối chiếu và máy đối soát; đo 253 tab trên `hao` (ĐÃ CODE).
+- [Kiểm tab trước khi ghi, đợt 2](v7-kiem-tab-dot2.md): một chỗ chuẩn hóa (`v7_normalize`): chữ rỗng là NULL ở ô chữ, mã container ISO tách khỏi ghi chú; SQL so `nullif(btrim(...),'')` ở `resolve_sheet_conflict` và `edit_trip_info` (ĐÃ CODE).
+- [Khối "Sheet cần sửa"](v7-sheet-can-sua.md): chỉ đúng ô lỗi trên Sheet, dựng lại vùng ô quanh nó (đọc công thức, màu, ô gộp theo yêu cầu), khoanh ô đỏ/cam, mở ô trên Sheet; luồng, trạng thái, 390px; đợt 3 của KIEM-TAB-01 (ĐỀ XUẤT, chưa code UI).
+- [Audit trước chuyển hẳn](v7-cutover-audit.md): lệnh chỉ đọc so từng dòng và từng tháng Sheet–web, tab TONG với các tab khách, lệnh máy đã ghi, thao tác đã có người làm; mỗi lời giải thích phải khớp tới từng đồng (ĐỀ XUẤT 11/11/2026; [checklist](../docs/chuyen-han-checklist.md)).
 - [Bảng thu](v7-bang-thu.md): tiền về theo ngày, gom phiếu mọi sổ, chỉ xem; tháng tính theo ngày tiền về, khoản không rõ ngày nằm riêng; năm cách xem dạng tab (`BANG-THU-01`, `BANG-THU-02`, ĐÃ CHỐT 4/11/2026).
 - [Tương tác Bảng thu và Tình hình](v7-tuong-tac.md): bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ (`TUONG-TAC-01`, ĐÃ CHỐT 5/11/2026).
 - [Sổ khách V7](v7-so-khach-theo-sheet.md): prototype fixture; [backend đề xuất](v7-backend-so-khach.md), [API thử](v7-backend/ket-noi-giao-dien.md).

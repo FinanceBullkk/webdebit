@@ -41,6 +41,8 @@ Bị chặn: ngày sau hôm nay thì báo lỗi tại ô Ngày, giữ số đã 
 
 ### L4. Duyệt chuyến mới từ Sheet
 
+> Thay ngày 9/11/2026 bởi [`DUYET-TAI-HANG-01`](../docs/decisions/duyet-tai-hang-01.md): duyệt từng chuyến tại hàng, không còn nút lô và khung hỏi lại.
+
 1. Bấm "Duyệt n chuyến mới" thì hiện khung xác nhận theo mẫu "Ghi n phiếu thu từ Sheet": "Duyệt n chuyến mới từ Sheet? Chuyến có giá tính tiền ngay; chuyến chưa có giá chưa tính; chuyến nghi trùng thành chờ kiểm." Nút **Duyệt n chuyến** / **Thôi**.
 2. "Lấy từ Sheet / Làm mới" **không** thêm bước hỏi: lệnh này chỉ đọc Sheet vào hàng chờ, không ghi sổ (audit P0-5 xếp chung, nhưng nó không phải hành động tiền).
 
@@ -218,3 +220,5 @@ Người dùng chốt 31/10/2026 trong chat, chọn đúng phương án Claude �
 ## Câu hỏi mở
 
 - Phần dính ≤ 110px như audit gợi ý chỉ đạt được khi thanh xanh trên cùng thu lại lúc cuộn trên mọi trang. Đợt này nhắm ≤ 180px; thu thanh trên để sau, nếu người dùng thấy còn chật.
+
+<!-- du-lieu-gia: 1.000.000 12.500.000 15.000.000 49.000.000 50.000.000 199.000.000 200.000.000 1.200.000.000 1.250.000.000 -->

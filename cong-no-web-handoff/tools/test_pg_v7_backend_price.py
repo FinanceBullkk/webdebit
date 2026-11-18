@@ -3,15 +3,19 @@ import json
 import re
 
 from pg_v7_harness import (
+    BANG_GIA_NOI_DEN_MIGRATION,
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
     GIA_TU_DOI_MIGRATION,
     KHOA_CHU_MIGRATION,
+    KIEM_TAB_MIGRATION,
+    NOI_DEN_TUY_CHON_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
     SHEET_CONFLICT_MIGRATION,
+    XEM_TRUOC_BANG_GIA_MIGRATION,
     ZALO_GROUP_MIGRATION,
     call,
     fixture_open_month,
@@ -34,23 +38,23 @@ def _table(p1_tt_daklak="95", p2_khach_daklak="75"):
                       {"name": "VINH LONG"}],
         "periods": [
             {"valid_from": "2026-01-02", "valid_to": "2026-01-09", "rates": [
-                {"location": "DAK LAK", "tier": "khach", "unit_price_vnd": "75"},
-                {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": p1_tt_daklak},
-                {"location": "LAM DONG", "tier": "khach", "unit_price_vnd": "70"},
-                {"location": "LAM DONG", "tier": "tt", "unit_price_vnd": "90"}]},
+                {"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "75"},
+                {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": p1_tt_daklak},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "70"},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "90"}]},
             {"valid_from": "2026-01-10", "valid_to": None, "rates": [
-                {"location": "dak lak", "tier": "khach", "unit_price_vnd": p2_khach_daklak},
-                {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": "85"},
-                {"location": "LAM DONG", "tier": "khach", "unit_price_vnd": "70"},
-                {"location": "LAM DONG", "tier": "tt", "unit_price_vnd": "80"},
-                {"location": "VINH LONG", "tier": "tt", "unit_price_vnd": "75"}]},
+                {"location": "dak lak", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": p2_khach_daklak},
+                {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "85"},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "70"},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "80"},
+                {"location": "VINH LONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "75"}]},
         ],
     }
 
 
-def _row(container, day, origin, shipper, price=None):
+def _row(container, day, origin, shipper, price=None, destination="FAKE-B"):
     return {"container": container, "booking": container, "carrier": "FAKE", "date": f"{day:02d}/01/2026",
-            "from": origin, "to": "FAKE-B", "unitPriceVnd": price, "otherFeeVnd": None, "note": "",
+            "from": origin, "to": destination, "unitPriceVnd": price, "otherFeeVnd": None, "note": "",
             "src": "FAKE", "shipper": shipper}
 
 
@@ -74,29 +78,29 @@ def check_price_table(pg):
     bad_cases = [
         ("overlap", {**_table(), "periods": _table()["periods"] + [
             {"valid_from": "2026-01-09", "valid_to": "2026-01-10",
-             "rates": [{"location": "LAM DONG", "tier": "tt", "unit_price_vnd": "1"}]}]}, "PRICE_PERIOD_OVERLAP"),
+             "rates": [{"location": "LAM DONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "1"}]}]}, "PRICE_PERIOD_OVERLAP"),
         ("reverse", {**_table(), "periods": [{"valid_from": "2026-01-05", "valid_to": "2026-01-04", "rates": []}]},
          "PRICE_INVALID_PERIOD"),
         ("calendar", {**_table(), "periods": [{"valid_from": "2026-02-30", "valid_to": None, "rates": []}]},
          "PRICE_INVALID_PERIOD"),
         ("unknown", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None,
-                     "rates": [{"location": "CAN THO", "tier": "khach", "unit_price_vnd": "1"}]}]}, "PRICE_UNKNOWN_LOCATION"),
+                     "rates": [{"location": "CAN THO", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "1"}]}]}, "PRICE_UNKNOWN_LOCATION"),
         ("alias", {**_table(), "locations": [{"name": "DAK LAK"}, {"name": "LAM DONG", "aliases": ["dak  lak"]}]},
          "PRICE_DUPLICATE_ALIAS"),
         ("shipper", {**_table(), "tt_shippers": ["FAKE TT SHIP", "fake tt ship"]}, "PRICE_DUPLICATE_SHIPPER"),
         ("rate", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None, "rates": [
-            {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": "1"},
-            {"location": "DAKLAK", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_UNKNOWN_LOCATION"),
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "1"},
+            {"location": "DAKLAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_UNKNOWN_LOCATION"),
         ("rate-twice", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None, "rates": [
-            {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": "1"},
-            {"location": "dak lak", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_DUPLICATE_RATE"),
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "1"},
+            {"location": "dak lak", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_DUPLICATE_RATE"),
         ("tier", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None, "rates": [
-            {"location": "DAK LAK", "tier": "vip", "unit_price_vnd": "1"}]}]}, "INVALID_PRICE_TABLE"),
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "vip", "unit_price_vnd": "1"}]}]}, "INVALID_PRICE_TABLE"),
         ("extra", {**_table(), "note": "x"}, "INVALID_PRICE_TABLE"),
     ]
     for amount in ("-1", "1.5", "01", "9223372036854775808", 5):
         bad_cases.append((f"amount-{amount}", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None,
-                          "rates": [{"location": "DAK LAK", "tier": "khach", "unit_price_vnd": amount}]}]},
+                          "rates": [{"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": amount}]}]},
                           "PRICE_INVALID_AMOUNT"))
     for key, table, error in bad_cases:
         reject_call(pg, "save_price_table", c, version(pg, c), "price-bad-" + key, json.dumps(table), error=error)
@@ -174,7 +178,40 @@ def check_price_table(pg):
     before_total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
     v = version(pg, c)
     table_76 = json.dumps(_table(p2_khach_daklak="76"))
+    # BANG-GIA-05: the preview runs the same save and rolls it back; nothing is written, the numbers are the save's own.
+    def state():
+        return pg.value(
+        f"SELECT jsonb_build_object('v',(SELECT version FROM sokhach.customer WHERE id={c}),"
+        f"'events',(SELECT count(*) FROM sokhach.event WHERE customer_id={c}),"
+        f"'revs',(SELECT count(*) FROM sokhach.trip_price_rev WHERE customer_id={c}),"
+        f"'keys',(SELECT count(*) FROM sokhach.idempotency WHERE customer_id={c}),"
+        f"'table',sokhach._price_table({c}),"
+        f"'debt',(SELECT jsonb_agg(row_to_json(o) ORDER BY o.debt_month) FROM sokhach.v_outstanding_month o WHERE o.customer_id={c}),"
+        f"'lines',(SELECT count(*) FROM sokhach.receipt_line l JOIN sokhach.receipt r ON r.id=l.receipt_id WHERE r.customer_id={c}))")
+    before_state = state()
+    preview = call(pg, "preview_price_table", c, v, "price-preview-1", table_76)
+    require(state() == before_state, "preview wrote something")
+    require(preview["version"] == v, "preview must report the current version")
+    require([(t["trip_id"], t["container"], t["before_vnd"], t["after_vnd"], t["tier"]) for t in preview["repriced_trips"]]
+            == [(ids["C"], "PRICE-C", "75", "76", "khach"), (ids["D"], "PRICE-D", "75", "76", "khach")],
+            f"preview trips wrong: {preview['repriced_trips']}")
+    require((preview["repriced_delta_vnd"], preview["locked_trips"], preview["no_price_trips"])
+            == ("2", 0, 0), f"preview summary wrong: {preview}")
+    require(call(pg, "preview_price_table", c, v, "price-preview-1", table_76) == preview, "preview not repeatable")
+    reject_call(pg, "preview_price_table", c, v - 1, "price-preview-stale", table_76, error="STALE_LEDGER")
+    overlap = _table()
+    overlap["periods"][0]["valid_to"] = "2026-01-10"
+    reject_call(pg, "preview_price_table", c, v, "price-preview-overlap", json.dumps(overlap), error="PRICE_PERIOD_OVERLAP")
+    reject_call(pg, "preview_price_table", c, v, "price-preview-same", json.dumps(_table()), error="NO_CHANGE")
+    require(state() == before_state, "rejected preview wrote something")
     saved = call(pg, "save_price_table", c, v, "price-save-2", table_76)
+    require([{k: t[k] for k in ("trip_id", "container", "before_vnd", "after_vnd")} for t in preview["repriced_trips"]]
+            == saved["repriced_trips"] and preview["price_table"] == saved["price_table"]
+            and [preview[k] for k in ("repriced_delta_vnd", "locked_trips", "no_price_trips")]
+            == [saved[k] for k in ("repriced_delta_vnd", "locked_trips", "no_price_trips")], "preview differs from the save")
+    typed = [t for t in call(pg, "get_price_status", c)["trips"] if t["differs"] and not t["from_table"]]
+    require(ids["B"] in [t["trip_id"] for t in typed] and preview["typed_trips"] == len(typed),
+            f"preview typed count {preview['typed_trips']} != status after save {typed}")
     require(call(pg, "save_price_table", c, v, "price-save-2", table_76) == saved, "reprice retry changed")
     require(saved["version"] == v + 1, "reprice bumped the version more than once")
     require([(t["trip_id"], t["container"], t["before_vnd"], t["after_vnd"]) for t in saved["repriced_trips"]]
@@ -196,6 +233,9 @@ def check_price_table(pg):
 
     # Locked month: nothing changes, the count says why, and re-apply still works once unlocked.
     pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-01-01'")
+    preview = call(pg, "preview_price_table", c, version(pg, c), "price-preview-locked", json.dumps(_table(p2_khach_daklak="77")))
+    require((preview["repriced_trips"], preview["repriced_delta_vnd"], preview["locked_trips"]) == ([], "0", 2),
+            f"locked preview summary wrong: {preview}")
     saved = call(pg, "save_price_table", c, version(pg, c), "price-save-locked", json.dumps(_table(p2_khach_daklak="77")))
     require((saved["repriced_trips"], saved["repriced_delta_vnd"], saved["locked_trips"], saved["affected_trips"])
             == ([], "0", 2, 2), f"locked save summary wrong: {saved}")
@@ -228,8 +268,67 @@ def check_price_table(pg):
             f"cleared table summary wrong: {saved}")
     require({t["id"]: t["unit_price_vnd"] for t in call(pg, "get_ledger", c)["trips"]} == prices, "cleared table changed a price")
     reject_call(pg, "get_price_status", 10 ** 12, error="CUSTOMER_NOT_FOUND")
+    check_destination(pg)
     check_price_migration(pg)
     return "price table lookup, save guards, batch apply, source tracking and migration passed"
+
+
+def check_destination(pg):
+    c = new_book(pg, ("2026-01-01", 0))
+    fixture_open_month(pg, c, "2026-01-01")
+    rows = [_row("DEST-A", 10, "DAK LAK", "OTHER", destination="FAKE-A"),
+            _row("DEST-B", 10, "DAK LAK", "OTHER")]
+    ids = call(pg, "paste_trips", c, version(pg, c), "dest-paste", "2026-01-01", json.dumps(rows))["trip_ids"]
+    table = {"tt_shippers": [], "locations": [{"name": "DAK LAK"}], "periods": [
+        {"valid_from": "2026-01-01", "valid_to": None, "rates": [
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "75"}]}]}
+    call(pg, "save_price_table", c, version(pg, c), "dest-old-save", json.dumps(table))
+
+    def look(dest):
+        sql_dest = "NULL" if dest is None else f"'{dest}'"
+        return json.loads(pg.value(f"SELECT sokhach._lookup_price({c},'2026-01-10','DAK LAK',{sql_dest},'OTHER')"))
+
+    # Chỉ có dòng theo nơi đến: chuyến đi nơi khác hoặc thiếu nơi đến chưa có giá.
+    require(look("FAKE-A").get("reason") == "UNKNOWN_DESTINATION" and look(None).get("reason") == "NO_DESTINATION",
+            f"destination-only table priced another destination: {look('FAKE-A')}, {look(None)}")
+    # BANG-GIA-04: dòng Nơi đến trống là giá chung của nơi đi; dòng đúng nơi đến thắng khi phủ ngày chuyến.
+    general = {"location": "DAK LAK", "destination": "", "tier": "khach", "unit_price_vnd": "60"}
+    table["periods"][0]["rates"].append(general)
+    call(pg, "save_price_table", c, version(pg, c), "dest-general", json.dumps(table))
+    require([r["destination"] for r in call(pg, "get_price_table", c)["price_table"]["periods"][0]["rates"]] == ["", "FAKE-B"],
+            "blank destination not stored as general row")
+    require((look("FAKE-B")["unit_price_vnd"], look("FAKE-B")["any_destination"], look("FAKE-Z")["unit_price_vnd"],
+             look("FAKE-Z")["any_destination"], look(None)["unit_price_vnd"], look(" ")["unit_price_vnd"])
+            == ("75", False, "60", True, "60", "60"), "general row lookup wrong")
+    # Đợt riêng của nơi đến không phủ ngày chuyến: vẫn dùng giá chung.
+    later = {"valid_from": "2026-02-01", "valid_to": None, "rates": [
+        {"location": "DAK LAK", "destination": "FAKE-Z", "tier": "khach", "unit_price_vnd": "99"}]}
+    # Đợt riêng phủ ngày nhưng thiếu nhóm giá: không lấy giá chung thay.
+    tt_only = {"location": "DAK LAK", "destination": "FAKE-T", "tier": "tt", "unit_price_vnd": "88"}
+    call(pg, "save_price_table", c, version(pg, c), "dest-specific",
+         json.dumps({**table, "periods": [{**table["periods"][0], "rates": table["periods"][0]["rates"] + [tt_only]}, later]}))
+    require((look("FAKE-Z")["unit_price_vnd"], look("FAKE-T").get("reason")) == ("60", "NO_RATE"),
+            f"specific destination fallback wrong: {look('FAKE-Z')}, {look('FAKE-T')}")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-blank-dup",
+                json.dumps({**table, "periods": [{**table["periods"][0], "rates": table["periods"][0]["rates"] + [
+                    {**general, "destination": "  "}]}]}), error="PRICE_DUPLICATE_RATE")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-blank-overlap",
+                json.dumps({**table, "periods": table["periods"] + [
+                    {"valid_from": "2026-01-20", "valid_to": None, "rates": [general]}]}), error="PRICE_PERIOD_OVERLAP")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-null",
+                json.dumps({**table, "periods": [{**table["periods"][0], "rates": [{**general, "destination": None}]}]}),
+                error="INVALID_PRICE_TABLE")
+    table["periods"][0]["rates"].remove(general)
+    call(pg, "save_price_table", c, version(pg, c), "dest-no-general", json.dumps(table))
+    rates = table["periods"][0]["rates"]
+    rates.append({"location": "DAK LAK", "destination": "FAKE-A", "tier": "khach", "unit_price_vnd": "70"})
+    call(pg, "save_price_table", c, version(pg, c), "dest-both", json.dumps(table))
+    status = {row["trip_id"]: row["lookup"].get("unit_price_vnd") for row in call(pg, "get_price_status", c)["trips"]}
+    require([status[i] for i in ids] == ["70", "75"], f"destination lookup mixed prices: {status}")
+    overlap = {**table, "periods": table["periods"] + [
+        {"valid_from": "2026-01-10", "valid_to": None, "rates": [rates[0]]}]}
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-overlap", json.dumps(overlap),
+                error="PRICE_PERIOD_OVERLAP")
 
 
 def check_price_migration(pg):
@@ -252,6 +351,10 @@ def check_price_migration(pg):
     pg.sql(CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8"))  # bản list_legacy_trip_refs hiện hành (4/11)
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(GIA_TU_DOI_MIGRATION.read_text(encoding="utf-8"))  # bản save_price_table hiện hành (5/11)
+    pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-04
+    pg.sql(XEM_TRUOC_BANG_GIA_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-05
+    pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01: bản edit_trip_info/resolve_sheet_conflict hiện hành (16/11)
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -289,7 +392,15 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql", "2026-11-13-v7-dau-doc.sql", "2026-11-16-v7-bao-cao-thang.sql", "2026-11-16-v7-chuan-hoa-chu.sql", "2026-11-16-v7-nguon-het-bao.sql", "2026-11-18-v7-luoi-an-toan.sql", "2026-11-18-v7-mo-so-tat-jit.sql", "2026-11-18-v7-tong-quan-tat-jit.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
-    for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
-        require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")
+    for name, query, expected in zip(("functions", "columns", "constraints"), (catalog, cols, constraints), fresh, strict=True):
+        got = pg.sql(query, database=db).stdout.strip()
+        if got != expected:
+            a, b = json.loads(got), json.loads(expected)
+            if isinstance(a, list):
+                a, b = ({json.dumps(x, sort_keys=True) for x in a}, {json.dumps(x, sort_keys=True) for x in b})
+                diff = sorted(a ^ b)
+            else:
+                diff = sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+            require(False, f"migrated schema differs from fresh schema ({name}): {diff[:6]}")

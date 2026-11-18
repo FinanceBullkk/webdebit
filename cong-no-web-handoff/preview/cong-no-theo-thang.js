@@ -8,7 +8,9 @@
   const opened = new URLSearchParams(location.search);
   const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: opened.get('con-no') === '1', request: 0, detail: 0, detailFocus: null, open: null,
     age: /^[0-3]$/.test(opened.get('tuoi') ?? '') ? Number(opened.get('tuoi')) : null,
-    sort: opened.get('xep') === 'con-no' ? 'debt' : 'group', focus: Number(opened.get('khach')) || null, scrolled: false };
+    sort: opened.get('xep') === 'con-no' ? 'debt' : 'group', focus: Number(opened.get('khach')) || null, scrolled: false, phoneOpen: new Set() };
+  // Khách được chỉ tới (?khach=) mở sẵn trên danh sách điện thoại (DIEN-THOAI-THANG-01).
+  if (state.focus != null) state.phoneOpen.add(state.focus);
   const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
   // Nhóm tuổi của một tháng như get_dashboard; tháng sau tháng hiện tại không thuộc nhóm nào trên ma trận.
   const ageOf = month => {
@@ -25,6 +27,8 @@
   // Audit UX 31/10/2026 (P0-6): ô, cột tổng và dòng tổng ghi số triệu đồng không kèm đơn vị (không còn "tr");
   // "Đơn vị: triệu đồng" ghi một lần ở tiêu đề cột Khách, cho 12 cột tháng vừa màn 1280 không cuộn ngang.
   const inMillions = value => F.millions(value);
+  // Chuẩn kế toán: số âm (khách trả trước, tháng trả thừa) ghi trong ngoặc "(0,02)", không dùng dấu trừ hay chữ "dư".
+  const signedMillions = value => (value < 0n ? '(' + inMillions(-value) + ')' : inMillions(value));
   const yearMin = 2000;
   const yearMax = currentYear + 1;
   const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -60,16 +64,16 @@
 
   function heatCell(customer, month) {
     const value = monthValue(customer, month);
-    const attrs = 'data-id="' + esc(customer.customer_id) + '" data-month="' + month + '" type="button" title="' + esc(fmt(value < 0n ? -value : value)) + (value < 0n ? ' (dư)' : '') + '"';
+    const attrs = 'data-id="' + esc(customer.customer_id) + '" data-month="' + month + '" type="button" title="' + esc(fmt(value < 0n ? -value : value)) + (value < 0n ? ' trả thừa' : '') + '"';
     if (value === 0n) return '<td class="' + monthClass(month) + '"></td>';
-    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>dư ' + esc(inMillions(-value)) + '</button></td>';
+    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>' + esc(signedMillions(value)) + '</button></td>';
     const step = F.heatStep(value);
     return '<td class="' + monthClass(month) + '"><button class="cell-btn money" ' + attrs + ' style="background:var(--heat-' + step + ');color:' + (step >= 5 ? '#fff' : 'var(--ink)') + '">' + esc(inMillions(value)) + '</button></td>';
   }
 
   function totalCell(value, cls) {
     if (value === 0n) return '<td class="tot ' + cls + ' muted">—</td>';
-    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + (value < 0n ? 'dư ' + esc(inMillions(-value)) : esc(inMillions(value))) + '</td>';
+    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + esc(signedMillions(value)) + '</td>';
   }
 
   function renderSummary(data) {
@@ -84,7 +88,32 @@
     put('#scope-other', other);
     $('#scope-other-label').textContent = state.year === currentYear ? 'Trong đó nợ từ trước ' + state.year : 'Trong đó nợ ngoài năm ' + state.year;
     const closed = data.customers.length - debtors.length - creditors.length;
-    $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">' + creditors.length + ' đang dư · ' + closed + ' đã tất toán</span>';
+    $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">' + creditors.length + ' trả trước · ' + closed + ' đã tất toán</span>';
+  }
+
+  // Dòng chân theo chuẩn kế toán (VAS 21/IAS 1 không bù trừ phải thu với người mua trả trước): khi có khách trả trước
+  // thì ghi ba dòng — Phải thu (khách tổng Mọi năm dương), Trừ: khách trả trước, Còn phải thu ròng; không có thì một dòng.
+  // Dòng Phải thu cột Mọi năm bằng đúng số Còn phải thu ở dải đầu khi không lọc.
+  function footRows(rows) {
+    const cell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(signedMillions(value))) + '</td>';
+    const sums = list => [...MONTHS.map(month => F.sum(list.map(customer => monthValue(customer, month)))),
+      F.sum(list.map(customer => customer.total_year_vnd)), F.sum(list.map(customer => customer.total_all_vnd))].map(cell).join('');
+    const prepaid = rows.filter(customer => allTotal(customer) < 0n);
+    if (!prepaid.length) return '<tr class="net"><td class="khach">Tổng ' + rows.length + ' khách</td>' + sums(rows) + '</tr>';
+    const owing = rows.filter(customer => allTotal(customer) >= 0n);
+    const label = (text, count, full) => '<td class="khach" title="' + esc(full + ' · ' + count + ' khách') + '">' + text + ' <small>' + count + ' khách</small></td>';
+    return '<tr class="sub">' + label('Phải thu', owing.length, 'Phải thu khách hàng') + sums(owing) + '</tr>'
+      + '<tr class="sub">' + label('Trừ: trả trước', prepaid.length, 'Trừ: khách trả trước') + sums(prepaid) + '</tr>'
+      + '<tr class="net">' + label('Còn phải thu ròng', rows.length, 'Còn phải thu ròng') + sums(rows) + '</tr>';
+  }
+
+  // Các dòng chân cùng dính đáy màn: dòng trên đặt bottom bằng chiều cao các dòng dưới nó.
+  function stackFoot() {
+    let below = 0;
+    [...document.querySelectorAll('#heat-foot tr')].reverse().forEach(row => {
+      row.querySelectorAll('td').forEach(td => { td.style.bottom = below + 'px'; });
+      below += row.getBoundingClientRect().height;
+    });
   }
 
   function paintAgePick() {
@@ -102,6 +131,52 @@
     });
   }
 
+  // Điện thoại (DIEN-THOAI-THANG-01): ma trận 15 cột thành danh sách theo khách, cùng khách, cùng thứ tự, cùng số của bản GET.
+  // Mỗi khách: tổng Mọi năm, "Nợ từ T…", dải 12 ô cùng thang màu ô ma trận; chạm thì bung các tháng còn số, chạm tháng mở
+  // đúng ngăn kéo như bấm ô. CSS chỉ hiện danh sách dưới 760px; màn rộng giữ ma trận.
+  const heatStyle = value => 'background:var(--heat-' + F.heatStep(value) + ');color:' + (F.heatStep(value) >= 5 ? '#fff' : 'var(--ink)');
+  function phoneItem(customer) {
+    const id = customer.customer_id;
+    const total = allTotal(customer);
+    const outside = total - yearTotal(customer);
+    const debts = MONTHS.filter(month => monthValue(customer, month) > 0n);
+    const since = total < 0n ? 'Trả trước'
+      : outside > 0n && state.year === currentYear ? 'Nợ từ trước ' + state.year + (debts.length ? ' · ' + debts.length + ' tháng ' + state.year : '')
+        : debts.length ? 'Nợ từ T' + debts[0] + (debts.length > 1 ? ' · ' + debts.length + ' tháng' : '')
+          : outside !== 0n ? 'Nợ ngoài năm ' + state.year : 'Không còn nợ';
+    const strip = MONTHS.map(month => {
+      const value = monthValue(customer, month);
+      return value === 0n ? '<i></i>' : value < 0n ? '<i class="neg"></i>' : '<i style="background:var(--heat-' + F.heatStep(value) + ')"></i>';
+    }).join('');
+    const out = outside === 0n ? '' : '<div class="pl-month pl-out"><span>' + (state.year === currentYear ? 'Trước ' : 'Ngoài năm ') + state.year + '</span><b'
+      + (outside < 0n ? ' class="neg"' : '') + '>' + esc(signedMillions(outside)) + '</b></div>';
+    const months = MONTHS.filter(month => monthValue(customer, month) !== 0n).map(month => {
+      const value = monthValue(customer, month);
+      return '<button type="button" class="pl-month" data-id="' + esc(id) + '" data-month="' + month + '"><span>Tháng ' + month + '/' + state.year + (value < 0n ? ' · trả thừa' : '')
+        + '</span><b' + (value < 0n ? ' class="neg"' : ' style="' + heatStyle(value) + '"') + '>' + esc(signedMillions(value)) + '</b><span aria-hidden="true">›</span></button>';
+    }).join('');
+    const open = state.phoneOpen.has(id);
+    return '<div class="pl-item' + (id === state.focus ? ' focus' : '') + '" data-pl="' + esc(id) + '"><button type="button" class="pl-row" aria-expanded="' + open + '" aria-controls="pl-m-' + esc(id) + '">'
+      + '<span class="pl-name">' + esc(customer.name) + '</span><b class="pl-total' + (total < 0n ? ' neg' : '') + '">' + esc(signedMillions(total)) + '</b><span class="pl-caret" aria-hidden="true"></span>'
+      + '<span class="pl-line"><span class="pl-strip" aria-hidden="true">' + strip + '</span><span class="pl-since">' + esc(since) + '</span></span></button>'
+      + '<div class="pl-months" id="pl-m-' + esc(id) + '"' + (open ? '' : ' hidden') + '>' + out + months
+      + '<a class="pl-open" href="/so-khach-v7-live.html?customer=' + esc(id) + '&amp;the=tinh-hinh">Mở trang khách ›</a></div></div>';
+  }
+  function phoneFoot(rows) {
+    const total = list => F.sum(list.map(customer => customer.total_all_vnd));
+    const line = (label, count, value, cls = '') => '<div class="pl-foot' + cls + '"><span>' + label + ' <small>' + count + ' khách</small></span><b>' + esc(signedMillions(value)) + '</b></div>';
+    const prepaid = rows.filter(customer => allTotal(customer) < 0n);
+    if (!prepaid.length) return line('Tổng', rows.length, total(rows), ' net');
+    const owing = rows.filter(customer => allTotal(customer) >= 0n);
+    return line('Phải thu', owing.length, total(owing)) + line('Trừ: trả trước', prepaid.length, total(prepaid)) + line('Phải thu ròng', rows.length, total(rows), ' net');
+  }
+  function phoneList(ordered, rows) {
+    if (!rows.length) return '<p class="pl-empty">Không có khách phù hợp.</p>';
+    const groups = ordered.map(([key, members]) => (key === null ? '' : '<div class="pl-group"><span>' + esc(groupLabel(key)) + ' <small>(' + members.length + ')</small></span><b>'
+      + esc(signedMillions(F.sum(members.map(customer => customer.total_all_vnd)))) + '</b></div>') + members.map(phoneItem).join('')).join('');
+    return '<div class="pl-box">' + groups + phoneFoot(rows) + '</div><p class="pl-note">Dải 12 ô: tháng 1 → 12 năm ' + state.year
+      + ', đậm hơn là nợ nhiều hơn, xanh lá là tháng trả thừa. Chạm khách xem các tháng còn số; chạm tháng xem chi tiết.</p>';
+  }
   function render() {
     const data = state.data;
     if (!data) return;
@@ -144,10 +219,9 @@
       });
     }
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
-    const monthSums = MONTHS.map(month => F.sum(rows.map(customer => monthValue(customer, month))));
-    const footCell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(inMillions(value))) + '</td>';
-    $('#heat-foot').innerHTML = '<tr><td class="khach">Tổng ' + rows.length + ' khách<span>đã trừ tiền khách dư</span></td>' + monthSums.map(footCell).join('') +
-      footCell(F.sum(rows.map(customer => customer.total_year_vnd))) + footCell(F.sum(rows.map(customer => customer.total_all_vnd))) + '</tr>';
+    $('#heat-foot').innerHTML = footRows(rows);
+    $('#phone-list').innerHTML = phoneList(ordered, rows);
+    stackFoot();
 
     renderSummary(data);
     $('#year-cur').textContent = state.year;
@@ -166,6 +240,7 @@
     if (state.focus != null && !state.scrolled) {
       state.scrolled = true;
       document.querySelector('#heat-body tr[data-row="' + state.focus + '"]')?.scrollIntoView({ block: 'center' });
+      document.querySelector('.pl-item[data-pl="' + state.focus + '"]')?.scrollIntoView({ block: 'center' });
     }
   }
 
@@ -208,9 +283,10 @@
   const byDate = (a, b) => (a.event_date || '9999').localeCompare(b.event_date || '9999') || String(a.container || '').localeCompare(String(b.container || ''));
 
   function paintActive() {
-    document.querySelectorAll('.cell-btn.active').forEach(button => button.classList.remove('active'));
+    document.querySelectorAll('.cell-btn.active, .pl-month.active').forEach(button => button.classList.remove('active'));
     if (!state.open || $('#drawer').hidden) return;
-    document.querySelector('.cell-btn[data-id="' + state.open.id + '"][data-month="' + state.open.month + '"]')?.classList.add('active');
+    const at = '[data-id="' + state.open.id + '"][data-month="' + state.open.month + '"]';
+    document.querySelectorAll('.cell-btn' + at + ', .pl-month' + at).forEach(button => button.classList.add('active'));
   }
 
   function paintNav(month) {
@@ -329,12 +405,25 @@
 
   function closeDrawer() {
     state.detail++;
-    const active = document.querySelector('.cell-btn.active');
+    // Ô đang mở trên ma trận hoặc trên danh sách điện thoại, cái nào đang hiện thì trả tiêu điểm về đó.
+    const active = [...document.querySelectorAll('.cell-btn.active, .pl-month.active')].find(button => button.offsetParent !== null);
     $('#drawer').hidden = true; state.open = null; document.body.classList.remove('drawer-open');
     paintActive();
     (active || (state.detailFocus?.isConnected ? state.detailFocus : null))?.focus();
   }
   const step = delta => { if (state.open) openDetail(state.open.id, state.open.month + delta, null); };
+  $('#phone-list').addEventListener('click', event => {
+    const month = event.target.closest('.pl-month[data-month]');
+    if (month) { openDetail(Number(month.dataset.id), Number(month.dataset.month), month); return; }
+    const row = event.target.closest('.pl-row');
+    if (!row) return;
+    const item = row.closest('.pl-item');
+    const id = Number(item.dataset.pl);
+    const open = row.getAttribute('aria-expanded') !== 'true';
+    if (open) state.phoneOpen.add(id); else state.phoneOpen.delete(id);
+    row.setAttribute('aria-expanded', String(open));
+    item.querySelector('.pl-months').hidden = !open;
+  });
   $('#year-prev').addEventListener('click', () => load(state.year - 1));
   $('#year-next').addEventListener('click', () => load(state.year + 1));
   const refresh = () => { if ($('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); };

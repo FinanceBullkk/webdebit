@@ -38,12 +38,12 @@ class HelperTests(unittest.TestCase):
                     "review": [receipt("NO_DATE", 500, source_fingerprint="a" * 64),
                                receipt("NO_DATE", 11, month="2026-07", source_fingerprint="b" * 64),
                                receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=orphans),
-                               receipt("FUTURE_DATE", 9), receipt("WEB_DELETED", 8)]}
+                               receipt("FUTURE_DATE", 9), receipt("WEB_DELETED", 8), receipt("WEB_VOIDED", 7, date="2026-10-04")]}
         groups = fix.receipt_groups(receipts, {"legacy_rows": []})
         self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], len(g["rows"])) for g in groups],
                          [("receipts", None, -100, 2),
                           ("receipts_edited", "2026-07", 400 - 461, 2),   # phiếu không ngày cùng tháng đi chung nhóm thay phiếu
-                          ("receipts_no_date", "2026-08", -500, 1)])     # phiếu ngày tương lai, phiếu web đã xóa không phải việc của máy
+                          ("receipts_no_date", "2026-08", -500, 1)])     # phiếu ngày tương lai, web đã xóa, phiếu người đã hủy: không phải việc của máy
 
     def test_edited_month_is_left_when_booked_amount_differs_from_sheet(self):
         receipts = {"ready": [], "review": [receipt("SHEET_EDITED", 450, date="2026-08-02", web_legacy=[{"id": 5, "amount_vnd": "300"}])]}
@@ -88,6 +88,30 @@ class PlanTests(unittest.TestCase):
         prices = {"rows": list(rows), "sha256": "a" * 64}
         return fix.plan(prices, {"rows": [], "sha256": "b" * 64}, ledger, list(self.CUSTOMERS), TODAY)
 
+    def check(self, rows, trips, adjustments=(), today=TODAY):
+        ledger = {"customer_id": 7, "today_month": "2026-11-01", "trips": list(trips), "legacy_rows": [],
+                  "adjustments": list(adjustments), "month_locks": [], "receipts": [], "events": []}
+        return fix.ahead_to_check({"rows": list(rows), "sha256": "a" * 64}, ledger, list(self.CUSTOMERS), today)
+
+    def test_web_ahead_trips_a_person_should_look_at(self):
+        fresh = web_trip(1, "AAAA1", unit="100")                         # 3 ngày: Sheet chưa kịp nhập
+        old = web_trip(2, "AAAA2", unit="70", fee="5", month="2026-10")  # ngày 01/10: 34 ngày
+        moved = web_trip(3, "AAAA3", unit="20")                          # Sheet ghi đúng chuyến này ở tab khách B
+        reused = web_trip(4, "AAAA4", unit="30")                         # tab B có container này từ tháng 8: container dùng lại, chuyến khác
+        rows = [sheet_row(9, "AAAA3", unit=20, total=20, tab="KHACH B"), sheet_row(8, "AAAA4", unit=30, total=30, month="2026-08", tab="KHACH B")]
+        self.assertEqual(self.check(rows, [fresh, old, moved, reused]), [
+            {"kind": "ahead_other_book", "container": "AAAA3", "date": "2026-11-01", "amount_vnd": 20, "other": "KHACH B"},
+            {"kind": "ahead_old", "container": "AAAA2", "date": "2026-10-01", "amount_vnd": 75, "days": 34}])
+        # Đúng 14 ngày thì chưa hỏi, sang ngày 15 mới hỏi.
+        self.assertEqual(self.check([], [fresh], today=dt.date(2026, 11, 15)), [])
+        self.assertEqual([hint["days"] for hint in self.check([], [fresh], today=dt.date(2026, 11, 16))], [15])
+        # Dòng Sheet có container mà trống giá cũng tính tuổi như chuyến không có trên tab.
+        self.assertEqual([hint["kind"] for hint in self.check([sheet_row(1, "AAAA2", month="2026-10")], [old])], ["ahead_old"])
+        # Tiền đã ra khỏi sổ bằng dòng điều chỉnh, hoặc là dòng Sheet mất container: không tính đi trước nên không hỏi.
+        gone = {"id": 61, "month": "2026-10-01", "amount_vnd": "-75", "note": "dời sang sổ khác"}
+        self.assertEqual(self.check([], [old], adjustments=[gone]), [])
+        self.assertEqual(self.check([sheet_row(5, "", unit=75, total=75, month="2026-10")], [old]), [])
+
     def test_web_ahead_is_priced_web_trips_the_sheet_has_not_priced(self):
         rows = [sheet_row(1, "AAAA1"), sheet_row(2, "AAAA2"), sheet_row(3, "AAAA3", unit=5, total=5), sheet_row(4, "AAAA4", total=0),
                 sheet_row(5, "AAAA5", tab="KHACH B")]
@@ -101,6 +125,20 @@ class PlanTests(unittest.TestCase):
                    "current": {"container": "AAAA8", "event_date": "2026-11-01", "unit_price_vnd": "50", "counted_vnd": "50", "month": "2026-11-01"}}]
         _, ahead, shuffled = self.plan(rows, trips, legacy)
         self.assertEqual((ahead, shuffled), (107 + 11 + 20, []))   # dòng sổ gốc không tính
+
+    def test_undated_copy_rule_gives_the_machine_nothing_new_to_write(self):
+        # GHEP-KHONG-NGAY-01: dòng Sheet không ngày ghép với bản sao không ngày giống hệt chỉ rời "Cần xem"; nhóm việc của máy
+        # và tiền web đi trước y như khi dòng đó còn là "khớp nhiều chuyến".
+        copy = {"id": 40, "kind": "trip", "month": "2026-06-01", "current": {
+            "container": "AAAA1", "event_date": None, "unit_price_vnd": "50", "counted_vnd": "50", "month": "2026-06-01"}}
+        undated = sheet_row(1, "AAAA1", unit=50, total=50, month="2026-06") | {"date": None}
+        unpriced, ahead = web_trip(1, "AAAA1"), web_trip(2, "AAAA2", unit="30")
+        self.assertEqual(self.plan([undated], [unpriced, ahead], [copy]), ([], 30, []))
+        # Dòng Sheet có ngày của chuyến chưa giá vẫn là việc ghi giá như thường.
+        dated = sheet_row(2, "AAAA1", unit=70, total=70)
+        groups, money_ahead, shuffled = self.plan([undated, dated], [unpriced, ahead], [copy])
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"]) for g in groups], [("prices", "2026-11", 70)])
+        self.assertEqual((money_ahead, shuffled), (30, []))
 
     def test_web_ahead_leaves_out_trips_an_adjustment_already_took_off_the_book(self):
         rows = [sheet_row(1, "AAAA1", unit=5, total=5, month="2026-03")]
@@ -146,6 +184,100 @@ class PlanTests(unittest.TestCase):
         groups, _, _ = self.plan(rows, legacy=legacy, adjustments=adjustments)
         self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], [r["source_row"] for r in g["rows"]]) for g in groups],
                          [("fee_rows", "2026-08", -2, [14]), ("fee_rows", "2026-10", 43, [10])])
+
+    def test_price_handed_on_through_a_blank_cell_gives_no_price_group(self):
+        # Thật: AAAA1=100, AAAA2=70, AAAA3 chưa giá. Sheet xếp lại container mà cột giá đứng yên: AAAA1 trống, AAAA2=100, AAAA3=70.
+        rows = [sheet_row(1, "AAAA1"), sheet_row(2, "AAAA2", unit=100, total=100), sheet_row(3, "AAAA3", unit=70, total=70)]
+        priced = [web_trip(1, "AAAA1", unit="100"), web_trip(2, "AAAA2", unit="70")]
+        for last in (web_trip(3, "AAAA3"), web_trip(3, "AAAA3", unit="70")):   # trước và sau khi máy giá 15 phút ghi dòng sẵn sàng
+            groups, ahead, shuffled = self.plan(rows, [*priced, last])
+            self.assertEqual((shuffled, groups, ahead), (["2026-11"], [], 100))
+            self.assertNotEqual(fix.choose(groups, 30)[0], "FIX")
+        # Sửa giá thường, cùng tháng có chuyến web đi trước ở giá khác: vẫn là việc của máy.
+        rows[1] = sheet_row(2, "AAAA2", unit=90, total=90)
+        groups, ahead, shuffled = self.plan(rows, [*priced, web_trip(3, "AAAA3", unit="70")])
+        self.assertEqual((shuffled, [(g["kind"], g["delta_vnd"]) for g in groups], ahead), ([], [("prices", 20)], 100))
+
+    def test_sheet_row_that_lost_its_container_is_the_web_trip_not_a_new_fee(self):
+        rows = [sheet_row(1, "", unit=100, total=100)]
+        trips = [web_trip(1, "AAAA1", unit="100")]
+        self.assertEqual(self.plan(rows, trips)[:2], ([], 0))   # trước đây: một dòng phí +100 và web đi trước 100
+        # Lượt trước đã lỡ ghi dòng điều chỉnh cho dòng này: thành nhóm hủy, tổng về đúng Sheet.
+        wrong = {"id": 90, "month": "2026-11-01", "amount_vnd": "100", "note": fix.FEE_NOTE + ", dòng 1"}
+        groups, ahead, _ = self.plan(rows, trips, adjustments=[wrong])
+        self.assertEqual(([(g["kind"], g["delta_vnd"]) for g in groups], ahead), ([("fee_undo", -100)], 0))
+        # Khác số tiền hoặc khác tháng thì vẫn là hai việc riêng: dòng phí mới và chuyến web đi trước.
+        for other in (web_trip(1, "AAAA1", unit="99"), web_trip(1, "AAAA1", unit="100", month="2026-10")):
+            groups, ahead, _ = self.plan(rows, [other])
+            self.assertEqual(([(g["kind"], g["delta_vnd"]) for g in groups], ahead), ([("fee_rows", 100)], int(other["unit_price_vnd"])))
+        # Hai dòng mất container mà web chỉ có một chuyến trùng: ghép một, dòng còn lại vẫn là dòng phí.
+        groups, ahead, _ = self.plan([*rows, sheet_row(2, "", unit=100, total=100)], trips)
+        self.assertEqual(([(g["kind"], g["delta_vnd"], len(g["rows"])) for g in groups], ahead), ([("fee_rows", 100, 1)], 0))
+
+
+class TwoRowPairTests(unittest.TestCase):
+    """Sổ 149 (16/11/2026): tab "KK - DỪA" ghi mỗi chuyến hai dòng (container không tiền, tiền ở dòng ngay dưới). Chưa có chuyến web thì
+    tiền là dòng điều chỉnh; có chuyến web thì tiền là giá của chuyến, dòng điều chỉnh cũ của khoản đó phải hủy, không cộng đôi."""
+
+    CUSTOMERS = ({"id": 7, "name": "KHACH A"},)
+    MONEY = 24815341
+    PAIR: ClassVar[dict] = {"KHACH A": {"status": "ok", "findings": [{"kind": "two_row_layout", "level": "note", "rows": [688, 689], "cells": []}]}}
+
+    def rows(self, holder_total=None, money_container=""):
+        holder = sheet_row(688, "AAAA1", month="2026-11") | {"date": None}
+        holder["sheet_total_vnd"] = holder_total
+        money = sheet_row(689, money_container, total=self.MONEY, month="2026-11") | {"date": "2026-11-07"}
+        return [holder, money]
+
+    def plan(self, rows, trips=(), adjustments=(), tabs=PAIR):
+        ledger = {"customer_id": 7, "today_month": "2026-11-01", "trips": list(trips), "legacy_rows": [],
+                  "adjustments": list(adjustments), "month_locks": [], "receipts": [], "events": []}
+        prices = {"rows": list(rows), "sha256": "a" * 64, **({"tabs": tabs} if tabs is not None else {})}
+        groups, ahead, _ = fix.plan(prices, {"rows": [], "sha256": "b" * 64}, ledger, list(self.CUSTOMERS), TODAY)
+        return [(g["kind"], g["delta_vnd"], len(g["rows"])) for g in groups], ahead
+
+    def web_trip(self, price=None):
+        return web_trip(433, "AAAA1", unit=price) | {"event_date": "2026-11-07"}
+
+    def adjustment(self):
+        return {"id": 9, "month": "2026-11-01", "amount_vnd": str(self.MONEY), "note": fix.FEE_NOTE + ", dòng 689"}
+
+    def test_no_web_trip_yet_the_money_row_is_a_fee_row(self):
+        self.assertEqual(self.plan(self.rows()), ([("fee_rows", self.MONEY, 1)], 0))
+
+    def test_web_trip_without_price_takes_the_money_as_its_price_and_the_old_fee_row_is_undone(self):
+        groups, ahead = self.plan(self.rows(), trips=[self.web_trip()], adjustments=[self.adjustment()])
+        self.assertEqual(sorted(groups), [("fee_undo", -self.MONEY, 1), ("prices", self.MONEY, 1)])
+        self.assertEqual(sum(delta for _, delta, _ in groups), 0)   # tổng không đổi: giá vào chuyến, dòng điều chỉnh đi ra
+        self.assertEqual(ahead, 0)
+
+    def test_web_trip_already_at_that_price_only_undoes_the_fee_row(self):
+        groups, _ = self.plan(self.rows(), trips=[self.web_trip(price=self.MONEY)], adjustments=[self.adjustment()])
+        self.assertEqual(groups, [("fee_undo", -self.MONEY, 1)])
+
+    def test_trip_and_no_fee_row_written_gives_just_the_price(self):
+        self.assertEqual(self.plan(self.rows(), trips=[self.web_trip()])[0], [("prices", self.MONEY, 1)])
+
+    def test_old_book_row_that_already_booked_the_money_is_not_merged(self):
+        # Dòng sổ gốc (loader) đã ghi tiền thành dòng "Phí lẻ" riêng: gộp cặp vào dòng sổ gốc là tính đôi, nên giữ hai dòng.
+        legacy = {"id": 50, "kind": "trip", "month": "2026-11-01", "current": {
+            "container": "AAAA1", "event_date": "2026-11-07", "month": "2026-11-01", "counted_vnd": "0", "unit_price_vnd": None}}
+        ledger = {"customer_id": 7, "today_month": "2026-11-01", "trips": [], "legacy_rows": [legacy], "adjustments": [],
+                  "month_locks": [], "receipts": [], "events": []}
+        prices = {"rows": self.rows(), "sha256": "a" * 64, "tabs": self.PAIR}
+        groups, _, _ = fix.plan(prices, {"rows": [], "sha256": "b" * 64}, ledger, list(self.CUSTOMERS), TODAY)
+        self.assertEqual([g["kind"] for g in groups], ["fee_rows"])
+
+    def test_tab_without_the_approved_note_keeps_the_old_reading(self):
+        # Không có chú thích bố cục đã duyệt: dòng tiền vẫn là phí lẻ, dòng điều chỉnh đã ghi vẫn khớp nó, chuyến web không nhận giá.
+        groups, _ = self.plan(self.rows(), trips=[self.web_trip()], adjustments=[self.adjustment()], tabs=None)
+        self.assertEqual(groups, [])
+        self.assertEqual(self.plan(self.rows(), trips=[self.web_trip()], tabs=None)[0], [("fee_rows", self.MONEY, 1)])
+
+    def test_rows_that_no_longer_look_like_a_pair_stay_apart(self):
+        # Dòng trên đã có tiền, hoặc dòng dưới có container riêng: không phải cặp, tiền vẫn là phí lẻ như cũ.
+        self.assertIn(("fee_rows", self.MONEY, 1), self.plan(self.rows(holder_total=5), trips=[self.web_trip()])[0])
+        self.assertNotIn("fee_rows", [kind for kind, _, _ in self.plan(self.rows(money_container="BBBB2"), trips=[self.web_trip()])[0]])
 
 
 class ShuffledTests(unittest.TestCase):

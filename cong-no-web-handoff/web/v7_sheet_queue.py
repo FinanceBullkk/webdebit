@@ -6,8 +6,11 @@ import datetime as dt
 import json
 import re
 import unicodedata
+from collections import Counter
 from pathlib import Path
 from typing import Any
+
+import v7_normalize as normalize
 
 # Rows before this year sit in the opening balance; later years stay in scope with no upper bound.
 QUEUE_FIRST_YEAR = 2026
@@ -20,7 +23,17 @@ def _name(value: Any) -> str:
 
 
 def _container(value: Any) -> str:
-    return "".join(str(value or "").upper().split())
+    return normalize.container_key(value)
+
+
+def _existing_text(value: Any) -> Any:
+    """Giá trị web gửi xuống SQL để so trước–sau: chữ rỗng là None (K4); giá trị không phải chữ giữ nguyên để nơi nhận từ chối."""
+    return normalize.text_or_none(value) if isinstance(value, str) else value
+
+
+def _web_shipper(old: dict[str, Any]) -> Any:
+    """Chủ hàng của dòng web để so với Sheet: dòng sổ gốc không có chủ hàng thì lấy hãng tàu; chữ rỗng là chưa có (K4)."""
+    return _existing_text(old.get("shipper")) or (_existing_text(old.get("carrier")) if old["kind"] == "legacy" else None)
 
 
 def _source_row(value: Any) -> int | None:
@@ -224,7 +237,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             # Keyed on target + field, not the Sheet row number: the source tab changed on 30/10/2026
             # (WEBDEBIT_EXPORT -> CONT_NGUON) and row numbers moved while decisions still hold.
             resolved[(target["kind"], target["id"], field)] = (after.get("target_value"), after.get("sheet_value"))
-    visible = []
+    visible, waiting = [], []
+    matched = []
     for row in queue["items"]:
         if row.get("customer_id") != ledger.get("customer_id"):
             continue
@@ -255,6 +269,10 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             undated = [old for old in same_container if old["kind"] == "legacy" and not old.get("event_date")
                        and str(old.get("debt_month") or "")[:7] == date.isoformat()[:7]]
             matches = undated if len(undated) == 1 else []
+        matched.append((row, container, date, booking, matches, same_container))
+    # Số dòng nguồn cùng nhận một dòng trong sổ: hai dòng nguồn nhận một dòng sổ gốc thì nguồn có hai chuyến, sổ có một.
+    claims = Counter((old["kind"], old["id"]) for *_, matches, _ in matched if len(matches) == 1 for old in matches)
+    for row, container, date, booking, matches, same_container in matched:
         if container in (other_customer_containers or set()):
             state = "CONFLICT"
             reason = "OTHER_CUSTOMER"
@@ -265,13 +283,20 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                        if _name(row.get(field)) != _name(old.get(field))]
             if old["kind"] != "legacy" and _name(row.get("carrier")) != _name(old.get("carrier")):
                 changed.append("carrier")
-            old_shipper = old.get("shipper") or (old.get("carrier") if old["kind"] == "legacy" else None)
+            old_shipper = _web_shipper(old)
             if row.get("shipper") and _name(row["shipper"]) != _name(old_shipper):
                 changed.append("shipper")
             elif old["kind"] == "legacy" and not row.get("shipper"):
                 changed.append("shipper_unavailable")
             if old.get("booking") and booking != _container(old["booking"]):
                 changed.append("booking")
+            # CHUYEN-KHONG-HOI-01: dòng sổ gốc đã có ngày, lệch nguồn không quá 3 ngày, vẫn là chuyến này (luật ghép ở trên).
+            # Ngày sổ gốc là ngày của Sheet sổ nợ: giữ, không hỏi. Chuyến web và dòng sổ gốc chưa có ngày không đổi.
+            # Dòng sổ gốc bị hai dòng nguồn cùng nhận thì vẫn hỏi như cũ: bỏ ô ngày là để máy lấy chữ theo dòng này rồi dòng kia.
+            old_day = _day(old.get("event_date")) if old["kind"] == "legacy" else None
+            if (old_day and abs((date - old_day).days) <= 3 and "event_date" in changed
+                    and claims[(old["kind"], old["id"])] == 1):
+                changed.remove("event_date")
             changed = [field for field in changed if not (
                 (key := (old["kind"], old["id"], field)) in resolved
                 and _name(old.get(field)) == _name(resolved[key][0])
@@ -280,10 +305,16 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                 continue
             state = "CONFLICT"
             reason = "DIFFERENT_FIELDS"
-        elif matches or (same_container and not _tab_has_own_row(tab_rows, container, date, same_container)):
+        elif matches:
             state = "CONFLICT"
-            reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED"
+            reason = "AMBIGUOUS_MATCH"
             changed = []
+        elif same_container and not _tab_has_own_row(tab_rows, container, date, same_container):
+            # CHUYEN-KHONG-HOI-01: container đã có trong sổ, tab khách chưa có dòng riêng. Không có gì để làm trên web: cùng một
+            # chuyến ghi khác ngày thì đã tính, chuyến mới thì tab có dòng là thành NEW. Chỉ để xem, không vào `items`.
+            waiting.append({**row, "sync_state": "WAITING", "sync_reason": "CONTAINER_REUSED_OR_CHANGED", "changed_fields": [],
+                            "existing_kind": None, "existing_id": None, "existing_debt_month": None, "existing_values": None})
+            continue
         elif same_legacy := [ref for ref in other_legacy or () if _same_legacy_trip(ref, container, date)]:
             if all(ref.get("customer_id") in (family_ids or ()) for ref in same_legacy):
                 continue
@@ -299,9 +330,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_debt_month": old.get("debt_month") if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: (old.get("shipper") or
-                                                    (old.get("carrier") if old["kind"] == "legacy" else None))
-                                            if field == "shipper" else old.get(field)
+                        "existing_values": {field: _web_shipper(old) if field == "shipper" else _existing_text(old.get(field))
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     trip_types = {}
     by_row = {row.get("source_row"): row for row in queue["items"]
@@ -316,6 +345,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible, "trip_types": trip_types,
             "new_count": sum(row["sync_state"] == "NEW" for row in visible),
             "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible),
+            "waiting_items": waiting, "waiting_count": len(waiting),
             "removed_items": removed, "removed_count": len(removed)}
 
 

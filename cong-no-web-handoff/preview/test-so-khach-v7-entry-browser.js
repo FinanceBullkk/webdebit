@@ -2,7 +2,7 @@
  * khóa/mở khóa tháng (SO-GON-04, specs/v7-so-khach-ux-dot-2.md, PR 2b). Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage, posts, viewMonth } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, posts, viewMonth, settled } = require('./so-khach-v7-browser-world');
 
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const thisMonth = `${Number(clock.slice(5, 7))}/${clock.slice(0, 4)}`;
@@ -35,6 +35,7 @@ test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (c
   assert.match(text, /Tham chiếu: CK 123/);
   assert.match(text, /Phần trừ nợ từng tháng hiện ngay sau khi ghi/);
   assert.doesNotMatch(text, /khách dư|đang khóa/);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'bước xem lại chưa gửi lệnh nào');
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true, 'tiêu điểm ở nút Ghi phiếu');
   await shot('entry-xem-lai');
@@ -44,7 +45,9 @@ test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (c
   await drawer(page).locator('.receipt-amount').press('Enter');
   await page.keyboard.press('Enter');
   await page.locator('.saved-strip').waitFor();
+  await settled(page);
   assert.equal(receiptPosts(world).length, 1);
+  await settled(page);
   assert.deepEqual({ ...receiptPosts(world)[0][1], idempotency_key: typeof receiptPosts(world)[0][1].idempotency_key },
     { customer_id: 1, expected_version: 1, idempotency_key: 'string', date: clock, method: 'THU TIỀN', amount_vnd: '50000000', reference: 'CK 123' });
   // Ghi xong: khung đóng và về trống; băng kết quả ghi phần trừ nợ theo sổ vừa tải; dòng phiếu tô và nằm trong tầm nhìn.
@@ -62,6 +65,7 @@ test('Bấm Ghi phiếu hai lần nhanh vẫn một phiếu; vượt tổng nợ
   assert.match(await drawer(page).locator('.entry-review').innerText(), /Tổng còn nợ: 10\.000\.000 đ → -20\.000\.000 đ\.[\s\S]*Sau phiếu này khách dư 20\.000\.000 đ\./);
   await drawer(page).locator('.receipt-save').dblclick();
   await page.locator('.saved-strip').waitFor();
+  await settled(page);
   assert.equal(receiptPosts(world).length, 1);
   assert.equal(world.receipts.length, 1);
 }, world => { world.total = '10000000'; }));
@@ -78,6 +82,7 @@ test('Chặn tại ô trước khi gửi: ngày sai, ngày sau hôm nay, thiếu
   await fill(page, today, 'abc');
   assert.equal(await drawer(page).locator('.receipt-amount-error').innerText(), 'Số tiền không hợp lệ.');
   assert.equal(await drawer(page).locator('.entry-review').isHidden(), true);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await page.keyboard.press('Escape');
   assert.equal(await drawer(page).isHidden(), true);
@@ -112,6 +117,7 @@ test('Mất mạng khi ghi: khung báo chưa rõ, Thử lại gửi lại cùng 
   await drawer(page).locator('.entry-retry').click();
   await page.locator('.saved-strip').waitFor();
   assert.equal(world.receipts.length, 1);
+  await settled(page);
   assert.equal(receiptPosts(world).length, 1);
 }));
 
@@ -124,11 +130,14 @@ test('Hủy phiếu vừa ghi: mở dòng hủy có lý do điền sẵn; lý do
   await reason.fill('');
   await reason.press('Enter');
   assert.equal(await page.locator('.void-prompt .cell-error').innerText(), 'Cần nhập lý do');
+  await settled(page);
   assert.equal(posts(world).some(([path]) => path === '/api/v7/receipts/void'), false);
   await reason.fill('Ghi nhầm, hủy ngay sau khi ghi');
   await reason.press('Enter');
   await page.waitForFunction(() => !document.querySelector('.saved-strip'));
+  await settled(page);
   assert.deepEqual(posts(world).at(-1)[0], '/api/v7/receipts/void');
+  await settled(page);
   assert.equal(posts(world).at(-1)[1].reason, 'Ghi nhầm, hủy ngay sau khi ghi');
   assert.match(await page.locator('.void-summary').innerText(), /1 phiếu đã hủy/);
 }));
@@ -147,10 +156,11 @@ test('Khóa / mở khóa tháng: hỏi một câu dưới nút; Thôi hay Esc kh
   await lock.click();
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.lock-ask').count(), 0);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await lock.click();
   await page.locator('.lock-yes').click();
-  for (let i = 0; i < 100 && !world.requests.length; i++) await page.waitForTimeout(50);
+  await settled(page);
   assert.deepEqual(posts(world).map(([path, body]) => [path, body.month, body.locked]), [['/api/v7/months/lock', todayMonth, true]]);
 }, world => { world.locks = [{ month: '2026-09-01', locked: false }, { month: todayMonth, locked: false }]; }));
 

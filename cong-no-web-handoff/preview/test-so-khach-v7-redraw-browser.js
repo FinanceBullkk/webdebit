@@ -2,7 +2,7 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. Đồng hồ trang chạy tay nên không phụ thuộc máy nhanh hay chậm. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, settled } = require('./so-khach-v7-browser-world');
 
 const LOCK = '.month-lock[data-month="2026-09-01"]';
 
@@ -26,6 +26,7 @@ test('Đổi cỡ màn lúc đang hỏi khóa tháng: dòng hỏi còn nguyên; 
   await page.clock.runFor(1000);
   assert.equal(await isShown(book), false, 'đóng dòng hỏi rồi mà sổ không vẽ lại theo khổ mới');
   assert.equal(await page.evaluate(selector => document.activeElement === document.querySelector(selector), LOCK), true);
+  await settled(page);
   assert.deepEqual(world.requests, [], 'Esc không gửi lệnh');
 }));
 

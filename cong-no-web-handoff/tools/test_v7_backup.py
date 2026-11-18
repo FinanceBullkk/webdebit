@@ -243,6 +243,29 @@ class BackupUnitTests(unittest.TestCase):
             backup.backup(failed)
         self.assertFalse((failed / backup.MANIFEST).exists())
         self.assertTrue((failed / backup.DUMP).exists())
+        seen = []
+
+        def run_doixe(program, *args, **kwargs):
+            if args == ("--version",):
+                return "pg_dump (PostgreSQL) 18.6\n"
+            seen.append(args)
+            kwargs["stdout"].write(b"fake dump with doixe")
+
+        with_doixe = {**state, "doixe_row_counts": {"chang": 3, "xe": 23}}
+        with patch.object(backup, "Snapshot", FakeSnapshot), patch.object(backup, "database_state", return_value=with_doixe), \
+                patch.object(backup.Pg, "run", side_effect=run_doixe), redirect_stdout(io.StringIO()):
+            made = backup.backup(self.folder / "doixe")
+        self.assertIn("--schema=doixe", seen[-1])
+        self.assertIn("--schema=sokhach", seen[-1])
+        self.assertEqual(backup.verify(self.folder / "doixe")["doixe_row_counts"], {"chang": 3, "xe": 23})
+        self.assertNotIn("--schema=doixe", [a for call in seen[:-1] for a in call])
+        self.assertEqual(backup.compare(made, {**made, "doixe_row_counts": {"chang": 2, "xe": 23}}),
+                         ["doixe_row_counts.chang: expected=3 actual=2"])
+        self.assertEqual(backup.compare(created, {**created, "doixe_row_counts": {"xe": 1}}),
+                         ["doixe_row_counts.xe: expected=MISSING actual=1"], "bản cũ không có doixe vẫn so được")
+        for bad in ({}, {"xe": -1}, {"xe": "1"}, []):
+            with self.subTest(bad=bad), self.assertRaisesRegex(backup.BackupError, "doixe_row_counts"):
+                backup.validate_manifest({**made, "doixe_row_counts": bad})
 
     def test_snapshot_pipe_protocol_and_error_cleanup_without_database(self):
         # Small child process tests pipe framing/EOF cleanup, never contacts DB.
@@ -311,6 +334,10 @@ class DockerEndToEndTests(unittest.TestCase):
                                     "INSERT INTO unrelated.keep VALUES(42);")
             pg.sql(harness.SCHEMA.read_text(encoding="utf-8"))
             pg.sql(harness.FUNCTIONS.read_text(encoding="utf-8"))
+            # CHI-PHI-XE-01: schema doixe cùng DB phải vào cùng bản dump và phục hồi đủ.
+            pg.sql((backup.ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-doi-xe.sql").read_text(encoding="utf-8"))
+            pg.sql("BEGIN; SET LOCAL sokhach.actor='fake'; SELECT doixe.nap_danh_muc('{\"nguoi\":[{\"ma\":\"T1\",\"ten\":\"TX GIA\","
+                   "\"vai\":\"tai_xe\",\"so_du_dau_vnd\":\"-7\"}],\"xe\":[{\"bien_so\":\"99Z-000.01\",\"nhom\":\"GIA\",\"tai_xe_ma\":\"T1\"}]}'); COMMIT;")
             fixture = harness.Pg(name, run_id)
             customer = harness.new_book(fixture, ("2026-01-01", 9007199254740993))
             negative = harness.new_book(fixture, ("2026-01-01", -25))
@@ -339,6 +366,9 @@ class DockerEndToEndTests(unittest.TestCase):
                 self.assertTrue(output.getvalue().startswith("MATCH\n"))
                 target = pg.at("v7_restore")
                 self.assertEqual(target.sql("SELECT value FROM unrelated.keep;").strip(), "42")
+                self.assertEqual(first["doixe_row_counts"]["xe"], 1)
+                self.assertEqual(target.sql("SELECT so_du_dau_vnd||'|'||(SELECT bien_so FROM doixe.xe) FROM doixe.nguoi;").strip(),
+                                 "-7|99Z-000.01", "doixe phục hồi đủ")
                 self.assertEqual(target.sql("SELECT other_fee_vnd IS NULL FROM sokhach.trip_price_rev ORDER BY id LIMIT 1;").strip(), "t")
                 # Same exported snapshot remains stable across a concurrent live write.
                 with backup.Snapshot(pg) as held:

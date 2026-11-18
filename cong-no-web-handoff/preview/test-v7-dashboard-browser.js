@@ -138,15 +138,26 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   assert.equal(await page.locator('#list .rdot.r-high').count(), 2);
   assert.deepEqual(await tipLines(page.locator('#list tr').nth(1)), ['Khách D', 'Rủi ro cao — Nợ từ T5/2026 · chưa trả lần nào · ngừng đi hàng',
     'Còn nợ 600.000.000 đ', 'Bấm để mở Tình hình']);
-  assert.deepEqual(await page.locator('#com-filter option').allInnerTexts(), ['Mọi mặt hàng', 'Chuối', 'Sầu riêng cảng', 'Chưa phân loại']);
+  // Công nợ theo mặt hàng (DASH-07): nhiều tiền trước, Chưa phân loại cuối; quá hạn 0 là "–"; các dòng cộng = Còn phải thu.
+  const band = page.locator('.com-band');
+  assert.deepEqual(await band.locator('.com-line .cn').allInnerTexts(), ['Chuối', 'Sầu riêng cảng', 'Chưa phân loại']);
+  assert.deepEqual(await band.locator('.com-line .ct').allInnerTexts(), ['1,25 tỷ', '380 tr', '850 tr']);
+  assert.deepEqual(await band.locator('.com-line .co').allInnerTexts(), ['950 tr', '–', '850 tr']);
+  assert.deepEqual(await band.locator('.com-line .cc').allTextContents(), ['1 khách', '1 khách', '2 khách']);
+  assert.equal(await band.locator('.com-col').count(), 2);
+  assert.equal(await band.locator('.com-line[data-com="Sầu riêng cảng"] .cbar i.late').count(), 0);
+  assert.deepEqual(await tipLines(band.locator('.com-line').first()), ['Chuối', 'Còn phải thu 1,25 tỷ · 50,4% tổng', 'Quá hạn 950 tr', '1 khách', 'Bấm để lọc bảng khách']);
+  assert.match((await tipLines(band.locator('.com-line').last())).join('\n'), /chưa gán mặt hàng/);
+  assert.equal(await page.locator('#com-filter').count(), 0);
   assert.equal(await page.locator('#list-more').innerText(), '');
   assert.equal(await page.locator('#todo-badge').innerText(), '3');
-  // 1280×720 (thấy ~1280×560): dải đầu và dòng khách đầu nằm trong màn; không cuộn ngang; nút bấm cao ≥ 40px.
+  // 1280×720 (thấy ~1280×560): dải đầu và khối mặt hàng nằm trong màn (DASH-07 chấp nhận bảng khách xuống dưới mép);
+  // không cuộn ngang; nút bấm cao ≥ 40px.
   const layout = await page.evaluate(() => ({ stripBottom: document.querySelector('.strip').getBoundingClientRect().bottom,
-    firstRow: document.querySelector('#list tr').getBoundingClientRect().bottom,
-    small: [...document.querySelectorAll('#refresh-data, .tile, .rchip, .com-pick, .list-head .icon-btn, .who a')]
+    bandBottom: document.querySelector('.com-band').getBoundingClientRect().bottom,
+    small: [...document.querySelectorAll('#refresh-data, .tile, .rchip, .com-line, .list-head .icon-btn, .who a')]
       .filter(el => el.getBoundingClientRect().height < 40).map(el => el.className || el.id) }));
-  assert.equal(layout.stripBottom <= 560 && layout.firstRow <= 560 && layout.small.length === 0, true, JSON.stringify(layout));
+  assert.equal(layout.stripBottom <= 560 && layout.bandBottom <= 560 && layout.small.length === 0, true, JSON.stringify(layout));
   assert.equal(await noSideScroll(page), true);
   await page.locator('#customer-search').fill('Khách C');
   assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
@@ -223,7 +234,7 @@ test('chưa có phần quá hạn (API debt lỗi) hay tìm khách lỗi: số t
     assert.match(await page.locator('.month-card').innerText(), /Thu tháng 10[\s\S]*Chưa tải được số thu tháng này/);
     assert.equal(await page.locator('#list-empty').innerText(), 'Chưa tải được danh sách khách. Bấm Làm mới để thử lại.');
     assert.equal(await page.locator('#chips').isHidden(), true);
-    assert.equal(await page.locator('#com-pick').isHidden(), true);
+    assert.equal(await page.locator('.com-band').count(), 0);
     assert.equal(await page.locator('#error').isHidden(), true);
   });
   await withDashboard({ customerStatus: 503 }, async page => {
@@ -235,35 +246,45 @@ test('chưa có phần quá hạn (API debt lỗi) hay tìm khách lỗi: số t
 
 test('tên Sheet trên bảng; bấm tên hoặc dòng khách mở trang khách thẻ Tình hình (DASH-05)', async () => withDashboard({
   customers: [
-    { id: 1, name: 'AG -DỪA', display_name: 'AG LOGISTIC', commodity: 'Dừa', aliases: ['AG DU A'] },
-    { id: 2, name: 'Khách C', display_name: 'CHAU HAI THINH', commodity: 'Chuối', aliases: [] },
-    { id: 3, name: 'Khách K', display_name: 'CHAU HAI THINH', commodity: 'Chuối', aliases: [] },
+    { id: 1, name: 'MẪU -DỪA', display_name: 'MAU LOGISTIC', commodity: 'Dừa', aliases: ['MAU DU A'] },
+    { id: 2, name: 'Khách C', display_name: 'KHACH CHUNG TEN', commodity: 'Chuối', aliases: [] },
+    { id: 3, name: 'Khách K', display_name: 'KHACH CHUNG TEN', commodity: 'Chuối', aliases: [] },
   ],
 }, async page => {
-  await page.locator('#list .nm').getByText('AG LOGISTIC', { exact: true }).waitFor();
-  assert.equal(await page.locator('#list .nm').first().innerText(), 'CHAU HAI THINH · Chuối · sổ 2');
+  await page.locator('#list .nm').getByText('MAU LOGISTIC', { exact: true }).waitFor();
+  assert.equal(await page.locator('#list .nm').first().innerText(), 'KHACH CHUNG TEN · Chuối · sổ 2');
   assert.deepEqual(await page.locator('#list .who a').evaluateAll(links => links.map(link => link.getAttribute('href'))), [
     '/so-khach-v7-live.html?customer=2&the=tinh-hinh', '/so-khach-v7-live.html?customer=4&the=tinh-hinh',
     '/so-khach-v7-live.html?customer=5&the=tinh-hinh', '/so-khach-v7-live.html?customer=1&the=tinh-hinh']);
   // Ô chú thích khi focus bằng bàn phím: tên, mức rủi ro — lý do, số đồng còn nợ.
   await page.locator('#list .who a').first().focus();
   const tip = await page.locator('#tip > *').allTextContents();
-  assert.deepEqual(tip, ['CHAU HAI THINH · Chuối · sổ 2', 'Theo dõi — Nợ T8/2026 quá hạn · có trả 02/10', 'Còn nợ 1.250.000.000 đ', 'Bấm để mở Tình hình']);
-  await page.locator('#customer-search').fill('AG DU A');
-  assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');
+  assert.deepEqual(tip, ['KHACH CHUNG TEN · Chuối · sổ 2', 'Theo dõi — Nợ T8/2026 quá hạn · có trả 02/10', 'Còn nợ 1.250.000.000 đ', 'Bấm để mở Tình hình']);
+  await page.locator('#customer-search').fill('MAU DU A');
+  assert.equal(await page.locator('#customer-results a').innerText(), 'MAU LOGISTIC · Dừa');
   await page.locator('#customer-search').fill('');
   await page.locator('#list tr').nth(1).locator('.num.tot').click();
   await page.waitForURL(/\/so-khach-v7-live\.html\?customer=4&the=tinh-hinh$/);
 }));
 
-test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết hợp, dải đầu giữ nguyên, địa chỉ trang', async () => withDashboard({}, async page => {
+test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết hợp, các khối tính lại theo lọc (DASH-08), địa chỉ trang', async () => withDashboard({}, async page => {
   await page.locator('#list tr').first().waitFor();
   const owe = await page.locator('.owe-row').innerText();
+  assert.equal(await page.locator('.scope-tag').count(), 0);
   await page.locator('.tile[data-tier="3"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D']);
   assert.equal(await page.locator('#col-first').innerText(), 'Nhóm này');
   assert.equal(await page.locator('.tile[data-tier="3"]').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('.age-bar .dim').count(), 3);
+  // Lọc chéo: dải đầu là chiều hạn trả nên giữ số; chip và khối mặt hàng chỉ còn khách/tiền của nhóm 3–6 tháng.
+  assert.equal(await page.locator('.owe-row').innerText(), owe);
+  assert.deepEqual((await seen(page.locator('#chips .rchip[data-risk]'))).slice(1), ['Rủi ro cao 1 600 tr', 'Theo dõi 0', 'Không quá hạn 0']);
+  assert.deepEqual(await page.locator('.com-line .ct').allInnerTexts(), ['–', '–', '600 tr']);
+  assert.equal(await page.locator('.com-th span').nth(2).innerText(), 'Nhóm này');
+  assert.equal(await page.locator('.com-head .scope-tag').innerText(), 'Quá hạn 3–6 tháng');
+  assert.equal(await page.locator('.month-card .scope-tag').innerText(), 'cả công ty');
+  // Focus bàn phím ở lại ô vừa bấm dù khối được vẽ lại.
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.tier), '3');
   assert.equal((await page.locator('#chips .tier-x').innerText()).trim(), '3–6 tháng');
   assert.equal(await page.locator('#chips .tier-x').getAttribute('aria-label'), 'Bỏ lọc Quá hạn 3–6 tháng');
   assert.match(await page.evaluate(() => location.search), /han=3/);
@@ -277,14 +298,25 @@ test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết 
   assert.equal(await page.locator('#col-first').innerText(), 'Quá hạn');
   assert.equal(await page.locator('#chips [data-risk="high"]').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.evaluate(() => location.search), '?muc=cao');
-  assert.equal(await page.locator('.owe-row').innerText(), owe);
+  // Rủi ro cao = D 600 + E 250: dải đầu chỉ còn hai khách; chuyến chưa giá và khách trả thừa (số cả công ty) ẩn.
+  assert.equal(await page.locator('.owe-row').innerText(), '850 tr\n2\nkhách đang nợ');
+  assert.equal(await page.locator('.owe .scope-tag').innerText(), 'Rủi ro cao');
+  assert.deepEqual(await page.locator('.tile b').allInnerTexts(), ['0 đ', '0 đ', '0 đ', '600 tr', '250 tr']);
+  assert.match(await page.locator('.brk .late').innerText(), /850 tr/);
+  assert.deepEqual(await page.locator('.com-line .ct').allInnerTexts(), ['–', '–', '850 tr']);
   await page.locator('[data-sort="total"]').click();
   assert.equal(await page.locator('th[data-col="total"]').getAttribute('aria-sort'), 'descending');
   assert.match(await page.evaluate(() => location.search), /xep=tong/);
   // Lọc mặt hàng cộng thêm vào mức rủi ro; xếp theo cột ngày: chưa trả / chưa có chuyến coi là lâu nhất.
-  await page.locator('#com-filter').selectOption('Chưa phân loại');
+  await page.locator('.com-line[data-com="Chưa phân loại"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
   assert.match(await page.evaluate(() => location.search), /mh=Ch/);
+  assert.equal(await page.locator('.com-line[data-com="Chưa phân loại"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.com-line.dim').count(), 2);
+  assert.equal(await page.locator('#chips .com-x').innerText(), 'Chưa phân loại');
+  assert.equal(await page.locator('.owe .scope-tag').innerText(), 'Chưa phân loại · Rủi ro cao');
+  // Chip tính trong mặt hàng đang chọn: Chưa phân loại không có khách Theo dõi hay Không quá hạn.
+  assert.deepEqual((await seen(page.locator('#chips .rchip[data-risk]'))).slice(1), ['Rủi ro cao 2 850 tr', 'Theo dõi 0', 'Không quá hạn 0']);
   await page.locator('[data-sort="pay"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
   await page.locator('[data-sort="trip"]').click();
@@ -292,11 +324,21 @@ test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết 
   assert.match(await page.evaluate(() => location.search), /xep=di-hang/);
   await page.locator('#chips [data-risk="ok"]').click();
   assert.equal(await page.locator('#list tr').count(), 0);
-  await page.locator('#com-filter').selectOption('');
+  await page.locator('#chips .com-x').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách A']);
+  assert.equal(await page.locator('.com-line.dim').count(), 0);
+  // Bấm lại dòng đang chọn cũng bỏ lọc.
+  await page.locator('.com-line[data-com="Sầu riêng cảng"]').click();
+  assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách A']);
+  await page.locator('.com-line[data-com="Sầu riêng cảng"]').click();
+  assert.equal(await page.locator('#chips .com-x').count(), 0);
   await page.locator('#chips .rchip.all').click();
   assert.equal(await page.locator('#list tr').count(), 4);
   assert.equal(await page.evaluate(() => location.search), '?xep=di-hang');
+  // Bỏ hết lọc: mọi khối về số cả công ty, không còn nhãn phạm vi.
+  assert.equal(await page.locator('.owe-row').innerText(), owe);
+  assert.equal(await page.locator('.scope-tag').count(), 0);
+  assert.deepEqual(await page.locator('.com-line .ct').allInnerTexts(), ['1,25 tỷ', '380 tr', '850 tr']);
   // Chú thích ô hạn trả: tên đủ + tháng nợ, tiền · số khách · %, số đồng.
   await page.locator('.tile[data-tier="4"]').hover();
   assert.deepEqual((await page.locator('#tip > *').allTextContents()).slice(0, 3), ['Quá hạn trên 6 tháng (nợ T2 trở về trước)', '250 tr · 1 khách · 10,1% còn phải thu', '250.000.000 đ']);
@@ -318,7 +360,7 @@ test('số từng khách lệch tổng server: không lọc tại chỗ, bấm n
 }, async page => {
   await page.locator('#list tr').first().waitFor();
   assert.equal(await page.locator('#chips [data-risk="high"]').isDisabled(), true);
-  assert.equal(await page.locator('#com-filter').isDisabled(), true);
+  assert.equal(await page.locator('.com-band').count(), 0);
   assert.equal(await page.locator('#list-note').innerText(), 'Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.');
   await page.locator('.tile[data-tier="2"]').click();
   await page.waitForURL(/cong-no-theo-thang\.html\?con-no=1&xep=con-no$/);
@@ -342,15 +384,46 @@ test('khách quá hạn âm (dư ở nợ cũ) được trừ đúng vào summar
   await page.locator('#list tr').first().waitFor();
   assert.equal(await page.locator('#list-note').isHidden(), true);
   assert.match(await page.locator('.brk .late').getAttribute('data-tip'), /Đã trừ 1 khách dư ở nợ cũ 30 tr/);
-  assert.equal(await page.locator('#com-filter').isDisabled(), false);
+  // Khối mặt hàng: Chưa phân loại = D 600 + E 250 + F (200 − 30) = 1,02 tỷ; quá hạn 600 + 250 − 30 = 820 tr.
+  assert.equal(await page.locator('.com-line[data-com="Chưa phân loại"] .ct').innerText(), '1,02 tỷ');
+  assert.equal(await page.locator('.com-line[data-com="Chưa phân loại"] .co').innerText(), '820 tr');
   await page.locator('#chips [data-risk="ok"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách A', 'Khách F']);
   assert.deepEqual(await page.locator('#list .num.od').allInnerTexts(), ['–', '−30']);
 }));
 
+test('Thu tháng theo lọc (DASH-08): API có số từng sổ thì thẻ tính lại, kể cả sổ đã hết nợ khi lọc mặt hàng', async () => withDashboard({
+  // C (Chuối) 300/80, A (Sầu riêng cảng) 250/50, sổ 9 Chuối đã hết nợ 150/56: cộng = 700/186 như this_month.
+  debtPayload: { ...debt, this_month: { ...debt.this_month, customers: [
+    { customer_id: 1, commodity: 'Sầu riêng', transport_mode: 'CANG', charges_vnd: '250000000', received_vnd: '50000000' },
+    { customer_id: 2, commodity: 'Chuối', transport_mode: null, charges_vnd: '300000000', received_vnd: '80000000' },
+    { customer_id: 9, commodity: 'Chuối', transport_mode: null, charges_vnd: '150000000', received_vnd: '56000000' }] } },
+}, async page => {
+  await page.locator('#list tr').first().waitFor();
+  const nums = async () => page.locator('.month-card .m-nums b').allInnerTexts();
+  assert.deepEqual(await nums(), ['186 tr', '700 tr']);
+  assert.equal(await page.locator('.month-card .scope-tag').count(), 0);
+  await page.locator('.com-line[data-com="Chuối"]').click();
+  assert.deepEqual(await nums(), ['136 tr', '450 tr']);
+  assert.equal(await page.locator('.month-card .scope-tag').innerText(), 'Chuối');
+  assert.match(await page.locator('.month-card .scope-tag').getAttribute('data-tip'), /cả sổ đã hết nợ/);
+  // Thêm ô 1–2 tháng: chỉ sổ đang nợ có nợ nhóm đó (C), sổ 9 đã hết nợ không còn.
+  await page.locator('.tile[data-tier="2"]').click();
+  assert.deepEqual(await nums(), ['80 tr', '300 tr']);
+  assert.equal(await page.locator('.month-card .scope-tag').innerText(), 'Chuối · Quá hạn 1–2 tháng');
+  await page.locator('#chips .com-x').click();
+  await page.locator('#chips .tier-x').click();
+  // Rủi ro cao (D, E) không có thu/phát sinh tháng này.
+  await page.locator('#chips [data-risk="high"]').click();
+  assert.deepEqual(await nums(), ['0 đ', '0 đ']);
+  await page.locator('#chips [data-risk="high"]').click();
+  assert.deepEqual(await nums(), ['186 tr', '700 tr']);
+}));
+
 test('link cũ ?nhom=com: mở lọc mặt hàng, ?xem= cũ bị xóa khỏi địa chỉ', async () => withDashboard({}, async page => {
   await page.locator('#list tr').first().waitFor();
-  assert.equal(await page.locator('#com-filter').inputValue(), 'Chuối');
+  assert.equal(await page.locator('.com-line[data-com="Chuối"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#chips .com-x').innerText(), 'Chuối');
   assert.equal(await page.locator('#list tr').count(), 1);
   await page.locator('[data-sort="total"]').click();
   assert.doesNotMatch(await page.evaluate(() => location.search), /xem=|nhom=/);
@@ -388,6 +461,60 @@ test('PRESENCE-01: chấm màu cạnh khách đang có người mở sổ, vòng
   assert.equal(await page.locator('#list a[href*="customer=1&"] .presence-dot').getAttribute('aria-label'), 'Lan đang mở sổ này');
   const labels = await page.locator('.presence-avatar').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')));
   assert.deepEqual(labels, ['Lan · đang mở sổ Khách A, tháng 10/2026', 'Tuấn · đang mở sổ Khách C, tháng 9/2026']);
+}));
+
+// Đo 12/11/2026 trên hao ở 390px: thanh đầu trang cao cố định 53px, hàng người online xuống dòng đè lên chữ bên dưới; dải
+// menu 64px ăn 1/5 bề ngang. Điện thoại: chỉ còn nút ☰, thanh đầu trang cao theo nội dung, bấm ☰ bung đủ menu.
+test('điện thoại 390px: menu thu về nút ☰, năm người online nằm trong thanh đầu trang', async () => withDashboard({ people: ['Lan', 'Tuấn', 'Hà', 'Minh', 'Phúc']
+  .map((name, i) => ({ id: `p${i}`, name, color: i, page: 'tong-quan', customer_id: null, month: null, cell: null, pointer: null })) }, async page => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.strip .big-money').waitFor();
+  await page.waitForFunction(() => document.querySelectorAll('.presence-avatar').length === 5);
+  const box = selector => page.locator(selector).first().evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }; });
+  const [head, bar, h1, main, toggle] = await Promise.all(['.page-head.topbar', '.presence', '.page-head.topbar h1', 'main', '#nav-toggle'].map(box));
+  assert.ok(bar.bottom <= head.bottom && h1.left >= toggle.right, JSON.stringify({ head, bar, h1, toggle }));
+  assert.equal(main.left, 0);
+  assert.equal(await page.locator('.app-nav nav').isVisible(), false);
+  assert.equal(await noSideScroll(page), true);
+  // DIEN-THOAI-SEP-01: bảng khách chỉ Khách · Quá hạn · Còn nợ, số nằm trong màn (không phải vuốt ngang trong khung bảng);
+  // ba viên số cạnh Còn phải thu ghi chữ ngay.
+  await page.locator('#list tr').first().waitFor();
+  const table = await page.evaluate(() => {
+    const shown = el => getComputedStyle(el).display !== 'none';
+    const row = document.querySelector('#list tr');
+    return { cells: [...row.cells].filter(shown).map(td => td.className.split(' ')[0]), inside: row.querySelector('.tot').getBoundingClientRect().right <= innerWidth,
+      wrap: document.querySelector('.tbl-wrap').scrollWidth <= document.querySelector('.tbl-wrap').clientWidth };
+  });
+  assert.deepEqual(table, { cells: ['who', 'num', 'num', 'go'], inside: true, wrap: true });
+  assert.match((await page.locator('.owe-row .pill').first().innerText()).replace(/\s+/g, ' ').trim(), /^\d+ khách đang nợ$/);
+  await page.locator('#nav-toggle').click();
+  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 9);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  assert.equal(await page.locator('.dtable td.bar').first().isVisible(), true, 'màn rộng vẫn có thanh hạn trả');
+  await page.locator('#nav-toggle').click();
+  assert.deepEqual(await Promise.all([box('aside.app-nav'), box('main')]).then(([nav, m]) => [nav.width, m.left]), [76, 76]);
+}));
+
+// Thấy 18/11/2026 (ca thử nút Tải cả sổ): cả sổ chỉ 350.000 đ, toàn bộ còn trong hạn. Vạch Trong hạn rộng 100% cộng khối
+// Quá hạn tối thiểu 9.5em vượt bề ngang dải đầu, cả trang cuộn ngang ở 390px. Dữ liệu cũ toàn số tỷ nên không lộ.
+test('dải đầu toàn trong hạn, số nhỏ: khối Quá hạn nằm trong dải, không cuộn ngang ở 390px và 1280px', async () => withDashboard({
+  payload: { ...dashboard, receivable: { total_vnd: '350000', customers: 1 } },
+  debtPayload: { ...debt, receivable_vnd: '350000', customers: [],
+    due_tiers: debt.due_tiers.map(t => ({ ...t, receivable_vnd: t.tier === 'not_due' ? '350000' : '0' })),
+    summary: { overdue_vnd: '0', long_overdue_vnd: '0', overdue_customers: 0, high_customers: 0, high_overdue_vnd: '0' } },
+}, async page => {
+  await page.locator('.brk .late').waitFor();
+  const fits = () => page.evaluate(() => {
+    const box = el => el.getBoundingClientRect();
+    const brk = box(document.querySelector('.brk'));
+    const parts = [...document.querySelectorAll('.brk > div, .brk strong')].map(box);
+    return { inside: parts.every(r => r.left >= brk.left - 0.5 && r.right <= brk.right + 0.5), page: document.documentElement.scrollWidth <= innerWidth };
+  });
+  assert.deepEqual(await seen(page.locator('.brk > div')), ['Trong hạn 350.000 đ', 'Quá hạn 0 đ']);
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+    assert.deepEqual(await fits(), { inside: true, page: true }, `bề ngang ${width}px`);
+  }
 }));
 
 // Bố cục nhóm cũ thay bằng bảng bốn cột; các ca tải/lọc/trống/lỗi/mở sổ nằm trong test-viec-can-lam-table-browser.js.
@@ -460,16 +587,11 @@ test('Việc cần làm P2: mất kết nối khi ghi thì Thử lại gửi đ�
   }, '/viec-can-lam.html');
 });
 
-test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt kê ô đã đổi, mở đúng sổ; lệch chữ còn lại ghi rõ máy bật hay chưa', async () => {
+test('Việc cần làm P3a: lệch chữ còn lại ghi rõ máy bật hay chưa (việc máy đã ghi xem ở tab Đã làm, HOAT-DONG-01)', async () => {
   const auto = { text_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0, today_count: 2, today_books: 1,
     items: [{ at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'destination', before: 'CANG C', after: 'CANG D' },
       { at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'origin', before: null, after: 'KHO B' }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
-    await page.locator('[data-tab="may"]').click();
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.match(await done.innerText(), /Khách C[\s\S]*nơi đến: CANG C → CANG D[\s\S]*nơi đi: — → KHO B/);
-    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     await page.locator('[data-tab="don"]').click();
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /3 chỗ ở 1 sổ\. Không đụng tiền; máy lấy theo Sheet ở lượt tính tới/);
   }, '/viec-can-lam.html');
@@ -481,31 +603,7 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
   }, '/viec-can-lam.html');
 });
 
-test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chuyến mới, đánh dấu chuyến chờ kiểm, mở đúng sổ', async () => {
-  const auto = { text_enabled: true, trips_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0, today_count: 0, today_books: 0,
-    items: [], today_trips: 2, today_trip_books: 1, today_trips_pending: 1,
-    trip_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000002', event_date: '2026-11-01', trip_id: 9, pending: false },
-      { at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000003', event_date: '2026-10-31', trip_id: 10, pending: true }] };
-  await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
-    await page.locator('[data-tab="may"]').click();
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.equal(await done.count(), 1);   // không có ô chữ thì chỉ một khối
-    assert.match(await done.innerText(), /Khách C[\s\S]*MAUU0000002 · 01\/11\/2026[\s\S]*MAUU0000003 · 31\/10\/2026 · chờ kiểm/);
-    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
-    assert.equal(await done.locator('li').count(), 2);
-    assert.equal(await done.locator('.auto-kind', { hasText: 'Chuyến mới' }).count(), 2);
-  }, '/viec-can-lam.html');
-  // NGUON-CHUYEN-01: chuyến bộ máy đưa vào sổ ghi rõ "Chuyến bộ".
-  const road = { ...auto, trip_items: [{ ...auto.trip_items[0], road: true }], today_trips: 1, today_trips_pending: 0 };
-  await withPage({ inbox: { ...INBOX_EMPTY, auto: road, books: [] } }, async page => {
-    await page.locator('[data-tab="may"]').click();
-    await page.locator('.auto-list').waitFor();
-    assert.equal(await page.locator('.auto-list .auto-kind').innerText(), 'Chuyến bộ');
-  }, '/viec-can-lam.html');
-});
-
-test('Việc cần làm MAY-PS-01: "Máy đã tự làm" liệt kê phụ phí máy đã phân loại, ghi rõ tổng không đổi và tháng khóa', async () => {
+test('Việc cần làm MAY-PS-01: chip Máy đếm phụ phí đã phân loại hôm nay', async () => {
   const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, ps_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
     today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],
     today_prices: 0, today_price_books: 0, price_items: [], today_ps: 1, today_ps_books: 1,
@@ -513,14 +611,10 @@ test('Việc cần làm MAY-PS-01: "Máy đã tự làm" liệt kê phụ phí m
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
     await page.locator('[data-tab="may"]').click();
     assert.equal(await page.locator('.actor-chip', { hasText: 'Máy' }).getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 0 giá, 1 phụ phí phân loại');
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.equal(await done.locator('.auto-kind').innerText(), 'Phụ phí');
-    assert.match(await done.locator('li').innerText(), /MAUU0000004 · 11\/06\/2026 · phân loại theo PS, tổng không đổi · tháng khóa/);
   }, '/viec-can-lam.html');
 });
 
-test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet máy đã ghi, ghi rõ tháng khóa; chip Máy đếm giá riêng', async () => {
+test('Việc cần làm MAY-GIA-01: chip Máy đếm giá riêng', async () => {
   const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
     today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],
     today_prices: 3, today_price_books: 1,
@@ -534,19 +628,5 @@ test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet 
     await page.locator('[data-tab="may"]').click();
     const chip = page.locator('.actor-chip', { hasText: 'Máy' });
     assert.equal(await chip.getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 3 giá');
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.equal(await done.locator('li').count(), 3);
-    // Đụng tiền nên ghi trước → sau: chuyến chưa giá nhận giá Sheet; chuyến đã có giá chỉ đổi giảm trừ.
-    assert.match(await done.locator('li').nth(0).innerText(), /Khách C[\s\S]*MAUU0000004 · 28\/10\/2026 · chưa giá → 52,5 tr, phụ phí 0,3 tr · tháng khóa/);
-    const open = await done.locator('li').nth(1).innerText();
-    assert.match(open, /MAUU0000005 · 01\/11\/2026 · chưa giá → 50 tr/);
-    assert.doesNotMatch(open, /phụ phí|tháng khóa/);
-    assert.match(await done.locator('li').nth(2).innerText(), /MAUU0000006 · 01\/11\/2026 · 50 tr, phụ phí −0,3 → −0,5 tr/);
-    if (process.env.SHOTS_DIR) {
-      fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
-      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'viec-can-lam-may-ghi-gia.png') });
-    }
-    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   }, '/viec-can-lam.html');
 });
