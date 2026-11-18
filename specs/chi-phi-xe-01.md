@@ -262,10 +262,10 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 
 - [ ] Trên bản thử (dữ liệu sao chép), dán chi phí tháng 10 của cả 16 tài xế. Chặng hàng nối được chuyến khách, lệch không quá 10 ngày; chặng phụ ghi đúng loại; không có chặng nào bị tạo hai lần khi dán lại cùng một khối.
 - [ ] Dán 1 tab tài xế tháng 10/2026: tổng "tài xế chi" và tổng từng cột phí khớp dòng tổng của tab, trừ các dòng bị chặn đã liệt kê.
-- [ ] Ghi ứng, ghi đợt hoàn, hủy từng loại: số dư đổi đúng; Lịch sử có người làm, trước → sau, lý do hủy.
-- [ ] Bấm hai lần hoặc mất mạng giữa chừng không tạo hai lần ứng hay hai đợt hoàn.
-- [ ] Harness PostgreSQL cho schema `doixe` chạy xanh; `npm run check` xanh.
-- [ ] Kiểm trình duyệt 1280×720: bàn phím, nhập sai, tải chậm, thiếu quyền.
+- [x] Ghi ứng, ghi đợt hoàn, hủy từng loại: số dư đổi đúng; Lịch sử có người làm, trước → sau, lý do hủy. Bằng chứng: `tools/test_pg_doixe.py` (PostgreSQL dùng một lần, dữ liệu giả), 18/11/2026. Còn kiểm lại trên bản thử khi có dữ liệu.
+- [x] Bấm hai lần hoặc mất mạng giữa chừng không tạo hai lần ứng hay hai đợt hoàn. Bằng chứng: harness (ba lệnh song song cùng mã chỉ ghi một), `test-doi-xe-browser.js` (mất trả lời rồi bấm lại dùng lại mã, bấm đúp không gửi thêm).
+- [x] Harness PostgreSQL cho schema `doixe` chạy xanh; `npm run check` xanh (job CI `postgres-doixe`, PR #477, #478).
+- [x] Kiểm trình duyệt 1280×720 (và 1265×560): bàn phím, nhập sai, tải chậm, thiếu quyền. Bằng chứng: `test-doi-xe-browser.js` trên máy chủ giả; chưa phải nghiệm thu trên dữ liệu thật.
 - [ ] Hai nhân viên và điều xe tự đi hết luồng trên bản thử với dữ liệu một tháng, và xác nhận.
 
 ## Phạm vi agent

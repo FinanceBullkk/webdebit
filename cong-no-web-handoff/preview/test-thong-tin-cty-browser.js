@@ -114,7 +114,7 @@ test('Thông tin cty: địa chỉ có ?q= thì tìm sẵn; chưa bật job thì
   });
 });
 
-test('Thông tin cty: khung 1265×560 có menu tám mục lọt khung, không cuộn ngang; 390px xếp dọc, không cuộn ngang', async () => {
+test('Thông tin cty: khung 1265×560 có menu chín mục lọt khung, không cuộn ngang; 390px xếp dọc, không cuộn ngang', async () => {
   await withPage({}, async page => {
     const last = await page.locator('.app-nav nav a').last().boundingBox();
     assert.ok(last.y + last.height <= 560, `mục cuối menu lọt khung: ${last.y + last.height}`);
