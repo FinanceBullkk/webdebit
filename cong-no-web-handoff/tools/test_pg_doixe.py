@@ -35,6 +35,7 @@ from pg_v7_harness import (
 )
 
 MIGRATION = Path(__file__).resolve().parent / "migrations" / "2026-11-18-v7-doi-xe.sql"
+PHIEU_CHI = Path(__file__).resolve().parent / "migrations" / "2026-11-18-v7-doi-xe-phieu-chi.sql"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 from v7_api_validate import ApiError  # noqa: E402
 from v7_psql import Psql  # noqa: E402
@@ -107,7 +108,15 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     pg.sql(source)
     pg.sql(source)
     require(count(pg, "SELECT count(*) FROM doixe.loai_phi") == 15, "danh mục phí phải đủ 15 loại")
-    cases.append("migration lỗi thì quay lại, chạy lại được, đủ 15 loại phí")
+    phieu = PHIEU_CHI.read_text(encoding="utf-8")
+    pg.rejects(phieu.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'PHIEU_FAULT'; END $$; COMMIT;"), message="PHIEU_FAULT")
+    require(count(pg, "SELECT count(*) FROM doixe.loai_phi") == 15, "migration phiếu chi lỗi không quay lại")
+    pg.sql(phieu)
+    pg.sql(phieu)
+    require(count(pg, "SELECT count(*) FROM doixe.loai_phi") == 16
+            and pg.value("SELECT cot_sheet IS NULL AND NOT cong_ty_tra FROM doixe.loai_phi WHERE ma='hasom'") == "t",
+            "phiếu chi: thêm Hạ sớm/KH, tài xế chi, không cột Sheet")
+    cases.append("migration lỗi thì quay lại, chạy lại được, đủ 15 loại phí; phiếu chi mới thêm Hạ sớm/KH (16 loại), chạy lại được")
 
     # Quyền: app gọi đúng 11 hàm, không gọi hàm phụ hay hàm nạp; không quyền trên bảng; PUBLIC không gọi được gì.
     granted = json.loads(pg.value("SELECT coalesce(json_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' "
@@ -374,6 +383,36 @@ def scenario(pg: Pg, cases: list[str]) -> None:
         require(exc.status == 422 and exc.code == "NGAY_TUONG_LAI", f"mã lỗi qua adapter: {exc.code}")
     require(pg.value("SELECT actor FROM doixe.ung ORDER BY id DESC LIMIT 1") == "nv-api", "người làm lấy từ phiên của API")
     cases.append("qua adapter API (role v7_app): ba đường đọc, ghi ứng và lặp lệnh, ngày mai thành 422 NGAY_TUONG_LAI, người làm từ phiên")
+
+    # Phiếu chi mới: Hạ sớm/KH là tài xế chi; ba ô số lượng lưu, sửa ghi đè cả ở tháng khóa, vào Lịch sử, không đổi tiền.
+    phieu_ids = dx.cmd("luu_chang", {"rows": [
+        row(jan + dt.timedelta(days=2), "MAUU6660001", phi={"hasom": "70"}, neo_ngay="2", may_gio="5", km="45"),
+        row(today, "MAUU6660002", phi={"hasom": "30", "neo": "40"}, neo_ngay=None, may_gio=None, km=None)]})["chang_ids"]
+    sd_phieu = check_balance(tx1, 0)
+    locked = next(leg for leg in dx.so("nguoi", tx1, "2026-01-01")["chang"] if leg["id"] == phieu_ids[0])
+    require((locked["neo_ngay"], locked["may_gio"], locked["km"], locked["dong"][0]["phi"]) == (2, 5, 45, {"hasom": "70"}),
+            f"lưu số lượng: {locked}")
+    lines = count(pg, f"SELECT count(*) FROM doixe.dong WHERE chang_id={phieu_ids[0]}")
+    require(dx.cmd("sua_chang", {"chang_id": phieu_ids[0], "cot": "km", "truoc": "45", "gia_tri": "60"})["cach"] == "ghi_de",
+            "km ghi đè ở tháng khóa")
+    require(dx.cmd("sua_chang", {"chang_id": phieu_ids[0], "cot": "may_gio", "truoc": "5", "gia_tri": None})["cach"] == "ghi_de",
+            "xóa giờ máy")
+    require(dx.cmd("sua_chang", {"chang_id": phieu_ids[0], "cot": "neo_ngay", "truoc": "2", "gia_tri": "2"})["khong_doi"], "không đổi")
+    dx.reject("sua_chang", {"chang_id": phieu_ids[0], "cot": "km", "truoc": "45", "gia_tri": "70"}, "CHANGED")
+    current = {"neo_ngay": "2", "may_gio": None, "km": "60"}
+    for name, value in (("neo_ngay", "366"), ("may_gio", "1.5"), ("km", "0"), ("km", 12)):
+        dx.reject("sua_chang", {"chang_id": phieu_ids[0], "cot": name, "truoc": current[name], "gia_tri": value}, "INVALID_COMMAND")
+        dx.reject("luu_chang", {"rows": [row(today, "MAUU6660009", **{name: value})]}, "INVALID_COMMAND")
+    after = next(leg for leg in dx.so("nguoi", tx1, "2026-01-01")["chang"] if leg["id"] == phieu_ids[0])
+    require((after["km"], after["may_gio"], after["neo_ngay"]) == (60, None, 2)
+            and count(pg, f"SELECT count(*) FROM doixe.dong WHERE chang_id={phieu_ids[0]}") == lines, f"số lượng không thêm dòng: {after}")
+    require(check_balance(tx1, 0) == sd_phieu, "sửa số lượng làm đổi số dư")
+    edits = [e for e in dx.read(f"doixe.get_lich_su({tx1},NULL)")["events"]
+             if e["viec"] == "sua_chang" and e["truoc"].get("chang_id") == phieu_ids[0]]
+    require(sorted((e["truoc"]["cot"], e["truoc"]["gia_tri"], e["sau"]["gia_tri"]) for e in edits) == [("km", "45", "60"), ("may_gio", "5", None)],
+            f"Lịch sử số lượng: {edits}")
+    cases.append("phiếu chi mới: Hạ sớm/KH vào tài xế chi; ngày neo, giờ máy, km lưu, ghi đè cả tháng khóa không thêm dòng, "
+                 "sai thì chặn, vào Lịch sử trước → sau, số dư không đổi")
 
     # Không ghi sokhach.
     require(pg.value(actor_sql("SELECT sokhach.get_read_stamp()->>'stamp'")) == stamp, "doixe đã làm đổi dữ liệu sokhach")
