@@ -70,9 +70,18 @@ Web tự tính, không có ô sửa tay: **công nợ cước** = tổng bảng 
 
 Người thao tác: hai nhân viên đang nhập chi phí (đợt 1) và kế toán đang làm file công nợ cảng. Màn 1280×720, theo phong cách sổ khách.
 
+**Bố cục theo tháng** (người dùng chọn ngày 18/11/2026, giữa hai phương án "theo tháng" và "sổ công nợ HTH"):
+
+- Mỗi tháng một màn, chọn bằng hàng nút tháng; mỗi nút ghi trạng thái (đang gom, đang đối chiếu, chờ HTH trả, thu đủ).
+- Trên cùng là ba số: Đòi HTH, HTH đã trả, Còn phải thu. Dòng dưới tách cước, đóng ghép, phát sinh, chi hộ, điều chỉnh.
+- Nút chính đổi theo bước: Gửi bảng kê → Đối chiếu xong → Ghi tiền HTH trả.
+- Bên dưới là bảng chặng giống file debit hiện nay.
+
+Bản bấm thử (dữ liệu giả) nằm trên canvas thiết kế của dự án, trang "Đội xe: bảng kê HTH (đợt 2)", gồm 5 khung: tháng đã gửi, tháng đang gom, ghi điều chỉnh, ghi tiền về, bảng giá.
+
 1. **Gợi ý thu khi nhập chặng:** lúc nhập chặng ở đợt 1, web điền sẵn cước theo bảng giá tuyến và các khoản phát sinh đọc được từ ghi chú. Người nhập sửa nếu khác. Chặng chưa có giá tuyến thì hiện cờ "chưa có giá".
 2. **Ra bảng kê:** chọn công ty hàng và tháng. Web gom các chặng có thu, cho xem trước đúng mẫu file hiện nay, rồi xuất Excel.
-3. **Đối chiếu:** công ty hàng góp ý từng dòng. Kế toán ghi điều chỉnh, bắt buộc lý do. Bảng kê chuyển sang "đã đối chiếu".
+3. **Đối chiếu:** công ty hàng góp ý từng dòng. Kế toán bấm nút ± ở cuối dòng đó; ô điều chỉnh mở ngay dưới dòng (bớt hay thêm, số tiền, lý do bắt buộc) và cho thấy Đòi HTH trước → sau. Xong thì bấm "Đối chiếu xong"; bảng kê chuyển sang "đã đối chiếu" và thôi nhận điều chỉnh (ĐỀ XUẤT, câu 13).
 4. **Ghi tiền về:** chọn bảng kê tháng, nhập ngày và số tiền. Trả đủ thì bảng kê chuyển "đã thu đủ"; thiếu hoặc thừa thì hiện số chênh. Số còn nợ hiện ở đầu trang Đội xe.
 5. **Xe thuê ngoài:** nếu cước của xe Trần Hùng đi qua mình (câu hỏi 2), thêm một bảng kê phải trả Trần Hùng, cùng mô hình nhưng chiều ngược lại.
 
@@ -123,3 +132,5 @@ Revert PR. Không có dữ liệu.
 9. Ba cột đối chiếu trống ở tháng 10: việc đối chiếu với công ty hàng đang làm ở đâu (Zalo, file khác)?
 10. Giá tính theo phần trăm làm tròn thế nào: tới nghìn đồng, hay tới đồng?
 11. ĐÃ TRẢ LỜI 18/11/2026: phí nâng và phí hạ cảng do **đội xe chịu** trong cước. Ghi là dòng chi của chặng; người trả là tài xế hoặc người đi lệnh. Không đưa vào bảng kê.
+12. Chặng chưa có giá: cho gửi bảng kê (ô cước để trống, chưa tính vào số đòi, như bản bấm thử) hay chặn tới khi có giá?
+13. Sau "Đối chiếu xong" có thôi nhận điều chỉnh không, hay vẫn cho điều chỉnh tới khi HTH trả đủ?
