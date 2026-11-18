@@ -22,7 +22,7 @@ Chỉ đọc. Bản sao dữ liệu nằm ngoài Git, ở `captures/nha-xe/`.
 | --- | --- | --- |
 | Sheet booking + sheet điều xe | Điều xe | Container, kho, shipper, ngày đóng, nhà xe, số xe |
 | File điều xe "XE TIN PHAT" | Điều xe | Phí hạ, hạ sớm, hạ khác, phụ thu; các lần ứng và quyết toán |
-| Sheet chi phí tài xế (10 xe) và file "BK TÍN PHÁT" (8 xe) | Hai nhân viên | Phí nâng, nâng hạ, cầu đường, neo, xí cont, VETC, sửa vặt |
+| Sheet chi phí "TÀI XẾ" (đủ 16 tài xế) và file "BK TÍN PHÁT" (bản riêng 8 xe, trùng với sheet kia) | Hai nhân viên | Phí nâng, nâng hạ, cầu đường, neo, xí cont, VETC, sửa vặt |
 | File công nợ cảng (Tín Phát, Trần Hùng) | Kế toán | Cước, đóng ghép, phát sinh tính cho công ty hàng |
 
 Số đo:
@@ -40,7 +40,20 @@ Số đo:
   - Một container theo dõi được qua 3 chặng, 3 xe, 2 công ty, ghi ở 3 file: xe Trần Hùng chở hàng, xe mình rút mooc, một xe Trần Hùng khác chuyển cảng.
   - Vì vậy gán xe phải theo từng chặng, không theo container.
 - **Phí cảng của một chuyến nằm ở hai file.** Kiểm 42 chuyến tháng 10 có phí nâng ở sheet tài xế: cả 42 đều có trong file điều xe, ở đó phí nâng bằng 0 và các phí hạ được ghi.
-- **Khoản lớn nhất không có ở file nào đã đọc:** dầu, lương tài xế, trả góp hoặc khấu hao, bảo hiểm, lốp, sửa chữa lớn.
+- **Dầu** nằm ở sheet "THEO DOI DAU" (người dùng chỉ ra 18/11/2026). Sheet gồm hai phần:
+  - Sổ mua dầu: 1.635 lần đổ từ 4/2025 đến 10/2026 cho 20 đầu kéo, qua 5 tài khoản mua dầu. Mỗi tài khoản có hạn mức, chiết khấu, thanh toán, công nợ còn lại. Tab KIEM_TRA ghi 36 chỗ đã sửa khi gom dữ liệu. Cột ODO trống ở mọi dòng. Tháng 11/2026 chưa có dòng nào.
+  - Sổ dầu khoán: mỗi ảnh đồng hồ một dòng; lấy km chặng × định mức theo vùng (4 mức) để so với lít đổ. Mới chạy từ 26/10/2026: 47 dòng, 14 xe, 10 dòng thiếu hoặc trùng ODO; chưa có đơn giá, thành tiền. Bảy tab ẩn là hai bản thiết kế cũ của phần này.
+  - Đơn giá dầu trên sổ đổi bậc từ đầu tháng 3/2026, cùng mức ở các tài khoản: CÒN MỞ (7).
+  - Dầu tài xế tự trả trong sheet chi phí gần như không có, nên sổ mua dầu là nguồn dầu chính.
+- **Định phí** nằm ở sheet "HỒ SƠ GIẤY TỜ XE & MOOC": 64 phương tiện (21 đầu kéo, 43 mooc).
+  - Có phí bảo hiểm năm cho 18 đầu kéo.
+  - Có giấy thuê tài chính hoặc thế chấp của 33 phương tiện, nhưng không có số tiền trả góp.
+  - Đăng kiểm chỉ có hạn, không có phí.
+- **Sửa chữa và lốp** chỉ thấy trong cột phát sinh + ghi chú của sheet chi phí.
+  - Tháng 10 có 148 dòng phát sinh: 123 dòng nhắc tới lốp, 42 dòng sửa vặt. Dòng lớn nhất chỉ vài triệu, không thấy sửa chữa lớn.
+  - Một nửa số tiền nằm trong ô ghi nhiều khoản cùng lúc. Có lẫn tiền cọc cont và phí đăng kiểm.
+- **Lương tài xế** chưa có sheet; làm sau (người dùng chốt 18/11/2026).
+- **Hai sheet chi phí trùng nhau.** "TÀI XẾ T10" có đủ 16 tài xế. 86 dòng tháng 10 của file BK đều có trong đó: 85 dòng cùng số tiền, 1 dòng lệch. Cộng cả hai file sẽ tính trùng.
 - **Đã từng thử làm lãi lỗ trên Excel.** File BK tháng 3–4 có cột doanh thu, lợi nhuận, lương chuyến, đổ dầu.
   - 464 dòng, không dòng nào có doanh thu; cột lương trống; cột dầu có 1 dòng.
   - Lợi nhuận vì vậy ra âm đúng bằng chi phí.
@@ -70,11 +83,12 @@ Dùng một schema PostgreSQL riêng tên `doixe`, nằm cùng cơ sở dữ li�
 
 | Bảng | Một dòng là | Ghi chú |
 | --- | --- | --- |
-| `xe` | một đầu kéo | Biển số chuẩn, nhóm (VTP, NSX, thuê ngoài), ngày vào, ngày ra |
+| `xe` | một phương tiện: đầu kéo hoặc mooc | Biển số chuẩn, loại, nhóm (VTP, NSX, thuê ngoài), ngày vào, ngày ra |
 | `tai_xe` | một tài xế | |
 | `chang` | một chặng một xe chạy | Ngày, xe, tài xế, loại chặng (hàng, chuyển cảng, trả rỗng, rút mooc, thả mooc, khác), container, nơi lấy, nơi hạ. Chặng hàng trỏ tới chuyến khách theo container + ngày |
 | `dong_thu` | một khoản thu của chặng | Loại theo danh mục, số tiền, có phải chi hộ không |
-| `dong_chi` | một khoản chi | Gắn với chặng, **hoặc** với xe + tháng. Loại theo danh mục. Người trả: tài xế, công ty, người đi lệnh, mua chịu |
+| `dong_chi` | một khoản chi | Gắn với chặng, **hoặc** với phương tiện + tháng. Loại theo danh mục. Người trả: tài xế, công ty, người đi lệnh, mua chịu. Mua chịu thì ghi nơi bán (tài khoản dầu, gara) để ra công nợ phải trả. Lần đổ dầu là một dòng chi gắn đầu kéo, có số lít và ODO lúc đổ |
+| `dinh_muc_dau` | một mức dầu theo vùng | Lít/100 km; dùng để so lít đổ giữa hai lần đổ với km các chặng đã chạy |
 | `ung`, `dot_hoan` | một lần ứng, một đợt hoàn | Đợt hoàn gom các dòng chi do tài xế trả |
 | `dinh_phi` | một khoản cố định của xe | Số tiền, kỳ, từ ngày đến ngày; web tự chia theo ngày |
 
@@ -160,7 +174,7 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 | --- | --- | --- |
 | 1 | Xe, tài xế, chặng (gán xe cho chuyến booking, chặng phụ), chi phí chặng, ứng, hoàn, số dư tài xế | Sheet chi phí tài xế, file BK, phí cảng trong file điều xe |
 | 2 | Thu theo bảng giá tuyến + phát sinh, bảng kê và debit công ty hàng; phải trả xe thuê ngoài | File công nợ cảng |
-| 3 | Chi phí xe theo tháng (dầu, sửa chữa, lốp, định phí, lương), lãi lỗ theo chặng/xe/tháng, phân tích vì sao lỗ | Chưa có file nào |
+| 3 | Chi phí xe theo tháng (dầu, sửa chữa, lốp, định phí, lương), lãi lỗ theo chặng/xe/tháng, phân tích vì sao lỗ | Sổ mua dầu và sổ dầu khoán, phí bảo hiểm trong hồ sơ xe |
 
 Đợt 1 làm trước theo lựa chọn của người dùng. Thứ tự đợt 2 và đợt 3: CÒN MỞ (14).
 
@@ -219,6 +233,7 @@ Revert PR. Không có dữ liệu.
 - Sheet "TÀI XẾ T10".
 - File Drive "XE TIN PHAT" và "BK TÍN PHÁT - TRÂN".
 - Tab `CONT_NGUON` (cột số cont, ngày đóng, booking, chủ hàng).
+- Sheet "THEO DOI DAU" (18 tab) và "HỒ SƠ GIẤY TỜ XE & MOOC" (10 tab).
 
 Các số trong mục Hiện trạng được đo bằng script đọc file, không sửa nguồn. Chưa có code, chưa có bản thử.
 
@@ -230,11 +245,14 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 4. Có khóa tháng như sổ khách không, hay sửa lúc nào cũng được miễn có Lịch sử?
 5. Bắt đầu từ tháng nào, và số dư đầu của từng tài xế lấy ở đâu? Nạp dữ liệu thật cần người dùng duyệt riêng.
 6. Cột "Nổ máy phát" có tính vào phần hoàn tài xế không? Trong dữ liệu đã đọc, cột này trống.
-7. Dầu đổ ở đâu, trả thế nào (cây dầu ghi nợ, thẻ, tài xế tự trả)? Có hóa đơn theo từng xe không?
-8. Lương tài xế tính theo chuyến, lương cứng hay cả hai? Đang ghi ở đâu?
-9. Định phí từng xe (trả góp hoặc khấu hao, bảo hiểm, đăng kiểm, phí đường bộ, GPS) do ai giữ số?
-10. Sửa chữa lớn và lốp đang ghi ở đâu?
-11. Xe gắn định vị của hãng nào, có xuất được km theo ngày không?
+7. Dầu: ĐÃ TRẢ LỜI 18/11/2026, nguồn là sheet "THEO DOI DAU". Còn hỏi:
+   - Đơn giá đổi bậc từ đầu tháng 3/2026 có đúng là giá thật không?
+   - Tháng 11/2026, tiền dầu và công nợ tài khoản dầu đang ghi ở đâu?
+   - Có giữ cách khoán dầu theo 4 mức định mức không?
+8. Lương: ĐÃ TRẢ LỜI 18/11/2026, làm sau khi có sheet tính lương.
+9. Định phí: phí bảo hiểm có trong hồ sơ xe. Còn thiếu số tiền trả góp từng xe (lịch trả nợ thuê tài chính, thế chấp), phí đường bộ, GPS.
+10. Sửa chữa lớn và thay cả bộ lốp không thấy trong sheet chi phí: đang trả và ghi ở đâu?
+11. Định vị: người dùng chưa biết (18/11/2026). Tạm lấy km từ ảnh đồng hồ (ODO), như sổ dầu khoán đang làm.
 12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay? Đọc sheet chỉ lấy được xe chở hàng; chặng phụ vẫn phải nhập trên web.
 13. Khoản nào là chi hộ (đòi lại công ty hàng đúng số đã trả)?
 14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
