@@ -205,7 +205,7 @@ def _month_body(value: object) -> None:
         bad("INVALID_MONTH", "Tháng không hợp lệ.")
 
 
-def _count(value: object) -> None:
+def _so_chang(value: object) -> None:
     if type(value) is not int or not 0 <= value <= 999999:
         bad()
 
@@ -218,7 +218,7 @@ def _flag(value: object) -> None:
 def _check_gui(body: dict) -> None:
     _month_body(body["thang"])
     _money(body["doi_vnd"], nullable=False)
-    _count(body["so_chang"])
+    _so_chang(body["so_chang"])
 
 
 def _check_doi_chieu(body: dict) -> None:

@@ -454,7 +454,7 @@
   function onAct(act, el) {
     const d = S.data;
     switch (act) {
-      case 'man': go(el.dataset.man, el.dataset.man === 'gia' ? S.thang : S.thang); break;
+      case 'man': go(el.dataset.man); break;
       case 'thu-lai': load(); break;
       case 'dong-toast': S.toast = null; drawToast(); break;
       case 'thang': go('bangke', el.dataset.thang); break;

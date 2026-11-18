@@ -32,9 +32,8 @@ from pg_v7_harness import (
     require,
 )
 from test_pg_doixe import MIGRATION as MIGRATION_1
-from test_pg_doixe import PHIEU_CHI
+from test_pg_doixe import PHIEU_CHI, Dx, count
 from test_pg_doixe import PUBLIC_FUNCTIONS as PUBLIC_1
-from test_pg_doixe import Dx, count
 
 MIGRATION_2 = Path(__file__).resolve().parent / "migrations" / "2026-11-18-v7-doi-xe-thu.sql"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
