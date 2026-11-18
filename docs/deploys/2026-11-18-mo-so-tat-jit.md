@@ -54,4 +54,4 @@ Bằng chứng gốc ngoài Git: `/srv/v7/backup-20261118-mo-so-tat-jit/` trên 
 
 ## Còn mở
 
-- `get_dashboard_debt` (Tổng quan, Việc cần làm, huy hiệu menu) cũng tốn thời gian chủ yếu cho JIT: trên bản sao ở PC 358 ms, tắt JIT còn 86 ms. Cần một việc riêng.
+- `get_dashboard_debt` (Tổng quan, Việc cần làm, huy hiệu menu) cũng tốn thời gian chủ yếu cho JIT: trên bản sao ở PC 358 ms, tắt JIT còn 86 ms. Đã xử lý ở [HIEU-NANG-02](../../specs/hieu-nang-02.md), lên `hao` 10:19 cùng ngày ([nhật ký](2026-11-18-tong-quan-tat-jit.md)).
