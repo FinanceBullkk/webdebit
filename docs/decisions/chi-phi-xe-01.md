@@ -17,7 +17,7 @@ Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 9. **Mục tiêu:** web giúp công ty quản lý chi phí vận hành đội xe, có đủ dữ liệu để phân tích vì sao xe chạy không có lời. Phải phân biệt rõ khoản nào vào debit, khoản nào là chi phí.
 10. **Nhập liệu đội xe trên web**, thay các Sheet rời; không làm đồng bộ từ các Sheet chi phí cũ.
 11. **Bốn mặc định cho đợt 1** (mục "Mặc định cho đợt 1" của spec), người dùng đồng ý khi giao việc: "code và mockup lên canvas cho mình test trước":
-    - Chặng tạo ra từ dòng chi phí.
+    - Chặng tạo ra từ dòng chi phí. (**Thay 19/11/2026** bởi [`DOI-XE-DIEU-DO-01`](doi-xe-dieu-do-01.md): chặng hàng sinh từ booking, điều xe phân công trên web. Bản đang chạy trên `hao` vẫn theo mặc định cũ tới khi code bước mới.)
     - Tiền theo người nhận ứng; chặng và chi phí theo phương tiện.
     - Khóa tháng như sổ khách.
     - Bản thử dùng dữ liệu sao chép tháng 10–11/2026.

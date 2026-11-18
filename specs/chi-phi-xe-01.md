@@ -115,7 +115,7 @@ Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ
 
 Để code được đợt 1 mà không phải chờ các câu hỏi chưa có người trả lời, Claude đề xuất bốn mặc định sau. Người dùng đồng ý ngày 18/11/2026 khi giao việc: "code và mockup lên canvas cho mình test trước". Trước khi code giao diện, dựng mockup bấm thử được trên canvas Claude Design để người dùng test.
 
-1. **Chặng tạo ra từ dòng chi phí.**
+1. **Chặng tạo ra từ dòng chi phí.** (**Thay 19/11/2026** bởi [`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md): chặng hàng sinh từ booking, điều xe phân công trên web; cách làm ĐỀ XUẤT ở [spec điều độ](doi-xe-dieu-do-01.md). Bản đang chạy vẫn như dưới đây tới khi code bước mới.)
    - Nhân viên dán hoặc nhập dòng chi phí như Sheet hiện nay. Mỗi dòng đã có container, ngày, tài xế, xe, nên tạo luôn chặng.
    - Chặng hàng tự nối chuyến khách theo container.
    - Màn để điều xe gán xe trước: làm ở đợt sau. Mặc định này thay cho câu 12.
@@ -254,6 +254,8 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 | 3 | Chi phí xe theo tháng (dầu, sửa chữa, lốp, định phí, lương), lãi lỗ theo chặng/xe/tháng, phân tích vì sao lỗ | Sổ mua dầu và sổ dầu khoán, phí bảo hiểm trong hồ sơ xe |
 
 Đợt 1 làm trước theo lựa chọn của người dùng. Thứ tự đợt 2 và đợt 3: CÒN MỞ (14).
+
+Cập nhật 19/11/2026: người dùng chốt chặng sinh từ booking và điều xe phân công trên web ([`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md)). Khối điều độ có [spec riêng](doi-xe-dieu-do-01.md); thứ tự các khối còn lại ĐỀ XUẤT ở [bản đồ dữ liệu và kiến trúc](../docs/doi-xe-kien-truc-du-lieu.md#khối-chức-năng-và-thứ-tự-đề-xuất).
 
 ## Nguồn quyết định
 
