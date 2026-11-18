@@ -419,7 +419,8 @@ test('1280×720 và 1265×560: không cuộn ngang trang, bảng chặng cuộn 
 
 test('Lịch sử bảng kê và lỗi tải: Thử lại', () => withPage(async (page, w) => {
   await page.locator('[data-act="lich-su"]').click();
-  await page.locator('.dxt-panel.ls').waitFor();
+  // Panel mở ngay với "Đang tải…", Lịch sử về sau: chờ chữ của bản đã tải, không đọc lúc còn tải.
+  await page.locator('.dxt-panel.ls', { hasText: 'Chưa có thay đổi nào' }).waitFor();
   assert.match(await page.locator('.dxt-panel.ls').innerText(), /Lịch sử bảng kê[\s\S]*Chưa có thay đổi nào/);
   await page.locator('.dxt-panel.ls [data-act="dong-panel"]').click();
   w.down = true;
