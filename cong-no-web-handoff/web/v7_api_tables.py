@@ -202,6 +202,10 @@ ERRORS.update({
     "TIEN_VE_NOT_FOUND": (409, "Không tìm thấy lần tiền về này. Tải lại."),
     "CHANG_DA_GUI": (409, "Chặng đã vào bảng kê đã gửi HTH: sửa bằng điều chỉnh ở bảng kê."),
     "TUYEN_NOT_FOUND": (422, "Không tìm thấy tuyến này, hoặc tuyến đã ngưng dùng."),
+    "TUYEN_KHAC_LOAI": (422, "Tuyến này không hợp loại chặng: chặng hàng, rút/thả mooc theo tuyến hàng; chuyển cảng, trả rỗng theo "
+                             "tuyến cùng loại."),
+    "NHO_CHI_CHANG_HANG": (422, "Chỉ nhớ tên gốc cho chặng hàng, rút/thả mooc. Chặng chuyển cảng, trả rỗng gắn riêng từng chặng."),
+    "TEN_GOC_CHI_TUYEN_HANG": (422, "Tên gốc chỉ dùng cho tuyến hàng."),
     "KHONG_CO_TEN_GOC": (422, "Chặng chưa ghi tên hàng, tỉnh nên không nhớ được. Gắn riêng cho chặng này."),
     "NGAY_GIA_XA": (422, "Ngày áp dụng quá xa: tối đa một năm tới."),
     "TUYEN_THIEU": (422, "Thiếu tên hàng hoặc nơi đi của tuyến."),

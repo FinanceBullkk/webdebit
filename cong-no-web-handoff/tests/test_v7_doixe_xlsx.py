@@ -55,7 +55,10 @@ class BangKeXlsxTest(unittest.TestCase):
         self.assertEqual(first[0], 1)
         self.assertEqual(first[11:17], [1000000, None, 360000, "_ Kiểm hoá 150k\n_ Xí cont 210k", 1360000, None])
         self.assertEqual(first[17], -200000)
-        self.assertIn("HTH báo trùng (nv, 05/11 09:00)", first[18])
+        self.assertEqual(first[18], "HTH báo trùng")
+        # File gửi HTH không lộ login hay tên người làm.
+        cells = [str(cell) for row in rows for cell in row if cell is not None]
+        self.assertFalse([c for c in cells if "nv@gia" in c or "(nv" in c])
         self.assertEqual(second[10], "CHUYỂN CẢNG")                     # chặng phụ ghi loại ở TÊN HÀNG như file hiện nay
         self.assertEqual(second[3], "Đóng ghép 2 kho")
         self.assertEqual(second[11:17], [None, 2900000, None, "_ Đóng ghép 2 kho 2900k", 2900000, "Chưa có giá"])

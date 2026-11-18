@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -56,21 +57,25 @@ function tong(dong, tienVe) {
   return { cuoc_vnd: String(s('cuoc_vnd')), ghep_vnd: String(s('ghep_vnd')), ps_vnd: String(s('ps_vnd')), chi_ho_vnd: String(s('chi_ho_vnd')),
     dc_vnd: String(s('dc_vnd')), doi_vnd: String(doi), tra_vnd: String(tra), con_vnd: String(doi - tra), so_chang: dong.length,
     chua_gia: dong.filter(x => x.cuoc_vnd === null).length, khac_gia: dong.filter(x => x.cuoc_tay && x.gia_bang_vnd !== x.cuoc_vnd).length,
-    chua_doc: dong.filter(x => x.chua_doc > 0).length, khoan_la: 0 };
+    chua_doc: dong.filter(x => x.chua_doc > 0).length, khoan_la: 0, trung: dong.filter(x => x.trung_gui).length,
+    chang_bo: dong.filter(x => x.chang_con === false).length };
 }
+// Dấu các dòng đang gom (máy chủ thật: md5 của jsonb các dòng): gửi kèm, khác thì BANG_KE_DOI.
+const dau = dong => crypto.createHash('md5').update(JSON.stringify(dong)).digest('hex');
 const trangThai = bk => (!bk ? 'nhap' : bk.trang_thai === 'da_gui' ? 'gui' : n(tong(bk.dong, bk.tien_ve).con_vnd) === 0 ? 'du' : 'doi');
 function getBangKe(w, thang) {
   const m = thang ?? '2026-11-01';
   const bk = w.bk[m];
   const dong = bk ? bk.dong : w.nhap[m] ?? [];
   const t = tong(dong, bk?.tien_ve);
-  const months = ['2026-09-01', '2026-10-01', '2026-11-01'];
+  // Tháng sau chỉ hiện khi có chặng gom vào (ghi sau lúc gửi tháng này), như doixe._thang_bk.
+  const months = ['2026-09-01', '2026-10-01', '2026-11-01', ...(w.nhap['2026-12-01'] ? ['2026-12-01'] : [])];
   const congNo = Object.values(w.bk).reduce((a, k) => a + n(tong(k.dong, k.tien_ve).con_vnd), 0);
   return { hom_nay: HOM_NAY, thang: m, ben: w.ben, cong_no_vnd: String(congNo),
     thang_ds: months.map(x => ({ thang: x, trang_thai: trangThai(w.bk[x]) })),
     bang_ke: bk ? { id: bk.id, so: bk.so, trang_thai: bk.trang_thai, gui_ngay: bk.gui_ngay, gui_actor: 'nv@gia', gui_luc: '03/11 09:20',
       doi_chieu_actor: bk.doi_chieu_luc ? 'nv@gia' : null, doi_chieu_luc: bk.doi_chieu_luc, thu_du: trangThai(bk) === 'du' } : null,
-    dong, tong: t, tien_ve: bk?.tien_ve ?? [] };
+    dong, tong: t, dau: bk ? null : dau(dong), tien_ve: bk?.tien_ve ?? [] };
 }
 const loi = (status, error, message) => Object.assign(Error(message), { status, error });
 function write(w, route, b) {
@@ -79,7 +84,9 @@ function write(w, route, b) {
     if (w.bk[b.thang]) throw loi(409, 'BANG_KE_DA_GUI', 'Bảng kê tháng này đã gửi. Tải lại.');
     const dong = w.nhap[b.thang];
     const t = tong(dong);
-    if (t.doi_vnd !== b.doi_vnd || t.so_chang !== b.so_chang) throw loi(409, 'BANG_KE_DOI', 'Bảng kê vừa đổi ở máy khác. Tải lại, xem lại số rồi bấm lại.');
+    if (t.doi_vnd !== b.doi_vnd || t.so_chang !== b.so_chang || dau(dong) !== b.dau) {
+      throw loi(409, 'BANG_KE_DOI', 'Bảng kê vừa đổi ở máy khác. Tải lại, xem lại số rồi bấm lại.');
+    }
     w.bk[b.thang] = { id: ++w.seq, so: `HTH-${b.thang.slice(0, 7)}`, trang_thai: 'da_gui', gui_ngay: HOM_NAY, doi_chieu_luc: null, tien_ve: [],
       dong: dong.map((x, i) => ({ ...x, id: 500 + i, stt: i + 1, dc_vnd: null, dieu_chinh: [] })) };
     delete w.nhap[b.thang];
@@ -268,10 +275,17 @@ test('Đang gom: giá tay cho chặng chưa có giá, dùng giá bảng, gắn t
   await page.locator('.dxt-cont', { hasText: 'MAUU2000004' }).click();
   await page.locator('.dxt-cont', { hasText: 'MAUU2000002' }).click();
   assert.match(await page.locator('.dxt-chk').innerText(), /Nhớ cho mọi chặng ghi «HANG GIA B · TINH B»/);
+  await page.locator('#dxt-tuyen option[value="1"]').waitFor({ state: 'attached' });
+  assert.deepEqual(await page.locator('#dxt-tuyen option').allInnerTexts(), ['Chưa gắn tuyến', 'Hàng giả · Tỉnh A → Cảng A'], 'chặng hàng chỉ chọn được tuyến hàng');
   await page.locator('#dxt-tuyen').selectOption('1');
   await page.locator('[data-act="gan-tuyen"]').click();
   await page.locator('#dx-toast', { hasText: 'Đã gắn tuyến' }).waitFor();
   assert.deepEqual(posts(w, '/api/v7/doixe/thu/tuyen')[0].body.nho, true);
+  // Chặng chuyển cảng: chỉ tuyến chuyển cảng, không có ô Nhớ (tên gốc chỉ cho chặng hàng).
+  await page.locator('.dxt-cont', { hasText: 'MAUU2000005' }).click();
+  await page.locator('#dxt-tuyen option[value="2"]').waitFor({ state: 'attached' });
+  assert.deepEqual(await page.locator('#dxt-tuyen option').allInnerTexts(), ['Chưa gắn tuyến', 'Chuyển cảng · Các cảng']);
+  assert.equal(await page.locator('.dxt-chk').count(), 0);
   // Ghi chú phát sinh sửa tại dòng: đọc lại thành khoản.
   await page.locator('.dxt-cont', { hasText: 'MAUU2000004' }).click();
   await page.locator('#dxt-ghichu').fill('_ Cân 575k');
@@ -293,7 +307,8 @@ test('Gửi bảng kê: khung xác nhận có cảnh báo, gửi đúng số đa
   await page.locator('.dxt-pill', { hasText: 'đang đối chiếu' }).waitFor();
   const sent = posts(w, '/api/v7/doixe/bang-ke/gui');
   assert.equal(sent.length, 1, 'bấm đúp chỉ gửi một lệnh');
-  assert.deepEqual({ ...sent[0].body, idempotency_key: 'k' }, { idempotency_key: 'k', thang: '2026-11-01', doi_vnd: '3850000', so_chang: 5 });
+  assert.match(sent[0].body.dau, /^[0-9a-f]{32}$/, 'gửi kèm dấu các dòng đang thấy');
+  assert.deepEqual({ ...sent[0].body, idempotency_key: 'k', dau: 'd' }, { idempotency_key: 'k', thang: '2026-11-01', doi_vnd: '3850000', so_chang: 5, dau: 'd' });
   assert.match(await page.locator('#dx-toast').innerText(), /Đã đánh dấu gửi bảng kê tháng 11\/2026 \(đòi HTH 3\.850\.000\)\. Đã tải file BangKe_HTH_T11_2026\.xlsx/);
   assert.equal(await page.locator('[data-act="nut-chinh"]').innerText(), 'Đối chiếu xong');
   assert.match(await page.locator('.dxt-ghichu').innerText(), /bấm nút ± ở cuối dòng/);
@@ -373,6 +388,35 @@ test('Mất mạng khi ghi: bấm lại dùng lại mã yêu cầu, máy chủ k
   assert.equal(sent[0].body.idempotency_key, sent[1].body.idempotency_key);
   assert.equal(w.bk['2026-10-01'].tien_ve.length, 1);
 }, { setup: w => { w.bk['2026-10-01'].trang_thai = 'da_doi_chieu'; }, query: '?thang=2026-10' }));
+
+test('Chặng trùng dòng đã gửi báo trước khi gửi; tháng sau (chặng ghi sau lúc gửi) xem được nhưng chưa gửi được', () => withPage(async page => {
+  assert.match(await page.locator('.dxt-viec').innerText(), /1 chặng trùng dòng đã gửi \(cùng ngày, container\)/);
+  await page.locator('.dxt-viec').getByText('1 chặng trùng dòng đã gửi (cùng ngày, container)').click();
+  assert.equal(await page.locator('.dxt-dong').count(), 1);
+  await page.locator('.dxt-cont', { hasText: 'MAUU2000003' }).click();
+  assert.match(await page.locator('.dxt-ct').innerText(), /Cùng ngày, container với một dòng đã gửi ở bảng kê tháng 10\/2026/);
+  await page.locator('[data-act="loc"][data-loc="all"]').click();
+  await page.locator('[data-act="nut-chinh"]').click();
+  assert.match(await page.locator('.dxt-panel').innerText(), /1 chặng cùng ngày, container với dòng đã gửi: xem có phải chặng đã gửi bị nhập lại/);
+  await page.locator('[data-act="dong-panel"]').click();
+  await page.locator('[data-act="thang"][data-thang="2026-12-01"]').click();
+  await page.locator('.dxt-card', { hasText: 'Bảng kê tháng 12/2026' }).waitFor();
+  assert.equal(await page.locator('[data-act="nut-chinh"]').count(), 0, 'tháng chưa tới: không có nút Gửi');
+  assert.match(await page.locator('.dxt-ghichu').innerText(), /Tháng 12 chưa tới[\s\S]*Gửi được từ ngày 01\/12/);
+}, { setup: w => {
+  w.nhap['2026-11-01'][2].trung_gui = '2026-10-01';
+  w.nhap['2026-12-01'] = [nhap(206, '2026-11-17', 'MAUU2000006')];
+} }));
+
+test('Đối chiếu xong nhắc dòng chưa có giá và chặng đã bỏ (sau bước này không điều chỉnh được nữa)', () => withPage(async page => {
+  assert.match(await page.locator('.dxt-locs').innerText(), /Chặng đã bỏ \(1\)/);
+  await page.locator('[data-act="nut-chinh"]').click();
+  assert.match(await page.locator('.dxt-panel').innerText(),
+    /1 dòng chưa có giá: đối chiếu xong thì không thêm tiền[\s\S]*1 dòng có chặng đã xóa hoặc bỏ ở sổ tài xế sau khi gửi/);
+}, { setup: w => {
+  Object.assign(w.bk['2026-10-01'].dong[1], { cuoc_vnd: null, gia_bang_vnd: null });
+  w.bk['2026-10-01'].dong[2].chang_con = false;
+}, query: '?thang=2026-10' }));
 
 test('Bảng giá: giá hôm nay theo tuyến, đổi giá báo số chặng đổi theo, sửa khoản phát sinh (chi hộ), thêm tuyến', () => withPage(async (page, w) => {
   await page.locator('[data-man="gia"]').click();

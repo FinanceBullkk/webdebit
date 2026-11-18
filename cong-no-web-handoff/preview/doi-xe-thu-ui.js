@@ -194,7 +194,9 @@
     const congNo = so(d.cong_no_vnd);
     let html = `<div class="dxt-thang-h" role="group" aria-label="Chọn tháng"><span class="muted">Tháng</span>${chips}`
       + `<span class="dxt-congno" title="Công nợ cước = bảng kê đã gửi + điều chỉnh − tiền HTH đã trả, mọi tháng">HTH còn nợ (các tháng đã gửi) <b class="num">${M.fmt(congNo)}</b></span></div>`;
-    const nut = T.NUT[tt] ? `<button type="button" class="dx-btn solid big" data-act="nut-chinh" ${S.busy ? 'disabled' : ''}>${T.NUT[tt]}</button>` : '';
+    // Tháng sau (chỉ có chặng ghi sau lúc gửi tháng này) chưa gửi được: không có nút chính, chỉ câu giải thích.
+    const toi = tt === 'nhap' && T.thangToi(d);
+    const nut = T.NUT[tt] && !toi ? `<button type="button" class="dx-btn solid big" data-act="nut-chinh" ${S.busy ? 'disabled' : ''}>${T.NUT[tt]}</button>` : '';
     html += `<section class="dxt-card" aria-labelledby="dxt-tieude"><div class="dxt-card-h"><h2 id="dxt-tieude">Bảng kê tháng ${m} gửi ${esc(d.ben.ten)}</h2>`
       + `<span class="dxt-pill tt-${tt}">${esc(T.nhanTrangThai(d))}</span>${d.bang_ke ? `<span class="muted sm">Số ${esc(d.bang_ke.so)}</span>` : ''}`
       + `<div class="dxt-nut"><button type="button" class="dx-icon big" data-act="excel" aria-label="Tải Excel bảng kê" title="Tải Excel bảng kê${tt === 'nhap' ? ' (bản nháp)' : ''}">${ICON.tai}</button>`
@@ -212,8 +214,9 @@
     if (viec.length && !S.panel) {
       html += `<section class="dxt-viec" aria-label="Việc còn thiếu trước khi gửi"><strong>Trước khi gửi:</strong>${viec.map(v => `<button type="button" class="dx-lk" data-act="loc" data-loc="${v.loc}">${esc(v.text)}</button>`).join('')}</section>`;
     }
-    const ghiChu = { gui: 'Đã gửi HTH nên không sửa thẳng số tiền. HTH thắc mắc dòng nào thì bấm nút ± ở cuối dòng đó để ghi điều chỉnh có lý do.',
-      doi: 'HTH đã đồng ý số đòi. Tiền về thì bấm Ghi tiền HTH trả.' }[tt];
+    const ghiChu = toi ? `Tháng ${T.thangSo(d.thang)} chưa tới: đây là các chặng ghi sau lúc đã gửi bảng kê tháng trước. Gửi được từ ngày 01/${d.thang.slice(5, 7)}.`
+      : { gui: 'Đã gửi HTH nên không sửa thẳng số tiền. HTH thắc mắc dòng nào thì bấm nút ± ở cuối dòng đó để ghi điều chỉnh có lý do.',
+        doi: 'HTH đã đồng ý số đòi. Tiền về thì bấm Ghi tiền HTH trả.' }[tt];
     if (ghiChu && !S.panel) html += `<p class="dxt-ghichu">${esc(ghiChu)}</p>`;
     if (S.panel) html += panelHtml(d);
     return html + bangHtml(d, tt);
@@ -233,6 +236,7 @@
       const n = d.dong.reduce((s, x) => s + (x.dieu_chinh?.length ?? 0), 0), dc = so(d.tong.dc_vnd);
       return `<section class="dxt-panel" aria-labelledby="dxt-p"><h3 id="dxt-p">Đối chiếu xong tháng ${m}</h3>`
         + `<div class="num">${esc(d.ben.ten)} đồng ý đòi ${M.fmt(so(d.tong.doi_vnd))}${n ? ` sau ${n} điều chỉnh (${M.fmtDau(dc)})` : ', không điều chỉnh dòng nào'}.</div>`
+        + T.doiChieuCanh(d).map(c => `<div class="dxt-canh">${esc(c)}</div>`).join('')
         + '<div class="muted">Sau bước này không ghi điều chỉnh nữa; chỉ còn chờ HTH trả tiền.</div>'
         + `<div class="dxt-p-nut">${nut('doi-chieu', 'Ghi đối chiếu xong')}${thoi}</div></section>`;
     }
@@ -291,7 +295,7 @@
     const id = tt === 'nhap' ? x.chang_id : x.id;
     const mo = S.mo === id;
     const nhap = tt === 'nhap';
-    const canh = nhap && (x.cuoc_vnd === null || T.khacGia(x) || x.chua_doc > 0 || x.khoan_la > 0);
+    const canh = nhap && (x.cuoc_vnd === null || T.khacGia(x) || x.chua_doc > 0 || x.khoan_la > 0 || Boolean(x.trung_gui));
     const tong = T.tongDong(x), dc = so(x.dc_vnd);
     const ps = so(x.ps_vnd);
     const psTip = (x.ps ?? []).filter(i => !i.loi).map(i => `${i.ten} ${M.fmt(M.so(i.so_tien_vnd))}${i.chi_ho ? ' (chi hộ)' : ''}`).join(' · ');
@@ -323,8 +327,9 @@
         + `<button type="button" class="dx-btn solid" data-act="luu-cuoc" data-id="${id}" ${S.busy ? 'disabled' : ''}>Lưu giá</button>`
         + `<span class="muted sm">Chỉ cho chặng này${x.cuoc_tay ? '. Xóa trống rồi Lưu giá là theo bảng giá' : ''}. Thêm tuyến vào bảng giá ở mục Bảng giá.</span></div>`;
       if (f.loiCuoc) html += `<div class="dx-loi" role="alert">${esc(f.loiCuoc)}</div>`;
-      const tuyen = (S.gia?.tuyen ?? []).filter(t => t.dang_dung);
-      const nho = x.khoa_tuyen && x.khoa_tuyen !== '|';
+      // Chỉ tuyến hợp loại chặng (chặng chuyển cảng không gắn được tuyến hàng); tên gốc chỉ nhớ cho chặng hàng, rút/thả mooc.
+      const tuyen = (S.gia?.tuyen ?? []).filter(t => t.dang_dung && T.tuyenHop(x.loai, t.loai));
+      const nho = T.nhoDuoc(x);
       html += `<div class="dxt-o"><label class="dx-f">Tuyến tính giá<select data-f="ct-tuyen" id="dxt-tuyen" class="dxt-sel"><option value="">Chưa gắn tuyến</option>`
         + tuyen.map(t => `<option value="${t.id}"${String(t.id) === String(f.tuyen ?? x.tuyen_id ?? '') ? ' selected' : ''}>${esc(t.ten)}</option>`).join('') + '</select></label>'
         + (nho ? `<label class="dxt-chk"><input type="checkbox" data-f="ct-nho" ${f.nho !== false ? 'checked' : ''}> Nhớ cho mọi chặng ghi «${esc(T.tenGoc(x.khoa_tuyen))}»</label>` : '')
@@ -441,7 +446,8 @@
   }
   async function guiBangKe() {
     const d = S.data, thang = d.thang, doi = d.tong.doi_vnd;
-    await ghi('/api/v7/doixe/bang-ke/gui', { thang, doi_vnd: doi, so_chang: d.tong.so_chang }, async out => {
+    // Gửi kèm dấu các dòng đang thấy: máy chủ so lại, khác (vừa có người sửa) thì chặn để tải lại xem lại.
+    await ghi('/api/v7/doixe/bang-ke/gui', { thang, doi_vnd: doi, so_chang: d.tong.so_chang, dau: d.dau }, async out => {
       S.panel = null;
       try {
         const name = await taiExcel(thang);
@@ -522,7 +528,7 @@
       case 'gan-tuyen': {
         const x = dongCua(Number(el.dataset.id));
         const v = S.f.tuyen ?? (x.tuyen_id === null ? '' : String(x.tuyen_id));
-        const nho = Boolean(x.khoa_tuyen && x.khoa_tuyen !== '|') && S.f.nho !== false;
+        const nho = T.nhoDuoc(x) && S.f.nho !== false;
         ghi('/api/v7/doixe/thu/tuyen', { chang_id: x.chang_id, tuyen_id: v ? Number(v) : null, nho },
           out => { S.f = {}; bao(nho ? `Đã gắn tuyến: ${out.so_chang} chặng ghi «${T.tenGoc(x.khoa_tuyen)}» tính theo tuyến này.` : `Đã gắn tuyến cho dòng ${x.container}.`); });
         break;

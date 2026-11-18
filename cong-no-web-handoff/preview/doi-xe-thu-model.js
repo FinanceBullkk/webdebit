@@ -55,6 +55,8 @@
     ['khacgia', 'Giá khác bảng', khacGia],
     ['chuadoc', 'Phát sinh chưa tính', d => (d.chua_doc ?? 0) > 0],
     ['khoanla', 'Khoản lạ', d => (d.khoan_la ?? 0) > 0],
+    ['trung', 'Trùng dòng đã gửi', d => Boolean(d.trung_gui)],
+    ['bo', 'Chặng đã bỏ', d => d.chang_con === false],
     ['dc', 'Có điều chỉnh', d => d.dc_vnd !== null && d.dc_vnd !== undefined],
     ['phu', 'Chặng phụ', d => d.loai !== 'hang'],
   ];
@@ -72,8 +74,17 @@
       ['khacgia', `${n('khacgia')} chặng giá khác bảng giá`],
       ['chuadoc', `${n('chuadoc')} chặng có khoản phát sinh chưa tính được`],
       ['khoanla', `${n('khoanla')} chặng có khoản phát sinh chưa có trong danh mục`],
+      ['trung', `${n('trung')} chặng trùng dòng đã gửi (cùng ngày, container)`],
     ].filter(([k]) => n(k) > 0).map(([loc, text]) => ({ loc, text }));
   }
+  // Tháng sau tháng này: chỉ có chặng ghi sau lúc gửi bảng kê tháng này, chưa gửi được.
+  const thangToi = data => data.thang > data.hom_nay;
+  // Tuyến hợp loại chặng (như doixe._tuyen_hop): hàng, rút/thả mooc theo tuyến hàng; chuyển cảng, trả rỗng theo tuyến cùng loại.
+  const NHOM_HANG = ['hang', 'rut_mooc', 'tha_mooc'];
+  const tuyenHop = (loaiChang, loaiTuyen) => (NHOM_HANG.includes(loaiChang) ? loaiTuyen === 'hang'
+    : ['chuyen_cang', 'tra_rong'].includes(loaiChang) && loaiTuyen === loaiChang);
+  // Nhớ tên gốc (HÀNG|TỈNH) chỉ cho chặng hàng, rút/thả mooc.
+  const nhoDuoc = d => NHOM_HANG.includes(d.loai) && Boolean(d.khoa_tuyen) && d.khoa_tuyen !== '|';
   // Dòng tóm tắt dưới ba số: cước · đóng ghép · phát sinh (doanh thu) · chi hộ · điều chỉnh · số chặng.
   function coCau(tong) {
     const v = k => so(tong[k] ?? '0');
@@ -106,6 +117,7 @@
     }
     for (const a of d.dieu_chinh ?? []) out.push({ text: `Điều chỉnh ${fmtDau(so(a.so_tien_vnd))} · ${a.ly_do} · ${a.actor_name ?? a.actor} ${a.luc}`, tone: 'dc' });
     if (d.chang_con === false) out.push({ text: 'Chặng này đã xóa hoặc bỏ ở sổ tài xế sau khi gửi: cần thì ghi điều chỉnh.', tone: 'canh' });
+    if (d.trung_gui) out.push({ text: `Cùng ngày, container với một dòng đã gửi ở bảng kê tháng ${tenThang(d.trung_gui)}. Nếu là chặng đã gửi bị nhập lại: xóa chặng thừa ở sổ tài xế, hoặc gửi rồi ghi điều chỉnh bớt dòng này.`, tone: 'canh' });
     return out;
   }
 
@@ -154,8 +166,16 @@
     if (t.khac_gia) canh.push(`${t.khac_gia} chặng giá khác bảng giá: gửi theo giá đang dùng.`);
     if (t.chua_doc) canh.push(`${t.chua_doc} chặng có khoản phát sinh chưa tính được (ghi chú chưa đọc được hoặc chưa có mức): khoản đó chưa tính.`);
     if (t.khoan_la) canh.push(`${t.khoan_la} chặng có khoản phát sinh chưa có trong danh mục: vẫn tính, không phải chi hộ.`);
+    if (t.trung) canh.push(`${t.trung} chặng cùng ngày, container với dòng đã gửi: xem có phải chặng đã gửi bị nhập lại không, tránh đòi HTH hai lần.`);
     if (data.thang === `${data.hom_nay.slice(0, 7)}-01`) canh.push(`Tháng ${thangSo(data.thang)} chưa hết: chặng ghi sau lúc gửi vào bảng kê tháng sau.`);
     return { tom, canh };
+  }
+  // ---- Đối chiếu xong: sau bước này không ghi điều chỉnh nữa, nên nhắc dòng còn thiếu tiền hay chặng đã bỏ ----
+  function doiChieuCanh(data) {
+    const t = data.tong, canh = [];
+    if (t.chua_gia) canh.push(`${t.chua_gia} dòng chưa có giá: đối chiếu xong thì không thêm tiền cho các dòng này được nữa. Cần đòi thì ghi điều chỉnh trước.`);
+    if (t.chang_bo) canh.push(`${t.chang_bo} dòng có chặng đã xóa hoặc bỏ ở sổ tài xế sau khi gửi: không đòi thì ghi điều chỉnh bớt trước.`);
+    return canh;
   }
 
   // ---- Bảng giá ----
@@ -213,6 +233,6 @@
   }
 
   return { LOAI_PHU, thangSo, tenThang, trangThai, CHIP, NUT, nhanTrangThai, cacThang, tien, tongDong, dcDong, khacGia, LOC, locFn,
-    locChips, viecTruocGui, coCau, tenTuyen, chiTiet, dcXem, tvXem, huyXem, guiXem, giaHienTai, soChangDoi, cachTinh, mucText, tenGoc,
-    psGui, moTa };
+    locChips, viecTruocGui, thangToi, tuyenHop, nhoDuoc, coCau, tenTuyen, chiTiet, dcXem, tvXem, huyXem, guiXem, doiChieuCanh,
+    giaHienTai, soChangDoi, cachTinh, mucText, tenGoc, psGui, moTa };
 }));

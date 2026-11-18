@@ -80,6 +80,33 @@ test('gửi: tóm tắt và cảnh báo chặng chưa có giá, tháng chưa h�
   const x = T.guiXem({ tong, thang: '2026-11-01', hom_nay: '2026-11-18' });
   assert.equal(x.tom, '3 chặng · đòi HTH 4.100.000 (cước 3.000.000, đóng ghép 500.000, phát sinh 500.000, chi hộ 200.000)');
   assert.deepEqual(x.canh.map(c => c.split(':')[0]), ['1 chặng chưa có giá', '1 chặng giá khác bảng giá', '1 chặng có khoản phát sinh chưa tính được (ghi chú chưa đọc được hoặc chưa có mức)', 'Tháng 11 chưa hết']);
+  const trung = T.guiXem({ tong: { ...tong, chua_gia: 0, khac_gia: 0, chua_doc: 0, trung: 2 }, thang: '2026-10-01', hom_nay: '2026-11-18' });
+  assert.deepEqual(trung.canh, ['2 chặng cùng ngày, container với dòng đã gửi: xem có phải chặng đã gửi bị nhập lại không, tránh đòi HTH hai lần.']);
+});
+
+test('chặng trùng dòng đã gửi, chặng đã bỏ: lọc, việc trước khi gửi, chi tiết; tháng sau chưa gửi được', () => {
+  const dong = [line({ chang_id: 1, trung_gui: '2026-10-01' }), line({ chang_id: 2, trung_gui: null }), line({ chang_id: 3, chang_con: false })];
+  assert.deepEqual(dong.filter(T.locFn('trung')).map(d => d.chang_id), [1]);
+  assert.deepEqual(dong.filter(T.locFn('bo')).map(d => d.chang_id), [3]);
+  assert.deepEqual(T.viecTruocGui(dong.slice(0, 2)), [{ loc: 'trung', text: '1 chặng trùng dòng đã gửi (cùng ngày, container)' }]);
+  assert.match(T.chiTiet(dong[0]).map(c => c.text).join('\n'), /Cùng ngày, container với một dòng đã gửi ở bảng kê tháng 10\/2026/);
+  assert.equal(T.thangToi({ thang: '2026-12-01', hom_nay: '2026-11-18' }), true);
+  assert.equal(T.thangToi({ thang: '2026-11-01', hom_nay: '2026-11-18' }), false);
+});
+
+test('tuyến hợp loại chặng và nhớ tên gốc chỉ cho chặng hàng (như doixe._tuyen_hop)', () => {
+  assert.deepEqual(['hang', 'rut_mooc', 'tha_mooc', 'chuyen_cang', 'tra_rong', 'khac'].map(l => [T.tuyenHop(l, 'hang'), T.tuyenHop(l, 'chuyen_cang')]),
+    [[true, false], [true, false], [true, false], [false, true], [false, false], [false, false]]);
+  assert.equal(T.tuyenHop('tra_rong', 'tra_rong'), true);
+  assert.equal(T.nhoDuoc(line({ loai: 'rut_mooc', khoa_tuyen: 'HANG GIA|TINH GIA' })), true);
+  assert.equal(T.nhoDuoc(line({ loai: 'chuyen_cang', khoa_tuyen: 'HANG GIA|TINH GIA' })), false);
+  assert.equal(T.nhoDuoc(line({ khoa_tuyen: '|' })), false);
+});
+
+test('đối chiếu xong: nhắc dòng chưa có giá và chặng đã bỏ, vì sau bước này không điều chỉnh được nữa', () => {
+  assert.deepEqual(T.doiChieuCanh({ tong: { ...tong, chua_gia: 0, chang_bo: 0 } }), []);
+  const canh = T.doiChieuCanh({ tong: { ...tong, chua_gia: 2, chang_bo: 1 } });
+  assert.deepEqual(canh.map(c => c.split(':')[0]), ['2 dòng chưa có giá', '1 dòng có chặng đã xóa hoặc bỏ ở sổ tài xế sau khi gửi']);
 });
 
 test('bảng giá: giá hôm nay, lịch giá sắp áp dụng, số chặng đổi theo tới bản giá kế tiếp', () => {

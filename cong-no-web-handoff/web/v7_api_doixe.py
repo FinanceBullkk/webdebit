@@ -196,6 +196,7 @@ def _check_khoa(body: dict) -> None:
 # ---- DOI-XE-THU-01: đợt 2 (bảng kê HTH, bảng giá, tiền về). Bên nhận cố định ở SQL (một bên), không nhận từ client. ----
 SIGNED = re.compile(r"-?[1-9][0-9]{0,15}")
 PS_CODE = re.compile(r"[a-z_]{2,16}")
+DAU = re.compile(r"[0-9a-f]{32}")
 TUYEN_LOAI = ("hang", "chuyen_cang", "tra_rong")
 PS_CACH = ("co_dinh", "theo_ngay", "theo_don_vi", "nhap_tay")
 
@@ -219,6 +220,9 @@ def _check_gui(body: dict) -> None:
     _month_body(body["thang"])
     _money(body["doi_vnd"], nullable=False)
     _so_chang(body["so_chang"])
+    # Dấu các dòng đang gom (md5 từ get_bang_ke): máy chủ so lại, khác thì BANG_KE_DOI.
+    if not isinstance(body["dau"], str) or not DAU.fullmatch(body["dau"]):
+        bad()
 
 
 def _check_doi_chieu(body: dict) -> None:
@@ -313,7 +317,7 @@ POST_HANDLERS = {
     PREFIX + "/hoan/huy": _write("huy_hoan", {"dot_id", "ly_do"}, _check_huy("dot_id")),
     PREFIX + "/thang/khoa": _write("khoa_thang", {"thang", "khoa"}, _check_khoa),
     # DOI-XE-THU-01
-    PREFIX + "/bang-ke/gui": _write("gui_bang_ke", {"thang", "doi_vnd", "so_chang"}, _check_gui),
+    PREFIX + "/bang-ke/gui": _write("gui_bang_ke", {"thang", "doi_vnd", "so_chang", "dau"}, _check_gui),
     PREFIX + "/bang-ke/doi-chieu": _write("doi_chieu_xong", {"thang", "doi_vnd"}, _check_doi_chieu),
     PREFIX + "/bang-ke/dieu-chinh": _write("ghi_dieu_chinh_bk", {"dong_id", "so_tien_vnd", "ly_do"}, _check_dieu_chinh),
     PREFIX + "/bang-ke/tien-ve": _write("ghi_tien_ve", {"thang", "ngay", "so_tien_vnd"}, _check_tien_ve, {"ghi_chu"}),

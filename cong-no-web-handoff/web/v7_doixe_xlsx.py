@@ -47,7 +47,8 @@ def _row(line: dict) -> list:
         cuoc, ghep, ps, "\n".join("_ " + item["goc"] for item in items) or None, tong,
         "Chưa có giá" if cuoc is None else None,
         _int(line.get("dc_vnd")),
-        "; ".join(f"{a['ly_do']} ({a.get('actor_name') or a['actor']}, {a['luc']})" for a in adjust) or None,
+        # File gửi công ty khác: chỉ lý do, không ghi người làm hay giờ (Lịch sử trên web giữ ai, lúc nào).
+        "; ".join(a["ly_do"] for a in adjust) or None,
     ]
 
 

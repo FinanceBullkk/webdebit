@@ -18,11 +18,12 @@ BEGIN;
 SET LOCAL ROLE sokhach_owner;
 
 -- ---------------------------------------------------------------------------------------------------------------------------
--- Chữ chuẩn hóa để so tên: bỏ dấu tiếng Việt, chữ hoa, gộp khoảng trắng. NULL hoặc chỉ khoảng trắng là NULL.
+-- Chữ chuẩn hóa để so tên: bỏ dấu tiếng Việt, chữ hoa; dấu câu, gạch, ngoặc và khoảng trắng thành một khoảng trắng ("Bà Rịa -
+-- Vũng Tàu" = 'BA RIA VUNG TAU'). Không còn chữ hay số nào là NULL.
 CREATE OR REPLACE FUNCTION doixe._fold(p text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = pg_catalog, doixe, pg_temp AS $$
     SELECT nullif(btrim(regexp_replace(upper(translate(regexp_replace(normalize(p, NFD), '[̀-ͯ]', '', 'g'), 'đĐ', 'dD')),
-                                       '\s+', ' ', 'g')), '')
+                                       '[^A-Z0-9]+', ' ', 'g')), '')
 $$;
 
 -- Khóa nhận ra tuyến của một chặng: tên hàng | tỉnh, đã chuẩn hóa (ví dụ 'SAU RIENG|KRONG PAC').
@@ -189,6 +190,8 @@ CREATE TABLE IF NOT EXISTS doixe.bang_ke_dong (
     UNIQUE (bang_ke_id, stt)
 );
 COMMENT ON TABLE doixe.bang_ke_dong IS 'Dòng bảng kê chép lúc gửi (chữ và số như lúc gửi). Một chặng vào tối đa một bảng kê. Không sửa, không xóa: chỉ điều chỉnh.';
+-- Tìm dòng đã gửi cùng ngày, container (báo chặng nhập lại trùng dòng đã gửi).
+CREATE INDEX IF NOT EXISTS bang_ke_dong_ngay ON doixe.bang_ke_dong (ngay, container);
 
 CREATE TABLE IF NOT EXISTS doixe.dieu_chinh_bk (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -282,13 +285,24 @@ LANGUAGE sql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
      ORDER BY g.tu_ngay DESC LIMIT 1
 $$;
 
+-- Tuyến hợp loại chặng: chặng hàng, rút/thả mooc theo tuyến hàng; chuyển cảng, trả rỗng theo tuyến cùng loại; chặng khác không
+-- có tuyến (giá tay).
+CREATE OR REPLACE FUNCTION doixe._tuyen_hop(p_loai_chang text, p_loai_tuyen text) RETURNS boolean
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
+    SELECT coalesce(CASE WHEN p_loai_chang IN ('hang', 'rut_mooc', 'tha_mooc') THEN p_loai_tuyen = 'hang'
+                         WHEN p_loai_chang IN ('chuyen_cang', 'tra_rong') THEN p_loai_tuyen = p_loai_chang END, false)
+$$;
+
 -- Tuyến tính giá của chặng: gắn tay (thu_chang) → tên gốc (TÊN HÀNG|TỈNH) → chặng phụ có đúng một tuyến cùng loại đang dùng.
+-- Bước nào ra tuyến không hợp loại chặng thì bỏ qua (chặng chuyển cảng ghi hàng, tỉnh trùng tên gốc của tuyến hàng vẫn theo tuyến
+-- chuyển cảng).
 CREATE OR REPLACE FUNCTION doixe._tuyen_chang(c doixe.chang) RETURNS bigint
 LANGUAGE sql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
     SELECT coalesce(
-        (SELECT t.id FROM doixe.thu_chang tc JOIN doixe.tuyen t ON t.id = tc.tuyen_id AND t.dang_dung WHERE tc.chang_id = c.id),
+        (SELECT t.id FROM doixe.thu_chang tc JOIN doixe.tuyen t ON t.id = tc.tuyen_id AND t.dang_dung
+          WHERE tc.chang_id = c.id AND doixe._tuyen_hop(c.loai, t.loai)),
         (SELECT t.id FROM doixe.tuyen_ten_goc g JOIN doixe.tuyen t ON t.id = g.tuyen_id AND t.dang_dung
-          WHERE g.khoa = doixe._khoa_tuyen(c.ten_hang, c.tinh)),
+          WHERE g.khoa = doixe._khoa_tuyen(c.ten_hang, c.tinh) AND doixe._tuyen_hop(c.loai, t.loai)),
         CASE WHEN c.loai IN ('chuyen_cang', 'tra_rong') THEN
             (SELECT min(t.id) FROM doixe.tuyen t WHERE t.dang_dung AND t.loai = c.loai HAVING count(*) = 1) END)
 $$;
@@ -300,7 +314,7 @@ LANGUAGE plpgsql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
 DECLARE v bigint;
 BEGIN
     IF p_tuyen.id IS NULL THEN RETURN NULL; END IF;
-    IF p_loai IN ('hang', 'rut_mooc', 'tha_mooc') AND p_tuyen.loai = 'hang' OR p_loai IN ('chuyen_cang', 'tra_rong') AND p_tuyen.loai = p_loai THEN
+    IF doixe._tuyen_hop(p_loai, p_tuyen.loai) THEN
         v := doixe._gia(p_ben, p_tuyen.id, p_ngay);
         IF v IS NOT NULL AND p_loai IN ('rut_mooc', 'tha_mooc') THEN v := (v * 7 + 5000) / 10000 * 1000; END IF;
         RETURN v;
@@ -309,15 +323,21 @@ BEGIN
 END $$;
 
 -- Đọc ghi chú phát sinh. Mỗi khoản bắt đầu bằng "_" (đầu ghi chú hoặc sau khoảng trắng), tới "_" kế tiếp; chữ trước "_" đầu
--- tiên là ghi chú thường, không đọc. Một khoản: tên rồi số tiền ở cuối: 1250k · 1tr5 · 1,5tr · 1.250.000 · 1250000đ. Không có
--- số tiền thì: khoản theo ngày/đơn vị lấy số lượng ở cuối ("Neo 2 ngày" = mức + 1 × mức thêm; "Nổ máy phát 3" = 3 × mức), khoản
--- cố định lấy mức. Tên khớp tên dài nhất của danh mục ở đầu khoản (phần còn lại là mô tả); không khớp mà có số tiền: khoản lạ,
--- vẫn tính (không chi hộ) và gắn cờ. Không đọc được (thiếu số tiền, chưa có mức, số lạ): gắn lỗi, không tính.
--- Trả mảng: {goc, ten, ma, so_tien_vnd, chi_ho, cot, la?} hoặc {goc, loi}.
+-- tiên là ghi chú thường, không đọc. Một khoản: tên rồi số tiền ở cuối: 1250k · 1tr5 · 1,5tr · 1.250.000 · 1250000đ (dấu câu,
+-- ngoặc đóng sau số tiền bỏ qua). Không có số tiền thì: khoản theo ngày/đơn vị lấy số lượng ở cuối ("Neo 2 ngày" = mức + 1 × mức
+-- thêm; "Nổ máy phát 3" = 3 × mức; số không đơn vị chỉ tới 10), khoản cố định lấy mức (chỉ khi khoản không có số nào). Tên khớp tên
+-- dài nhất của danh mục ở đầu khoản (phần còn lại là mô tả, được có số lượng kèm đơn vị như "Neo 2 ngày 3tr", "Đóng ghép 2 kho
+-- cách 70km 3100k"); không khớp mà có số tiền: khoản lạ, vẫn tính (không chi hộ) và gắn cờ. Không đoán: số ở cuối thiếu đơn vị,
+-- số tiền không ở cuối, hai số tiền, số lạ khác trong khoản, số tiền dưới 10.000, chưa có mức: gắn lỗi, không tính.
+-- Trả mảng: {goc, ten, ma, so_tien_vnd, chi_ho, cot, la?} hoặc {goc, loi, ma?}.
 CREATE OR REPLACE FUNCTION doixe._doc_ghi_chu(p_ghi_chu text) RETURNS jsonb
 LANGUAGE plpgsql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
-DECLARE v_out jsonb := '[]'::jsonb; v_goc text; v_ten text; v_tien numeric; v_sl integer; m text[]; ps doixe.phat_sinh;
-        v_khop text; v_n integer := 0;
+DECLARE v_out jsonb := '[]'::jsonb; v_goc text; v_x text; v_ten text; v_tien numeric; v_sl integer; v_dv text; m text[];
+        ps doixe.phat_sinh; v_khop text; v_con text; v_loi text; v_n integer := 0;
+        -- Trên chữ đã chuẩn hóa (_fold): một số tiền (150K, 1TR5, 2 TRIEU, 150000D) và một số lượng có đơn vị được phép nằm trong
+        -- mô tả (2 NGAY, 3H, 2 LAN, 3 KHO, 70KM, 2 CONT).
+        c_tien CONSTANT text := '\m[0-9]+ ?(K|TRIEU|TR|DONG|D|VND)([0-9]{1,3})?\M';
+        c_sl CONSTANT text := '\m[0-9]{1,4} ?(NGAY|N|DEM|TIENG|GIO|H|LAN|KHO|KM|CONT|CHUYEN|DIEM)\M';
 BEGIN
     IF p_ghi_chu IS NULL OR p_ghi_chu !~ '(^|\s)_' THEN RETURN v_out; END IF;
     FOR v_goc IN SELECT btrim(x) FROM regexp_split_to_table(regexp_replace(p_ghi_chu, '\s+', ' ', 'g'), '(^|\s)_') WITH ORDINALITY AS s(x, n)
@@ -328,53 +348,58 @@ BEGIN
             v_out := v_out || jsonb_build_object('goc', v_goc, 'loi', 'Quá 20 khoản trong một ghi chú');
             CONTINUE;
         END IF;
-        v_tien := NULL; v_sl := NULL; v_ten := NULL; ps := NULL;
-        m := regexp_match(v_goc, '^(.*?)\s*([0-9]{1,9})[.,]([0-9]{1,3})\s*(tr|triệu|trieu)$', 'i');
+        v_tien := NULL; v_sl := NULL; v_dv := NULL; v_ten := NULL; ps := NULL;
+        -- Dấu câu, ngoặc đóng ở cuối khoản không thuộc số tiền: "150k," "(1150k)".
+        v_x := regexp_replace(v_goc, '[\s.,;:!?)\]]+$', '');
+        m := regexp_match(v_x, '^(.*?)\s*([0-9]{1,9})[.,]([0-9]{1,3})\s*(tr|triệu|trieu)$', 'i');
         IF m IS NOT NULL THEN
             v_ten := m[1]; v_tien := m[2]::numeric * 1000000 + rpad(m[3], 3, '0')::numeric * 1000;
         ELSE
-            m := regexp_match(v_goc, '^(.*?)\s*([0-9]{1,9})\s*(tr|triệu|trieu)\s*([0-9]{1,3})?$', 'i');
+            m := regexp_match(v_x, '^(.*?)\s*([0-9]{1,9})\s*(tr|triệu|trieu)\s*([0-9]{1,3})?$', 'i');
             IF m IS NOT NULL THEN
                 v_ten := m[1]; v_tien := m[2]::numeric * 1000000 + coalesce(rpad(m[4], 3, '0')::numeric * 1000, 0);
             ELSE
-                m := regexp_match(v_goc, '^(.*?)\s*([0-9]{1,12})\s*k$', 'i');
+                m := regexp_match(v_x, '^(.*?)\s*([0-9]{1,12})\s*k$', 'i');
                 IF m IS NOT NULL THEN
                     v_ten := m[1]; v_tien := m[2]::numeric * 1000;
                 ELSE
-                    m := regexp_match(v_goc, '^(.*?)\s*([0-9]{1,3}(?:[.,][0-9]{3})+)\s*(đ|đồng|d|dong|vnd)?$', 'i');
+                    m := regexp_match(v_x, '^(.*?)\s*([0-9]{1,3}(?:[.,][0-9]{3})+)\s*(đ|đồng|d|dong|vnd)?$', 'i');
                     IF m IS NOT NULL THEN
                         v_ten := m[1]; v_tien := regexp_replace(m[2], '[.,]', '', 'g')::numeric;
                     ELSE
-                        m := regexp_match(v_goc, '^(.*?)\s*([0-9]{1,15})\s*(đ|đồng|d|dong|vnd)$', 'i');
+                        m := regexp_match(v_x, '^(.*?)\s*([0-9]{1,15})\s*(đ|đồng|d|dong|vnd)$', 'i');
                         IF m IS NOT NULL THEN
                             v_ten := m[1]; v_tien := m[2]::numeric;
                         ELSE
-                            m := regexp_match(v_goc, '^(.*?)\s*([0-9]{1,2})\s*(ngày|ngay|đơn vị|don vi|lần|lan|tiếng|tieng|giờ|gio|h)?$', 'i');
+                            -- Số lượng ở cuối, đứng riêng (trước nó không phải chữ số: "Kiểm hoá 1171" không thành 71 đơn vị).
+                            m := regexp_match(v_x, '^(|.*[^0-9.,])\s*([0-9]{1,2})\s*(ngày|ngay|đơn vị|don vi|lần|lan|tiếng|tieng|giờ|gio|h)?$', 'i');
                             IF m IS NOT NULL THEN
-                                v_ten := m[1]; v_sl := m[2]::integer;
+                                v_ten := m[1]; v_sl := m[2]::integer; v_dv := m[3];
                             ELSE
-                                v_ten := v_goc;
+                                v_ten := v_x;
                             END IF;
                         END IF;
                     END IF;
                 END IF;
             END IF;
         END IF;
-        IF v_tien IS NULL AND v_sl IS NULL AND v_goc ~ '[0-9]\s*$' THEN
-            v_out := v_out || jsonb_build_object('goc', v_goc, 'loi', 'Số ở cuối thiếu đơn vị tiền (k, tr)');
+        -- Phần còn lại (tên + mô tả) đã chuẩn hóa, bỏ các số ngày/giờ/lần: còn số tiền hay số nào khác là dấu hiệu đọc sai.
+        v_con := regexp_replace(coalesce(doixe._fold(v_ten), ''), c_sl, ' ', 'g');
+        v_loi := CASE
+            WHEN v_tien IS NULL AND v_sl IS NULL AND v_x ~ '[0-9]$' THEN 'Số ở cuối thiếu đơn vị tiền (k, tr)'
+            WHEN v_tien IS NULL AND v_sl IS NULL AND v_con ~ c_tien THEN 'Số tiền ghi ở cuối khoản, ví dụ «_ Xí cont 150k»'
+            -- "1.250k", "1,5k", "1 200k": số dính trước số tiền, dễ đọc sai.
+            WHEN v_tien IS NOT NULL AND v_ten ~ '[0-9][.,]?\s*$' THEN 'Số tiền lạ: ghi kiểu 1250k, 1tr5 hoặc 1.250.000'
+            -- "Xí cont 150k, nâng hạ 50k" khi quên dấu _: không đoán khoản nào.
+            WHEN v_con ~ c_tien THEN 'Một khoản có hai số tiền: tách mỗi khoản bằng dấu _'
+            WHEN v_con ~ '[0-9]' THEN 'Có số lạ trong khoản: ghi kiểu «_ Xí cont 150k» hoặc «_ Neo 2 ngày»'
+            WHEN v_sl IS NOT NULL AND v_dv IS NULL AND v_sl > 10 THEN 'Số ở cuối thiếu đơn vị tiền (k, tr)'
+            WHEN v_tien IS NOT NULL AND v_tien < 10000 THEN 'Số tiền lạ: ghi kiểu 1250k, 1tr5 hoặc 1.250.000' END;
+        IF v_loi IS NOT NULL THEN
+            v_out := v_out || jsonb_build_object('goc', v_goc, 'loi', v_loi);
             CONTINUE;
         END IF;
-        -- Hai số tiền trong một khoản ("Xí cont 150k ĐIỀU ĐỘ 450K" khi quên dấu _): không đoán khoản nào.
-        IF v_ten ~* '[0-9]\s*(k|tr|triệu|trieu|đ|đồng)(\s|$)' THEN
-            v_out := v_out || jsonb_build_object('goc', v_goc, 'loi', 'Một khoản có hai số tiền: tách mỗi khoản bằng dấu _');
-            CONTINUE;
-        END IF;
-        -- "1.250k", "1,5k", "1 200k", "Kiểm hoá 1250": số dính sau tên dễ đọc sai, không đoán.
-        IF v_ten ~ '[0-9][.,]?$' THEN
-            v_out := v_out || jsonb_build_object('goc', v_goc, 'loi', 'Số tiền lạ: ghi kiểu 1250k, 1tr5 hoặc 1.250.000');
-            CONTINUE;
-        END IF;
-        v_ten := btrim(v_ten, ' :-–=_.,');
+        v_ten := btrim(v_ten, ' :-–=_.,;()[]');
         v_khop := doixe._fold(v_ten);
         IF v_khop IS NOT NULL THEN
             SELECT p.* INTO ps FROM doixe.phat_sinh_ten t JOIN doixe.phat_sinh p ON p.ma = t.ma
@@ -484,7 +509,11 @@ BEGIN
         'khoa_tuyen', doixe._khoa_tuyen(c.ten_hang, c.tinh),
         'gia_bang_vnd', v_bang::text, 'cuoc_vnd', v_cuoc::text, 'cuoc_tay', tc.cuoc_tay_vnd IS NOT NULL,
         'ghep_vnd', v_ghep::text, 'ps_vnd', v_psv::text, 'chi_ho_vnd', v_chiho::text, 'ps', v_ps,
-        'chua_doc', v_doc, 'khoan_la', v_la, 'chang_con', true);
+        'chua_doc', v_doc, 'khoan_la', v_la, 'chang_con', true,
+        -- Cùng ngày, container, loại với một dòng đã gửi bên này (chặng đã gửi bị xóa rồi nhập lại?): tháng của bảng kê đó, để báo
+        -- trước khi gửi; không tự bỏ chặng.
+        'trung_gui', (SELECT min(k.thang) FROM doixe.bang_ke_dong d JOIN doixe.bang_ke k ON k.id = d.bang_ke_id
+                       WHERE k.ben = p_ben AND d.ngay = c.ngay AND d.container = c.container AND d.loai = c.loai));
 END $$;
 
 -- Tiền còn phải thu của một bảng kê đã gửi: dòng + điều chỉnh − tiền về chưa hủy.
@@ -536,11 +565,14 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
         'chua_doc', count(*) FILTER (WHERE (e ->> 'chua_doc')::integer > 0),
         'khoan_la', count(*) FILTER (WHERE (e ->> 'khoan_la')::integer > 0),
         'co_dc', count(*) FILTER (WHERE e ->> 'dc_vnd' IS NOT NULL),
-        'phu', count(*) FILTER (WHERE e ->> 'loai' <> 'hang'))
+        'phu', count(*) FILTER (WHERE e ->> 'loai' <> 'hang'),
+        'trung', count(*) FILTER (WHERE e ->> 'trung_gui' IS NOT NULL),
+        'chang_bo', count(*) FILTER (WHERE NOT (e ->> 'chang_con')::boolean))
       FROM jsonb_array_elements(coalesce(p_dong, '[]'::jsonb)) e
 $$;
 
--- Các tháng trên thanh tháng: tháng có bảng kê, tháng có chặng đang gom, tháng này và tháng trước; kèm trạng thái.
+-- Các tháng trên thanh tháng: tháng có bảng kê, tháng có chặng đang gom, tháng này và tháng trước; kèm trạng thái. Tháng sau chỉ
+-- hiện khi có chặng gom vào (ghi sau lúc đã gửi bảng kê tháng này).
 CREATE OR REPLACE FUNCTION doixe._thang_bk(p_ben doixe.ben) RETURNS jsonb
 LANGUAGE sql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
     WITH d AS (SELECT date_trunc('month', doixe._hom_nay())::date AS nay),
@@ -550,7 +582,7 @@ LANGUAGE sql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
          WHERE NOT c.da_xoa AND NOT c.da_bo AND xe.thue_ngoai = p_ben.xe_thue_ngoai
            AND NOT EXISTS (SELECT 1 FROM doixe.bang_ke_dong bd WHERE bd.chang_id = c.id)
         UNION ALL SELECT nay FROM d
-        UNION ALL SELECT (nay - interval '1 month')::date FROM d) s, d WHERE x <= d.nay)
+        UNION ALL SELECT (nay - interval '1 month')::date FROM d) s, d WHERE x <= (d.nay + interval '1 month')::date)
     SELECT coalesce(jsonb_agg(jsonb_build_object('thang', m.x, 'trang_thai',
         CASE WHEN k.id IS NULL THEN 'nhap' WHEN k.trang_thai = 'da_gui' THEN 'gui'
              WHEN doixe._doi_bk(k.id) - doixe._tra_bk(k.id) = 0 THEN 'du' ELSE 'doi' END,
@@ -584,6 +616,8 @@ BEGIN
             'doi_chieu_actor', k.doi_chieu_actor, 'doi_chieu_luc', doixe._luc(k.doi_chieu_luc),
             'thu_du', k.trang_thai = 'da_doi_chieu' AND (v_tong ->> 'doi_vnd')::bigint - v_tra = 0) END,
         'dong', v_dong,
+        -- Dấu của các dòng đang gom: Gửi gửi kèm, khác bộ dòng lúc gửi thì chặn (thấy gì gửi nấy).
+        'dau', CASE WHEN k.id IS NULL THEN md5(v_dong::text) END,
         'tong', v_tong || jsonb_build_object('tra_vnd', v_tra::text, 'con_vnd', ((v_tong ->> 'doi_vnd')::bigint - v_tra)::text),
         'tien_ve', CASE WHEN k.id IS NULL THEN '[]'::jsonb ELSE (SELECT coalesce(jsonb_agg(jsonb_build_object('id', v.id, 'ngay', v.ngay,
             'so_tien_vnd', v.so_tien_vnd::text, 'ghi_chu', v.ghi_chu, 'actor', v.actor, 'luc', doixe._luc(v.luc),
@@ -602,7 +636,8 @@ BEGIN
     PERFORM doixe._actor();
     b := doixe._ben_nhan(p_ben);
     m := coalesce(p_thang, date_trunc('month', d)::date);
-    IF date_trunc('month', m)::date <> m OR m > d THEN RAISE EXCEPTION 'INVALID_MONTH'; END IF;
+    -- Xem được tới tháng sau (chặng ghi muộn sau khi gửi tháng này); gửi thì chỉ tới tháng này (_thang).
+    IF date_trunc('month', m)::date <> m OR m > (date_trunc('month', d) + interval '1 month')::date THEN RAISE EXCEPTION 'INVALID_MONTH'; END IF;
     RETURN jsonb_build_object('hom_nay', d, 'thang', m,
         'ben', jsonb_build_object('ma', b.ma, 'ten', b.ten, 'kinh_gui', b.kinh_gui, 'tieu_de', b.tieu_de),
         'thang_ds', doixe._thang_bk(b), 'cong_no_vnd', doixe._cong_no(b.ma)::text) || doixe._doc_bang_ke(b, m);
@@ -691,16 +726,18 @@ $$;
 -- Lệnh ghi (cấp cho sokhach_app).
 CREATE OR REPLACE FUNCTION doixe.gui_bang_ke(p jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, doixe, pg_temp AS $$
--- Gửi bảng kê tháng: chép các dòng đang gom (số như màn đang thấy) rồi chuyển "đã gửi". `doi_vnd`, `so_chang` là số máy người
--- gửi đang thấy: khác số hiện tại thì BANG_KE_DOI (tải lại, xem lại rồi gửi). Chặng chưa có giá vẫn gửi, ô cước trống.
+-- Gửi bảng kê tháng: chép các dòng đang gom (số như màn đang thấy) rồi chuyển "đã gửi". `doi_vnd`, `so_chang`, `dau` (dấu các
+-- dòng, từ get_bang_ke) là cái máy người gửi đang thấy: khác hiện tại thì BANG_KE_DOI (tải lại, xem lại rồi gửi). Chặng chưa có
+-- giá vẫn gửi, ô cước trống.
 DECLARE v_retry jsonb; b doixe.ben; m date; v_dong jsonb; v_tong jsonb; v_id bigint; v_so text; v_n integer;
 BEGIN
     v_retry := doixe._bat_dau(p, 'gui_bang_ke');
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
-    PERFORM doixe._chi_khoa(p, ARRAY['idempotency_key', 'thang', 'doi_vnd', 'so_chang']);
+    PERFORM doixe._chi_khoa(p, ARRAY['idempotency_key', 'thang', 'doi_vnd', 'so_chang', 'dau']);
     b := doixe._ben_nhan(NULL);
     m := doixe._thang(p -> 'thang');
-    IF jsonb_typeof(p -> 'so_chang') IS DISTINCT FROM 'number' OR (p -> 'so_chang')::text !~ '^(0|[1-9][0-9]{0,5})$' THEN
+    IF jsonb_typeof(p -> 'so_chang') IS DISTINCT FROM 'number' OR (p -> 'so_chang')::text !~ '^(0|[1-9][0-9]{0,5})$'
+       OR jsonb_typeof(p -> 'dau') IS DISTINCT FROM 'string' OR p ->> 'dau' !~ '^[0-9a-f]{32}$' THEN
         RAISE EXCEPTION 'INVALID_COMMAND';
     END IF;
     IF EXISTS (SELECT 1 FROM doixe.bang_ke WHERE ben = b.ma AND thang = m) THEN RAISE EXCEPTION 'BANG_KE_DA_GUI'; END IF;
@@ -709,7 +746,8 @@ BEGIN
     v_n := jsonb_array_length(v_dong);
     IF v_n = 0 THEN RAISE EXCEPTION 'BANG_KE_TRONG'; END IF;
     v_tong := doixe._tong_dong(v_dong);
-    IF doixe._vnd(p -> 'doi_vnd') IS DISTINCT FROM (v_tong ->> 'doi_vnd')::bigint OR (p ->> 'so_chang')::integer <> v_n THEN
+    IF doixe._vnd(p -> 'doi_vnd') IS DISTINCT FROM (v_tong ->> 'doi_vnd')::bigint OR (p ->> 'so_chang')::integer <> v_n
+       OR p ->> 'dau' <> md5(v_dong::text) THEN
         RAISE EXCEPTION 'BANG_KE_DOI';
     END IF;
     v_so := upper(b.ma) || '-' || to_char(m, 'YYYY-MM');
@@ -887,9 +925,11 @@ END $$;
 
 CREATE OR REPLACE FUNCTION doixe.gan_tuyen(p jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, doixe, pg_temp AS $$
--- Gắn tuyến cho chặng chưa gửi. `nho` = true: nhớ tên gốc (TÊN HÀNG|TỈNH của chặng) cho tuyến này, mọi chặng ghi giống thế nhận
--- theo; tuyen_id null + nhớ: bỏ tên gốc đó. `nho` = false: chỉ chặng này (tuyen_id null: bỏ gắn tay).
-DECLARE v_retry jsonb; b doixe.ben; c doixe.chang; v_tuyen bigint; v_nho boolean; v_khoa text; v_truoc bigint; v_cu bigint; v_n integer;
+-- Gắn tuyến cho chặng chưa gửi. `nho` = true: nhớ tên gốc (TÊN HÀNG|TỈNH của chặng) cho tuyến này, mọi chặng hàng, rút/thả mooc
+-- ghi giống thế nhận theo; tuyen_id null + nhớ: bỏ tên gốc đó. `nho` = false: chỉ chặng này (tuyen_id null: bỏ gắn tay). Tuyến
+-- phải hợp loại chặng; tên gốc chỉ nhớ cho chặng hàng, rút/thả mooc (chặng chuyển cảng, trả rỗng gắn từng chặng).
+DECLARE v_retry jsonb; b doixe.ben; c doixe.chang; t doixe.tuyen; v_tuyen bigint; v_nho boolean; v_khoa text; v_truoc bigint; v_cu bigint;
+        v_n integer;
 BEGIN
     v_retry := doixe._bat_dau(p, 'gan_tuyen');
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
@@ -898,8 +938,13 @@ BEGIN
     b := doixe._ben_nhan(NULL);
     c := doixe._chang_thu(doixe._id(p, 'chang_id'));
     v_tuyen := doixe._id(p, 'tuyen_id', true);
-    IF v_tuyen IS NOT NULL AND NOT EXISTS (SELECT 1 FROM doixe.tuyen WHERE id = v_tuyen AND dang_dung) THEN RAISE EXCEPTION 'TUYEN_NOT_FOUND'; END IF;
+    IF v_tuyen IS NOT NULL THEN
+        SELECT * INTO t FROM doixe.tuyen WHERE id = v_tuyen AND dang_dung;
+        IF NOT FOUND THEN RAISE EXCEPTION 'TUYEN_NOT_FOUND'; END IF;
+        IF NOT doixe._tuyen_hop(c.loai, t.loai) THEN RAISE EXCEPTION 'TUYEN_KHAC_LOAI'; END IF;
+    END IF;
     v_nho := (p ->> 'nho')::boolean;
+    IF v_nho AND c.loai NOT IN ('hang', 'rut_mooc', 'tha_mooc') THEN RAISE EXCEPTION 'NHO_CHI_CHANG_HANG'; END IF;
     v_truoc := doixe._tuyen_chang(c);
     IF v_nho THEN
         v_khoa := doixe._khoa_tuyen(c.ten_hang, c.tinh);
@@ -914,6 +959,7 @@ BEGIN
         UPDATE doixe.thu_chang SET tuyen_id = NULL WHERE chang_id = c.id AND tuyen_id IS NOT NULL;
         SELECT count(*) INTO v_n FROM doixe.chang o JOIN doixe.xe x ON x.id = o.xe_id
          WHERE NOT o.da_xoa AND NOT o.da_bo AND x.thue_ngoai = b.xe_thue_ngoai AND doixe._khoa_tuyen(o.ten_hang, o.tinh) = v_khoa
+           AND o.loai IN ('hang', 'rut_mooc', 'tha_mooc')
            AND NOT EXISTS (SELECT 1 FROM doixe.bang_ke_dong d WHERE d.chang_id = o.id);
     ELSE
         INSERT INTO doixe.thu_chang(chang_id, tuyen_id, actor) VALUES (c.id, v_tuyen, doixe._actor())
@@ -955,8 +1001,7 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM doixe.gia_tuyen g WHERE g.ben = b.ma AND g.tuyen_id = t.id AND g.tu_ngay > v_tu AND g.tu_ngay <= c.ngay)
        AND NOT EXISTS (SELECT 1 FROM doixe.bang_ke_dong d WHERE d.chang_id = c.id)
        AND NOT EXISTS (SELECT 1 FROM doixe.thu_chang tc WHERE tc.chang_id = c.id AND tc.cuoc_tay_vnd IS NOT NULL)
-       AND (c.loai IN ('hang', 'rut_mooc', 'tha_mooc') AND t.loai = 'hang' OR c.loai = t.loai)
-       AND doixe._tuyen_chang(c) = t.id;
+       AND doixe._tuyen_hop(c.loai, t.loai) AND doixe._tuyen_chang(c) = t.id;
     INSERT INTO doixe.gia_tuyen(ben, tuyen_id, tu_ngay, gia_vnd, actor) VALUES (b.ma, t.id, v_tu, v_gia, doixe._actor())
     ON CONFLICT (ben, tuyen_id, tu_ngay) DO UPDATE SET gia_vnd = EXCLUDED.gia_vnd, actor = EXCLUDED.actor, luc = clock_timestamp();
     PERFORM doixe._ghi('sua_gia', NULL, NULL, NULL,
@@ -995,6 +1040,8 @@ BEGIN
         IF v_k = '|' OR v_k !~ '^[A-Z0-9 ]*\|[A-Z0-9 ]*$' OR char_length(v_k) > 260 THEN RAISE EXCEPTION 'TEN_GOC_LA'; END IF;
         IF NOT v_k = ANY (v_khoa) THEN v_khoa := v_khoa || v_k; END IF;
     END LOOP;
+    -- Tên gốc chỉ cho tuyến hàng: chặng chuyển cảng, trả rỗng nhận tuyến theo loại, không theo hàng + tỉnh.
+    IF v_loai <> 'hang' AND cardinality(v_khoa) > 0 THEN RAISE EXCEPTION 'TEN_GOC_CHI_TUYEN_HANG'; END IF;
     IF v_id IS NULL THEN
         v_gia := doixe._vnd(p -> 'gia_vnd');
         v_tu := doixe._ngay(p -> 'tu_ngay');

@@ -130,18 +130,33 @@ def scenario(pg: Pg, cases: list[str]) -> None:
         ("_ Đóng ghép 2 kho cách 70km 3100k", [("dong_ghep", 3100000, False, "ghep")]),
         ("__ Bãi xe 100k", [("bai_cho", 100000, False, "ps")]),
         ("_ Phí lạ 1.150.000", [(None, 1150000, False, "ps")]),
+        # Dấu câu, ngoặc sau số tiền bỏ qua; số tiền ghi rõ thắng mức cố định của danh mục.
+        ("_ Xí cont 150k, _ Kiểm hoá (1150k) _ Xí cont 120k;", [("xi_cont", 150000, True, "ps"), ("kiem_hoa", 1150000, True, "ps"),
+                                                               ("xi_cont", 120000, True, "ps")]),
+        # Số lượng kèm đơn vị trong mô tả được phép; số không đơn vị tới 10 là số lượng.
+        ("_ Neo 2 ngày 3tr _ Bãi chờ 2 đêm 400k _ Neo 3", [("neo", 3000000, False, "ps"), ("bai_cho", 400000, False, "ps"),
+                                                           ("neo", 4700000, False, "ps")]),
     ]
     for text, want in expect:
         got = [(i["ma"], int(i["so_tien_vnd"]), i["chi_ho"], i["cot"]) for i in parse(text)]
         require(got == want, f"đọc {text!r}: {got}")
     require(parse("vá vỏ 350K, tưới vỏ 80K") == [] and parse("abc_def 100k") == [] and parse("") == [], "chữ không có _ không đọc")
-    errors = {text: parse(text)[0].get("loi") for text in ("_ Kiểm hoá 1234", "_ Cân", "_ Kiểm hoá", "_ Xí cont 0k", "_ 300k", "_ Neo 1600", "_ Kiểm hoá 1.234k", "_ Neo 1,5k", "_ Xí cont 150k ĐIỀU ĐỘ 450K")}
+    errors = {text: parse(text)[0].get("loi") for text in (
+        "_ Kiểm hoá 1234", "_ Cân", "_ Kiểm hoá", "_ Xí cont 0k", "_ 300k", "_ Neo 1600", "_ Kiểm hoá 1.234k", "_ Neo 1,5k",
+        "_ Xí cont 150k ĐIỀU ĐỘ 450K", "_ Xí cont 150k, nâng hạ 50k", "_ Xí cont 150k+50k", "_ Xí cont 150k nâng hạ", "_ Neo 2d",
+        "_ Cân 1.500", "_ Xí cont 2 x 150k", "_ Neo 50", "_ Xí cont (150k) cont 40")}
     require(errors.pop("_ 300k") is None and all(errors.values()), f"ghi chú lỗi: {errors}")
+    require(errors["_ Xí cont 150k, nâng hạ 50k"].startswith("Một khoản có hai số tiền")
+            and errors["_ Xí cont 150k nâng hạ"].startswith("Số tiền ghi ở cuối khoản")
+            and errors["_ Neo 50"].startswith("Số ở cuối thiếu đơn vị") and errors["_ Neo 2d"].startswith("Số tiền lạ")
+            and errors["_ Xí cont 2 x 150k"].startswith("Có số lạ trong khoản"), f"câu báo: {errors}")
     require(parse("_ 300k")[0].get("la") is True, "khoản không tên vẫn tính, gắn cờ lạ")
     require(all("loi" in parse(text)[0] and "so_tien_vnd" not in parse(text)[0] for text in errors), f"khoản lỗi không tính: {errors}")
-    require(pg.value("SELECT doixe._fold(' Sầu  ĐÔNG đắk lắk ')") == "SAU DONG DAK LAK", "chuẩn hóa chữ")
-    cases.append("đọc ghi chú «_ Tên khoản số k»: k/tr/1tr5/1,25tr/1.150.000đ, theo ngày, theo đơn vị, mức cố định, tên dài nhất, "
-                 "chữ không có _ bỏ qua; thiếu đơn vị, chưa có mức, 0k: không tính; khoản lạ vẫn tính, gắn cờ")
+    require(pg.value("SELECT doixe._fold(' Sầu  ĐÔNG đắk lắk ')") == "SAU DONG DAK LAK"
+            and pg.value("SELECT doixe._khoa_tuyen('Dừa', 'Bà Rịa - Vũng Tàu, (cũ)')") == "DUA|BA RIA VUNG TAU CU", "chuẩn hóa chữ, dấu câu")
+    cases.append("đọc ghi chú «_ Tên khoản số k»: k/tr/1tr5/1,25tr/1.150.000đ, dấu câu sau số, theo ngày, theo đơn vị, mức cố định, "
+                 "tên dài nhất, mô tả có số lượng kèm đơn vị, chữ không có _ bỏ qua; thiếu đơn vị, số tiền không ở cuối, hai số tiền, số lạ, "
+                 "dưới 10.000, chưa có mức: không tính, không đoán; khoản lạ vẫn tính, gắn cờ")
 
     # Danh mục giả, tuyến, giá.
     pg.value(actor_sql("SELECT doixe.nap_danh_muc(" + lit(json.dumps({
@@ -165,10 +180,16 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     dx.reject("luu_tuyen", {"tuyen_id": None, "loai": "hang", "hang": None, "di": "Bến Tre", "den": None, "ten_goc": [],
                             "gia_vnd": "1", "tu_ngay": "2026-01-01"}, "TUYEN_THIEU")
     dx.reject("luu_gia", {"tuyen_id": r1, "tu_ngay": str(today + dt.timedelta(days=400)), "gia_vnd": "1"}, "NGAY_GIA_XA")
+    rd = dx.cmd("luu_tuyen", {"tuyen_id": None, "loai": "hang", "hang": "Dừa", "di": "Bà Rịa - Vũng Tàu", "den": None,
+                              "ten_goc": [{"hang": "Dừa", "tinh": "Bà Rịa - Vũng Tàu"}], "gia_vnd": "5000000", "tu_ngay": "2026-01-01"})["tuyen_id"]
+    require(pg.value(f"SELECT khoa FROM doixe.tuyen_ten_goc WHERE tuyen_id = {rd}") == "DUA|BA RIA VUNG TAU", "tên gốc có dấu câu")
+    dx.reject("luu_tuyen", {"tuyen_id": None, "loai": "tra_rong", "hang": None, "di": "Cảng giả", "den": None,
+                            "ten_goc": [{"hang": "Dừa", "tinh": "Bến Tre"}], "gia_vnd": "1", "tu_ngay": "2026-01-01"}, "TEN_GOC_CHI_TUYEN_HANG")
     require(pg.value(f"SELECT doixe._gia_bang('hth', 'tha_mooc', t, DATE '2026-02-01') FROM doixe.tuyen t WHERE id = {r1}") == "6895000",
             "thả mooc 70% làm tròn nghìn")
     require(pg.value("SELECT (5000::bigint * 7 + 5000) / 10000 * 1000") == "4000", "nửa nghìn làm tròn lên")
-    cases.append("tuyến: thêm kèm giá đầu và tên gốc; trùng tuyến, trùng tên gốc, thiếu tên hàng, ngày áp dụng quá xa chặn; mooc 70% nghìn")
+    cases.append("tuyến: thêm kèm giá đầu và tên gốc (tỉnh có dấu câu nhớ được); trùng tuyến, trùng tên gốc, thiếu tên hàng, ngày áp dụng "
+                 "quá xa, tên gốc cho tuyến không phải hàng chặn; mooc 70% nghìn")
 
     def row(day, cont, *, loai="hang", xe_id=x1, tai_xe=tx1, hang="Sầu đông", tinh="KRONGPAK ĐAKLAK", ghi=None) -> dict:
         return {"ngay": str(day), "container": cont, "loai": loai, "xe_id": xe_id, "tai_xe_id": tai_xe, "tra": "nguoi" if tai_xe else "cong_ty",
@@ -179,7 +200,7 @@ def scenario(pg: Pg, cases: list[str]) -> None:
         row(d(1), "MAUU1000001", ghi="_ Kiểm hoá 1234k _ Xí cont 250k"),
         row(d(2), "MAUU1000002", xe_id=x2, tai_xe=tx2, ghi="vá vỏ _ Neo 2 ngày _ Nổ máy phát 3"),
         row(d(4), "MAUU1000003", hang="THANH LONG", tinh="BÌNH THUẬN", ghi="_ Đóng ghép 3100k _ Lấy Đồng An 330k"),
-        row(d(5), "MAUU1000004", loai="chuyen_cang", hang=None, tinh=None),
+        row(d(5), "MAUU1000004", loai="chuyen_cang"),   # hàng + tỉnh trùng tên gốc của tuyến hàng r1
         row(d(6), "MAUU1000005", loai="rut_mooc"),
         row(d(7), "MAUU1000006", ghi="_ Cân _ CHI KIỂM CONT 250k"),
         row(d(3), "MAUU1000007", xe_id=xt, tai_xe=None),
@@ -199,8 +220,12 @@ def scenario(pg: Pg, cases: list[str]) -> None:
             and line["MAUU1000001"]["chi_ho_vnd"] == "1484000" and line["MAUU1000006"]["chua_doc"] == 1
             and line["MAUU1000006"]["khoan_la"] == 1 and line["MAUU1000006"]["ps_vnd"] == "250000", "phát sinh, đóng ghép, chi hộ, cờ")
     check_totals(cur)
-    cases.append("đang gom: chặng xe công ty của tháng, cước theo tuyến (tên gốc, chặng phụ một tuyến, mooc 70%), chưa có giá trống; "
-                 "phát sinh và đóng ghép đọc từ ghi chú; tổng bằng cộng từng dòng")
+    dx.reject("gan_tuyen", {"chang_id": legs["c4"], "tuyen_id": r1, "nho": False}, "TUYEN_KHAC_LOAI")
+    dx.reject("gan_tuyen", {"chang_id": legs["c1"], "tuyen_id": rc, "nho": False}, "TUYEN_KHAC_LOAI")
+    dx.reject("gan_tuyen", {"chang_id": legs["c4"], "tuyen_id": rc, "nho": True}, "NHO_CHI_CHANG_HANG")
+    cases.append("đang gom: chặng xe công ty của tháng, cước theo tuyến (tên gốc, chặng phụ một tuyến dù ghi hàng + tỉnh trùng tên gốc "
+                 "tuyến hàng, mooc 70%), chưa có giá trống; gắn tuyến sai loại chặng, nhớ tên gốc cho chặng phụ chặn; phát sinh và đóng "
+                 "ghép đọc từ ghi chú; tổng bằng cộng từng dòng")
 
     # Giá nhập tay; giá đổi từ ngày áp dụng chỉ đổi chặng theo bảng giá từ ngày đó.
     dx.reject("sua_cuoc", {"chang_id": legs["c8"], "truoc": "1", "gia_tri": "9000000"}, "CHANGED")
@@ -225,16 +250,21 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     cases.append("giá tay (CHANGED khi khác máy, bằng giá bảng thì theo bảng); giá mới từ ngày chỉ đổi chặng theo bảng từ ngày đó; "
                  "bảng giá có lịch giá, tên gốc, ngày chặng chờ đổi")
 
-    # Gửi: số máy đang thấy phải khớp; chép dòng; lặp lệnh trả kết quả cũ; gửi lần hai, tháng trống chặn.
-    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150001", "so_chang": 7}, "BANG_KE_DOI")
-    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 6}, "BANG_KE_DOI")
-    dx.reject("gui_bang_ke", {"thang": str(m0.replace(day=2)), "doi_vnd": "0", "so_chang": 0}, "INVALID_MONTH")
-    sent = dx.cmd("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7}, key="gui-m2")
-    again = dx.cmd("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7}, key="gui-m2")
+    # Gửi: số đòi, số chặng và dấu các dòng máy đang thấy phải khớp; chép dòng; lặp lệnh trả kết quả cũ; gửi lần hai, tháng trống chặn.
+    seen = cur["dau"]
+    require(len(seen) == 32 and cur["bang_ke"] is None, f"dấu các dòng đang gom: {seen}")
+    other = "0" * 32
+    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150001", "so_chang": 7, "dau": seen}, "BANG_KE_DOI")
+    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 6, "dau": seen}, "BANG_KE_DOI")
+    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7, "dau": other}, "BANG_KE_DOI")
+    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7}, "INVALID_COMMAND")
+    dx.reject("gui_bang_ke", {"thang": str(m0.replace(day=2)), "doi_vnd": "0", "so_chang": 0, "dau": other}, "INVALID_MONTH")
+    sent = dx.cmd("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7, "dau": seen}, key="gui-m2")
+    again = dx.cmd("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7, "dau": seen}, key="gui-m2")
     require(sent["so"] == f"HTH-{m2:%Y-%m}" and again.get("lap_lai") and again["bang_ke_id"] == sent["bang_ke_id"], f"gửi: {sent} {again}")
-    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7}, "BANG_KE_DA_GUI")
+    dx.reject("gui_bang_ke", {"thang": str(m2), "doi_vnd": "55150000", "so_chang": 7, "dau": seen}, "BANG_KE_DA_GUI")
     empty = months_back(today, 3)
-    dx.reject("gui_bang_ke", {"thang": str(empty), "doi_vnd": "0", "so_chang": 0}, "BANG_KE_TRONG")
+    dx.reject("gui_bang_ke", {"thang": str(empty), "doi_vnd": "0", "so_chang": 0, "dau": other}, "BANG_KE_TRONG")
     before = dx.read(f"doixe.get_bang_ke('hth', {lit(m2)}::date)")
     require(before["bang_ke"]["trang_thai"] == "da_gui" and before["tong"]["doi_vnd"] == "55150000"
             and [x["stt"] for x in before["dong"]] == list(range(1, 8)), "đã gửi: chép đủ 7 dòng theo thứ tự")
@@ -246,7 +276,7 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     dx.reject("gan_tuyen", {"chang_id": legs["c3"], "tuyen_id": r1, "nho": False}, "CHANG_DA_GUI")
     after = dx.read(f"doixe.get_bang_ke('hth', {lit(m2)}::date)")
     require(after["dong"] == before["dong"] and after["tong"] == before["tong"], "bảng kê đã gửi không đổi theo giá, ghi chú")
-    cases.append("gửi: số đòi/số chặng máy đang thấy khác thì chặn; chép dòng, số bảng kê; lặp lệnh trả kết quả cũ; gửi lần hai, "
+    cases.append("gửi: số đòi/số chặng/dấu các dòng máy đang thấy khác thì chặn; chép dòng, số bảng kê; lặp lệnh trả kết quả cũ; gửi lần hai, "
                  "tháng trống chặn; sau gửi đổi giá, sửa ghi chú không đổi bảng kê; phần thu chặng đã gửi không sửa")
 
     # Chặng ghi muộn vào tháng đã gửi sang bảng kê đang gom kế tiếp; gắn tuyến nhớ tên gốc.
@@ -267,6 +297,19 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     months = {m["thang"]: m["trang_thai"] for m in dx.read("doixe.get_bang_ke('hth', NULL)")["thang_ds"]}
     require(months.get(str(m2)) == "gui" and months.get(str(m1)) == "nhap" and months.get(str(m0)) == "nhap", f"thanh tháng: {months}")
     cases.append("chặng ghi muộn vào tháng đã gửi sang bảng kê đang gom kế tiếp; gắn tuyến nhớ tên gốc đổi giá; thanh tháng có trạng thái")
+
+    # Tháng cũ (khóa) thì đợt 1 "bỏ" chặng; nhập lại với xe khác (sửa nhầm xe) là chặng mới.
+    require(dx.cmd("xoa_chang", {"chang_id": legs["c8"]})["cach"] in ("xoa", "bo"), "xóa chặng đã gửi ở sổ tài xế")
+    again_leg = dx.cmd("luu_chang", {"rows": [row(d(8), "MAUU1000008", xe_id=x2, tai_xe=tx2)]})["chang_ids"][0]
+    nxt = dx.read(f"doixe.get_bang_ke('hth', {lit(m1)}::date)")
+    redo = next(x for x in nxt["dong"] if x["chang_id"] == again_leg)
+    require(redo["trung_gui"] == str(m2) and nxt["tong"]["trung"] == 1
+            and all(x["trung_gui"] is None for x in nxt["dong"] if x["chang_id"] != again_leg), f"trùng dòng đã gửi: {nxt['tong']}")
+    sent_m2 = dx.read(f"doixe.get_bang_ke('hth', {lit(m2)}::date)")
+    require(sent_m2["tong"]["chang_bo"] == 1 and sent_m2["tong"]["doi_vnd"] == "55150000"
+            and next(x for x in sent_m2["dong"] if x["container"] == "MAUU1000008")["chang_con"] is False, "dòng đã gửi có chặng đã bỏ")
+    require(dx.cmd("xoa_chang", {"chang_id": again_leg})["cach"] in ("xoa", "bo"), "dọn chặng nhập lại")
+    cases.append("chặng đã gửi bị xóa rồi nhập lại: bảng kê đã gửi giữ số, báo dòng có chặng đã bỏ; chặng mới báo trùng dòng đã gửi tháng đó")
 
     # Điều chỉnh: lý do bắt buộc, khác 0, dòng không âm; đối chiếu xong thì thôi nhận.
     dong = {x["container"]: x for x in dx.read(f"doixe.get_bang_ke('hth', {lit(m2)}::date)")["dong"]}
@@ -389,10 +432,28 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     total = sum((r[col["CƯỚC TỔNG"]] or 0) + (r[col["+ - TIỀN"]] if len(r) > col["+ - TIỀN"] and r[col["+ - TIỀN"]] else 0) for r in data_rows)
     require(name == f"BangKe_HTH_T{m2.month:02d}_{m2.year}.xlsx" and sheet[1] == ["Kính gửi: HTH"] and len(header) == 19
             and total == int(sent_book["tong"]["doi_vnd"]) == 54900000, f"Excel bảng kê: {name} {header} {total}")
+    ly_do = {r[2]: r[header.index("CHECK LÝ DO")] for r in data_rows if len(r) > header.index("CHECK LÝ DO")}
+    require(ly_do.get("MAUU1000006") == "HTH không chịu khoản lạ"
+            and not any("nhan-vien-gia" in str(cell) or "nv-api" in str(cell) for r in sheet for cell in r), f"Excel lộ người làm: {ly_do}")
     draft_name, _ = build_xlsx(app.run("doixe_get_bang_ke", {"thang": str(m1)}, "nv-api"))
     require(draft_name.endswith("_nhap.xlsx"), "bản nháp")
     cases.append("Excel bảng kê từ dữ liệu thật của DB: 19 cột như file debit, Kính gửi HTH, tổng các dòng + điều chỉnh = đòi HTH; "
-                 "tháng chưa gửi là bản nháp")
+                 "CHECK LÝ DO chỉ lý do, không người làm; tháng chưa gửi là bản nháp")
+
+    # Gửi bảng kê tháng này rồi ghi thêm chặng: chặng sang tháng sau, xem được trên thanh tháng nhưng chưa gửi được.
+    m_next = (m0 + dt.timedelta(days=32)).replace(day=1)
+    now_cur = dx.read(f"doixe.get_bang_ke('hth', {lit(m0)}::date)")
+    dx.cmd("gui_bang_ke", {"thang": str(m0), "doi_vnd": now_cur["tong"]["doi_vnd"], "so_chang": now_cur["tong"]["so_chang"],
+                           "dau": now_cur["dau"]})
+    late_now = dx.cmd("luu_chang", {"rows": [row(today, "MAUU3000009")]})["chang_ids"]
+    months = {m["thang"]: m["trang_thai"] for m in dx.read("doixe.get_bang_ke('hth', NULL)")["thang_ds"]}
+    nxt = dx.read(f"doixe.get_bang_ke('hth', {lit(m_next)}::date)")
+    require(months.get(str(m_next)) == "nhap" and [x["chang_id"] for x in nxt["dong"]] == late_now, f"tháng sau: {months} {nxt['dong']}")
+    dx.reject("gui_bang_ke", {"thang": str(m_next), "doi_vnd": nxt["tong"]["doi_vnd"], "so_chang": 1, "dau": nxt["dau"]}, "INVALID_MONTH")
+    pg.rejects(actor_sql(f"SELECT doixe.get_bang_ke('hth', {lit((m_next + dt.timedelta(days=32)).replace(day=1))}::date)"),
+               user="v7_app", message="INVALID_MONTH")
+    cases.append("gửi bảng kê tháng này rồi ghi thêm chặng: chặng sang tháng sau, thanh tháng hiện tháng sau, xem được, chưa gửi được; "
+                 "xa hơn tháng sau không đọc")
 
     require(pg.value(actor_sql("SELECT sokhach.get_read_stamp()->>'stamp'")) == stamp, "doixe đã làm đổi dữ liệu sokhach")
     require(book > 0, "sổ khách giả")
