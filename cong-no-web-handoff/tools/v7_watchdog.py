@@ -209,15 +209,23 @@ def check_safety_net(now: dt.datetime, *, save_state: bool = True) -> list[str]:
     return v7_safety_net.check(now, save_state=save_state)
 
 
+def check_offsite_pulls(now: dt.datetime) -> list[str]:
+    """Bản sao ngoài máy còn được PC kéo (CANH-BAO-01, bổ sung 18/11/2026). Module riêng, import muộn như lưới an toàn."""
+    import v7_offsite_watch
+    return v7_offsite_watch.check(now.timestamp())
+
+
 def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path, show: Callable = systemctl_show,
-            safety: Callable[[dt.datetime], list[str]] = check_safety_net) -> list[str]:
+            safety: Callable[[dt.datetime], list[str]] = check_safety_net,
+            offsite: Callable[[dt.datetime], list[str]] = check_offsite_pulls) -> list[str]:
     """Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
     checks: tuple[tuple[str, Callable[[], list[str]]], ...] = (
         ("web", lambda: check_api(healthz)), ("đối soát", lambda: check_reconcile(reconcile, now)),
         ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("nguồn chuyến", lambda: check_sources(snapshots, now.date())),
         ("hộp việc", lambda: check_inbox(healthz)), ("timer", lambda: check_units(show, moment)),
-        ("đĩa", lambda: check_disks(DISKS)), ("lưới an toàn", lambda: safety(now)))
+        ("đĩa", lambda: check_disks(DISKS)), ("lưới an toàn", lambda: safety(now)),
+        ("bản sao ngoài máy", lambda: offsite(now)))
     found: list[str] = []
     for label, check in checks:
         try:

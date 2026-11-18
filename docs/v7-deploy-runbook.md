@@ -933,6 +933,9 @@ sudo systemctl enable --now v7-backup-offsite.timer
 
 ### O4. Trên PC: script và lịch
 
+Đặt `<pc_tools>` và `<pc_dir>` dưới một thư mục cha riêng, chỉ bỏ thừa hưởng ở thư mục cha: `icacls "<cha>" /inheritance:r /grant:r
+"<user>:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"`, để thư mục con và file thừa hưởng lại. Chạy `/inheritance:r` kèm `/T`
+thì file con trống quyền, chính chủ máy cũng không đọc được (gặp 18/11/2026; sửa bằng `icacls "<con>" /inheritance:e /T`).
 Chép `cong-no-web-handoff/tools/v7_offsite_pull.py` và `v7_backup.py` của cùng commit vào `<pc_tools>`; `Get-FileHash`
 phải khớp `git show <commit>:<đường dẫn> | sha256sum` ở một checkout. `known_hosts` của chủ máy phải có khóa máy của
 `<hao_ip>` (bản Vaultwarden dùng cùng địa chỉ); lần đầu thì so fingerprint với `/etc/ssh/ssh_host_ed25519_key.pub` trên `hao`.
@@ -2077,6 +2080,8 @@ WantedBy=timers.target
 Cài: đặt hai file, `systemd-analyze verify`, `daemon-reload`, `systemctl enable --now v7-watchdog.timer`. Chưa có link thì máy canh chỉ ghi journal: `journalctl -u v7-watchdog.service -n 5 -o cat`.
 
 Bổ sung 18/11/2026 (nguồn booking, hộp việc): không đổi unit hay file nào trên `hao`, mã lên bằng `Deploy hao`. Máy canh đọc thêm `rows[].event_date` của `snapshot.json`, `road.json` và phần `inbox` của `/healthz` (API mới có sau lượt deploy này; API cũ thì phép kiểm hộp việc im). Muốn đổi khung "nguồn không có chuyến mới" (mặc định 3 ngày) thì thêm `WEBDEBIT_ALERT_SOURCE_DAYS=<số ngày>` vào `/etc/webdebit/alert.env`. Kiểm sau deploy: `sudo systemctl start v7-watchdog.service`, rồi `journalctl -u v7-watchdog.service -n 3 -o cat` ra `"ok": true`.
+
+Bổ sung 18/11/2026 (bản sao ngoài máy, [nhật ký](deploys/2026-11-18-canh-bao-keo-ngoai-may.md)): drop-in `/etc/systemd/system/v7-watchdog.service.d/doc-log-ssh.conf` chỉ có `[Service]` `SupplementaryGroups=systemd-journal` (riêng unit này đọc journal, không thêm nhóm cho user `v7app`), và một dòng `WEBDEBIT_OFFSITE_PULL_KEYS=<nhãn>=<dấu vân>,…` trong `/etc/webdebit/alert.env`. Dấu vân lấy bằng `ssh-keygen -lf` trên từng dòng `webdebit-v7-offsite-pull*` của `authorized_keys` của `<admin>`; thêm hay bỏ một PC kéo thì sửa dòng này cùng lúc với `authorized_keys`. Ngưỡng mặc định 48 giờ, đổi bằng `WEBDEBIT_ALERT_OFFSITE_HOURS`. Tắt phép kiểm: xóa dòng khóa. Rollback hẳn: xóa drop-in, `daemon-reload`.
 
 **Bật email (chủ sổ làm):** tạo tài khoản healthchecks.io bằng email nhận cảnh báo. Thêm một check: chu kỳ 15 phút, thời gian chờ 45 phút. Sao chép link ping, đặt vào `/etc/webdebit/alert.env` dòng `WEBDEBIT_ALERT_PING_URL=…`, `root:v7app`, quyền 640. Không đưa link vào Git hay nhật ký.
 
