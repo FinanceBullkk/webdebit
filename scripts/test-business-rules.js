@@ -277,7 +277,7 @@ test("ARCH-01 cho qua đúng các file tầng DB, và không tính chữ trong c
 // quay lại lối bắt theo chữ.
 test("ARCH-01 không tính việc truyền tham số psql xuống adapter là vi phạm", () => {
   const found = check("ARCH-01", {
-    // Y như `web/ledger_app.py` thật: dựng HistoryDB rồi đưa đường dẫn xuống.
+    // Y như `web/ledger_app.py` thật (đã xóa 18/11/2026): dựng HistoryDB rồi đưa đường dẫn xuống.
     "cong-no-web-handoff/web/ledger_app.py":
       "def request_history(configured):\n    return HistoryDB(dbname=configured.dbname, psql=configured.psql)\n",
     // Tên tham số và thuộc tính cũng không phải lời gọi.
