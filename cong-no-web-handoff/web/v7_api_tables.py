@@ -29,6 +29,7 @@ PAGES = {
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
     "/doi-no.html": "doi-no.html",
     "/bang-thu.html": "bang-thu.html",
+    "/doi-xe.html": "doi-xe.html",
     "/bao-cao-thang.html": "bao-cao-thang.html",
     "/may-chay.html": "may-chay.html",
     "/thong-tin-cty.html": "thong-tin-cty.html",
