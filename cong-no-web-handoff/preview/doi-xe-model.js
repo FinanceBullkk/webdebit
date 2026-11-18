@@ -89,6 +89,16 @@
     return ngayHopLe(y, +m[2], +m[1]);
   }
 
+  // Các tháng trên thanh tháng: tháng có dữ liệu, luôn thêm tháng trước và tháng này (sổ mới vẫn sang được tháng trước để dán),
+  // và tháng đang xem; giữ 6 tháng gần nhất nhưng không bỏ tháng đang xem.
+  function cacThang(thangCo, homNay, dangXem) {
+    const nay = thangCua(homNay);
+    const y = +nay.slice(0, 4), mo = +nay.slice(5, 7);
+    const truoc = mo === 1 ? `${y - 1}-12-01` : `${y}-${pad2(mo - 1)}-01`;
+    const ds = [...new Set([...(thangCo ?? []), truoc, nay, ...(dangXem ? [dangXem] : [])])].sort();
+    const cuoi = ds.slice(-6);
+    return dangXem && !cuoi.includes(dangXem) ? [dangXem, ...cuoi.slice(1)] : cuoi;
+  }
   const chuanCont = text => String(text ?? '').toUpperCase().replace(/\s+/g, '');
 
   // Tách khối chép từ Sheet (TSV, ô có xuống dòng nằm trong ngoặc kép).
@@ -461,7 +471,7 @@
   }
 
   return {
-    LOAI, TEN_LOAI, COT, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, chuanCont,
+    LOAI, TEN_LOAI, COT, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, cacThang, chuanCont,
     tachTSV, doanLoai, timXe, dongTuSheet, hoanThien, nhapTuGo, moiCo, khoaChang, khoaDaLuu, chiNhap, kiemDong, danKhoi, dongGui, loiMay,
     tienDong, phiHieuLuc, phiGoc, tienChang, coPhi, daHoan, chuaNoi, laChuaHoan, dongChuaHoan, tongTien, chenhDot, tongChon, lechHoan, truUngGiu, sauKhiGhi,
     sauKhiHuy, cuoiThe, loiDu, nhanCuoi, cotPhiGon, phiKhac, phiKhacNhap, tongCot, tongChi, theXe, xepNguoi, tongNguoi, tenNguoi, tenCot,
