@@ -9,6 +9,11 @@ Trạng thái: ĐỀ XUẤT (Claude, 18/11/2026). Đây là đợt 2 của mục
 - Theo dõi **công nợ cước**: công ty hàng còn nợ đội xe bao nhiêu, tính bằng bảng kê đã gửi ± điều chỉnh − tiền đã về.
 - Thu và chi gắn chung một chặng, để đợt 3 tính được lãi từng chặng, từng xe.
 
+**Đội xe là công ty con** (người dùng cho biết 18/11/2026): mỗi tháng đội xe xuất debit cho công ty mẹ, và công ty mẹ trả theo tháng, đủ bảng kê. Vì vậy:
+
+- Bảng kê là giấy đòi tiền **nội bộ**, gửi công ty mẹ.
+- Giá trên debit bằng giá xe thuê ngoài (Trần Hùng) ở 10/11 nhóm tuyến cùng chạy. Vậy lãi của đội xe đọc được như phần công ty mẹ **tiết kiệm được so với thuê xe ngoài**. Lãi âm nghĩa là thuê ngoài còn rẻ hơn tự chạy.
+
 ## Hiện trạng (đo 18/11/2026, file tháng 10, chỉ đọc)
 
 Hai file công nợ cảng: Tín Phát có 204 dòng, Trần Hùng có 68 dòng. Các cột: ngày, container, cont kéo, tỉnh, kho, tài xế, số xe, nơi lấy, nơi hạ, tên hàng, cước, đóng ghép (chỉ file Tín Phát), phát sinh, ghi chú, cước tổng, kế toán note, +/− tiền, check lý do.
@@ -107,7 +112,7 @@ Revert PR. Không có dữ liệu.
 
 ## Câu hỏi mở
 
-1. Bảng kê gửi cho ai: AS Logistics (như mẫu BK tháng 3–4), HTH, hay tùy chuyến? Hiện có mấy công ty hàng? File debit không ghi tên người nhận (kiểm 18/11/2026).
+1. ĐÃ TRẢ LỜI 18/11/2026: bảng kê gửi **công ty mẹ**, vì đội xe là công ty con. Còn xác nhận tên pháp nhân công ty mẹ để in trên bảng kê; mẫu BK tháng 3–4 ghi AS Logistics, còn cột kho có mã khách của HTH.
 2. Cước các chặng của xe Trần Hùng đi qua mình hay công ty hàng trả thẳng cho Trần Hùng? (Trùng câu 15 của `CHI-PHI-XE-01`.) Dữ liệu chỉ cho thấy cùng giá cước và văn phòng điều xe trả phí cảng cho xe Trần Hùng (kiểm 18/11/2026).
 3. Chi hộ: ĐỀ XUẤT theo số đo 18/11/2026, chi hộ gồm kiểm hoá, hạ sớm, cân, xí cont, cont mới (vì thu đúng bằng chi); doanh thu gồm cước, đóng ghép, neo, nổ máy phát, phí bãi Đồng An. Cần người dùng xác nhận. (Trùng câu 13.)
 4. ĐÃ TRẢ LỜI 18/11/2026: công ty hàng trả theo tháng, đủ bảng kê. Còn hỏi: hiện ai ghi tiền về?
