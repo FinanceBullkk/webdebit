@@ -14,8 +14,16 @@ Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 6. Công ty hoàn tiền tài xế đã chi **theo đợt, gộp vài chuyến một lần**.
 7. Lương chuyến **chưa làm** ở đợt đầu.
 8. Số dư mỗi tài xế = **tổng tài xế chi − tổng đã hoàn − tổng đã ứng**, một số dư chung cho mỗi tài xế. Dương: công ty còn nợ tài xế; âm: tài xế còn giữ tiền ứng.
+9. **Mục tiêu:** web giúp công ty quản lý chi phí vận hành đội xe, có đủ dữ liệu để phân tích vì sao xe chạy không có lời. Phải phân biệt rõ khoản nào vào debit, khoản nào là chi phí.
+10. **Nhập liệu đội xe trên web**, thay các Sheet rời; không làm đồng bộ từ các Sheet chi phí cũ.
 
-ĐỀ XUẤT (Claude, 18/11/2026; người dùng chưa phản đối): làm trong repo và cơ sở dữ liệu hiện có, schema PostgreSQL riêng, không lập dự án mới. Lý do: dùng chung chuyến/container, đăng nhập, triển khai, backup với sổ khách.
+ĐỀ XUẤT (Claude, 18/11/2026; người dùng chưa phản đối):
+
+- Làm trong repo và cơ sở dữ liệu hiện có, schema PostgreSQL riêng, không lập dự án mới. Lý do: chặng chở hàng nối được với chuyến khách theo container (đo tháng 10: 123/123 chặng hàng của Tín Phát có trong `CONT_NGUON`), và dùng chung đăng nhập, triển khai, backup.
+- Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet.
+- Mô hình chặng – dòng thu – dòng chi – định phí xe theo [spec](../../specs/chi-phi-xe-01.md#mô-hình-dữ-liệu-đề-xuất).
+
+Đính chính 18/11/2026: lúc đầu Claude nói ô `carrier` của chuyến trên web là nhà xe. Sai: ô đó là hãng tàu. Web hiện chưa biết xe nào chở container nào.
 
 ## Ngày / nguồn
 
@@ -23,4 +31,4 @@ Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 
 ## Hiệu lực và giới hạn
 
-Chốt phạm vi, thứ tự và công thức số dư. Chưa chốt khóa tháng, sổ theo tài xế hay theo xe, mốc bắt đầu: xem Câu hỏi mở trong spec. Không cấp quyền nạp dữ liệu thật, chạy DDL hay ghi Sheet.
+Chốt mục tiêu, phạm vi, nhập trên web, việc làm trước và công thức số dư. Chưa chốt khóa tháng, mốc bắt đầu, nguồn dầu, lương, định phí, thứ tự đợt 2–3: xem Câu hỏi mở trong spec. Không cấp quyền nạp dữ liệu thật, chạy DDL hay ghi Sheet.
