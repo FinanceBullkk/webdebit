@@ -109,6 +109,23 @@ Không lưu số tổng nào cho người sửa tay. Web tự tính:
 
 Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ XUẤT.
 
+## Mặc định đề xuất cho đợt 1
+
+Để code được đợt 1 mà không phải chờ các câu hỏi chưa có người trả lời, Claude đề xuất bốn mặc định sau (chờ người dùng đồng ý):
+
+1. **Chặng tạo ra từ dòng chi phí.**
+   - Nhân viên dán hoặc nhập dòng chi phí như Sheet hiện nay. Mỗi dòng đã có container, ngày, tài xế, xe, nên tạo luôn chặng.
+   - Chặng hàng tự nối chuyến khách theo container.
+   - Màn để điều xe gán xe trước: làm ở đợt sau. Mặc định này thay cho câu 12.
+2. **Tiền theo người nhận ứng; chặng và chi phí theo phương tiện.**
+   - Người nhận ứng thường là tài xế, nhưng cũng có thể là người đi lệnh. Vì vậy khối "LẦN ỨNG" vẫn ghi được dù câu 2 trả lời theo cách nào.
+   - Mặc định này thay cho câu 3; câu 2 không còn chặn đợt 1.
+3. **Khóa tháng như sổ khách** (`V7-SO`, `V7-CSM`).
+   - Mặc định chỉ tháng hiện tại mở. Ai cũng mở hoặc khóa được, mỗi lần đều ghi Lịch sử. Tháng đã khóa thì sửa bằng dòng điều chỉnh.
+   - Lý do: sau khi đã hoàn tiền cho tài xế, nếu chi phí tháng cũ bị sửa ngầm thì số dư sẽ đổi mà không ai hay.
+   - Mặc định này thay cho câu 4.
+4. **Bản thử dùng dữ liệu sao chép tháng 10 và 11/2026.** Ngày chạy thật và số dư đầu của từng người nhận ứng sẽ chốt sau khi người dùng nghiệm thu bản thử. Nạp dữ liệu thật cần người dùng duyệt riêng. Câu 5 vẫn còn mở.
+
 ## Người dùng và luồng đợt 1 (bước 1)
 
 **Người thao tác:**
@@ -123,7 +140,7 @@ Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ
 1. **Mở Đội xe:** menu trái có mục "Đội xe", gồm hai bảng.
    - Bảng xe: biển số, tài xế đang chạy, số chặng trong tháng, số chặng chưa có chi phí.
    - Bảng tài xế: số dư (dương là công ty còn nợ tài xế, âm là tài xế còn giữ tiền ứng).
-2. **Gán xe:** điều xe mở danh sách chuyến hàng từ booking chưa gán xe (lọc theo ngày, kho), rồi chọn xe và tài xế. Thêm chặng phụ (chuyển cảng, trả rỗng, mooc) cho một container.
+2. **Gán xe:** ở đợt 1, xe và tài xế được gán ngay khi nhập dòng chi phí (mặc định 1). Chặng phụ (chuyển cảng, trả rỗng, mooc) chọn loại ở dòng đó. Màn gán xe riêng cho điều xe, lấy chuyến hàng từ booking, làm ở đợt sau.
 3. **Nhập chi phí chặng:**
    - Bảng kiểu Sheet theo xe và tháng, dùng lại cách nhập của `NHAP-SHEET-01`. Mỗi dòng là một chặng, các cột là loại phí.
    - Dán được khối dòng chép từ Sheet cũ.
@@ -206,7 +223,7 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 
 ## Tiêu chí nghiệm thu (đợt 1)
 
-- [ ] Trên bản thử (dữ liệu sao chép), 123 chặng hàng tháng 10 của Tín Phát gán được xe và nối được chuyến khách, lệch không quá 10 ngày; chặng phụ nhập được.
+- [ ] Trên bản thử (dữ liệu sao chép), dán chi phí tháng 10 của cả 16 tài xế. Chặng hàng nối được chuyến khách, lệch không quá 10 ngày; chặng phụ ghi đúng loại; không có chặng nào bị tạo hai lần khi dán lại cùng một khối.
 - [ ] Dán 1 tab tài xế tháng 10/2026: tổng "tài xế chi" và tổng từng cột phí khớp dòng tổng của tab, trừ các dòng bị chặn đã liệt kê.
 - [ ] Ghi ứng, ghi đợt hoàn, hủy từng loại: số dư đổi đúng; Lịch sử có người làm, trước → sau, lý do hủy.
 - [ ] Bấm hai lần hoặc mất mạng giữa chừng không tạo hai lần ứng hay hai đợt hoàn.
@@ -247,13 +264,14 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 6. Cột "Nổ máy phát" có tính vào phần hoàn tài xế không? Trong dữ liệu đã đọc, cột này trống.
 7. Dầu: ĐÃ TRẢ LỜI 18/11/2026, nguồn là sheet "THEO DOI DAU". Còn hỏi:
    - Đơn giá đổi bậc từ đầu tháng 3/2026 có đúng là giá thật không?
-   - Tháng 11/2026, tiền dầu và công nợ tài khoản dầu đang ghi ở đâu?
+   - Tháng 11/2026: người dùng cho biết có lẽ chưa ghi (18/11/2026). Khi cần, lấy lại từ hóa đơn, bảng kê của nơi bán.
    - Có giữ cách khoán dầu theo 4 mức định mức không?
 8. Lương: ĐÃ TRẢ LỜI 18/11/2026, làm sau khi có sheet tính lương.
-9. Định phí: phí bảo hiểm có trong hồ sơ xe. Còn thiếu số tiền trả góp từng xe (lịch trả nợ thuê tài chính, thế chấp), phí đường bộ, GPS.
-10. Sửa chữa lớn và thay cả bộ lốp không thấy trong sheet chi phí: đang trả và ghi ở đâu?
+9. Định phí: phí bảo hiểm có trong hồ sơ xe. Còn thiếu số tiền trả góp từng xe (lịch trả nợ thuê tài chính, thế chấp), phí đường bộ, GPS. Người dùng sẽ hỏi rồi làm sau (18/11/2026).
+10. Sửa chữa lớn và thay cả bộ lốp không thấy trong sheet chi phí: đang trả và ghi ở đâu? Người dùng sẽ hỏi rồi làm sau (18/11/2026).
 11. Định vị: người dùng chưa biết (18/11/2026). Tạm lấy km từ ảnh đồng hồ (ODO), như sổ dầu khoán đang làm.
 12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay? Đọc sheet chỉ lấy được xe chở hàng; chặng phụ vẫn phải nhập trên web.
 13. Khoản nào là chi hộ (đòi lại công ty hàng đúng số đã trả)?
 14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
 15. Cước các chặng của 5 xe Trần Hùng: công ty hàng trả thẳng cho Trần Hùng, hay trả cho mình rồi mình trả lại Trần Hùng? Nếu qua mình thì phần chênh là lãi của đội xe và phải vào lãi lỗ.
+16. Ba tài khoản dầu đã ngưng vẫn còn số nợ (số tròn) trên sổ mua dầu. Người dùng chưa rõ đã trả hay chưa (18/11/2026); cần đối chiếu với nơi bán.
