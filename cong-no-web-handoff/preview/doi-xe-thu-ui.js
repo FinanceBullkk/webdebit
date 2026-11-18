@@ -300,7 +300,7 @@
     const tuyenText = T.tenTuyen(x).replace(/^(Chuyển cảng|Trả rỗng) · /, x.loai !== 'hang' ? '' : '$&');
     const cuoc = x.cuoc_vnd === null ? '<span class="dxt-chua">Chưa có giá</span>'
       : `<span class="${T.khacGia(x) ? 'dxt-khac' : ''}" title="${T.khacGia(x) ? `Bảng giá ${M.fmt(so(x.gia_bang_vnd))}` : ''}">${M.fmt(so(x.cuoc_vnd))}</span>`;
-    const psCell = x.chua_doc > 0 ? '<span class="dxt-chua" title="Có khoản ghi chú chưa đọc được">Chưa đọc</span>' : ps === null ? '' : `<span title="${esc(psTip)}">${M.fmt(ps)}</span>`;
+    const psCell = x.chua_doc > 0 ? '<span class="dxt-chua" title="Có khoản phát sinh chưa tính được: bấm số container xem lý do">Chưa tính</span>' : ps === null ? '' : `<span title="${esc(psTip)}">${M.fmt(ps)}</span>`;
     const xe = `${esc(x.so_xe ?? '')} <span class="muted sm">${esc(x.tai_xe ?? '')}</span>`;
     let html = `<div class="dxt-dong${canh ? ' canh' : ''}${mo ? ' mo' : ''}${x.chang_con === false ? ' bo' : ''}"><div class="dxt-r" style="grid-template-columns:${COLS}">`
       + `<span class="num">${M.ddmm(x.ngay)}</span>`

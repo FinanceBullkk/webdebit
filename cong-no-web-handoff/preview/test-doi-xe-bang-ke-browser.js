@@ -233,7 +233,7 @@ test('Bảng kê đang gom: ba số, thanh tháng có trạng thái, Trước kh
   assert.equal(await page.locator('.dxt-cocau').innerText(), 'Cước 3.200.000 · Đóng ghép 500.000 · Chi hộ 150.000 · 5 chặng');
   assert.equal(await page.locator('[data-act="nut-chinh"]').innerText(), 'Gửi bảng kê');
   const viec = page.locator('.dxt-viec');
-  assert.match(await viec.innerText(), /Trước khi gửi:\s+1 chặng chưa có giá\s+1 chặng giá khác bảng giá\s+1 ghi chú phát sinh chưa đọc được/);
+  assert.match(await viec.innerText(), /Trước khi gửi:\s+1 chặng chưa có giá\s+1 chặng giá khác bảng giá\s+1 chặng có khoản phát sinh chưa tính được/);
   await viec.getByText('1 chặng chưa có giá').click();
   assert.equal(await page.locator('.dxt-dong').count(), 1);
   assert.match(await page.locator('.dxt-dong').innerText(), /MAUU2000002[\s\S]*HÀNG GIẢ B · TỈNH B[\s\S]*Chưa có giá/);

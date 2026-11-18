@@ -30,7 +30,7 @@ test('tổng dòng như file debit; ô trống không thành 0; cờ và bộ l�
   const dong = [line(), line({ cuoc_vnd: null, tuyen: null, gia_bang_vnd: null }), line({ cuoc_tay: true, cuoc_vnd: '900000' }),
     line({ chua_doc: 1 }), line({ loai: 'rut_mooc' }), line({ dc_vnd: '-100000' })];
   assert.deepEqual(T.locChips(dong, 'all').map(x => `${x.k}:${x.n}`), ['all:6', 'chuagia:1', 'khacgia:1', 'chuadoc:1', 'dc:1', 'phu:1']);
-  assert.deepEqual(T.viecTruocGui(dong).map(x => x.text), ['1 chặng chưa có giá', '1 chặng giá khác bảng giá', '1 ghi chú phát sinh chưa đọc được']);
+  assert.deepEqual(T.viecTruocGui(dong).map(x => x.text), ['1 chặng chưa có giá', '1 chặng giá khác bảng giá', '1 chặng có khoản phát sinh chưa tính được']);
   assert.equal(T.coCau(tong), 'Cước 3.000.000 · Đóng ghép 500.000 · Phát sinh 500.000 · Chi hộ 200.000 · Điều chỉnh −100.000 · 3 chặng');
   assert.equal(T.tenTuyen(line({ tuyen: null, ten_hang: 'Sầu đông', tinh: null })), 'Sầu đông');
   assert.equal(T.tenTuyen(line({ tuyen: null, ten_hang: null, tinh: null, loai: 'chuyen_cang' })), 'Chuyển cảng');
@@ -43,6 +43,11 @@ test('chi tiết dòng: giá bảng 70% cho mooc, giá tay khác bảng, khoản
   assert.match(text[1], /nhập tay 800\.000, khác bảng giá \+100\.000/);
   assert.equal(text[2], 'Kiểm hoá: 150.000 · chi hộ');
   assert.match(text[3], /chưa đọc được: «Cân»/);
+  // Khoản lấy từ ô ngày neo, giờ máy phát của chặng (phiếu chi mới) ghi rõ nguồn.
+  const tuO = T.chiTiet(line({ ps: [{ goc: 'Neo 2 ngày', ten: 'Neo 2 ngày', ma: 'neo', so_tien_vnd: '3000000', chi_ho: false, o: true },
+    { goc: 'Nổ máy phát 3 giờ', ma: 'no_may', o: true, loi: 'Khoản này chưa có mức: ghi mức ở Bảng giá hoặc ghi số tiền vào ghi chú' }] })).map(x => x.text);
+  assert.equal(tuO[1], 'Neo 2 ngày: 3.000.000 (theo ô Ngày neo)');
+  assert.equal(tuO[2], 'Nổ máy phát 3 giờ (theo ô Giờ máy) chưa tính: Khoản này chưa có mức: ghi mức ở Bảng giá hoặc ghi số tiền vào ghi chú.');
 });
 
 test('điều chỉnh: bớt/thêm, Đòi HTH và dòng trước → sau, lý do bắt buộc, không để dòng âm', () => {
@@ -74,7 +79,7 @@ test('tiền về: không trước ngày gửi, không sau hôm nay, thừa ch�
 test('gửi: tóm tắt và cảnh báo chặng chưa có giá, tháng chưa hết', () => {
   const x = T.guiXem({ tong, thang: '2026-11-01', hom_nay: '2026-11-18' });
   assert.equal(x.tom, '3 chặng · đòi HTH 4.100.000 (cước 3.000.000, đóng ghép 500.000, phát sinh 500.000, chi hộ 200.000)');
-  assert.deepEqual(x.canh.map(c => c.split(':')[0]), ['1 chặng chưa có giá', '1 chặng giá khác bảng giá', '1 chặng có ghi chú phát sinh chưa đọc được', 'Tháng 11 chưa hết']);
+  assert.deepEqual(x.canh.map(c => c.split(':')[0]), ['1 chặng chưa có giá', '1 chặng giá khác bảng giá', '1 chặng có khoản phát sinh chưa tính được (ghi chú chưa đọc được hoặc chưa có mức)', 'Tháng 11 chưa hết']);
 });
 
 test('bảng giá: giá hôm nay, lịch giá sắp áp dụng, số chặng đổi theo tới bản giá kế tiếp', () => {

@@ -1,11 +1,13 @@
 -- Đội xe đợt 2 (DOI-XE-THU-01, 18/11/2026; spec specs/doi-xe-thu-01.md): thu cước, bảng kê tháng gửi HTH, công nợ cước.
--- Nối vào schema `doixe` của đợt 1 (2026-11-18-v7-doi-xe.sql), áp sau file đó. Chỉ thêm bảng/hàm/cột; đổi hai ràng buộc của
+-- Nối vào schema `doixe` của đợt 1 (2026-11-18-v7-doi-xe.sql), áp sau file đó và sau 2026-11-18-v7-doi-xe-phieu-chi.sql (đọc
+-- ô ngày neo, giờ máy phát của chặng). Chỉ thêm bảng/hàm/cột; đổi hai ràng buộc của
 -- Lịch sử (thêm loại việc thu) và thân get_lich_su (Lịch sử đội xe đợt 1 không lẫn việc thu). Không ghi `sokhach`. Chạy lại được.
 --
 -- Cách tính (ĐÃ CHỐT theo bản bấm thử, docs/decisions/doi-xe-thu-01.md):
 -- * Bảng kê một tháng của một bên nhận (hiện chỉ HTH, chặng của xe công ty). Chưa gửi ("đang gom") thì web tính sống: cước theo
 --   bảng giá tuyến có ngày áp dụng (rút/thả mooc 70% giá tuyến, làm tròn tới nghìn đồng) hoặc giá nhập tay của chặng; đóng ghép
---   và phát sinh đọc từ ghi chú của chặng dạng "_ Tên khoản số k". Chặng chưa có giá: ô cước trống (NULL), không tính.
+--   và phát sinh đọc từ ghi chú của chặng dạng "_ Tên khoản số k"; ngày neo, giờ máy phát ở ô của chặng (phiếu chi mới) tính theo
+--   danh mục khi ghi chú chưa có khoản đó. Chặng chưa có giá: ô cước trống (NULL), không tính.
 -- * "Gửi bảng kê" chép từng dòng vào bang_ke_dong (đổi giá, sửa ghi chú sau đó không đổi bảng kê đã gửi). Đã gửi thì chỉ sửa
 --   bằng điều chỉnh gắn từng dòng (lý do bắt buộc); "Đối chiếu xong" thì thôi nhận điều chỉnh, rồi mới ghi tiền HTH trả.
 -- * Tiền về gắn bảng kê của tháng: trả thiếu ghi được, trả thừa bị chặn; hủy bắt buộc lý do.
@@ -129,6 +131,9 @@ INSERT INTO doixe.phat_sinh(ma, ten, cach, chi_ho, cot, loai_phi, thu_tu, actor)
     ('nang_ha', 'Nâng hạ', 'nhap_tay', false, 'ps', 'nangha', 13, 'migration'),
     ('dong_ghep', 'Đóng ghép', 'nhap_tay', false, 'ghep', NULL, 14, 'migration')
 ON CONFLICT (ma) DO NOTHING;
+-- Phía chi của hạ sớm, kiểm hoá là loại phí 'hasom' (Hạ sớm/KH) của phiếu chi mới: nối để lãi lỗ đợt 3 ghép được hai phía.
+UPDATE doixe.phat_sinh SET loai_phi = 'hasom' WHERE ma IN ('kiem_hoa', 'ha_som') AND loai_phi IS NULL
+   AND EXISTS (SELECT 1 FROM doixe.loai_phi WHERE ma = 'hasom');
 INSERT INTO doixe.phat_sinh_ten(ten, ma) VALUES
     ('KIEM HOA', 'kiem_hoa'), ('HA KIEM HOA', 'kiem_hoa'), ('HA SOM', 'ha_som'), ('CAN', 'can'), ('CAN XE', 'can'), ('CAN CONT', 'can'),
     ('XI CONT', 'xi_cont'), ('CONT MOI', 'cont_moi'), ('NEO', 'neo'), ('NO MAY PHAT', 'no_may'), ('NO MAY', 'no_may'),
@@ -385,7 +390,8 @@ BEGIN
             END IF;
         END IF;
         IF v_tien IS NULL THEN
-            v_out := v_out || jsonb_build_object('goc', v_goc, 'loi',
+            -- Khoản lỗi vẫn ghi mã danh mục khi nhận ra tên: ô số lượng của chặng không tính thêm khoản đó lần nữa.
+            v_out := v_out || jsonb_build_object('goc', v_goc, 'ma', ps.ma, 'loi',
                 CASE WHEN ps.ma IS NULL AND v_sl IS NULL THEN 'Thiếu số tiền (ví dụ 200k)'
                      WHEN ps.ma IS NULL THEN 'Chưa rõ khoản và số tiền'
                      WHEN ps.cach IN ('theo_ngay', 'theo_don_vi', 'co_dinh') AND ps.muc_vnd IS NULL THEN 'Khoản này chưa có mức: ghi số tiền'
@@ -399,6 +405,33 @@ BEGIN
         ELSE
             v_out := v_out || jsonb_build_object('goc', v_goc, 'ten', coalesce(nullif(v_ten, ''), ps.ten), 'ma', ps.ma, 'ten_dm', ps.ten,
                 'so_tien_vnd', v_tien::bigint::text, 'chi_ho', ps.chi_ho, 'cot', ps.cot);
+        END IF;
+    END LOOP;
+    RETURN v_out;
+END $$;
+
+-- Phát sinh lấy từ ô số lượng của chặng (phiếu chi mới, migration phiếu chi): ngày neo → khoản 'neo', giờ máy phát → khoản
+-- 'no_may', tính theo cách tính và mức của danh mục. Chỉ khi ghi chú chưa có khoản đó (ghi chú có thì ghi chú quyết định, không cộng
+-- hai lần). Danh mục chưa có mức hoặc là khoản nhập tay: gắn lỗi, không tính. Mỗi khoản có 'o' = true (lấy từ ô).
+CREATE OR REPLACE FUNCTION doixe._ps_tu_o(c doixe.chang, p_ps jsonb) RETURNS jsonb
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog, doixe, pg_temp AS $$
+DECLARE v_out jsonb := '[]'::jsonb; r record; ps doixe.phat_sinh; v_tien bigint; v_ten text;
+BEGIN
+    FOR r IN SELECT * FROM (VALUES ('neo', c.neo_ngay, ' ngày'), ('no_may', c.may_gio, ' giờ')) v(ma, sl, dv) LOOP
+        CONTINUE WHEN r.sl IS NULL OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_ps) e WHERE e ->> 'ma' = r.ma);
+        SELECT * INTO ps FROM doixe.phat_sinh WHERE ma = r.ma;
+        CONTINUE WHEN NOT FOUND;
+        v_ten := ps.ten || ' ' || r.sl || r.dv;
+        v_tien := CASE WHEN ps.cach = 'theo_ngay' AND ps.muc_vnd IS NOT NULL AND ps.muc_them_vnd IS NOT NULL
+                            THEN ps.muc_vnd + (r.sl - 1) * ps.muc_them_vnd
+                       WHEN ps.cach = 'theo_don_vi' AND ps.muc_vnd IS NOT NULL THEN r.sl * ps.muc_vnd END;
+        IF v_tien IS NULL THEN
+            v_out := v_out || jsonb_build_object('goc', v_ten, 'ma', ps.ma, 'o', true, 'loi',
+                CASE WHEN ps.cach IN ('theo_ngay', 'theo_don_vi') THEN 'Khoản này chưa có mức: ghi mức ở Bảng giá hoặc ghi số tiền vào ghi chú'
+                     ELSE 'Khoản này không tính theo số lượng: ghi số tiền vào ghi chú' END);
+        ELSE
+            v_out := v_out || jsonb_build_object('goc', v_ten, 'ten', v_ten, 'ma', ps.ma, 'ten_dm', ps.ten, 'so_tien_vnd', v_tien::text,
+                'chi_ho', ps.chi_ho, 'cot', ps.cot, 'o', true);
         END IF;
     END LOOP;
     RETURN v_out;
@@ -437,6 +470,7 @@ BEGIN
     v_bang := doixe._gia_bang(p_ben, c.loai, t, c.ngay);
     v_cuoc := coalesce(tc.cuoc_tay_vnd, v_bang);
     v_ps := doixe._doc_ghi_chu(c.ghi_chu);
+    v_ps := v_ps || doixe._ps_tu_o(c, v_ps);
     SELECT sum((e ->> 'so_tien_vnd')::bigint) FILTER (WHERE e ->> 'cot' = 'ghep'),
            sum((e ->> 'so_tien_vnd')::bigint) FILTER (WHERE e ->> 'cot' = 'ps'),
            sum((e ->> 'so_tien_vnd')::bigint) FILTER (WHERE e ->> 'cot' = 'ps' AND (e ->> 'chi_ho')::boolean),

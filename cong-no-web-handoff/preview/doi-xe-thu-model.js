@@ -53,7 +53,7 @@
     ['all', 'Tất cả', () => true],
     ['chuagia', 'Chưa có giá', d => d.cuoc_vnd === null],
     ['khacgia', 'Giá khác bảng', khacGia],
-    ['chuadoc', 'Ghi chú chưa đọc', d => (d.chua_doc ?? 0) > 0],
+    ['chuadoc', 'Phát sinh chưa tính', d => (d.chua_doc ?? 0) > 0],
     ['khoanla', 'Khoản lạ', d => (d.khoan_la ?? 0) > 0],
     ['dc', 'Có điều chỉnh', d => d.dc_vnd !== null && d.dc_vnd !== undefined],
     ['phu', 'Chặng phụ', d => d.loai !== 'hang'],
@@ -70,7 +70,7 @@
     return [
       ['chuagia', `${n('chuagia')} chặng chưa có giá`],
       ['khacgia', `${n('khacgia')} chặng giá khác bảng giá`],
-      ['chuadoc', `${n('chuadoc')} ghi chú phát sinh chưa đọc được`],
+      ['chuadoc', `${n('chuadoc')} chặng có khoản phát sinh chưa tính được`],
       ['khoanla', `${n('khoanla')} chặng có khoản phát sinh chưa có trong danh mục`],
     ].filter(([k]) => n(k) > 0).map(([loc, text]) => ({ loc, text }));
   }
@@ -98,9 +98,11 @@
       out.push({ text: `Tuyến ${tenTuyen(d) || '(chưa ghi hàng, tỉnh)'} chưa có trong bảng giá.`, tone: 'canh' });
     }
     if (d.cuoc_tay) out.push({ text: `Giá cước nhập tay ${fmt(tien(d.cuoc_vnd))}${khacGia(d) ? `, khác bảng giá ${fmtDau(tien(d.cuoc_vnd) - gb)}` : ''}.`, tone: khacGia(d) ? 'canh' : '' });
+    // Khoản lấy từ ô ngày neo, giờ máy phát của chặng (phiếu chi mới) ghi rõ nguồn.
+    const o = it => (it.o ? ` (theo ô ${it.ma === 'neo' ? 'Ngày neo' : 'Giờ máy'})` : '');
     for (const it of d.ps ?? []) {
-      if (it.loi) out.push({ text: `Ghi chú chưa đọc được: «${it.goc}». ${it.loi}.`, tone: 'canh' });
-      else out.push({ text: `${it.ten}: ${fmt(so(it.so_tien_vnd))}${it.chi_ho ? ' · chi hộ' : ''}${it.la ? ' · chưa có trong danh mục' : ''}`, tone: it.la ? 'canh' : '' });
+      if (it.loi) out.push({ text: it.o ? `${it.goc}${o(it)} chưa tính: ${it.loi}.` : `Ghi chú chưa đọc được: «${it.goc}». ${it.loi}.`, tone: 'canh' });
+      else out.push({ text: `${it.ten}: ${fmt(so(it.so_tien_vnd))}${o(it)}${it.chi_ho ? ' · chi hộ' : ''}${it.la ? ' · chưa có trong danh mục' : ''}`, tone: it.la ? 'canh' : '' });
     }
     for (const a of d.dieu_chinh ?? []) out.push({ text: `Điều chỉnh ${fmtDau(so(a.so_tien_vnd))} · ${a.ly_do} · ${a.actor_name ?? a.actor} ${a.luc}`, tone: 'dc' });
     if (d.chang_con === false) out.push({ text: 'Chặng này đã xóa hoặc bỏ ở sổ tài xế sau khi gửi: cần thì ghi điều chỉnh.', tone: 'canh' });
@@ -150,7 +152,7 @@
     const canh = [];
     if (t.chua_gia) canh.push(`${t.chua_gia} chặng chưa có giá: ô cước để trống, chưa tính vào số đòi.`);
     if (t.khac_gia) canh.push(`${t.khac_gia} chặng giá khác bảng giá: gửi theo giá đang dùng.`);
-    if (t.chua_doc) canh.push(`${t.chua_doc} chặng có ghi chú phát sinh chưa đọc được: khoản đó chưa tính.`);
+    if (t.chua_doc) canh.push(`${t.chua_doc} chặng có khoản phát sinh chưa tính được (ghi chú chưa đọc được hoặc chưa có mức): khoản đó chưa tính.`);
     if (t.khoan_la) canh.push(`${t.khoan_la} chặng có khoản phát sinh chưa có trong danh mục: vẫn tính, không phải chi hộ.`);
     if (data.thang === `${data.hom_nay.slice(0, 7)}-01`) canh.push(`Tháng ${thangSo(data.thang)} chưa hết: chặng ghi sau lúc gửi vào bảng kê tháng sau.`);
     return { tom, canh };

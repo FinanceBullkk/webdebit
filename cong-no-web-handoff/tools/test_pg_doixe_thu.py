@@ -346,6 +346,23 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     cases.append("Lịch sử thu: đủ loại việc, người làm, trước → sau, lý do; Lịch sử đợt 1 không lẫn; dòng bảng kê, điều chỉnh, tiền về, "
                  "bảng kê không sửa/xóa ngầm")
 
+    # Ô ngày neo, giờ máy phát của chặng (phiếu chi mới): ghi chú chưa có khoản thì tính theo danh mục; ghi chú có thì theo ghi
+    # chú, không cộng hai lần; danh mục chưa có mức thì gắn lỗi, không tính.
+    o_ids = dx.cmd("luu_chang", {"rows": [{**row(today, "MAUU3000001"), "neo_ngay": "2", "may_gio": "4"},
+                                          {**row(today, "MAUU3000002", ghi="_ Nổ máy phát 700k"), "may_gio": "3"}]})["chang_ids"]
+    now_book = {x["chang_id"]: x for x in dx.read(f"doixe.get_bang_ke('hth', {lit(m0)}::date)")["dong"]}
+    a, b = now_book[o_ids[0]], now_book[o_ids[1]]
+    require([(i["ma"], i["so_tien_vnd"], i.get("o")) for i in a["ps"]] == [("neo", "3000000", True), ("no_may", "920000", True)]
+            and a["ps_vnd"] == "3920000", f"ô số lượng: {a['ps']}")
+    require([(i["ma"], i["so_tien_vnd"], i.get("o")) for i in b["ps"]] == [("no_may", "700000", None)] and b["ps_vnd"] == "700000",
+            f"ghi chú có khoản thì không lấy thêm từ ô: {b['ps']}")
+    no_level = json.loads(pg.value(actor_sql("UPDATE doixe.phat_sinh SET muc_vnd = NULL, muc_them_vnd = NULL WHERE ma = 'neo'; "
+                                              f"SELECT d FROM jsonb_array_elements(doixe.get_bang_ke('hth', {lit(m0)}::date) -> 'dong') d "
+                                              f"WHERE (d ->> 'chang_id')::bigint = {o_ids[0]}", "nhan-vien-gia").replace("; COMMIT", "; ROLLBACK")))
+    require(no_level["chua_doc"] == 1 and no_level["ps_vnd"] == "920000" and "loi" in no_level["ps"][0], f"chưa có mức: {no_level['ps']}")
+    cases.append("ô ngày neo, giờ máy phát (phiếu chi mới): tính theo danh mục khi ghi chú chưa có khoản đó; ghi chú có thì không cộng "
+                 "thêm; chưa có mức thì gắn lỗi, không tính")
+
     # Qua đúng adapter của API (SQL cố định trong v7_api_tables, role v7_app).
     app = Psql(pg.name, DATABASE, "v7_app")
     via = app.run("doixe_get_bang_ke", {"thang": str(m2)}, "nv-api")
