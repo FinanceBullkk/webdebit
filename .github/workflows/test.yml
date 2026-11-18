@@ -158,6 +158,19 @@ jobs:
           uv run --python 3.13 --with-requirements requirements-dev.txt
           python cong-no-web-handoff/tools/test_pg_v7_fifo_ngau_nhien.py
 
+  # Bất biến tiền (specs/v7-bat-bien-tien.md): chuỗi lệnh ngẫu nhiên seed cố định trên ba sổ giả, kiểm số dư, FIFO,
+  # hủy phiếu, khóa tháng, Lịch sử, cấn trừ, ngày tương lai sau mỗi lệnh. Chỉ thư viện chuẩn, không cần requirements-dev.
+  postgres-v7-bat-bien:
+    needs: changes
+    if: needs.changes.outputs.pg_v7 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: V7 money invariants over seeded random command sequences
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_bat_bien.py
+
   # Lưới an toàn của máy canh (specs/v7-luoi-an-toan.md): sổ giả sạch không báo; mỗi phép kiểm có vi phạm cố ý làm nó đỏ.
   postgres-v7-luoi-an-toan:
     needs: changes
@@ -313,6 +326,7 @@ jobs:
       - postgres-v7-p0
       - postgres-v7-grants-direct
       - postgres-v7-fifo
+      - postgres-v7-bat-bien
       - postgres-v7-luoi-an-toan
       - postgres-doixe
       - postgres-m1-history-queries
