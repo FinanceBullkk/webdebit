@@ -191,6 +191,16 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
 | `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền); đụng phân bổ thu hoặc lệnh ghi tiền thì thêm `test_pg_v7_fifo_ngau_nhien.py` (lệnh chạy và cờ `--mutant` ở [spec](../specs/v7-fifo-ngau-nhien.md)); thêm bảng tiền, đổi `get_dashboard*`, `get_ledger` hay `_check_allocations` thì thêm `test_pg_v7_luoi_an_toan.py` (bảng tiền mới phải vào dấu vân của `_safety_fingerprints`); lệch so với mô hình thì sửa SQL hoặc sửa `tools/v7_fifo_model.py` kèm test tính tay trong `tests/test_v7_fifo_model.py` |
 | Migration mới | `test_pg_v7_backend.py --migration-test` (CI chạy lệnh này): nâng từ schema cũ, so hàm/cột/view/ràng buộc với khởi tạo mới trước mọi case. Thêm file vào chuỗi `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file |
+| Bất kỳ SQL V7 nào ở trên (hàm, view, bảng, quyền) | sinh lại file đọc định nghĩa hiện hành rồi commit cùng PR: `python cong-no-web-handoff/tools/v7_schema_snapshot.py` (cần Docker). Job `postgres-v7-backend` chạy lại với `--check`, lệch thì đỏ và in lệnh này |
+
+**Đọc định nghĩa đang chạy ở đâu.** Một hàm như `sokhach.get_ledger` có nhiều bản trong `v7_backend_functions.sql`
+và `tools/migrations/*.sql`; đừng dò migration cuối cùng. Đọc [`cong-no-web-handoff/schema/v7_schema_current.pgsql`](../cong-no-web-handoff/schema/v7_schema_current.pgsql):
+file sinh tự động từ PostgreSQL dùng một lần nạp đúng thứ tự harness (`schema-draft.sql` → `v7_backend_functions.sql`
+→ migration Sheet), mỗi hàm/view/bảng một lần, hàm sắp theo tên + chữ ký (`pg_get_functiondef`) kèm chủ sở hữu và
+quyền; bảng kèm cột, ràng buộc, chỉ mục, trigger, chú thích. `--migration-test` đã chứng minh chuỗi migration lên `hao`
+cho cùng hàm/cột/view/ràng buộc. File chỉ để đọc, không sửa tay, không nạp: đuôi `.pgsql` và thư mục `schema/` nằm
+ngoài cổng SQL và gói release của `Deploy hao` (test `tests/test_v7_schema_snapshot.py` giữ điều này), nên PR chỉ
+sinh lại file không phải triển khai tay.
 
 Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
 và `main`; lệnh chạy không đổi (vẫn một container cho mọi case). Phần dựng PostgreSQL dùng một lần và
