@@ -149,3 +149,11 @@ test('Lịch sử viết thành câu: trước → sau, lý do, khóa tháng', (
   assert.equal(M.moTaSuKien({ viec: 'khoa_thang', truoc: { thang: '2026-10-01', khoa: false }, sau: { thang: '2026-10-01', khoa: true } }, dm, PHI).viec, 'Khóa tháng 10/2026');
   assert.equal(M.moTaSuKien({ viec: 'sua_chang', nguoi_id: 11, truoc: { cot: 'xe_id', gia_tri: '1', ngay: '2026-11-01', container: 'C' }, sau: { gia_tri: '9' } }, dm, PHI).truoc, '99Z-900.01');
 });
+
+test('thanh tháng: sổ mới vẫn có tháng trước; tháng đang xem luôn có; tối đa 6 tháng', () => {
+  assert.deepEqual(M.cacThang(['2026-11-01'], '2026-11-18', '2026-11-01'), ['2026-10-01', '2026-11-01']);
+  assert.deepEqual(M.cacThang([], '2027-01-05', null), ['2026-12-01', '2027-01-01']);
+  const nhieu = ['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'];
+  assert.deepEqual(M.cacThang(nhieu, '2026-11-18', '2026-03-01')[0], '2026-03-01');
+  assert.equal(M.cacThang(nhieu, '2026-11-18', '2026-11-01').length, 6);
+});
