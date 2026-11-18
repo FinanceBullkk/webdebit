@@ -30,6 +30,7 @@ PAGES = {
     "/doi-no.html": "doi-no.html",
     "/bang-thu.html": "bang-thu.html",
     "/doi-xe.html": "doi-xe.html",
+    "/doi-xe-bang-ke.html": "doi-xe-bang-ke.html",
     "/bao-cao-thang.html": "bao-cao-thang.html",
     "/may-chay.html": "may-chay.html",
     "/thong-tin-cty.html": "thong-tin-cty.html",
@@ -185,6 +186,34 @@ ERRORS.update({
     "DONG_THIEU": (422, "Chọn ít nhất một dòng."),
     "DONG_DA_DOI": (409, "Các dòng vừa đổi ở máy khác. Tải lại rồi chọn lại."),
 })
+# DOI-XE-THU-01: đội xe đợt 2 (bảng kê HTH, bảng giá, tiền về).
+ERRORS.update({
+    "BANG_KE_DA_GUI": (409, "Bảng kê tháng này đã gửi. Tải lại."),
+    "BANG_KE_TRONG": (422, "Tháng này chưa có chặng nào để gửi."),
+    "BANG_KE_DOI": (409, "Bảng kê vừa đổi ở máy khác. Tải lại, xem lại số rồi bấm lại."),
+    "BANG_KE_CHUA_GUI": (409, "Bảng kê tháng này chưa gửi."),
+    "BANG_KE_DA_DOI_CHIEU": (409, "Bảng kê đã đối chiếu xong: không ghi điều chỉnh nữa."),
+    "BANG_KE_CHUA_DOI_CHIEU": (409, "Bảng kê chưa đối chiếu xong. Bấm Đối chiếu xong trước khi ghi tiền HTH trả."),
+    "LY_DO_DIEU_CHINH": (422, "Cần ghi lý do điều chỉnh."),
+    "DONG_BK_NOT_FOUND": (409, "Không còn dòng bảng kê này. Tải lại."),
+    "DIEU_CHINH_AM": (422, "Bớt nhiều hơn tổng dòng: dòng sau điều chỉnh bị âm."),
+    "TIEN_VE_TRUOC_GUI": (422, "Ngày tiền về trước ngày gửi bảng kê."),
+    "TIEN_VE_THUA": (409, "Số tiền lớn hơn số còn phải thu. HTH trả trước cho tháng sau thì ghi ở tháng sau."),
+    "TIEN_VE_NOT_FOUND": (409, "Không tìm thấy lần tiền về này. Tải lại."),
+    "CHANG_DA_GUI": (409, "Chặng đã vào bảng kê đã gửi HTH: sửa bằng điều chỉnh ở bảng kê."),
+    "TUYEN_NOT_FOUND": (422, "Không tìm thấy tuyến này, hoặc tuyến đã ngưng dùng."),
+    "TUYEN_KHAC_LOAI": (422, "Tuyến này không hợp loại chặng: chặng hàng, rút/thả mooc theo tuyến hàng; chuyển cảng, trả rỗng theo "
+                             "tuyến cùng loại."),
+    "NHO_CHI_CHANG_HANG": (422, "Chỉ nhớ tên gốc cho chặng hàng, rút/thả mooc. Chặng chuyển cảng, trả rỗng gắn riêng từng chặng."),
+    "TEN_GOC_CHI_TUYEN_HANG": (422, "Tên gốc chỉ dùng cho tuyến hàng."),
+    "KHONG_CO_TEN_GOC": (422, "Chặng chưa ghi tên hàng, tỉnh nên không nhớ được. Gắn riêng cho chặng này."),
+    "NGAY_GIA_XA": (422, "Ngày áp dụng quá xa: tối đa một năm tới."),
+    "TUYEN_THIEU": (422, "Thiếu tên hàng hoặc nơi đi của tuyến."),
+    "TEN_GOC_LA": (422, "Tên gốc không hợp lệ."),
+    "TUYEN_TRUNG": (409, "Đã có tuyến này."),
+    "TEN_GOC_TRUNG": (409, "Tên này đang thuộc tuyến hoặc khoản khác."),
+    "MUC_PHAT_SINH": (422, "Mức không hợp cách tính: nhập tay thì không có mức; chỉ khoản theo ngày có mức thêm."),
+})
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
               "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS", "INVALID_REVIEW"):
@@ -309,5 +338,12 @@ SQL["doixe_get_so"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
                        "SELECT doixe.get_so(j->>'loai', (j->>'id')::bigint, (j->>'thang')::date) FROM b;")
 SQL["doixe_get_lich_su"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
                             "SELECT doixe.get_lich_su((j->>'nguoi')::bigint, (j->>'xe')::bigint) FROM b;")
+# DOI-XE-THU-01: đội xe đợt 2. Một bên nhận bảng kê (HTH) nên mã bên cố định ở đây, không nhận từ client.
+for _name in ("gui_bang_ke", "doi_chieu_xong", "ghi_dieu_chinh_bk", "ghi_tien_ve", "huy_tien_ve", "sua_cuoc", "gan_tuyen", "luu_gia",
+              "luu_tuyen", "luu_phat_sinh"):
+    SQL["doixe_" + _name] = f"SELECT doixe.{_name}(:'payload'::jsonb);"
+SQL["doixe_get_bang_ke"] = "SELECT doixe.get_bang_ke('hth', (:'payload'::jsonb->>'thang')::date);"
+SQL["doixe_get_bang_gia"] = "SELECT doixe.get_bang_gia('hth');"
+SQL["doixe_get_lich_su_thu"] = "SELECT doixe.get_lich_su_thu();"
 # /healthz: chỉ chứng minh đường psql của app tới DB còn chạy (audit DevOps 31/10, #6); không đọc sổ.
 SQL["healthz"] = "SELECT 1;"
