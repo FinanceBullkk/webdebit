@@ -85,5 +85,5 @@ Bật `auto_explain` (`log_nested_statements`, `log_analyze`, `log_buffers`) r�
 
 ## CÒN MỞ
 
-- `get_dashboard_debt` (Tổng quan, Việc cần làm, huy hiệu menu) cũng tốn thời gian chủ yếu cho JIT (bản sao: 358 ms, tắt JIT còn 86 ms). Cần một việc riêng, đo các hàm đọc nặng khác (`get_dashboard`, `get_receivables_matrix`, `get_safety_net`…) rồi quyết định tắt JIT theo từng hàm hay cho cả DB V7.
+- `get_dashboard_debt` (Tổng quan, Việc cần làm, huy hiệu menu) cũng tốn thời gian chủ yếu cho JIT (bản sao: 358 ms, tắt JIT còn 86 ms). Đã đo tám hàm đọc nặng ở [HIEU-NANG-02](hieu-nang-02.md): chỉ `get_dashboard_debt` có câu bị JIT (`get_safety_net` chịu JIT qua lần gọi hàm này), nên chỉ tắt JIT trong `get_dashboard_debt`, không đổi cấu hình DB.
 - 135 ms còn lại của sổ 104: dòng sổ gốc khoảng 60%, bảng tháng khoảng 30%. Chưa cần làm.

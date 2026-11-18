@@ -14,6 +14,9 @@ LEDGER_EVENTS_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-0
 LEDGER_EVENTS_ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql"
 # MO-SO-NHANH-03 18/11/2026: get_ledger chuẩn = bản MO-SO-NHANH-02 cộng đúng một mệnh đề SET jit = off (migration ALTER FUNCTION).
 LEDGER_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql"
+# HIEU-NANG-02 18/11/2026: get_dashboard_debt chuẩn = bản DASH-08 (migration thu-thang-theo-so) cộng đúng một mệnh đề SET jit = off.
+DASHBOARD_DEBT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-09-v7-thu-thang-theo-so.sql"
+DASHBOARD_DEBT_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 # Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
@@ -57,6 +60,16 @@ def definition(source: str, kind: str, name: str) -> str:
     if not found:
         raise AssertionError(f"missing {kind} {name}")
     return found.group().replace("\r\n", "\n")
+
+
+def statements(path: Path) -> list[str]:
+    """Các dòng lệnh của một migration, bỏ dòng trống và dòng chú thích."""
+    return [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("--")]
+
+
+def jit_off_migration(signature: str) -> list[str]:
+    """Migration tắt JIT cho một hàm đọc chỉ có ALTER FUNCTION, dưới chủ hàm, trong một giao dịch."""
+    return ["BEGIN;", "SET LOCAL ROLE sokhach_owner;", f"ALTER FUNCTION sokhach.{signature} SET jit = off;", "COMMIT;"]
 
 
 class FeeSqlSync(unittest.TestCase):
@@ -144,10 +157,14 @@ class FeeSqlSync(unittest.TestCase):
                     expected = expected.replace(jit_off, " AS $$")
                 self.assertEqual(definition(ledger_events, "FUNCTION", name), expected)
         with self.subTest(name="get_ledger jit off"):
-            statements = [line for line in LEDGER_JIT_MIGRATION.read_text(encoding="utf-8").splitlines()
-                          if line and not line.startswith("--")]
-            self.assertEqual(statements, ["BEGIN;", "SET LOCAL ROLE sokhach_owner;",
-                                          "ALTER FUNCTION sokhach.get_ledger(bigint) SET jit = off;", "COMMIT;"])
+            self.assertEqual(statements(LEDGER_JIT_MIGRATION), jit_off_migration("get_ledger(bigint)"))
+        with self.subTest(name="get_dashboard_debt"):   # HIEU-NANG-02: thân giữ nguyên, chỉ thêm cấu hình hàm
+            expected = definition(canonical, "FUNCTION", "get_dashboard_debt")
+            self.assertEqual(expected.count(jit_off), 1)
+            self.assertEqual(definition(DASHBOARD_DEBT_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_dashboard_debt"),
+                             expected.replace(jit_off, " AS $$"))
+        with self.subTest(name="get_dashboard_debt jit off"):
+            self.assertEqual(statements(DASHBOARD_DEBT_JIT_MIGRATION), jit_off_migration("get_dashboard_debt()"))
         with self.subTest(name="get_ledger rollback"):
             self.assertEqual(definition(LEDGER_EVENTS_ROLLBACK.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
                              definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"))
