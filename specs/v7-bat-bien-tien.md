@@ -126,4 +126,18 @@ Chỉ là sổ giả trong container dùng một lần; không chứng minh gì 
   340 ms. Đo 18/11/2026: `SELECT count(*) FROM sokhach.v_outstanding_month WHERE customer_id=$1` với plan chung (như
   khi chạy trong hàm plpgsql) mất khoảng 16 ms vì cửa sổ được tính trên mọi sổ, còn với hằng số chỉ 0,2 ms; `get_ledger`
   gọi view này một lần cho mỗi tháng của sổ. Trên `hao` (242 sổ) mở cả 242 sổ mất 23 giây ([lưới an toàn](v7-luoi-an-toan.md)),
-  khớp hướng này. Chưa kiểm trên `hao`; cần một việc riêng để đo và sửa.
+  khớp hướng này.
+- **Kết luận sau khi đo trên `hao` (18/11/2026, chỉ đọc; PostgreSQL 18.6, 242 sổ, 913 tháng nợ): KHÔNG SỬA.**
+  - Mở từng sổ trong một phiên psql mới dưới `v7_app` (như API): cả 242 sổ mất 22,6 giây; trung vị 66 ms, nhỏ nhất
+    58 ms, p95 217 ms, lớn nhất 663 ms (sổ 79).
+  - Phần nằm trong `v_outstanding_month` (`auto_explain` có `ANALYZE`, cộng hai nút của view trong câu tính tháng):
+    2,1% tổng thời gian; sổ cao nhất 5,0%. Cả câu tính tháng là 6%. Dưới ngưỡng 10% đặt ra cho việc này.
+  - Trên `hao` lọc theo sổ được đẩy vào trước cửa sổ, cả khi plan chung: `PREPARE` với `force_generic_plan` đọc
+    view cho sổ 109 mất 1,1 ms. Gọi `get_ledger` 7 lần liền trong một phiên, nút view mỗi tháng vẫn 0,26 ms. Mở cả 242
+    sổ trong một phiên mất 13,7 giây, nhanh hơn phiên mới mỗi sổ. Hiện tượng 16 ms/tháng chỉ thấy ở DB thử với khoảng
+    600 sổ, chưa rõ vì sao; không gặp trên `hao`.
+  - Thời gian thật nằm ở chỗ khác: câu dựng `legacy_rows` (`_legacy_current` từng dòng sổ gốc) khoảng 46%. Phần còn
+    lại khoảng 46% chủ yếu là chi phí cố định của một phiên mới (lập plan, nạp catalog): khoảng 50 ms mỗi lần mở, kể cả
+    sổ gần trống. Nếu cần nhanh hơn thì bắt đầu từ hai chỗ này, là một việc riêng.
+  - Bằng chứng: script và số đo ở `/tmp/perf_*.txt` trên `hao` (tạm, có thể mất khi khởi động lại), không có tên khách
+    hay số tiền.
