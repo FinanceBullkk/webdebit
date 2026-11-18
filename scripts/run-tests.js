@@ -28,6 +28,7 @@ const suites = {
   unit: () => [
     "scripts/test-business-rules.js",
     "scripts/test-check-secrets.js",
+    "scripts/test-flaky-repeat.js",
     "scripts/sheet-capture/test.js",
     ...previewTests(false),
   ],

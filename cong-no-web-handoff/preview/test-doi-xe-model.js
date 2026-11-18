@@ -89,7 +89,8 @@ test('ngữ cảnh sổ: tài xế trả ở sổ tài xế; người đi lệnh
   assert.deepEqual([rented.taiXe, rented.nguoiTra, M.dongGui(rented).tra], [null, null, 'cong_ty']);
   const sent = M.dongGui(M.nhapTuGo({ ngay: '17/11', container: ' mauu 1 ', loai: 'hang', xe: '', ghi_chu: ' vá vỏ ', phi: { nangha: '300', vetc: '' } }, CTX, PHI, XE, '2026-11-18'));
   assert.deepEqual(sent, { ngay: '2026-11-17', container: 'MAUU1', loai: 'hang', xe_id: 1, tai_xe_id: 11, tra: 'nguoi', nguoi_tra_id: 11,
-    noi_lay: null, noi_ha: null, kho: null, tinh: null, ten_hang: null, ghi_chu: 'vá vỏ', phi: { nangha: '300' } });
+    noi_lay: null, noi_ha: null, kho: null, tinh: null, ten_hang: null, ghi_chu: 'vá vỏ', phi: { nangha: '300' },
+    neo_ngay: null, may_gio: null, km: null });
 });
 
 test('tiền chặng: dòng gốc + điều chỉnh + trừ lại; VETC không vào phần hoàn; hiệu lực theo phí; trống là null', () => {
@@ -156,4 +157,35 @@ test('thanh tháng: sổ mới vẫn có tháng trước; tháng đang xem luôn
   const nhieu = ['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'];
   assert.deepEqual(M.cacThang(nhieu, '2026-11-18', '2026-03-01')[0], '2026-03-01');
   assert.equal(M.cacThang(nhieu, '2026-11-18', '2026-11-01').length, 6);
+});
+
+test('phiếu chi mới: số lượng (ngày neo, giờ máy, km) không phải tiền; Nổ máy ghi giờ thành số giờ; km đọc từ ô Tỉnh', () => {
+  const phi = PHI.concat({ ma: 'hasom', ten: 'Hạ sớm/KH', ten_day_du: 'Hạ sớm · kiểm hoá', thu_tu: 16, cot_sheet: null, cong_ty_tra: false });
+  assert.deepEqual(M.docSoLuong('', 365), { v: null });
+  assert.deepEqual(M.docSoLuong('2 ngày', 365), { v: 2 });
+  assert.deepEqual(M.docSoLuong('5 TIẾNG', 999), { v: 5 });
+  assert.deepEqual(M.docSoLuong('120km', 9999), { v: 120 });
+  assert.equal(M.docSoLuong('1,5', 999).loi, 'Số lẻ');
+  assert.equal(M.docSoLuong('0', 999).loi, 'Số 0: để trống');
+  assert.equal(M.docSoLuong('366', 365).loi, 'Quá 365');
+  assert.equal(M.docSoLuong('abc', 365).loi, 'Không phải số');
+  const row = (may, tinh) => { const c = Array(29).fill(''); c[2] = '11/17/2026'; c[3] = 'MAUU1111111'; c[5] = tinh; c[13] = '300,000'; c[27] = may; return c.join('\t'); };
+  const [gio, tien, chu] = M.danKhoi([row('5H', 'Long An, 45 km'), row('200,000', 'Bình Dương'), row('3 TIẾNG', '')].join('\n')
+    .replace(/MAUU1111111/g, (m, i) => `MAUU111111${i % 10}`), CTX, phi, XE, new Set(), []).drafts;
+  assert.deepEqual([gio.may_gio, gio.phi.may, gio.km, gio.loiO.may], [5, undefined, 45, undefined], '5H là giờ máy, không phải tiền');
+  assert.deepEqual([tien.may_gio, tien.phi.may, tien.km], [null, 200000, null], 'số không đơn vị vẫn là tiền như cũ');
+  assert.equal(chu.may_gio, 3);
+  assert.equal(M.chiNhap(gio, phi), 300000, 'giờ máy không cộng vào tài xế chi');
+  const moi = M.nhapTuGo({ ngay: '17/11', container: 'MAUU2222222', loai: 'hang', xe: '1', neo_ngay: '2', may_gio: '1,5', km: '',
+    phi: { hasom: '250.000' } }, CTX, phi, XE, '2026-11-18');
+  assert.deepEqual([moi.neo_ngay, moi.loiSL.may_gio, moi.thoSL.may_gio, moi.phi.hasom], [2, 'Số lẻ', '1,5', 250000]);
+  assert.equal(M.kiemDong(moi, new Set(), [moi], phi, '2026-11-18').loi, 'Số lẻ');
+  M.ganSoLuong(moi, 'may_gio', '4', 999);
+  assert.equal(M.kiemDong(moi, new Set(), [moi], phi, '2026-11-18').loi, '');
+  const gui = M.dongGui(moi);
+  assert.deepEqual([gui.neo_ngay, gui.may_gio, gui.km, gui.phi.hasom], ['2', '4', null, '250000']);
+  assert.equal(M.chiNhap(moi, phi), 250000, 'Hạ sớm/KH là tài xế chi');
+  assert.ok(M.moiCo({ km: '12' }), 'hàng trống chỉ gõ km vẫn là có chữ');
+  assert.equal(M.moTaSuKien({ viec: 'sua_chang', truoc: { cot: 'may_gio', gia_tri: null, ngay: '2026-11-17', container: 'MAUU1' },
+    sau: { gia_tri: '4' } }, { nguoi: [], xe: [] }, phi).chi, 'Giờ máy · 17/11 · MAUU1');
 });

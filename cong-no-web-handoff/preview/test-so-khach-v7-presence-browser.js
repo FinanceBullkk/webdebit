@@ -7,6 +7,18 @@ const { todayMonth, withPage, tripCell, reload, settled } = require('./so-khach-
 const lan = { id: 'p1', name: 'Lan', color: 0, page: 'so-khach', customer_id: 1, month: '2026-09', cell: { row: 'trip:11', col: 'c2', editing: true }, pointer: null };
 const hoa = { id: 'p2', name: 'Hoa', color: 2, page: 'dashboard', customer_id: null, month: null, cell: null, pointer: null };
 
+// Báo cáo vị trí mới nhất thỏa `check`. Trang báo bằng POST /api/v7/presence khi đổi ô, khi chuột di và mỗi 2 giây
+// (máy chủ giả không có SSE); máy chủ giả ghi báo cáo trước khi trả lời. Nên chờ từng phản hồi rồi xét lại, không ngủ
+// rồi đọc: máy chậm chỉ làm phản hồi về muộn, không làm ca đỏ. Đếm số lần báo (không đếm giây) để ca sai không treo mãi.
+async function reportWhere(page, world, check, most = 15) {
+  for (let seen = 0; ; seen += 1) {
+    const answered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v7/presence' && response.request().method() === 'POST');
+    const last = (world.presenceReports ?? []).at(-1);
+    if (check(last) || seen === most) { answered.catch(() => {}); return last; }
+    await answered;
+  }
+}
+
 test('thấy người khác: vòng tròn, ô đang sửa, bấm vòng tròn thì tới ô đó', async () => withPage(async ({ page, shot }) => {
   await page.locator('.presence-avatar').nth(1).waitFor();
   const avatars = await page.locator('.presence-avatar').evaluateAll(nodes => nodes.map(node => [node.getAttribute('aria-label'), node.classList.contains('away')]));
@@ -26,13 +38,7 @@ test('báo vị trí của mình: khóa dòng + cột, đang sửa khi mở ô n
   const col = `c${await cell.evaluate(td => td.cellIndex)}`;
   await cell.click();
   await page.locator('.info-input').waitFor();
-  const deadline = Date.now() + 6000;
-  let last;
-  while (Date.now() < deadline) {
-    last = (world.presenceReports ?? []).at(-1);
-    if (last?.cell?.editing) break;
-    await page.waitForTimeout(100);
-  }
+  const last = await reportWhere(page, world, report => report?.cell?.editing);
   const { pointer: _pointer, ...report } = last;   // chuột vừa bấm ô cũng được báo (mức 2), kiểm riêng ở test dưới
   assert.deepEqual({ ...report, tab: 'x' }, { tab: 'x', page: 'so-khach', customer_id: 1, month: '2026-09', cell: { row: 'trip:11', col, editing: true } });
   await settled(page);
@@ -51,21 +57,22 @@ test('lưu lúc sổ vừa đổi: câu báo kèm tên người cùng mở sổ'
 }, world => { world.people = [{ ...lan, cell: null }]; }));
 
 // Mức 2: mũi tên chuột người khác neo theo ô; nút Ẩn con trỏ nhớ sau tải lại.
-const pointerAt = page => page.evaluate(() => {
+const pointerInfo = () => {
   const arrow = document.querySelector('.presence-pointer');
   const td = document.querySelector('tr[data-row="trip-11"]')?.cells[2].getBoundingClientRect();
   if (!arrow || !td) return null;
   const x = parseFloat(arrow.style.left) - scrollX, y = parseFloat(arrow.style.top) - scrollY;
   return { inside: x >= td.left && x <= td.right && y >= td.top && y <= td.bottom, name: arrow.textContent };
-});
+};
+const pointerAt = page => page.evaluate(pointerInfo);
 
 test('mũi tên chuột người khác nằm đúng ô ở mọi cỡ màn hình; Ẩn con trỏ nhớ sau tải lại', async () => withPage(async ({ page, shot }) => {
   await page.locator('.presence-pointer').waitFor();
   assert.deepEqual(await pointerAt(page), { inside: true, name: 'Lan' });
   await shot('presence-con-tro');
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.waitForFunction(() => document.querySelector('.presence-pointer'));
-  await page.waitForTimeout(300);
+  // Đổi khổ thì mũi tên vẽ lại ở khung hình kế tiếp (sự kiện resize → requestAnimationFrame): chờ nó về đúng ô.
+  await page.waitForFunction(`(${pointerInfo})()?.inside`);
   assert.deepEqual(await pointerAt(page), { inside: true, name: 'Lan' });
   const toggle = page.locator('.settings-menu .presence-toggle');
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
@@ -78,7 +85,9 @@ test('mũi tên chuột người khác nằm đúng ô ở mọi cỡ màn hình
   await reload(page);
   await page.locator('.presence-avatar').first().waitFor();
   assert.equal(await page.locator('.settings-menu .presence-toggle').textContent(), 'Hiện con trỏ');
-  await page.waitForTimeout(500);
+  // Ô của Lan được đánh dấu trong cùng lượt vẽ với mũi tên (presence.js decorate → drawPointers), lúc bảng đã có dòng:
+  // thấy dấu ô thì lượt vẽ đó đã bỏ mũi tên, khỏi ngủ chờ.
+  await page.waitForFunction(() => document.querySelector('tr[data-row="trip-11"]')?.cells[2].dataset.presence === 'Lan');
   assert.equal(await page.locator('.presence-pointer').count(), 0);
 }, world => { world.people = [{ ...lan, cell: { row: 'trip:11', col: 'c2', editing: false }, pointer: { row: 'trip:11', col: 'c2', fx: 500, fy: 500 } }]; }));
 
@@ -87,15 +96,7 @@ test('báo chuột của mình: ô + phần nghìn trong ô; rời bảng thì b
   const col = `c${await cell.evaluate(td => td.cellIndex)}`;
   const box = await cell.boundingBox();
   await page.mouse.move(box.x + box.width / 4, box.y + box.height / 2);
-  const reported = async check => {
-    const deadline = Date.now() + 6000;
-    while (Date.now() < deadline) {
-      const last = (world.presenceReports ?? []).at(-1);
-      if (check(last)) return last;
-      await page.waitForTimeout(50);
-    }
-    return (world.presenceReports ?? []).at(-1);
-  };
+  const reported = check => reportWhere(page, world, check);
   const moved = await reported(last => last?.pointer);
   assert.equal(moved.pointer.row, 'trip:11');
   assert.equal(moved.pointer.col, col);
@@ -132,13 +133,7 @@ test('bảng chi tiết: báo được chuột của mình, kèm cột theo đú
   await cell.waitFor();
   const box = await cell.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  const deadline = Date.now() + 6000;
-  let last;
-  while (Date.now() < deadline) {
-    last = (world.presenceReports ?? []).at(-1);
-    if (last?.pointer) break;
-    await page.waitForTimeout(50);
-  }
+  const last = await reportWhere(page, world, report => report?.pointer);
   assert.equal(last?.pointer?.row, 'legacy:1');
   assert.equal(last?.pointer?.col, 'g1');
 }, world => withDetail(world)));
@@ -155,21 +150,23 @@ test('hai người xem hai bảng khác nhau: mũi tên về ô container của 
 
 test('chưa bấm ô nào vẫn báo tháng đang xem, để người khác biết vì sao không thấy mũi tên của mình', async () => withPage(async ({ page, world }) => {
   await page.locator('tr[data-detail="legacy-1"]').waitFor();
-  const deadline = Date.now() + 6000;
-  while (Date.now() < deadline && !(world.presenceReports ?? []).at(-1)?.month) await page.waitForTimeout(100);
-  assert.equal((world.presenceReports ?? []).at(-1)?.month, KEY);
+  assert.equal((await reportWhere(page, world, report => report?.month))?.month, KEY);
 }, world => withDetail(world)));
 
 test('quay lại tab: báo ngay, không đợi nhịp 10 giây', async () => withPage(async ({ page, world }) => {
   await page.locator('tr[data-detail="legacy-1"]').waitFor();
-  // Máy chủ giả không có SSE nên trang hỏi mỗi 2 giây: đo ngay sau một lần báo, cửa sổ 500 ms không dính lần hỏi kế tiếp.
-  const count = () => (world.presenceReports ?? []).length;
-  const seen = count();
-  const until = Date.now() + 6000;
-  while (Date.now() < until && count() === seen) await page.waitForTimeout(10);
-  const before = count();
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
-  const deadline = Date.now() + 500;
-  while (Date.now() < deadline && count() === before) await page.waitForTimeout(10);
-  assert.ok(count() > before, 'không gửi báo vị trí khi tab hiện lại');
+  // "Ngay" là ngay trong lúc xử lý sự kiện: lệnh báo phải được gọi trước khi dispatchEvent trả về. Đo bằng cách nhìn
+  // fetch trong chính lượt đó, không đếm báo cáo trong một cửa sổ giờ (nhịp hỏi 2 giây có thể rơi vào, máy chậm thì lỡ).
+  const sent = await page.evaluate(() => {
+    const real = window.fetch;
+    let presence = false;
+    window.fetch = (url, init) => {
+      if (String(url) === '/api/v7/presence' && init?.method === 'POST') presence = true;
+      return real(url, init);
+    };
+    try { document.dispatchEvent(new Event('visibilitychange')); } finally { window.fetch = real; }
+    return presence;
+  });
+  assert.ok(sent, 'không gửi báo vị trí khi tab hiện lại');
+  await reportWhere(page, world, report => report?.month === KEY);   // lệnh vừa gửi về tới máy chủ, đúng tháng đang xem
 }, world => withDetail(world)));

@@ -16,7 +16,7 @@
   };
   const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
 
-  const moiTrong = () => ({ ngay: '', container: '', loai: 'hang', xe: '', noi_lay: '', noi_ha: '', kho: '', ghi_chu: '', phi: {} });
+  const moiTrong = () => ({ ngay: '', container: '', loai: 'hang', xe: '', noi_lay: '', noi_ha: '', kho: '', ghi_chu: '', neo_ngay: '', may_gio: '', km: '', phi: {} });
   S.moi = moiTrong();
 
   // ---------- Địa chỉ ----------
@@ -196,8 +196,47 @@
     if (S.loading && !S.data) { root.innerHTML = '<p class="dx-loading">Đang tải…</p>'; return; }
     if (S.loadError && !S.data) { root.innerHTML = `<div class="dx-err" role="alert">${esc(S.loadError)} <button type="button" class="dx-btn" data-act="thu-lai">Thử lại</button></div>`; return; }
     const stale = S.loadError ? `<div class="dx-err" role="alert">${esc(S.loadError)} Đang hiện số đọc lần trước. <button type="button" class="dx-btn" data-act="thu-lai">Thử lại</button></div>` : '';
+    // Vẽ lại cùng một bảng (lưu ô, tải lại) thì giữ chỗ đang kéo ngang; đổi người, tháng, Gọn/Đủ cột hay mở Hoàn thì về đầu bảng.
+    const x = root.querySelector('.dx-scroll')?.scrollLeft ?? 0;
+    const khoaNgang = `${S.view}:${S.id}:${S.data?.thang}:${S.cach}:${Boolean(S.hoan)}`;
     if (S.view === 'tong') root.innerHTML = stale + tongHtml();
     else root.innerHTML = stale + soHtml();
+    if (x && khoaNgang === ngang.bang) for (const el of root.querySelectorAll(NGANG)) el.scrollLeft = x;
+    ngang.bang = khoaNgang;
+    // Chỉ hai dải này chặn lăn chuột; gắn cả vùng sổ với passive:false thì Chrome phải chờ JS trước mỗi lần cuộn dọc.
+    for (const el of root.querySelectorAll('.dx-hdw, .dx-hbar')) el.addEventListener('wheel', lanNgang, { passive: false });
+  }
+
+  // ---------- Kéo ngang bảng rộng ----------
+  // Tiêu đề cột (.dx-hdw) dính đầu màn, thanh kéo ngang (.dx-hbar) dính đáy màn, thân bảng (.dx-scroll) ở giữa: ba khung luôn
+  // cùng một chỗ ngang. Đặt chỗ cho hai khung kia cũng sinh sự kiện cuộn; nhớ giá trị vừa đặt để nhận ra tiếng vọng đó và bỏ qua,
+  // nếu không khung theo sẽ kéo ngược khung đang trượt (bấm rãnh thanh kéo trượt êm qua nhiều khung hình).
+  const NGANG = '.dx-hdw, .dx-scroll, .dx-hbar';
+  const ngang = { bang: '', vong: new WeakMap() };
+  root.addEventListener('scroll', e => {
+    const el = e.target;
+    if (!(el instanceof Element) || !el.matches(NGANG)) return;
+    const cho = ngang.vong.get(el);
+    ngang.vong.delete(el);
+    if (cho !== undefined && Math.abs(el.scrollLeft - cho) < 1) return;
+    for (const o of el.closest('.dx-bang').querySelectorAll(NGANG)) {
+      if (o === el || Math.abs(o.scrollLeft - el.scrollLeft) < 1) continue;
+      o.scrollLeft = el.scrollLeft;
+      ngang.vong.set(o, o.scrollLeft);
+    }
+  }, true);
+  // Lăn chuột trên dòng tiêu đề cột hoặc thanh kéo ngang thì bảng chạy ngang; trên thân bảng vẫn lên xuống như thường (Shift + lăn
+  // thì ngang ở mọi chỗ, trình duyệt tự làm). Hết đường ngang thì nhả để trang cuộn tiếp.
+  function lanNgang(e) {
+    if (e.ctrlKey) return;
+    const than = e.currentTarget.closest('.dx-bang').querySelector('.dx-scroll');
+    const buoc = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? than.clientWidth : 1;
+    const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * buoc;
+    const x = Math.max(0, Math.min(than.scrollWidth - than.clientWidth, than.scrollLeft + d));
+    if (Math.abs(x - than.scrollLeft) < 1) return;
+    e.preventDefault();
+    ngang.vong.delete(than);
+    than.scrollLeft = x;
   }
 
   // ---------- Màn Đội xe ----------
@@ -331,6 +370,10 @@
     if (du || ctx.xemXe) cols.push({ k: 'xe', t: 'Xe', w: 116 });
     cols.push({ k: 'loai', t: 'Loại chặng', w: 136 });
     if (du) cols.push({ k: 'noi_lay', t: 'Nơi lấy', w: 124 }, { k: 'noi_ha', t: 'Nơi hạ', w: 124 }, { k: 'kho', t: 'Kho', w: 110 });
+    // Phiếu chi mới (11/2026): số lượng ghi trên phiếu, không phải tiền nên không vào cột Tài xế chi.
+    if (du) cols.push({ k: 'km', t: 'Km', d: 'Km của chặng ghi trên phiếu chi', w: 64, sl: true },
+      { k: 'neo_ngay', t: 'Ngày neo', d: 'Số ngày neo kho (tiền neo ở cột Neo)', w: 70, sl: true },
+      { k: 'may_gio', t: 'Giờ máy', d: 'Số giờ nổ máy phát (tiền ở cột Nổ máy)', w: 70, sl: true });
     const wPhi = ctx.xemTx || ctx.xemXe ? 82 : 88;
     let khac = [];
     if (du) {
@@ -371,7 +414,7 @@
     let left = 0;
     const stickyAt = cols.map(c => { if (!sticky.has(c.k)) return null; const at = left; left += c.w; return at; });
     const st = i => (stickyAt[i] !== null ? ` style="left:${stickyAt[i]}px"` : '');
-    const cls = (c, i) => `${c.tien ? 'r num' : ''}${stickyAt[i] !== null ? ' dx-stick' : ''}${c.cty ? ' cty' : ''}`;
+    const cls = (c, i) => `${c.tien || c.sl ? 'r num' : ''}${stickyAt[i] !== null ? ' dx-stick' : ''}${c.cty ? ' cty' : ''}`;
     const heads = cols.map((c, i) => `<span class="${cls(c, i)}"${st(i)} ${c.d ? `title="${esc(c.d)}"` : ''}>${esc(c.t)}</span>`).join('');
     const rows = [];
     if (hoanMo) {
@@ -410,14 +453,16 @@
     if (khoaT && !hoanMo) {
       html += `<div class="dx-khoa"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span>Tháng ${Number(d.thang.slice(5, 7))} đã khóa. Sửa số tiền sẽ thêm dòng điều chỉnh, số cũ giữ nguyên.</span><button type="button" class="dx-btn" data-act="doi-khoa">Mở khóa</button></div>`;
     }
-    html += `<div class="dx-scroll"><div class="dx-inner" style="min-width:${minW}px"><div class="dx-hd" style="grid-template-columns:${g}">${heads}</div>${rows.join('')}`;
+    // Tiêu đề cột nằm ngoài khung cuộn ngang thì mới dính được đầu màn khi lăn trang xuống (sticky không thoát khỏi overflow).
+    html += `<div class="dx-hdw"><div class="dx-hd" style="min-width:${minW}px;grid-template-columns:${g}">${heads}</div></div>`
+      + `<div class="dx-scroll"><div class="dx-inner" style="min-width:${minW}px">${rows.join('')}`;
     if (!hoanMo) html += nhapBarHtml(ctx);
     if (!hoanMo && changs.length) html += tongHtmlRow(changs, cols, ctx, g, st, khac);
     if (hoanMo && dsHoan.length) {
       const tongChon = M.tongChon(dsHoan, S.hoan.chon);
       html += `<div class="dx-tong" style="grid-template-columns:${g}">${cols.map((c, i) => `<span class="${cls(c, i)}${c.k === 'ngay' ? ' nhan' : ''}"${st(i)}>${c.k === 'ngay' ? 'Tổng đang chọn' : c.k === 'chi' ? M.fmt(tongChon) : ''}</span>`).join('')}</div>`;
     }
-    return `${html}</div></div></div>`;
+    return `${html}</div></div><div class="dx-hbar" aria-hidden="true"><div style="width:${minW}px"></div></div></div>`;
   }
 
   const cellIn = (f, v, opt = {}) => `<input class="dx-in${opt.tien ? ' r num' : ''}${opt.loi ? ' loi' : ''}${opt.cont ? ' mono' : ''}" data-f="${f}" value="${esc(v ?? '')}"${opt.ph ? ` placeholder="${esc(opt.ph)}"` : ''} aria-label="${esc(opt.aria ?? '')}"${opt.title ? ` title="${esc(opt.title)}"` : ''} autocomplete="off"${opt.dis ? ' disabled' : ''}>`;
@@ -457,6 +502,10 @@
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') {
         if (phu) return wrap('');
         return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, c[k], { aria: `${col.t} · ${aria}` }));
+      }
+      if (col.sl) {
+        if (phu) return wrap('');
+        return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, c[k] ?? '', { tien: true, aria: `${col.t} · ${aria}` }));
       }
       if (k === 'khac') {
         const s = phu ? M.phiKhac({ dong: [dong] }, khac) : M.phiKhac({ dong: [dong] }, khac);
@@ -545,6 +594,7 @@
       if (k === 'xe') return wrap(selXe('moi:0:xe', Number(m.xe) || ctx.xe, 'Xe · hàng trống'));
       if (k === 'loai') return wrap(selLoai('moi:0:loai', m.loai, 'Loại chặng · hàng trống'));
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') return wrap(cellIn(`moi:0:${k}`, m[k], { aria: `${col.t} · hàng trống` }));
+      if (col.sl) return wrap(cellIn(`moi:0:${k}`, m[k], { tien: true, aria: `${col.t} · hàng trống` }));
       if (col.tien && k !== 'chi' && k !== 'khac') return wrap(cellIn(`moi:0:phi:${k}`, m.phi[k] ?? '', { tien: true, aria: `${col.t} · hàng trống` }));
       if (k === 'tt') return wrap(co ? tag('Enter để thêm', 'xam', 'Bấm Enter để đưa dòng này vào nháp') : '');
       if (k === 'del') return wrap(co ? `<button type="button" class="dx-del" data-act="xoa-moi" aria-label="Xóa chữ đang gõ ở hàng trống" title="Xóa chữ đang gõ ở hàng trống"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>` : '');
@@ -566,6 +616,7 @@
       if (k === 'xe') return wrap(selXe(`nhap:${id}:xe`, x.xe, `Xe · ${aria}`, kq.loiCot.xe));
       if (k === 'loai') return wrap(selLoai(`nhap:${id}:loai`, x.loai, `Loại chặng · ${aria}`));
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') return wrap(cellIn(`nhap:${id}:${k}`, x[k], { aria: `${col.t} · ${aria}` }));
+      if (col.sl) return wrap(cellIn(`nhap:${id}:${k}`, loi ? x.thoSL?.[k] ?? '' : x[k] ?? '', { tien: true, loi, title: loi, aria: `${col.t} · ${aria}` }));
       if (k === 'khac') {
         const loiK = khac.map(p => kq.loiCot[p.ma]).find(Boolean);
         if (loiK) return wrap(tag(loiK, 'loi', 'Ô phí khác có lỗi: xem Đủ cột'));
@@ -767,6 +818,7 @@
       else { delete x.loiO[ma]; delete x.tho[ma]; if (r.v === null) delete x.phi[ma]; else x.phi[ma] = r.v; }
       x.tongSheet = null;
     } else if (col === 'xe') { x.xe = text ? Number(text) : null; x.xeLoi = ''; M.hoanThien(x, ngCanh(), dm().xe); }
+    else if (M.SO_LUONG[col]) M.ganSoLuong(x, col, text, M.SO_LUONG[col].max);
     else x[col] = text;
   }
 
@@ -798,6 +850,12 @@
     } else if (col === 'nguoi_tra') {
       truoc = c.nguoi_tra_id === null ? 'cong_ty' : String(c.nguoi_tra_id); giaTri = text;
       if (truoc === giaTri) return;
+    } else if (M.SO_LUONG[col]) {
+      const sl = M.SO_LUONG[col], r = M.docSoLuong(text, sl.max);
+      if (r.loi) { bao(`${r.loi} ở ô ${sl.ten}: gõ số nguyên từ 1 tới ${sl.max}, hoặc để trống.`, 'err'); draw(); return; }
+      if (r.v === (c[col] ?? null)) { draw(); return; }
+      truoc = c[col] === null || c[col] === undefined ? null : String(c[col]);
+      giaTri = r.v === null ? null : String(r.v);
     } else {
       const moi = text.trim() || null;
       if (moi === (c[col] ?? null)) return;

@@ -28,3 +28,5 @@ playwright-report/
 *.p12
 *.pfx
 credentials*.json
+# Log của scripts/flaky-repeat.js (CHAP-CHON-01)
+.flaky/

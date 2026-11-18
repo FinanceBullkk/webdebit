@@ -399,7 +399,7 @@ if (process.argv.includes('--preview')) {
       const reread = page.waitForResponse(/\/api\/v7\/inbox$/);
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await reread;
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+      await page.evaluate(() => window.ViecCanLam.idle());   // mọi lượt đọc nền đã vẽ, không ngủ rồi đoán
       assert.equal(await page.locator('.dc-detail').count(), 0, 'đóng tay thì tải nền không mở lại');
     });
   });

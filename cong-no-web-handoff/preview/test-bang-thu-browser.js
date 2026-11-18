@@ -736,10 +736,12 @@ test('Tự tải lại không làm mất ngày đang lọc và phiếu đang m�
     await page.locator('tr.pay').first().locator('.row-link').click();
     await page.locator('tr.sub').first().waitFor();
     const before = calls.length;
+    const loads = Number(await page.locator('body').getAttribute('data-loads'));
     await page.locator('#refresh-data').click();
-    for (let tries = 0; calls.length === before && tries < 50; tries += 1) await page.waitForTimeout(20);
+    // Chờ lượt đọc lại vẽ xong (bang-thu-ui.js đếm lượt ở body[data-loads]); tr.sub có sẵn từ trước nên không dùng làm tín hiệu.
+    await page.waitForFunction(seen => Number(document.body.dataset.loads) > seen, loads);
     assert.ok(calls.length > before, 'có đọc lại');
-    await page.locator('tr.sub').first().waitFor();
+    assert.ok(await page.locator('tr.sub').count() > 0, 'phiếu đang mở vẫn bung sau khi vẽ lại');
     assert.equal(await page.locator('#chip-day').count(), 1);
     assert.equal(await page.locator('tr.pay.open').count(), 1);
   });
