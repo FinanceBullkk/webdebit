@@ -242,7 +242,7 @@
     anchor.insertAdjacentHTML('afterend', panel(ps));
     renderPop();
   }
-  root.addEventListener('click', async event => {
+  root.addEventListener('click', api.tracked(async event => {
     const target = event.target.closest('.ps-approve,.ps-cancel,.ps-review-toggle,.ps-reload,.ps-write,.ps-unlock,.ps-next');
     if (!target || target.disabled || !ctx.snapshot) return;
     if (target.matches('.ps-next')) {
@@ -306,11 +306,11 @@
     showNotice(result.complete === false
       ? `Đã tách ${result.written} chuyến; còn ${result.remaining} chuyến chưa tách. Bấm "Tách … phụ phí theo bảng PS" để tách tiếp.`
       : `Đã tách phụ phí ${result.written} chuyến theo bảng PS. Tổng tiền không đổi${plan.same ? ` (${model.formatVnd(plan.totalVnd)} đ phụ phí)` : ''}; Lịch sử ghi từng chuyến.`);
-  });
+  }));
   // "… hết báo": một lệnh giữ cho mỗi chuyến (keep_sheet_task 'ps'), lần lượt, đọc lại sổ giữa hai lệnh để có version mới.
   // Chưa rõ kết quả thì bấm lại gửi đúng khóa cũ (không ghi Lịch sử hai lần).
   const keepBodies = new Map();
-  root.addEventListener('click', async event => {
+  root.addEventListener('click', api.tracked(async event => {
     const button = event.target.closest('.ps-keep');
     if (!button || button.disabled || !ctx.snapshot) return;
     if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
@@ -347,6 +347,6 @@
       try { await api.read(); } catch { showNotice('Đã ghi câu trả lời; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
     }
     showNotice(`Đã ghi câu trả lời cho ${done} cont; số nợ không đổi, Lịch sử ghi người chọn. Bảng chi phí đổi thì máy hỏi lại.`);
-  });
+  }));
   Object.assign(ctx, { psAfterRender });
 };

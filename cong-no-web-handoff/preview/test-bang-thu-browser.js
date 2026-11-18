@@ -470,7 +470,7 @@ test('Bảng thu: tải lỗi thì báo và có Thử lại, không có chữ c�
   });
 });
 
-test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn: không cuộn ngang ở mọi tab, chữ dài không vỡ, menu tám mục nằm gọn', () => withPage({ book: () => {
+test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn: không cuộn ngang ở mọi tab, chữ dài không vỡ, menu chín mục nằm gọn', () => withPage({ book: () => {
   const book = november();
   const row = web(40, 9, 'SỔ C', '2026-11-04', '123456789012', 'GHI CHÚ RẤT DÀI '.repeat(12), Array.from({ length: 9 }, (_, n) => debt(`2026-0${n + 1}-01`, '1')));
   book.days[0].rows.push(row);
@@ -488,7 +488,7 @@ test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn:
   const overflow = await page.locator('tr.pay .note').last().evaluate(node => ({ height: node.closest('tr').getBoundingClientRect().height }));
   assert.ok(overflow.height <= 48, `dòng cao ${overflow.height}`);
   const links = page.locator('.app-nav nav a');
-  assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Việc cần làm', 'Máy chạy', 'Thông tin cty']);
+  assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Việc cần làm', 'Máy chạy', 'Đội xe', 'Thông tin cty']);
   const last = await links.last().boundingBox();
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
   // Đo với font mặc định, rồi với font rộng hơn như máy không có Segoe UI.
@@ -549,10 +549,10 @@ test('Bảng thu: dữ liệu thử có băng báo', () => withPage({ book: () =
   assert.match(await page.locator('#demo-banner').innerText(), /Dữ liệu thử/);
 }));
 
-test('Menu riêng của Sổ khách cũng có Bảng thu, Máy chạy, Thông tin cty, Báo cáo tháng và tám mục lọt khung 1280×560', () => withPage({ book: byMonth }, async (page, base) => {
+test('Menu riêng của Sổ khách cũng có Bảng thu, Máy chạy, Thông tin cty, Báo cáo tháng và chín mục lọt khung 1280×560', () => withPage({ book: byMonth }, async (page, base) => {
   const html = fs.readFileSync(path.join(__dirname, 'so-khach-v7-live.html'), 'utf8');
   const order = [...html.match(/<nav aria-label="Điều hướng chính">.*?<\/nav>/s)[0].matchAll(/<span>([^<]+)<\/span>/g)].map(match => match[1]);
-  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Việc cần làm', 'Máy chạy', 'Thông tin cty']);
+  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Việc cần làm', 'Máy chạy', 'Đội xe', 'Thông tin cty']);
   await page.goto(`${base}/test-fixture-none`);
   await page.setContent(`<!doctype html><link rel="stylesheet" href="${base}/so-khach-v7.css"><link rel="stylesheet" href="${base}/so-khach-v7-priority.css">${html.match(/<header class="topbar">.*?<\/header>/s)[0]}`);
   await page.waitForLoadState('load');
@@ -736,10 +736,12 @@ test('Tự tải lại không làm mất ngày đang lọc và phiếu đang m�
     await page.locator('tr.pay').first().locator('.row-link').click();
     await page.locator('tr.sub').first().waitFor();
     const before = calls.length;
+    const loads = Number(await page.locator('body').getAttribute('data-loads'));
     await page.locator('#refresh-data').click();
-    for (let tries = 0; calls.length === before && tries < 50; tries += 1) await page.waitForTimeout(20);
+    // Chờ lượt đọc lại vẽ xong (bang-thu-ui.js đếm lượt ở body[data-loads]); tr.sub có sẵn từ trước nên không dùng làm tín hiệu.
+    await page.waitForFunction(seen => Number(document.body.dataset.loads) > seen, loads);
     assert.ok(calls.length > before, 'có đọc lại');
-    await page.locator('tr.sub').first().waitFor();
+    assert.ok(await page.locator('tr.sub').count() > 0, 'phiếu đang mở vẫn bung sau khi vẽ lại');
     assert.equal(await page.locator('#chip-day').count(), 1);
     assert.equal(await page.locator('tr.pay.open').count(), 1);
   });

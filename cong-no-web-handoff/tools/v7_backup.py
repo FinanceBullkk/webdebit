@@ -34,7 +34,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DUMP = "sokhach.dump"
+DUMP = "sokhach.dump"  # tên giữ nguyên cho chuỗi niêm phong/kéo về PC; từ 18/11/2026 gồm cả schema doixe khi có
+# CHI-PHI-XE-01: schema đội xe nằm cùng DB; có thì dump chung một lần, cùng ảnh dữ liệu, đếm dòng riêng trong manifest.
+EXTRA_SCHEMAS = ("doixe",)
 MANIFEST = "MANIFEST.json"
 CONFIG_MANIFEST = "CONFIG.json"
 VN = timezone(timedelta(hours=7))
@@ -181,7 +183,15 @@ def database_state(snapshot):
         "SELECT coalesce(json_object_agg(c.id::text, "
         "sokhach.get_ledger(c.id)->'total_outstanding_vnd'),'{}'::json) "
         "FROM sokhach.customer c;")
-    return {"table_row_counts": counts, "customer_totals": totals}
+    state = {"table_row_counts": counts, "customer_totals": totals}
+    for schema in EXTRA_SCHEMAS:
+        extra = snapshot.query("SELECT coalesce(json_agg(c.relname ORDER BY c.relname),'[]'::json) "
+                               "FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                               f"WHERE n.nspname='{schema}' AND c.relkind IN ('r','p');")
+        if extra:
+            state[f"{schema}_row_counts"] = {
+                name: snapshot.query(f"SELECT to_json(count(*)) FROM {schema}.{quote_name(name)};") for name in extra}
+    return state
 
 
 def repository_roots():
@@ -237,12 +247,18 @@ def validate_state(state):
         raise BackupError("invalid manifest customer_totals: VND must be integer text or null")
     if len(totals) != counts["customer"]:
         raise BackupError("manifest customer count does not match customer_totals")
+    for schema in EXTRA_SCHEMAS:
+        extra = state.get(f"{schema}_row_counts")
+        if extra is not None and (not isinstance(extra, dict) or not extra or any(
+                not isinstance(k, str) or not k or type(v) is not int or v < 0 for k, v in extra.items())):
+            raise BackupError(f"invalid manifest {schema}_row_counts")
 
 
 def validate_manifest(value):
     keys = {"format_version", "schema", "dump_file", "dump_sha256", "pg_dump_version",
             "server_version", "created_at_vn", "table_row_counts", "customer_totals"}
-    if not isinstance(value, dict) or set(value) != keys:
+    optional = {f"{schema}_row_counts" for schema in EXTRA_SCHEMAS}
+    if not isinstance(value, dict) or not keys <= set(value) <= keys | optional:
         raise BackupError("invalid manifest fields")
     if type(value["format_version"]) is not int or value["format_version"] != 1:
         raise BackupError("unsupported manifest format_version")
@@ -291,8 +307,11 @@ def verify(folder):
 def compare(expected, actual):
     """Absent customer is different from an existing customer with NULL total."""
     differences = []
-    for group in ("table_row_counts", "customer_totals"):
-        before, after = expected[group], actual[group]
+    groups = ("table_row_counts", "customer_totals", *(f"{schema}_row_counts" for schema in EXTRA_SCHEMAS))
+    for group in groups:
+        if group not in expected and group not in actual:
+            continue
+        before, after = expected.get(group, {}), actual.get(group, {})
         for key in sorted(before.keys() | after.keys()):
             if key not in before or key not in after or before[key] != after[key]:
                 old = repr(before[key]) if key in before else "MISSING"
@@ -309,8 +328,8 @@ def report(expected, actual):
             print(detail)
     else:
         print(f"{len(actual['table_row_counts'])} tables; {len(actual['customer_totals'])} customers")
-        for group in ("table_row_counts", "customer_totals"):
-            for key, value in sorted(actual[group].items()):
+        for group in ("table_row_counts", "customer_totals", *(f"{schema}_row_counts" for schema in EXTRA_SCHEMAS)):
+            for key, value in sorted(actual.get(group, {}).items()):
                 print(f"{group}.{key}={value!r}")
     return int(bool(differences))
 
@@ -325,7 +344,8 @@ def backup(out, pg=None):
         validate_state(state)
         server = snapshot.query("SELECT to_json(current_setting('server_version'));")
         with (out / DUMP).open("xb") as stream:
-            pg.run("pg_dump", "-w", "-Fc", "--schema=sokhach", "--snapshot", snapshot.id, stdout=stream)
+            schemas = ["--schema=sokhach", *(f"--schema={schema}" for schema in EXTRA_SCHEMAS if f"{schema}_row_counts" in state)]
+            pg.run("pg_dump", "-w", "-Fc", *schemas, "--snapshot", snapshot.id, stdout=stream)
     manifest = {"format_version": 1, "schema": "sokhach", "dump_file": DUMP,
                 "dump_sha256": sha256(out / DUMP), "pg_dump_version": version,
                 "server_version": server, "created_at_vn": datetime.now(VN).isoformat(), **state}
@@ -344,9 +364,10 @@ def restore(folder, target_db, pg=None):
     expected = verify(folder)  # Hash/manifest verified before any DB connection.
     pg = pg or Pg()
     target = pg.at(target_db)
-    present = target.sql("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='sokhach');").strip()
+    names = ",".join(f"'{schema}'" for schema in ("sokhach", *EXTRA_SCHEMAS))
+    present = target.sql(f"SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname IN ({names}));").strip()
     if present != "f":
-        raise BackupError("target already has sokhach, or schema check failed; restore refused")
+        raise BackupError("target already has sokhach/doixe, or schema check failed; restore refused")
     # CREATE SCHEMA also detects a concurrent restore; failure rolls back everything.
     with (folder / DUMP).open("rb") as stream:
         target.run("pg_restore", "-w", "--exit-on-error", "--single-transaction", stdin=stream)

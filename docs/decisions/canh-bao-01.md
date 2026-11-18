@@ -50,3 +50,17 @@ Người dùng bấm "Vá cảnh báo" sau buổi diễn tập sang tháng 12 tr
 - **Hộp việc hỏng im lặng.** Bản chụp chuyến không đọc được thì hộp việc đánh lỗi mọi sổ, máy ngừng dán chuyến và ghi giá mà bộ đếm lỗi tự ghi vẫn 0. API đưa tình trạng hộp việc vào `/healthz` (chỉ số đếm, không mã sổ); máy canh báo khi không đọc được bản chụp, khi có sổ lỗi 2 lượt nền liền trở lên, hoặc khi hộp việc không tính lại quá 90 phút.
 
 Chi tiết và ngưỡng ở [spec](../../specs/v7-canh-bao.md).
+
+## Bổ sung 18/11/2026: lưới an toàn
+
+Máy canh có thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên sổ thật, quyết định riêng ở [`LUOI-AN-TOAN-01`](luoi-an-toan-01.md). Cùng kênh email, cùng luật nội dung (không tên khách, số tiền). Khác các mục cũ một điểm: máy canh ghi một file mốc trong thư mục riêng của nó (`/var/lib/v7-watchdog`) để so lượt sau với lượt trước.
+
+## Bổ sung 18/11/2026: bản sao ngoài máy
+
+Người dùng bấm "Làm cảnh báo" sau khi Claude báo lịch kéo trên một PC đã hỏng từ ít nhất 17/11 mà không ai hay, và nói rõ việc này cần cấp thêm quyền trên `hao`. Ngưỡng theo lời người dùng: không PC nào kéo quá 2 ngày. Claude đặt chi tiết.
+
+- PC kéo bằng SFTP chỉ đọc nên `hao` chỉ còn dòng đăng nhập SSH. Máy canh đọc các dòng đó trong journal và so dấu vân với danh sách khóa kéo khai ở `/etc/webdebit/alert.env` (ngoài Git). Báo khi không khóa kéo nào đăng nhập quá 48 giờ, kèm giờ kéo cuối; không gửi IP hay khóa.
+- Quyền hẹp hơn đề xuất ban đầu: drop-in `doc-log-ssh.conf` cho riêng unit `v7-watchdog` nhóm `systemd-journal`; user `v7app` (cũng chạy API) không được thêm nhóm.
+- Giới hạn: đăng nhập chưa chắc là kéo xong; kết quả `PASS` chỉ nằm ở `pull.log` trên PC. PC tắt cả hai ngày (nghỉ dài) thì có email: là báo đúng.
+
+Triển khai: [nhật ký 18/11/2026](../deploys/2026-11-18-canh-bao-keo-ngoai-may.md).

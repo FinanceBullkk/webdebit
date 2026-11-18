@@ -61,6 +61,13 @@ async function withPage(state, fn, viewport = { width: 1265, height: 560 }) {
   }
 }
 const now = page => page.locator('#now').innerText();
+// Trang hỏi /api/v7/machine/now lần lượt (may-chay-ui.js poll): lần hỏi sau chỉ đi khi lần trước đã áp vào trang và vẽ.
+// Thấy hai lần hỏi kể từ lúc gọi thì chắc chắn có ít nhất một bản mới đã áp, không phụ thuộc máy nhanh hay chậm.
+async function pollsApplied(page) {
+  const isPoll = request => new URL(request.url()).pathname === '/api/v7/machine/now';
+  await page.waitForRequest(isPoll);
+  await page.waitForRequest(isPoll);
+}
 
 test('Máy chạy: mở trang là trực tiếp, không có nút phát lại, thấy lượt kế và việc hôm nay; không tràn ngang, dải lượt lọt khung', () => withPage({}, async page => {
   await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Đối soát đang nghỉ'));
@@ -153,7 +160,7 @@ test('Máy chạy: đồng hồ chạy theo giờ máy chủ khi máy nghỉ; jo
     jobs = JOBS.map(job => (job.id === 'sheet' ? { ...job, state: 'running', started: at(9, 45, 0), ended: null } : job));
     await page.waitForFunction(() => document.getElementById('now').textContent.includes('Bản chụp Sheet đang chạy'), null, { timeout: 6000 });
     assert.ok(await page.locator('#live-pill').evaluate(node => node.classList.contains('busy')));
-    await page.waitForFunction(() => document.getElementById('log').textContent.includes('Bản chụp Sheet đang chạy'), null, { timeout: 3000 });
+    assert.ok((await page.locator('#log').innerText()).includes('Bản chụp Sheet đang chạy'), 'nhật ký đổi cùng lúc với dòng trạng thái');
     jobs = JOBS.map(job => (job.id === 'sheet' ? { ...job, state: 'ok', started: at(9, 45, 0), ended: at(9, 45, 4) } : job));
     await page.waitForFunction(() => document.getElementById('log').textContent.includes('Bản chụp Sheet xong, 4 giây'), null, { timeout: 6000 });
     assert.ok(!(await now(page)).includes('đang chạy'));
@@ -182,8 +189,8 @@ test('Máy chạy: xem lại lượt cũ khi đang có lượt chạy thì có n
   assert.equal(await page.locator('#go-live').isVisible(), true);
   assert.equal(await page.locator('#go-live').innerText(), 'Đang chạy: xem trực tiếp');
   assert.equal(await page.locator('#live-pill').innerText(), 'Đang xem lại');
-  await page.waitForTimeout(3500);
-  assert.ok((await page.locator('#run-title').innerText()).startsWith('Lượt 08:05'));
+  await pollsApplied(page);
+  assert.ok((await page.locator('#run-title').innerText()).startsWith('Lượt 08:05'), 'bản mới vẫn đang chạy cũng không kéo về trực tiếp');
   await page.locator('#go-live').click();
   assert.ok((await page.locator('#run-title').innerText()).startsWith('Đang chạy'));
   assert.equal(await page.locator('#live-pill').innerText(), 'Trực tiếp');
@@ -234,8 +241,8 @@ test('Máy chạy: chọn nhân viên hiện việc của họ; bấm vào hình
   await page.locator('#speed').selectOption('30');
   assert.ok((await page.locator('#run-title').innerText()).startsWith('Cả ngày 6/11'));
   const first = await page.locator('#clock').innerText();
-  await page.waitForTimeout(800);
-  assert.notEqual(await page.locator('#clock').innerText(), first);
+  // Đồng hồ tua theo khung hình (requestAnimationFrame): chờ nó đổi, không đo sau một khoảng ngủ cố định.
+  await page.waitForFunction(text => document.getElementById('clock').textContent !== text, first);
   await page.locator('#scrub').evaluate(node => { node.value = 0; node.dispatchEvent(new Event('input')); });
   assert.ok((await now(page)).startsWith('Máy đang nghỉ. Lượt kế lúc 08:05'));
 }));

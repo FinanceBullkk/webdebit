@@ -488,11 +488,33 @@ test('điện thoại 390px: menu thu về nút ☰, năm người online nằm 
   assert.deepEqual(table, { cells: ['who', 'num', 'num', 'go'], inside: true, wrap: true });
   assert.match((await page.locator('.owe-row .pill').first().innerText()).replace(/\s+/g, ' ').trim(), /^\d+ khách đang nợ$/);
   await page.locator('#nav-toggle').click();
-  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 8);
+  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 9);
   await page.setViewportSize({ width: 1280, height: 720 });
   assert.equal(await page.locator('.dtable td.bar').first().isVisible(), true, 'màn rộng vẫn có thanh hạn trả');
   await page.locator('#nav-toggle').click();
   assert.deepEqual(await Promise.all([box('aside.app-nav'), box('main')]).then(([nav, m]) => [nav.width, m.left]), [76, 76]);
+}));
+
+// Thấy 18/11/2026 (ca thử nút Tải cả sổ): cả sổ chỉ 350.000 đ, toàn bộ còn trong hạn. Vạch Trong hạn rộng 100% cộng khối
+// Quá hạn tối thiểu 9.5em vượt bề ngang dải đầu, cả trang cuộn ngang ở 390px. Dữ liệu cũ toàn số tỷ nên không lộ.
+test('dải đầu toàn trong hạn, số nhỏ: khối Quá hạn nằm trong dải, không cuộn ngang ở 390px và 1280px', async () => withDashboard({
+  payload: { ...dashboard, receivable: { total_vnd: '350000', customers: 1 } },
+  debtPayload: { ...debt, receivable_vnd: '350000', customers: [],
+    due_tiers: debt.due_tiers.map(t => ({ ...t, receivable_vnd: t.tier === 'not_due' ? '350000' : '0' })),
+    summary: { overdue_vnd: '0', long_overdue_vnd: '0', overdue_customers: 0, high_customers: 0, high_overdue_vnd: '0' } },
+}, async page => {
+  await page.locator('.brk .late').waitFor();
+  const fits = () => page.evaluate(() => {
+    const box = el => el.getBoundingClientRect();
+    const brk = box(document.querySelector('.brk'));
+    const parts = [...document.querySelectorAll('.brk > div, .brk strong')].map(box);
+    return { inside: parts.every(r => r.left >= brk.left - 0.5 && r.right <= brk.right + 0.5), page: document.documentElement.scrollWidth <= innerWidth };
+  });
+  assert.deepEqual(await seen(page.locator('.brk > div')), ['Trong hạn 350.000 đ', 'Quá hạn 0 đ']);
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 720 });
+    assert.deepEqual(await fits(), { inside: true, page: true }, `bề ngang ${width}px`);
+  }
 }));
 
 // Bố cục nhóm cũ thay bằng bảng bốn cột; các ca tải/lọc/trống/lỗi/mở sổ nằm trong test-viec-can-lam-table-browser.js.

@@ -501,8 +501,11 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       const started = [];
       page.on('request', request => { if (/\/api\/v7\/(dashboard|dashboard\/debt|customers)$/.test(request.url())) started.push(new URL(request.url()).pathname); });
       const release = await holdApi(page, /\/api\/v7\/dashboard$/);
+      // Trang gọi /inbox ngay khi script chạy, trước sự kiện load mà reload() chờ: máy chủ giả trả nhanh thì phản hồi
+      // về trước khi reload() xong. Phải gắn chờ trước reload(), gắn sau thì lỡ sự kiện và chờ đủ 30 giây.
+      const inboxRead = page.waitForResponse(/\/api\/v7\/inbox$/);
       await page.reload();
-      await page.waitForResponse(/\/api\/v7\/inbox$/);
+      await (await inboxRead).finished();
       await page.waitForFunction(() => document.querySelector('.loading'));
       assert.equal(await page.locator('.band-count').count(), 0, 'việc từ Sheet đã về nhưng số Tổng quan chưa về thì chưa vẽ');
       assert.deepEqual(started.sort(), ['/api/v7/customers', '/api/v7/dashboard', '/api/v7/dashboard/debt'], 'không chờ dashboard xong mới đọc hai nguồn kia');
@@ -558,11 +561,13 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       window.seen.scroll = document.scrollingElement.scrollTop;
     });
   };
+  // Mọi lượt đọc nền của trang đã xong và đã vẽ (hoặc bỏ vì cũ): ViecCanLam.idle() ở viec-can-lam.js, thay cho ngủ 80 ms.
+  const backgroundDone = page => page.evaluate(() => window.ViecCanLam.idle());
   const backgroundRefresh = async page => {
     const finished = Promise.all(['/api/v7/price-table/status', '/api/v7/dashboard/debt', '/api/v7/inbox'].map(url => page.waitForResponse(response => response.url().includes(url))));
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await finished;
-    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+    await backgroundDone(page);
   };
   test('tự tải lại khi dữ liệu không đổi: không đụng tới bảng, dòng mở và ô đang gõ còn nguyên', async () => withPage(designFixture(), async page => {
     await openForTyping(page);
@@ -593,7 +598,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       const failed = page.waitForResponse(response => response.url().includes('/api/v7/ledger'));
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await failed;
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+      await backgroundDone(page);
       assert.equal(await page.locator('.work-detail [role=alert]').count(), 0);
       assert.equal(await page.locator('[data-manual-price="1"]').inputValue(), '9,5');
       opts.ledgerStatus = 200;
@@ -633,7 +638,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       await page.waitForFunction(() => document.querySelector('[data-manual-price="2"]') && !document.querySelector('[data-manual-price="1"]'));
       assert.equal(posted.at(-1).body.expected_version, 7);
       release();
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 150)));
+      await backgroundDone(page);   // bản đọc cũ đã về và đã bị bỏ, không phải chưa kịp về
       assert.equal(await page.locator('[data-manual-price="1"]').count(), 0, 'bản đọc cũ về muộn không được đè lại');
     });
   });

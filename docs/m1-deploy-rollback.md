@@ -1,5 +1,7 @@
 # Gói deploy và rollback viewer M1
 
+Lịch sử: từ 18/11/2026 repo đã xóa `tools/m1_release.py`, `web/ledger_app.py`, `web/app.py`, `web/db.py`, `web/style.css` cùng test của chúng (đọc lại bằng `git show <commit>:<đường-dẫn>`). Hai unit `webdebit-view`/`webdebit-ledger-view` trên `hao` đã tắt và vô hiệu ngày 18/11/2026 (người dùng duyệt); thư mục `/opt/webdebit-view`, `/opt/webdebit-ledger-view` và file unit còn giữ để bật lại được. Runbook dưới đây không còn dùng được nguyên văn.
+
 Trạng thái: **ĐÃ TRIỂN KHAI** live (viewer M1) tại commit `c439d13`; chi tiết bằng chứng và CÒN MỞ ở [mục Giới hạn](#giới-hạn) cuối file. Các phần gate/thứ tự/gói bên dưới là kế hoạch lúc ĐỀ XUẤT (lịch sử). Công cụ và test dùng thư mục tạm, repo git tạm và dữ liệu giả. Gói không phải migration và không chứa DDL.
 
 ## Gate và thứ tự
