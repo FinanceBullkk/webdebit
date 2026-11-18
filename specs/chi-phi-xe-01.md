@@ -217,6 +217,31 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 
 **Còn thiếu:** schema `doixe`, API `/api/v7/doixe/*`, màn Đội xe.
 
+## Phiếu chi xe mới (từ 11/2026)
+
+18/11/2026 người dùng gửi mẫu "PHIẾU CHI XE" mới của nhà xe, áp dụng từ tháng 11/2026, mỗi phiếu một chuyến.
+
+- **Đầu phiếu:** tài xế, biển số, ngày; số cont cắt, số cont kéo (nếu có), nơi lấy, nơi hạ; kho đóng hàng; tỉnh (ghi rõ huyện, tỉnh, km); loại hàng.
+- **Dòng phí:** Hoá đơn, Phí nâng, Phí cầu đường, Neo kho (số ngày), Xí cont, Cont mới, Đổ dầu, Số tiếng máy phát, Đảo cont, Dời cont, Hạ sớm/kiểm hoá, Phát sinh khác (ghi rõ), Tổng cộng. Mỗi dòng có ô ghi chú.
+
+| Phiếu mới | Web | Tình trạng |
+| --- | --- | --- |
+| Phí nâng, Cầu đường, Xí cont, Cont mới, Đổ dầu, Đảo cont, Dời cont, Phát sinh khác | loại phí có sẵn | Khớp |
+| Neo kho (số ngày) | tiền ở loại phí Neo; số ngày ở `chang.neo_ngay` | ĐÃ LÀM |
+| Số tiếng máy phát | số giờ ở `chang.may_gio`; tiền vẫn ở loại phí Nổ máy | ĐÃ LÀM phần giờ; tiền CÒN MỞ (câu 6) |
+| Hạ sớm/kiểm hoá | loại phí mới `hasom` "Hạ sớm/KH", tài xế chi | ĐÃ LÀM; chi hộ theo `DOI-XE-THU-01` |
+| Km trong ô Tỉnh | `chang.km` | ĐÃ LÀM |
+| Hoá đơn | — | CÒN MỞ (câu 17) |
+| Số cont cắt + số cont kéo trên một phiếu | một chặng một container | CÒN MỞ (câu 19) |
+| — (không còn trên phiếu) | Nâng hạ, Mua seal, Bãi chờ, Điều độ | Giữ trong danh mục vì dữ liệu tháng 10 còn dùng; Gọn chỉ hiện 5 phí dùng nhiều nhất trong tháng |
+
+ĐÃ CHỐT 18/11/2026 (người dùng "Làm phần chắc chắn"), migration `2026-11-18-v7-doi-xe-phieu-chi.sql`:
+
+- Loại phí `hasom` "Hạ sớm/KH": tài xế chi, vào phần hoàn, không có cột Sheet (`cot_sheet` NULL) nên nhập tại ô ở Đủ cột.
+- Ba ô số lượng của chặng: Km (1–9999), Ngày neo (1–365), Giờ máy (1–999). Số nguyên, trống là NULL, không phải 0. Không phải tiền: không vào "Tài xế chi", sửa ghi đè cả ở tháng khóa (không thêm dòng điều chỉnh), mọi lần sửa vào Lịch sử trước → sau. Hiện ở Đủ cột, sau cột Kho.
+- Dán khối từ tab tài xế: ô NỔ MÁY PHÁT ghi số kèm đơn vị giờ ("5H", "3 TIẾNG") thành Giờ máy, không thành tiền. Ô chỉ có số vẫn là tiền như cũ. Ô TỈNH có "… km" thì lấy số km.
+- Chưa sửa dữ liệu đã nạp: 218 chặng bản thử tháng 10–11 vẫn để số giờ máy phát trong ghi chú. Chuyển sang Giờ máy là nạp dữ liệu, cần người dùng đồng ý riêng.
+
 ## Phân kỳ
 
 | Đợt | Nội dung | Thay cho |
@@ -302,7 +327,7 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 3. ~~Tiền theo tài xế, chặng và chi phí theo xe?~~ ĐÃ TRẢ LỜI 18/11/2026 bằng mặc định 2: tiền theo người nhận ứng; chặng và chi phí theo phương tiện, mỗi chặng ghi cả xe lẫn tài xế.
 4. ~~Có khóa tháng như sổ khách không?~~ ĐÃ TRẢ LỜI 18/11/2026: có, chung cả đội xe (`CHI-PHI-XE-01` mục 12).
 5. Bắt đầu từ tháng nào, và số dư đầu của từng tài xế lấy ở đâu? Nạp dữ liệu thật cần người dùng duyệt riêng.
-6. ~~Cột "Nổ máy phát" có tính vào phần hoàn tài xế không?~~ ĐÃ TRẢ LỜI 18/11/2026: có. CÒN MỞ (phát hiện khi nạp bản thử 18/11/2026): trên Sheet tháng 10–11 cột này ghi **số giờ** máy phát ("3 tiếng", "2H"), không có ô nào là tiền. Khi nạp, số giờ vào ghi chú. Cần hỏi người dùng: tiền nổ máy tính thế nào (giờ × đơn giá, hay khoản khác), có cần cột giờ riêng.
+6. ~~Cột "Nổ máy phát" có tính vào phần hoàn tài xế không?~~ ĐÃ TRẢ LỜI 18/11/2026: có. CÒN MỞ (phát hiện khi nạp bản thử 18/11/2026): trên Sheet tháng 10–11 cột này ghi **số giờ** máy phát ("3 tiếng", "2H"), không có ô nào là tiền. Khi nạp, số giờ vào ghi chú. Cần hỏi người dùng: tiền nổ máy tính thế nào (giờ × đơn giá, hay khoản khác). Cột giờ riêng ĐÃ LÀM 18/11/2026 (`chang.may_gio`, mục Phiếu chi xe mới); dán khối nhận "5H" thành giờ.
 7. Dầu: ĐÃ TRẢ LỜI 18/11/2026, nguồn là sheet "THEO DOI DAU". Còn hỏi:
    - Đơn giá đổi bậc từ đầu tháng 3/2026 có đúng là giá thật không?
    - Tháng 11/2026: người dùng cho biết có lẽ chưa ghi (18/11/2026). Khi cần, lấy lại từ hóa đơn, bảng kê của nơi bán.
@@ -317,3 +342,6 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
 15. Cước các chặng của 5 xe Trần Hùng: công ty hàng trả thẳng cho Trần Hùng, hay trả cho mình rồi mình trả lại Trần Hùng? Nếu qua mình thì phần chênh là lãi của đội xe và phải vào lãi lỗ.
 16. Ba tài khoản dầu đã ngưng vẫn còn số nợ (số tròn) trên sổ mua dầu. Người dùng chưa rõ đã trả hay chưa (18/11/2026); cần đối chiếu với nơi bán.
+17. Dòng "Hoá đơn" trên phiếu chi mới là tiền gì? Nếu là phần phí nâng/hạ có hóa đơn thì trùng dòng Phí nâng, không được cộng hai lần vào Tổng (hỏi 18/11/2026).
+18. Sheet tab tài xế của hai nhân viên có đổi cột theo phiếu chi mới không? Dán khối đọc theo vị trí 29 cột cũ (`loai_phi.cot_sheet`); đổi cột thì phải sửa bộ dán trước khi dán tháng 11 (hỏi 18/11/2026).
+19. Một phiếu có cả số cont cắt lẫn số cont kéo là hai chặng (hai container) hay một chặng (hỏi 18/11/2026)?
