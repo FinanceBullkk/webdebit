@@ -95,11 +95,11 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 
 ## Lint và lệnh check
 
-`npm run check` ở gốc repo chạy chín bước theo thứ tự: `ruff check`, luật nghiệp vụ
+`npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
 (`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), secrets và dữ liệu thật
 (`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
-`node --test` cho model JS, rồi hai bộ test trình duyệt Playwright (`test:browser` và `test:viewer`). Chưa tải Chromium thì cả hai bước
-Playwright cùng báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
+`node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026). Chưa tải Chromium thì bước
+Playwright báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
 `npm run lint` chạy riêng năm bước lint khi đang sửa dở.
 
 **Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
@@ -193,6 +193,16 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
 | `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền); đụng phân bổ thu hoặc lệnh ghi tiền thì thêm `test_pg_v7_fifo_ngau_nhien.py` (lệnh chạy và cờ `--mutant` ở [spec](../specs/v7-fifo-ngau-nhien.md)); thêm bảng tiền, đổi `get_dashboard*`, `get_ledger` hay `_check_allocations` thì thêm `test_pg_v7_luoi_an_toan.py` (bảng tiền mới phải vào dấu vân của `_safety_fingerprints`); lệch so với mô hình thì sửa SQL hoặc sửa `tools/v7_fifo_model.py` kèm test tính tay trong `tests/test_v7_fifo_model.py` |
 | Migration mới | `test_pg_v7_backend.py --migration-test` (CI chạy lệnh này): nâng từ schema cũ, so hàm/cột/view/ràng buộc với khởi tạo mới trước mọi case. Thêm file vào chuỗi `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file |
+| Bất kỳ SQL V7 nào ở trên (hàm, view, bảng, quyền) | sinh lại file đọc định nghĩa hiện hành rồi commit cùng PR: `python cong-no-web-handoff/tools/v7_schema_snapshot.py` (cần Docker). Job `postgres-v7-backend` chạy lại với `--check`, lệch thì đỏ và in lệnh này |
+
+**Đọc định nghĩa đang chạy ở đâu.** Một hàm như `sokhach.get_ledger` có nhiều bản trong `v7_backend_functions.sql`
+và `tools/migrations/*.sql`; đừng dò migration cuối cùng. Đọc [`cong-no-web-handoff/schema/v7_schema_current.pgsql`](../cong-no-web-handoff/schema/v7_schema_current.pgsql):
+file sinh tự động từ PostgreSQL dùng một lần nạp đúng thứ tự harness (`schema-draft.sql` → `v7_backend_functions.sql`
+→ migration Sheet), mỗi hàm/view/bảng một lần, hàm sắp theo tên + chữ ký (`pg_get_functiondef`) kèm chủ sở hữu và
+quyền; bảng kèm cột, ràng buộc, chỉ mục, trigger, chú thích. `--migration-test` đã chứng minh chuỗi migration lên `hao`
+cho cùng hàm/cột/view/ràng buộc. File chỉ để đọc, không sửa tay, không nạp: đuôi `.pgsql` và thư mục `schema/` nằm
+ngoài cổng SQL và gói release của `Deploy hao` (test `tests/test_v7_schema_snapshot.py` giữ điều này), nên PR chỉ
+sinh lại file không phải triển khai tay.
 
 Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
 và `main`; lệnh chạy không đổi (vẫn một container cho mọi case). Phần dựng PostgreSQL dùng một lần và
@@ -241,7 +251,7 @@ Bảng dưới đây có hai loại luật, và cột "Nguồn" phân biệt ch�
 | `DATE-01` | "Hôm nay" phải theo `Asia/Ho_Chi_Minh`: chặn `current_date`, `localtimestamp`, `now()::date` trong SQL và `date.today()`, `datetime.now()` trần trong Python. `now()` cho cột timestamptz và `datetime.now(UTC)` cho provenance không bị chặn | `FUTURE-01`, người dùng chốt 16/10/2026 |
 | `FUTURE-01` | Mỗi hàm ghi tiền (INSERT vào `proposal`/`posting`) có dính `posting_date` phải so với hôm nay theo giờ VN rồi RAISE ngay trong hàm đó — mọi hàm ghi sổ tự chặn, không trông vào hàm khác. Luật quét từng hàm, không theo bước của luồng, nên vẫn đúng sau khi `V6-DB` (19/10/2026) bỏ bước duyệt | `FUTURE-01` + `specs/p0-fixture-future-posting-date.md` |
 | `TRIP-DATE-01` | Hàm ghi tiền nhận `p_event_date` phải chặn NULL — ngày nghiệp vụ chuyến là bắt buộc, blank/NULL giữ là chưa biết | `DATE`, người dùng làm rõ 14/10/2026 |
-| `ARCH-01` | Chỉ tầng DB được gọi `psql`. Danh sách cho phép viết tường minh trong `PSQL_ALLOWED` kèm lý do từng file: `web/db.py`, `web/ledger_db.py`, `tools/pg_m1_report.py`, `tools/test_pg_ledger_schema.py`, `tests/test_web.py`. `scripts/` ngoài phạm vi vì là mã của chính bộ kiểm | Ranh giới kiến trúc — hiện trạng đã kiểm 19/10/2026 |
+| `ARCH-01` | Chỉ tầng DB được gọi `psql`. Danh sách cho phép viết tường minh trong `PSQL_ALLOWED` kèm lý do từng file, chính là `web/v7_psql.py` (V7), `web/ledger_db.py` (lịch sử M1, còn cho harness `test_pg_m1_queries.py`), các công cụ và harness PostgreSQL trong `tools/` cùng test của chúng. `scripts/` ngoài phạm vi vì là mã của chính bộ kiểm | Ranh giới kiến trúc — hiện trạng đã kiểm 19/10/2026 |
 | `ARCH-02` | Tầng web (`web/*.py`) không import ngược vào `tools/` hay `pilot/`: kiểm câu import, `importlib.import_module` và vá `sys.path`. Chiều ngược lại được phép — phụ thuộc chạy một chiều | như trên |
 | `ARCH-03` | Tính tiền chỉ ở model: chặn `+ - *` và `+= -= *=` trên tên tiền (`*_vnd`/`*Vnd`), hằng BigInt và `BigInt(...)` trong file `*-ui.js`; so sánh và định dạng được phép. Chỉ tầng JS — xem giới hạn ngay dưới | như trên |
 
@@ -310,12 +320,16 @@ Phần **CÒN MỞ không được code hóa**, và đây là giới hạn của
   tên cột qua linter là tự đặt chính sách người dùng chưa duyệt.
 - Cấm import cross-layer *nói chung*. Ba ranh giới đo được đã code hóa thành `ARCH-01`/`ARCH-02`/
   `ARCH-03` (19/10/2026); một đồ hình tầng đầy đủ cho cả repo thì vẫn CÒN MỞ — xem mục dưới.
-- `json.loads` không có `parse_float=Decimal` ở đường đọc tiền (`web/db.py`, `web/ledger_db.py`,
-  `tools/pg_m1_verify.py`). Hiện vô hại vì `numeric(20,0)` ra JSON không có dấu thập phân, nhưng
-  `pilot/reconcile.py` đã làm đúng cách. Chưa bật thành luật vì sẽ đỏ trên ba file đang có thay đổi
-  chưa commit của người khác.
+- `json.loads` không có `parse_float=Decimal` ở đường đọc tiền (`web/ledger_db.py`,
+  `tools/pg_m1_verify.py`; `web/db.py` đã xóa 18/11/2026). Hiện vô hại vì `numeric(20,0)` ra JSON
+  không có dấu thập phân. Chưa bật thành luật vì lúc ghi (19/10/2026) sẽ đỏ trên các file đang có
+  thay đổi chưa commit của người khác.
 
 ### Ranh giới tầng — ba luật ĐÃ TRIỂN KHAI, đồ hình đầy đủ CÒN MỞ
+
+Ghi chú 18/11/2026: các file đời M1 nhắc trong mục này và hai mục "Mức bằng chứng" ở trên
+(`web/app.py`, `web/db.py`, `web/ledger_app.py`, `pilot/reconcile.py`, `customer-ledger-workbench*`)
+đã xóa khỏi repo; đoạn dưới giữ làm hồ sơ của lần kiểm 19/10/2026.
 
 **Cập nhật 19/10/2026:** ba ranh giới nêu ở cuối mục này đã code hóa thành `ARCH-01`/`ARCH-02`/
 `ARCH-03` trong `scripts/business-rules.js`, chạy trong bước `lint:biz` của `npm run check`. Phần

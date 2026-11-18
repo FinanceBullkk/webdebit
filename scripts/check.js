@@ -163,19 +163,6 @@ const steps = [
       chromiumMissing() &&
       "chưa có Chromium — chạy `npx playwright install chromium` nếu cần",
   },
-  {
-    // Bộ test viewer dữ liệu giả, cũng cần Chromium. Tách riêng vì nó nằm ở
-    // `cong-no-web-handoff/tests/` chứ không phải `preview/`, và main thêm nó
-    // sau khi bước playwright ở trên đã có.
-    name: "test:js   viewer",
-    cmd: "npm",
-    args: ["run", "test:viewer"],
-    cwd: ROOT,
-    lint: false,
-    skip: () =>
-      chromiumMissing() &&
-      "chưa có Chromium — chạy `npx playwright install chromium` nếu cần",
-  },
 ];
 
 const results = [];

@@ -1972,9 +1972,22 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
+## Mở sổ lớn không JIT (MO-SO-NHANH-03) — nâng DB
+
+Spec [`mo-so-nhanh-03`](../specs/mo-so-nhanh-03.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_ledger(bigint) SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_ledger` trùng từng byte. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-04-v7-ledger-events.sql` (hoặc rollback của nó, hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_ledger`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
+
+Thứ tự với release: độc lập, vì release cũ và mới gọi cùng một hàm. Chỉ đổi cấu hình của một hàm đọc nên không cần cửa sổ dừng ghi. Tránh phút :05–:15 khi máy đối soát chạy.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử (thu `CONNECT` của PUBLIC), `ANALYZE`. Băm JSON `get_ledger` mọi sổ và đo giây sổ 104, 79, 149. Chạy migration hai lượt, rồi băm và đo lại: băm phải trùng từng sổ. Chạy `ALTER FUNCTION … RESET jit` rồi nâng lại, băm vẫn trùng. Dấu vân dữ liệu trùng, checker đạt.
+2. **DB thật:** backup toàn phần và kiểm đọc lại; ghi dấu vân và băm mọi sổ; áp với `psql -X -v ON_ERROR_STOP=1`; ghi lại dấu vân và băm (phải trùng); `proconfig` có `jit=off`; chạy `v7_post_deploy_check.sql`.
+3. **Release:** `Deploy hao` dừng ở cổng SQL. Đưa release tay bằng đúng gói của workflow, đặt `.release-sha`.
+4. **Sau:** đo lại `get_ledger(104)` và GET sổ 104; chạy lưới an toàn `--dry-run` (không có mục nào, vì dữ liệu không đổi).
+
+Rollback: `ALTER FUNCTION sokhach.get_ledger(bigint) RESET jit;` dưới `sokhach_owner`. Kết quả không đổi, chỉ chậm lại như trước.
+
 ## Lịch sử đọc riêng (MO-SO-NHANH-02) — nâng DB (ĐÃ CHẠY trên hao 4/11/2026)
 
-Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng).
+Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng). Sau file này (và sau rollback của nó) phải chạy lại `2026-11-18-v7-mo-so-tat-jit.sql` (MO-SO-NHANH-03).
 
 Thứ tự với release: **chạy migration trước.** Release cũ chạy được với DB mới vì `get_ledger` không đổi kết quả. Release mới trên DB cũ thì mở Lịch sử báo "Không tải được lịch sử", sổ vẫn đọc được.
 

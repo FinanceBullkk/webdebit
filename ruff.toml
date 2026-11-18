@@ -50,9 +50,3 @@ ignore = [
 # thêm harness thì phải nêu lý do chứ không tự rơi vào ngoại lệ.
 "cong-no-web-handoff/tools/test_pg_versioned_approval.py" = ["BLE001"]
 "cong-no-web-handoff/tools/test_pg_m1_queries.py" = ["BLE001", "PLW0603"]
-
-# Trang health của sổ cái. Bắt `Exception` ở đây là cố ý: health phải báo
-# "thành phần này hỏng" thay vì ném 500 ra cả trang, nên một thành phần lỗi
-# không được làm mất phần còn lại của báo cáo. Giới hạn đúng file này; mọi chỗ
-# khác trong `web/` vẫn phải bắt lỗi cụ thể.
-"cong-no-web-handoff/web/ledger_app.py" = ["BLE001"]

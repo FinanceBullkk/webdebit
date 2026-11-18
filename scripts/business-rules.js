@@ -124,7 +124,7 @@ function ruleVndSqlColumns(files) {
 // làm hiện hành trong repo. Chặn các cấu trúc kéo tiền về float: `float()`,
 // `parseFloat`, `toFixed`, và hằng số có dấu thập phân gán cho tên tiền.
 const FLOAT_CALLS = [
-  { ext: ".py", re: /\bfloat\s*\(/, what: "`float()`", fix: "dùng `Decimal` (xem `pilot/reconcile.py`)" },
+  { ext: ".py", re: /\bfloat\s*\(/, what: "`float()`", fix: "dùng `Decimal` (xem `web/v7_normalize.py`)" },
   { ext: ".js", re: /\b(?:Number\.)?parseFloat\s*\(/, what: "`parseFloat`", fix: "dùng `BigInt` (xem `preview/so-khach-v7-model.js`)" },
   { ext: ".js", re: /\.toFixed\s*\(/, what: "`toFixed`", fix: "định dạng tiền từ BigInt, không qua số thực" },
 ];
@@ -308,25 +308,22 @@ function ruleTripDateRequired(files) {
 // Danh sách tường minh kèm lý do từng file — không dùng mẫu regex rộng rồi tự
 // miễn trừ, vì mẫu rộng ("file nào tên *_db.py") chính là cách luật bị lách
 // bằng cách đặt tên.
+// 18/11/2026 bỏ code đời M1 (`web/db.py`, `web/app.py`, `web/ledger_app.py`, `tools/m1_release.py`
+// cùng test): mục của chúng rút khỏi danh sách. `web/ledger_db.py` và nhóm `pg_m1_*` còn vì
+// job CI `postgres-m1-history-queries` vẫn gọi `test_pg_m1_queries.py`.
 const PSQL_ALLOWED = {
-  "cong-no-web-handoff/web/db.py":
-    "adapter đọc capture — nơi duy nhất dựng lệnh psql cho đường đọc lịch sử",
   "cong-no-web-handoff/web/ledger_db.py":
-    "adapter sổ cái — nơi duy nhất dựng lệnh psql cho đường sổ cái và pilot",
+    "adapter sổ cái M1 — nơi duy nhất dựng lệnh psql cho truy vấn lịch sử M1, còn giữ cho harness test_pg_m1_queries.py",
   "cong-no-web-handoff/tools/pg_m1_report.py":
     "công cụ vận hành xuất báo cáo M1, chạy tay ngoài tiến trình web",
   "cong-no-web-handoff/tools/test_pg_ledger_schema.py":
     "harness kiểm schema trong Docker, phải nói chuyện với psql để kiểm chính psql",
-  "cong-no-web-handoff/tests/test_web.py":
-    "test của adapter, kiểm đúng phần dựng lệnh và trích dẫn biến",
-  // Bốn mục dưới đây thêm 19/10/2026 khi nhập `main`: chúng đã có từ trước trên
-  // `main` và thật sự dựng lệnh psql, cùng loại với hai mục ngay trên.
+  // Các mục dưới đây thêm 19/10/2026 khi nhập `main`: chúng đã có từ trước trên
+  // `main` và thật sự dựng lệnh psql, cùng loại với các mục ngay trên.
   "cong-no-web-handoff/tools/test_pg_versioned_approval.py":
     "harness kiểm approval theo revision trong Docker, phải nói chuyện với psql để kiểm chính psql",
   "cong-no-web-handoff/tools/test_pg_m1_queries.py":
     "harness kiểm truy vấn M1 trong Docker, cùng lý do với harness schema",
-  "cong-no-web-handoff/tools/m1_release.py":
-    "công cụ vận hành phát hành M1, chạy tay ngoài tiến trình web như pg_m1_report.py",
   "cong-no-web-handoff/tests/test_m1_export_verify.py":
     "test của công cụ M1, truyền tên chương trình giả vào hàm đã được patch",
   // Sáu mục dưới đây thêm 21/10/2026 khi gom V7: tầng DB và công cụ của V7 thật sự
@@ -385,15 +382,15 @@ function ruleDbLayerOnlyPsql(files) {
       // số (`psql=configured.psql`), đọc thuộc tính (`self.psql`) hay đặt tên
       // tham số (`def rows(psql, ...)`) là đang ĐI QUA adapter — đúng ranh
       // giới, không phải vi phạm. Luật cũ bắt mọi dòng có chữ `psql`, nên nó
-      // báo nhầm đúng chỗ đang tuân thủ: `web/ledger_app.py` dựng `HistoryDB`
-      // bằng `psql=configured.psql` thì bị tính là gọi DB từ tầng web.
+      // báo nhầm đúng chỗ đang tuân thủ: `web/ledger_app.py` (đã xóa 18/11/2026) dựng
+      // `HistoryDB` bằng `psql=configured.psql` thì bị tính là gọi DB từ tầng web.
       const invokesPsql =
         /["']psql(\.exe)?["']/i.test(code) ||
         /\b(?:subprocess\.(?:run|Popen|call|check_output|check_call)|execFile|spawnSync|spawn)\s*\(/.test(code);
       if (!invokesPsql) return;
       found.push({
         file: f.rel, line: i + 1,
-        detail: "gọi `psql` ngoài tầng DB — đây là ranh giới kiến trúc, không phải sở thích: mọi truy vấn đi qua adapter `cong-no-web-handoff/web/db.py` hoặc `cong-no-web-handoff/web/ledger_db.py`. Thêm hàm vào adapter rồi gọi hàm đó; nếu thật sự cần một tầng DB mới thì mở rộng `PSQL_ALLOWED` kèm lý do",
+        detail: "gọi `psql` ngoài tầng DB — đây là ranh giới kiến trúc, không phải sở thích: mọi truy vấn đi qua adapter `cong-no-web-handoff/web/v7_psql.py` (V7) hoặc `cong-no-web-handoff/web/ledger_db.py` (lịch sử M1). Thêm hàm vào adapter rồi gọi hàm đó; nếu thật sự cần một tầng DB mới thì mở rộng `PSQL_ALLOWED` kèm lý do",
       });
     });
   }
@@ -403,13 +400,13 @@ function ruleDbLayerOnlyPsql(files) {
 // ---------------------------------------------------------------------------
 // ARCH-02 — tầng web không import ngược vào tools/ hay pilot/
 //
-// Hiện trạng đã kiểm 19/10/2026: `web/app.py` và `web/ledger_app.py` chỉ import
-// stdlib cộng adapter cùng thư mục (`from db import ...`,
-// `from ledger_db import ...`). Phụ thuộc chạy một chiều: `tools/` và `pilot/`
-// được phép dùng tầng web, không có chiều ngược lại.
+// Hiện trạng đã kiểm 19/10/2026 trên viewer M1 (`web/app.py`, `web/ledger_app.py`, đã xóa
+// 18/11/2026 cùng `pilot/`): tầng web chỉ import stdlib cộng adapter cùng thư mục.
+// Phụ thuộc chạy một chiều: `tools/` được phép dùng tầng web, không có chiều
+// ngược lại. `pilot` vẫn nằm trong mẫu để không ai dựng lại đường đó.
 //
 // Giữ chiều này vì `tools/` là công cụ vận hành chạy tay (đối số dòng lệnh,
-// đường ghi file, `sudo`) và `pilot/` là đối soát một lần. Kéo chúng vào tiến
+// đường ghi file, `sudo`) và `pilot/` từng là đối soát một lần. Kéo chúng vào tiến
 // trình phục vụ HTTP là kéo theo cả bề mặt đó vào chỗ nhận request.
 //
 // Kiểm ba dạng: câu import thẳng, `importlib.import_module`, và vá `sys.path`
@@ -447,8 +444,7 @@ function ruleWebNoToolsImport(files) {
 //
 // Hiện trạng đã kiểm 19/10/2026: preview ghép từng cặp `X-model.js` +
 // `X-ui.js`, nạp đúng thứ tự đó trong .html. Model giữ toàn bộ số học BigInt
-// (`so-khach-v7-model.js`, `customer-ledger-workbench.js`); hai file UI
-// (`so-khach-v7-*ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
+// (`so-khach-v7-model.js`); file UI (`so-khach-v7-*ui.js`) chỉ so sánh, định
 // dạng và gọi model — kể cả chỗ tính lệch giữa số dán và số model cũng gọi
 // `model.allocateReceipt` thay vì tự trừ.
 //
@@ -462,9 +458,9 @@ function ruleWebNoToolsImport(files) {
 // định dạng vẫn được phép, vì UI phải đọc được số để hiển thị.
 //
 // Giới hạn đã biết, ghi ra thay vì bắt bừa: ô tiền đặt tên không theo `*Vnd`
-// (ví dụ `price`, `otherFee` ở workbench) nằm ngoài lưới này; và
-// `web/ledger_app.py` thì cộng trừ tiền ngay trong đường render — tầng Python
-// CHƯA tách model/UI như tầng JS. Luật chỉ khẳng định phần đang đúng và kiểm
+// (ví dụ `price`, `otherFee` ở workbench cũ) nằm ngoài lưới này; và tầng Python
+// CHƯA tách model/UI như tầng JS (viewer M1 `web/ledger_app.py`, đã xóa 18/11/2026,
+// từng cộng trừ tiền ngay trong đường render). Luật chỉ khẳng định phần đang đúng và kiểm
 // được; tách tầng Python là việc riêng, cần quyết định trước khi code hóa.
 const UI_FILE = /-ui\.js$/;
 const MONEY_NAME = String.raw`(?:[A-Za-z_$][A-Za-z0-9_$]*(?:_vnd|Vnd|VND)|\d+n)`;
