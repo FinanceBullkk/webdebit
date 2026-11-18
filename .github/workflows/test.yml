@@ -195,6 +195,9 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Doi xe schema on isolated PostgreSQL
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe.py
+      # Đội xe đợt 2 (specs/doi-xe-thu-01.md): bảng kê HTH, giá tuyến, tiền về, công nợ cước.
+      - name: Doi xe bang ke (thu cuoc) on isolated PostgreSQL
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_thu.py
 
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;
   # hàm Tổng quan hay get_ledger bị làm sai thì tự kiểm đỏ.

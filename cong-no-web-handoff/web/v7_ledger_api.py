@@ -30,6 +30,7 @@ import v7_book_export
 import v7_booking_view
 import v7_company_info
 import v7_debit_note_config
+import v7_doixe_xlsx
 import v7_identity
 import v7_inbox
 import v7_machine
@@ -543,6 +544,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(result.data)
 
+    def send_doixe_xlsx(self, actor: str, query: str) -> None:
+        """DOI-XE-THU-01: file Excel bảng kê tháng gửi HTH, dựng từ đúng dữ liệu đọc của màn Bảng kê."""
+        function, payload = v7_api_doixe.parse_get(v7_api_doixe.XLSX_PATH, query)
+        data = self.runner.run(function, payload, actor)
+        try:
+            filename, body = v7_doixe_xlsx.build(data)
+        except (v7_doixe_xlsx.ExportError, KeyError, TypeError, ValueError) as exc:
+            print(f"DOI-XE-THU-01: {actor} xuất bảng kê lỗi {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            raise ApiError(503, "EXPORT_FAILED", "Chưa xuất được bảng kê. Báo quản trị kiểm.") from exc
+        self.send_response(200)
+        for name, field in (("Content-Type", XLSX_TYPE), ("Content-Length", str(len(body))),
+                            ("Content-Disposition", f'attachment; filename="{filename}"'),
+                            ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")):
+            self.send_header(name, field)
+        self.end_headers()
+        self.wfile.write(body)
+
     def stream(self, actor: str, tab: str) -> None:
         """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
         presence = PRESENCE
@@ -626,6 +644,9 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header(name, field)
                 self.end_headers()
                 self.wfile.write(data)
+                return
+            if self.command == "GET" and route.path == v7_api_doixe.XLSX_PATH:
+                self.send_doixe_xlsx(actor, route.query)
                 return
             if self.command == "GET" and route.path == EXPORT_PATH:
                 # XUAT-SO-01: file cả sổ, sau xác thực danh tính như mọi /api/v7/*.

@@ -11,7 +11,7 @@ import datetime as dt
 import io
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NamedTuple
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
@@ -45,6 +45,7 @@ class Sheet:
     columns: list[tuple[str, str, int]]   # (tiêu đề, kiểu cột, độ rộng)
     rows: list[list]
     table: bool = True                    # False: trang chữ, không hàng tiêu đề, không bộ lọc
+    top: list[list] = field(default_factory=list)   # hàng phía trên hàng tiêu đề (tên văn bản, "Kính gửi"); bảng bắt đầu sau đó
 
 
 def clean_text(value: str) -> str:
@@ -91,22 +92,24 @@ def _cell(ref: str, value: object, kind: str) -> str:
 def _sheet_xml(sheet: Sheet, selected: bool) -> tuple[str, str | None]:
     """(XML của tab, vùng bộ lọc hoặc None)."""
     width = len(sheet.columns)
-    lines = [[Styled(title, "head") for title, _, _ in sheet.columns]] if sheet.table else []
+    lines = list(sheet.top) + ([[Styled(title, "head") for title, _, _ in sheet.columns]] if sheet.table else [])
     lines += sheet.rows
     last = column_name(width)
-    area = f"A1:{last}{max(len(lines), 1)}"
+    head = len(sheet.top) + 1             # số hàng của hàng tiêu đề
+    used = f"A1:{last}{max(len(lines), 1)}"
+    area = f"A{head}:{last}{max(len(lines), head)}"
     body = []
     for number, row in enumerate(lines, start=1):
         cells = "".join(_cell(f"{column_name(index + 1)}{number}", value, sheet.columns[index][1])
                         for index, value in enumerate(row[:width]))
         body.append(f'<row r="{number}">{cells}</row>')
-    pane = ('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/>'
+    pane = (f'<pane ySplit="{head}" topLeftCell="A{head + 1}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft"/>'
             if sheet.table else "")
     view = '<sheetView workbookViewId="0" tabSelected="1">' if selected else '<sheetView workbookViewId="0">'
     cols = "".join(f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>' for i, (_, _, w) in enumerate(sheet.columns, 1))
     autofilter = f'<autoFilter ref="{area}"/>' if sheet.table else ""
     xml = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="{MAIN}" xmlns:r="{REL}">'
-           f'<dimension ref="{area}"/><sheetViews>{view}{pane}</sheetView></sheetViews>'
+           f'<dimension ref="{used}"/><sheetViews>{view}{pane}</sheetView></sheetViews>'
            f'<sheetFormatPr defaultRowHeight="15"/><cols>{cols}</cols>'
            f'<sheetData>{"".join(body)}</sheetData>{autofilter}</worksheet>')
     return xml, area if sheet.table else None
@@ -213,7 +216,7 @@ def read_workbook(data: bytes) -> dict[str, list[list]]:
 
 def plain_rows(sheet: Sheet) -> list[list]:
     """Các hàng của tab đúng như `read_workbook` sẽ trả: bỏ lớp Styled, bỏ ô trống cuối hàng."""
-    lines = [[title for title, _, _ in sheet.columns]] if sheet.table else []
+    lines = list(sheet.top) + ([[title for title, _, _ in sheet.columns]] if sheet.table else [])
     out = []
     for row in lines + sheet.rows:
         values = [cell.value if isinstance(cell, Styled) else cell for cell in row[:len(sheet.columns)]]

@@ -161,7 +161,9 @@
 
   function drawHead() {
     if (S.view === 'tong') {
-      head.innerHTML = `<h1>Đội xe</h1><label class="dx-find"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>`
+      head.innerHTML = '<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="/doi-xe.html" aria-current="page">Người và xe</a>'
+        + '<a class="dx-man-tab" href="/doi-xe-bang-ke.html">Bảng kê gửi HTH</a><a class="dx-man-tab" href="/doi-xe-bang-ke.html?man=gia">Bảng giá</a></nav>'
+        + `<label class="dx-find"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>`
         + `<input id="dx-q" data-f="q" value="${esc(S.q)}" placeholder="Tìm người hoặc biển số" aria-label="Tìm người hoặc biển số" autocomplete="off"></label>`;
       return;
     }

@@ -13,6 +13,7 @@ import v7_api_tables as tables  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 
 MIGRATION = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe.sql"
+MIGRATION_THU = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe-thu.sql"
 
 
 class FakePsql:
@@ -65,6 +66,27 @@ class DoiXeApiTest(unittest.TestCase):
             ("/api/v7/doixe/hoan", "doixe_ghi_hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "0", "dong_ids": [5, 6]}),
             ("/api/v7/doixe/hoan/huy", "doixe_huy_hoan", {"dot_id": 1, "ly_do": "chuyển nhầm"}),
             ("/api/v7/doixe/thang/khoa", "doixe_khoa_thang", {"thang": "2026-10-01", "khoa": False}),
+            # DOI-XE-THU-01
+            ("/api/v7/doixe/bang-ke/gui", "doixe_gui_bang_ke", {"thang": "2026-10-01", "doi_vnd": "123000", "so_chang": 7,
+                                                                "dau": "0123456789abcdef0123456789abcdef"}),
+            ("/api/v7/doixe/bang-ke/doi-chieu", "doixe_doi_chieu_xong", {"thang": "2026-10-01", "doi_vnd": "0"}),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", "doixe_ghi_dieu_chinh_bk", {"dong_id": 5, "so_tien_vnd": "-380000", "ly_do": "HTH báo trùng"}),
+            ("/api/v7/doixe/bang-ke/tien-ve", "doixe_ghi_tien_ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "1000"}),
+            ("/api/v7/doixe/bang-ke/tien-ve", "doixe_ghi_tien_ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "1000",
+                                                                    "ghi_chu": "chuyển khoản"}),
+            ("/api/v7/doixe/bang-ke/tien-ve/huy", "doixe_huy_tien_ve", {"tien_ve_id": 3, "ly_do": "ghi nhầm"}),
+            ("/api/v7/doixe/thu/cuoc", "doixe_sua_cuoc", {"chang_id": 9, "truoc": None, "gia_tri": "24000000"}),
+            ("/api/v7/doixe/thu/cuoc", "doixe_sua_cuoc", {"chang_id": 9, "truoc": "24000000", "gia_tri": None}),
+            ("/api/v7/doixe/thu/tuyen", "doixe_gan_tuyen", {"chang_id": 9, "tuyen_id": 2, "nho": True}),
+            ("/api/v7/doixe/thu/tuyen", "doixe_gan_tuyen", {"chang_id": 9, "tuyen_id": None, "nho": False}),
+            ("/api/v7/doixe/gia", "doixe_luu_gia", {"tuyen_id": 2, "tu_ngay": "2026-12-01", "gia_vnd": "12200000"}),
+            ("/api/v7/doixe/tuyen", "doixe_luu_tuyen", {"tuyen_id": None, "loai": "hang", "hang": "Sầu riêng", "di": "Krông Pắc",
+                                                        "den": "Cát Lái", "ten_goc": [{"hang": "Sầu đông", "tinh": None}],
+                                                        "gia_vnd": "25000000", "tu_ngay": "2026-01-01"}),
+            ("/api/v7/doixe/tuyen", "doixe_luu_tuyen", {"tuyen_id": 4, "loai": "chuyen_cang", "hang": None, "di": "Các cảng", "den": None,
+                                                        "ten_goc": [], "dang_dung": False}),
+            ("/api/v7/doixe/phat-sinh", "doixe_luu_phat_sinh", {"ma": "neo", "ten": "Neo", "cach": "theo_ngay", "muc_vnd": "1500000",
+                                                                "muc_them_vnd": "2000000", "chi_ho": False, "cot": "ps", "ten_goc": ["Neo"]}),
         ]
         for path, function, fields in cases:
             with self.subTest(path=path, body=fields):
@@ -103,6 +125,36 @@ class DoiXeApiTest(unittest.TestCase):
             ("/api/v7/doixe/hoan/huy", {"dot_id": 1}, "INVALID_REQUEST"),
             ("/api/v7/doixe/thang/khoa", {"thang": "2026-10-15", "khoa": True}, "INVALID_MONTH"),
             ("/api/v7/doixe/thang/khoa", {"thang": "2026-10-01", "khoa": "true"}, "INVALID_REQUEST"),
+            # DOI-XE-THU-01
+            ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-02", "doi_vnd": "1", "so_chang": 1, "dau": "0123456789abcdef0123456789abcdef"}, "INVALID_MONTH"),
+            ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": 1, "so_chang": 1, "dau": "0123456789abcdef0123456789abcdef"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1", "so_chang": "1", "dau": "0123456789abcdef0123456789abcdef"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1", "so_chang": 1, "dau": "ABC"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1", "so_chang": 1}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "0", "ly_do": "x"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-1.5", "ly_do": "x"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-100", "ly_do": "  "}, "LY_DO_DIEU_CHINH"),
+            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "18/11/2026", "so_tien_vnd": "1"}, "INVALID_DATE"),
+            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "0"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/tien-ve/huy", {"tien_ve_id": 3, "ly_do": ""}, "LY_DO_THIEU"),
+            ("/api/v7/doixe/thu/cuoc", {"chang_id": 9, "truoc": None, "gia_tri": "-1"}, "INVALID_VND"),
+            ("/api/v7/doixe/thu/tuyen", {"chang_id": 9, "tuyen_id": 2, "nho": "true"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/gia", {"tuyen_id": 2, "tu_ngay": "2026-12-01", "gia_vnd": "0"}, "INVALID_VND"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": None, "loai": "hang", "hang": "A", "di": " ", "den": None, "ten_goc": [],
+                                     "gia_vnd": "1", "tu_ngay": "2026-01-01"}, "TUYEN_THIEU"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": None, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": []}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [],
+                                     "gia_vnd": "1"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "xe", "hang": "A", "di": "B", "den": None, "ten_goc": []}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [{"hang": "A"}]},
+             "INVALID_REQUEST"),
+            ("/api/v7/doixe/phat-sinh", {"ma": "Neo", "ten": "Neo", "cach": "theo_ngay", "muc_vnd": None, "muc_them_vnd": None,
+                                         "chi_ho": False, "cot": "ps", "ten_goc": ["Neo"]}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/phat-sinh", {"ma": "neo", "ten": "Neo", "cach": "theo_ngay", "muc_vnd": None, "muc_them_vnd": None,
+                                         "chi_ho": False, "cot": "ps", "ten_goc": []}, "TEN_GOC_LA"),
+            ("/api/v7/doixe/phat-sinh", {"ma": "neo", "ten": "Neo", "cach": "tu_do", "muc_vnd": None, "muc_them_vnd": None,
+                                         "chi_ho": False, "cot": "ps", "ten_goc": ["Neo"]}, "INVALID_REQUEST"),
         ]
         for path, body, code in bad:
             with self.subTest(path=path, body=body):
@@ -118,10 +170,16 @@ class DoiXeApiTest(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/v7/doixe/so?loai=xe&id=3")[0], ("doixe_get_so", {"loai": "xe", "id": 3, "thang": None}))
         self.assertEqual(self.call("GET", "/api/v7/doixe/lich-su")[0], ("doixe_get_lich_su", {"nguoi": None, "xe": None}))
         self.assertEqual(self.call("GET", "/api/v7/doixe/lich-su?xe=3")[0], ("doixe_get_lich_su", {"nguoi": None, "xe": 3}))
+        self.assertEqual(self.call("GET", "/api/v7/doixe/bang-ke")[0], ("doixe_get_bang_ke", {"thang": None}))
+        self.assertEqual(self.call("GET", "/api/v7/doixe/bang-ke?thang=2026-10-01")[0], ("doixe_get_bang_ke", {"thang": "2026-10-01"}))
+        self.assertEqual(self.call("GET", "/api/v7/doixe/bang-gia")[0], ("doixe_get_bang_gia", {}))
+        self.assertEqual(self.call("GET", "/api/v7/doixe/bang-ke/lich-su")[0], ("doixe_get_lich_su_thu", {}))
+        self.assertEqual(doixe.parse_get(doixe.XLSX_PATH, "thang=2026-10-01"), ("doixe_get_bang_ke", {"thang": "2026-10-01"}))
         for path, code in (("/api/v7/doixe?thang=2026-10-02", "INVALID_MONTH"), ("/api/v7/doixe/so?loai=khach&id=1", "INVALID_REQUEST"),
                            ("/api/v7/doixe/so?loai=nguoi", "INVALID_REQUEST"), ("/api/v7/doixe/so?loai=nguoi&id=0", "INVALID_REQUEST"),
                            ("/api/v7/doixe/lich-su?nguoi=1&xe=2", "INVALID_REQUEST"), ("/api/v7/doixe?x=1", "INVALID_REQUEST"),
-                           ("/api/v7/doixe/khac", "NOT_FOUND")):
+                           ("/api/v7/doixe/khac", "NOT_FOUND"), ("/api/v7/doixe/bang-ke?thang=2026-10", "INVALID_MONTH"),
+                           ("/api/v7/doixe/bang-gia?ben=khac", "INVALID_REQUEST"), ("/api/v7/doixe/bang-ke/lich-su?x=1", "INVALID_REQUEST")):
             with self.subTest(path=path):
                 self.rejects("GET", path, None, code)
         nested = {"events": [{"actor": "nv@gia", "truoc": {}}], "chang": [{"dong": [{"actor": "loader"}]}]}
@@ -130,12 +188,12 @@ class DoiXeApiTest(unittest.TestCase):
         self.assertIn("actor_name", value["chang"][0]["dong"][0])
 
     def test_sql_matches_migration_functions(self):
-        source = MIGRATION.read_text(encoding="utf-8")
-        granted = re.search(r"GRANT EXECUTE ON FUNCTION (.*?) TO sokhach_app;", source, re.S).group(1)
-        names = set(re.findall(r"doixe\.(\w+)\(", granted))
+        source = MIGRATION.read_text(encoding="utf-8") + MIGRATION_THU.read_text(encoding="utf-8")
+        names = {name for granted in re.findall(r"GRANT EXECUTE ON FUNCTION (.*?) TO sokhach_app;", source, re.S)
+                 for name in re.findall(r"doixe\.(\w+)\(", granted)}
         used = {re.search(r"doixe\.(\w+)\(", tables.SQL[key]).group(1) for key in tables.SQL if key.startswith("doixe_")}
         self.assertEqual(used, names, "SQL của API phải gọi đúng các hàm migration cấp cho app")
-        self.assertEqual(len(doixe.POST_HANDLERS), 8)
+        self.assertEqual(len(doixe.POST_HANDLERS), 18)
         for code in ("NGAY_TUONG_LAI", "CHANGED", "TRUNG_CHANG", "DONG_DA_DOI", "LY_DO_THIEU", "KHONG_DOI_NGUOI_TRA", "THANG_KHOA_CHUYEN"):
             self.assertIn(code, tables.ERRORS)
             self.assertIn(f"'{code}'", source)
