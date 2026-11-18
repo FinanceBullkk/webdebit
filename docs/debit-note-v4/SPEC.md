@@ -189,7 +189,7 @@ Chạy trước khi dựng PDF. Phép nào sai thì không xuất, báo lỗi n�
 - `data/sample-30.json` cho ra 2 trang (20 + 10), giống hai ảnh `30-container-trang-*.png`; trang 1 có "Continued on next page".
 - `data/sample-8-an-cot.json`: cột HC fee bị ẩn, Shipper rộng ra, giống `8-container-an-cot-HC-fee.png`.
 - Chia trang đúng bảng ở mục 6 cho 16, 17, 30, 60 container (nhân dữ liệu mẫu lên).
-- Dữ liệu dài (`LONG`): tên khách `FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 泛亚国际物流（深圳）有限公司`; địa chỉ `Room 1203, Block B, Galaxy Century Building, No. 3069 Caitian Road, Futian District, Shenzhen, Guangdong, China`. Vẫn vừa trang, 15 container một trang (16 từ khi bỏ dòng Attn, 12/11/2026).
+- Dữ liệu dài (`LONG`, tên và địa chỉ giả, dài như ca thật): tên khách `SAMPLE INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 样本国际物流（深圳）有限公司`; địa chỉ `Room 1203, Block B, Sample Century Building, No. 1234 Example Road, Futian District, Shenzhen, Guangdong, China`. Vẫn vừa trang, 15 container một trang (16 từ khi bỏ dòng Attn, 12/11/2026).
 - Mỗi trang PDF đúng A4 ngang (≈ 841.9 × 595.3 pt), không có trang trắng thừa, font được nhúng, không có font sans.
 - Cả 6 phép kiểm tra chạy và chặn được một ca cố tình sai (ví dụ sửa Amount một dòng).
 - Mọi số tiền trong một cột thẳng mép phải; số tiền ở ACCOUNT STATUS thẳng mép với cột Amount của bảng.

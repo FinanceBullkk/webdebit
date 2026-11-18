@@ -264,6 +264,8 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
     text_diff = 0
     check_reasons: dict[str, int] = {}
     for item in sync.get("items") or []:
+        if item.get("closed"):   # K3: người đã bấm "Đã xem, hết báo" cho dòng Sheet này; dòng Sheet đổi thì không còn đóng
+            continue
         state, reason = item.get("sync_state"), item.get("sync_reason") or ""
         if state == "NEW":
             trips_new += 1
@@ -325,6 +327,8 @@ class Inbox:
         self.dirty_lock = threading.Lock()   # một lượt tính sổ vừa ghi tại một lúc (view)
         self.books: dict[int, dict] = {}
         self.failed: set[int] = set()
+        # Số lượt nền liền nhau có ít nhất một sổ không tính được; máy canh đọc qua /healthz (CANH-BAO-01, bổ sung 18/11/2026).
+        self.failed_rounds = 0
         self.total = 0
         self.done = 0
         self.computed_at: float | None = None
@@ -470,8 +474,23 @@ class Inbox:
             self.auto_run_at = self.clock()
         with self.lock:
             self.books, self.failed = books, failed
+            self.failed_rounds = self.failed_rounds + 1 if failed else 0
             self.computed_at, self.key, self.running = self.clock(), key, False
             self.unavailable = key is None
+
+    def health(self, now: float) -> dict[str, Any]:
+        """Tình trạng hộp việc cho /healthz, chỉ số đếm, không mã sổ (CANH-BAO-01, bổ sung 18/11/2026).
+
+        Bản chụp Sheet hỏng làm mọi sổ thành `failed` mà không có dòng lỗi nào và máy ngừng dán chuyến, ghi giá: chỉ máy canh thấy
+        được qua đây (diễn tập 1/12, đo 18/11/2026). `failed_rounds` để một sổ lỗi lẻ ở một lượt rồi tự lành không thành email.
+        """
+        with self.lock:
+            if self.computed_at is None:
+                state = "computing"
+            else:
+                state = "unavailable" if self.unavailable else "ready"
+            return {"state": state, "books": self.total, "failed": len(self.failed), "failed_rounds": self.failed_rounds,
+                    "computed_age_seconds": None if self.computed_at is None else max(0, int(now - self.computed_at))}
 
     def _auto_text(self, runner, customer_id: int) -> None:
         """Lấy theo Sheet mọi ô chữ lệch của một sổ, bằng đúng lệnh giải quyết lệch người dùng bấm (decision use_sheet).

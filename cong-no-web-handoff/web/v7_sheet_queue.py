@@ -10,6 +10,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+import v7_normalize as normalize
+
 # Rows before this year sit in the opening balance; later years stay in scope with no upper bound.
 QUEUE_FIRST_YEAR = 2026
 # Cột "Mặt hàng" của booking sheet ghi thế này thì không dùng để chọn sổ (đo trên hao 1/11/2026).
@@ -21,7 +23,17 @@ def _name(value: Any) -> str:
 
 
 def _container(value: Any) -> str:
-    return "".join(str(value or "").upper().split())
+    return normalize.container_key(value)
+
+
+def _existing_text(value: Any) -> Any:
+    """Giá trị web gửi xuống SQL để so trước–sau: chữ rỗng là None (K4); giá trị không phải chữ giữ nguyên để nơi nhận từ chối."""
+    return normalize.text_or_none(value) if isinstance(value, str) else value
+
+
+def _web_shipper(old: dict[str, Any]) -> Any:
+    """Chủ hàng của dòng web để so với Sheet: dòng sổ gốc không có chủ hàng thì lấy hãng tàu; chữ rỗng là chưa có (K4)."""
+    return _existing_text(old.get("shipper")) or (_existing_text(old.get("carrier")) if old["kind"] == "legacy" else None)
 
 
 def _source_row(value: Any) -> int | None:
@@ -271,7 +283,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                        if _name(row.get(field)) != _name(old.get(field))]
             if old["kind"] != "legacy" and _name(row.get("carrier")) != _name(old.get("carrier")):
                 changed.append("carrier")
-            old_shipper = old.get("shipper") or (old.get("carrier") if old["kind"] == "legacy" else None)
+            old_shipper = _web_shipper(old)
             if row.get("shipper") and _name(row["shipper"]) != _name(old_shipper):
                 changed.append("shipper")
             elif old["kind"] == "legacy" and not row.get("shipper"):
@@ -318,9 +330,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_debt_month": old.get("debt_month") if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: (old.get("shipper") or
-                                                    (old.get("carrier") if old["kind"] == "legacy" else None))
-                                            if field == "shipper" else old.get(field)
+                        "existing_values": {field: _web_shipper(old) if field == "shipper" else _existing_text(old.get(field))
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     trip_types = {}
     by_row = {row.get("source_row"): row for row in queue["items"]

@@ -16,6 +16,7 @@ Mỗi lượt cũng kiểm tab TONG có cộng đủ các tab khách không (KIE
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import functools
 import json
@@ -31,6 +32,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import sheet_sync_runner
+import v7_booking_check as booking_check
 import v7_cutover_audit as audit
 import v7_export_clean as clean
 import v7_load_real_copy as loader
@@ -246,6 +248,10 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     if total == sheet:   # ai đó vừa sửa sau lúc đọc
         row.update(status="KHOP", reason="KHOP")
         return
+    health = fix.customer_health(prices, ledger, customers)
+    if health["status"] == "broken":   # KIEM-TAB-01: tab có phát hiện (vd. tiền lệch một dòng) thì máy không ghi gì, như khách bị giữ
+        row.update(reason="HELD", held_reasons=dict(Counter(str(finding["kind"]).upper() for finding in health["findings"])))
+        return
     groups, ahead, shuffled = fix.plan(prices, receipts, ledger, customers, today)
     row["web_ahead_vnd"] = ahead
     if shuffled:
@@ -269,7 +275,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     trace.stage("ghi")
     trace.customer(customer_id, writing=True)
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)
@@ -307,6 +313,28 @@ def attach_ahead_check(row: dict[str, Any], ledger: dict, prices: dict, customer
         return
     if found:
         row["hints"] = [hints.money_fields(hint) for hint in found]
+
+
+def count_sheet_fixes(db, results: list[dict[str, Any]], rows: list[dict], snapshots_of: Callable[[], tuple[dict, dict]]) -> None:
+    """Số chỗ khối "Sheet cần sửa" sẽ nêu cho mỗi khách HELD (`sheet_fix_count`), để bảng khách lệch có chip lọc và nhãn "· n chỗ" mà
+    không phải mở từng khách (specs/v7-sheet-can-sua.md, 3e). Cùng hàm với bảng đối chiếu nên số khớp số thẻ khi mở. Chỉ đọc; lỗi ở
+    đây chỉ bỏ số của khách đó, không làm hỏng lượt."""
+    held = [row for row in results if row.get("reason") == "HELD" and row.get("customer_id")]
+    if not held:
+        return
+    try:
+        prices, _ = snapshots_of()
+        mapping = customer_name_mapping()
+    except Exception as exc:  # noqa: BLE001  thiếu số chỗ không phải lý do bỏ cả lượt
+        print(f"V7 đối soát máy: chưa đếm được chỗ Sheet cần sửa ({failure_code(exc)})", file=sys.stderr, flush=True)
+        return
+    customers = [named_customer(row, mapping) for row in rows]
+    for row in held:
+        try:
+            ledger = db.run("get_ledger", {"customer_id": row["customer_id"]}, ACTOR)
+            row["sheet_fix_count"] = len(fix.sheet_findings(prices, ledger, customers, row)["findings"])
+        except Exception as exc:  # noqa: BLE001
+            print(f"V7 đối soát máy: sổ {row['customer_id']} chưa đếm được chỗ Sheet cần sửa ({failure_code(exc)})", file=sys.stderr, flush=True)
 
 
 def money_fields(row: dict[str, Any]) -> dict[str, Any]:
@@ -377,10 +405,13 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
     today = downloaded_at.date()
     work_root = Path(args.work_dir)
     work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
+    # ExitStack đóng trước thư mục tạm: phép kiểm booking chạy song song phải xong khi bản tải còn đó.
+    with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder, contextlib.ExitStack() as stack:
         work = Path(folder)
         trace.stage("tai")
         xlsx = args.xlsx or download(args.spreadsheet_id, args.credentials, work / "sheet.xlsx")
+        # KIEM-BOOKING-01: Sheet sổ nợ so với booking, trên cùng bản tải. Chỉ đọc, file riêng; lỗi không làm hỏng lượt.
+        booking = stack.enter_context(booking_check.alongside(Path(xlsx), args.booking_output, args.snapshot, args.road, enabled=args.booking_check))
         db = PsqlDirect(args.socket_dir, args.database, args.db_user)
         rows = db.run("list_customers", {}, ACTOR).get("customers", [])
         trace.stage("sach")
@@ -422,19 +453,20 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                              seen, digest, ids, write=args.fix)
         # Sau khi máy sửa và tạo sổ, để tổng web là tổng lúc lưu. Hơn 40 khách lệch thì phần đi trước chưa tính, số so không có nghĩa.
         tong = {"month": None, "skipped": "TOO_MANY_DIFFERENT"} if too_many else check_tong(Path(xlsx), results, ids, rows, sheet_snapshots)
+        held_names = {item["name"]: item for item in held}
+        for row in results:
+            row["customer_id"] = ids.get(row["customer"])
+            if row["status"] == "LECH_TONG" and too_many:
+                row["reason"] = "TOO_MANY_DIFFERENT"
+            elif row["customer"] in held_names:
+                item = held_names[row["customer"]]
+                row.update(reason="HELD", held_reasons=item["reasons"])
+                if item["chain_break"]:
+                    row["hints"] = [hints.money_fields(item["chain_break"])]
+            elif row["status"] != "LECH_TONG":
+                row.setdefault("reason", row["status"])
+        count_sheet_fixes(db, results, rows, sheet_snapshots)   # còn trong `with`: bản chụp dựng từ bản tải ở thư mục tạm
     trace.stage("luu")
-    held_names = {item["name"]: item for item in held}
-    for row in results:
-        row["customer_id"] = ids.get(row["customer"])
-        if row["status"] == "LECH_TONG" and too_many:
-            row["reason"] = "TOO_MANY_DIFFERENT"
-        elif row["customer"] in held_names:
-            item = held_names[row["customer"]]
-            row.update(reason="HELD", held_reasons=item["reasons"])
-            if item["chain_break"]:
-                row["hints"] = [hints.money_fields(item["chain_break"])]
-        elif row["status"] != "LECH_TONG":
-            row.setdefault("reason", row["status"])
     edit_state = note_sheet_edits(args, results, downloaded_at)
     for row in results:
         if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS:
@@ -453,7 +485,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
-        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong,
+        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
     }
 
 
@@ -485,6 +517,7 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
     line["edit_log"] = result["edit_log"]["status"]
     line["editing"] = sum(bool(row.get("sheet_editing")) for row in result["customers"])
     line["tong"] = tong_counts(result["tong"])
+    line["booking"] = result.get("booking")
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -503,7 +536,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", default="webdebit_v7")
     parser.add_argument("--db-user", default="v7_app")
     parser.add_argument("--fix", action="store_true", help="ghi tổ hợp đã chọn; không có thì chỉ báo")
+    parser.add_argument("--booking-output", type=Path, help="kết quả kiểm booking (KIEM-BOOKING-01); mặc định booking-check.json cạnh --output")
+    parser.add_argument("--snapshot", type=Path, default=Path(os.getenv("WEBDEBIT_SNAPSHOT_PATH") or booking_check.FOLDER / "snapshot.json"))
+    parser.add_argument("--road", type=Path, default=Path(os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH") or booking_check.FOLDER / "road.json"))
     args = parser.parse_args(argv)
+    args.booking_output = args.booking_output or args.output.with_name("booking-check.json")
+    args.booking_check = os.getenv("WEBDEBIT_BOOKING_CHECK", "on") != "off"   # tắt nhanh không cần release mới
     if not args.xlsx and (not args.spreadsheet_id or not args.credentials):
         parser.error("cần --xlsx, hoặc --spreadsheet-id và --credentials (biến môi trường của runner)")
     started = time.monotonic()
@@ -523,7 +561,7 @@ def main(argv: list[str] | None = None) -> int:
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
                       "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],
-                      "tong": tong_counts(result["tong"]), "seconds": round(time.monotonic() - started)}))
+                      "tong": tong_counts(result["tong"]), "booking": result["booking"], "seconds": round(time.monotonic() - started)}))
     return 0
 
 

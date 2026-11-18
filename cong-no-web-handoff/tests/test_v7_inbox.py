@@ -83,6 +83,14 @@ class SummarizeTests(unittest.TestCase):
                                                   sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []}))
         self.assertEqual((broken["trips_new"], broken["road_new"]), (1, 0))
 
+    def test_closed_source_rows_are_not_counted(self):
+        # K3: dòng Sheet người đã "Đã xem, hết báo" không còn là việc; dòng khác vẫn đếm.
+        items = [{"sync_state": "NEW", "closed": True}, {"sync_state": "NEW", "closed": False},
+                 {"sync_state": "CONFLICT", "sync_reason": "AMBIGUOUS_MATCH", "closed": True},
+                 {"sync_state": "CONFLICT", "sync_reason": "AMBIGUOUS_MATCH"}]
+        book = v7_inbox.summarize(7, projection(sheet_sync={"items": items, "removed_items": []}))
+        self.assertEqual((book["trips_new"], book["trips_check"]), (1, {"count": 1, "reasons": {"AMBIGUOUS_MATCH": 1}}))
+
     def test_machine_price_rows_from_october_open_or_locked(self):
         prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
                   "review": [{"status": "MONTH_LOCKED", "month": "2026-10"}, {"status": "MONTH_LOCKED", "month": "2026-09"},
@@ -147,6 +155,23 @@ class InboxTests(unittest.TestCase):
         self.assertEqual((view["books_total"], view["books_done"]), (3, 3))
         self.assertEqual(view["sheet_at"], "2026-11-01T07:45:00+00:00")
         self.assertEqual(runner.calls.count("list_customers"), 1)          # hàm đọc dùng chung lấy một lần
+
+    def test_health_counts_rounds_with_failed_books_for_the_watchdog(self):
+        # CANH-BAO-01, bổ sung 18/11/2026: /healthz chỉ có số đếm; sổ lỗi phải lặp lượt liền mới đáng báo.
+        self.assertEqual(self.inbox.health(1000.0), {"state": "computing", "books": 0, "failed": 0, "failed_rounds": 0,
+                                                     "computed_age_seconds": None})
+        broken = Runner([1, 2, 5])   # sổ 5 lỗi đọc
+        self.inbox.refresh_all(broken)
+        self.assertEqual(self.inbox.health(self.inbox.computed_at + 30),
+                         {"state": "ready", "books": 3, "failed": 1, "failed_rounds": 1, "computed_age_seconds": 30})
+        self.inbox.refresh_all(broken)
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["failed_rounds"], 2)
+        self.inbox.refresh_all(Runner([1, 2]))   # tự lành: đếm lại từ đầu
+        health = self.inbox.health(self.inbox.computed_at)
+        self.assertEqual((health["failed"], health["failed_rounds"]), (0, 0))
+        self.paths[0].unlink()   # thiếu bản chụp
+        self.inbox.refresh_all(Runner([1, 2]))
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["state"], "unavailable")
 
     def test_dirty_book_recomputed_on_next_view(self):
         runner = Runner([1, 2])

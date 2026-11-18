@@ -106,3 +106,5 @@ Map thao tác → module → kiểm:
 | Sửa ô chuyến web | đơn giá/phụ phí: `/api/v7/trips/price` và `/api/v7/trips/adjust` (đã có). Container, hãng tàu, ngày, nơi đi/đến: **cần lệnh mới** (`v7_backend_functions.sql` + `v7_ledger_api.py`), cả tháng khóa; đổi ngày khác tháng thì đổi kỳ nợ và phân bổ lại | DB test: sửa từng trường ở tháng mở và khóa, Lịch sử đúng, đổi container trùng → CHỜ KIỂM, đổi tháng giữ tổng khách |
 | Xóa chuyến | **cần lệnh mới**; tháng khóa ghi điều chỉnh | DB test: xóa ở tháng mở/khóa, tổng giảm đúng, Lịch sử đủ thông tin |
 | Sửa/xóa dòng sổ gốc | **cần bảng/lệnh mới** gắn `legacy_row`, không sửa `opening_balance` | DB test: phần chênh, xóa, đổi tháng; đối soát với bản mốc vẫn đọc được |
+
+<!-- du-lieu-gia: 75.000.000 -->

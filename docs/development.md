@@ -89,19 +89,55 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 
 **Thêm file preview chỉ sửa một chỗ: thẻ `<script>`/`<link>` trong trang HTML.** Server `web/v7_ledger_api.py` phục vụ đúng các file mà trang trong `PAGES` nạp (file khác vẫn 404), test unit `test-so-khach-v7-api.js` nạp theo thứ tự thẻ của `so-khach-v7-live.html`, test trình duyệt phục vụ cả thư mục, `Deploy hao` đóng gói cả `preview/`. Trang mới thì thêm vào `PAGES`. Test trình duyệt sổ khách dùng chung máy chủ giả `so-khach-v7-browser-world.js`.
 
+**Test sổ khách chờ lệnh ghi bằng `settled(page)`, không chờ chữ trên màn hay hẹn giờ (CHO-GHI-01).** Từ NHAP-NHANH-01 ô đổi chữ trước, lệnh ghi đi nền sau, nên chữ trên màn không cho biết lệnh đã tới máy chủ. `so-khach-v7-api.js` đếm việc ghi/đọc sổ đang chạy (hàng đợi ghi nền, lệnh thường, chuỗi giá, đọc lại sổ, nhịp vẽ bản đọc lại, trình nghe của phần gửi lệnh thẳng bọc bằng `api.tracked`/`api.track`); `SoKhachV7Api.idle()` xong khi không còn việc nào. Chỉ đếm, không đổi luồng người dùng. Trong test, gọi `settled(page)` trước khi đọc `posts(world)`/`world.requests` hay kiểm số sau lệnh ghi; phần mới gửi `fetch` POST thẳng thì bọc trình nghe bằng `api.tracked`. Muốn lộ chỗ còn chờ sai: `WEBDEBIT_TEST_WRITE_DELAY_MS=800` làm máy chủ giả trả lệnh ghi chậm.
+
 **Helper chuỗi dùng chung nằm ở `cong-no-format.js`** (`CongNoFormat`, từ 31/10/2026): thoát HTML `esc`; bỏ dấu `fold` (khóa tìm kiếm, gộp ký tự lạ thành khoảng trắng) và `foldText` (giữ dấu câu và độ dài, cùng quy tắc với `fold` của `web/v7_zalo_chat.py`); `transportText`/`commodityText`; `customerLabel`/`customerLabels` (khóa `String(id)`); nhãn tháng `monthLabel` "7/2026", `monthTitle` "Tháng 07/2026", `monthTag` "T7"/"T12/2025"; ngày `dateText` "22/10/2026"; số triệu không đơn vị `millions` cho bảng ghi "Đơn vị: triệu đồng" một lần (ma trận); câu lỗi tải trang `loadError` ("Không tải được … Kiểm tra mạng rồi bấm Thử lại.", trang đặt kèm nút "Thử lại"). Mọi trang nạp `cong-no-format.js` trước script khác rồi destructure hàm cần dùng; không định nghĩa lại trong file trang (tiền vẫn ở `so-khach-v7-model.js` theo ARCH-03).
 
 ## Lint và lệnh check
 
 `npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
-(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
-`node --test` cho model JS, rồi hai bộ test trình duyệt Playwright (`test:browser` và `test:viewer`). Chưa tải Chromium thì cả hai bước
-Playwright cùng báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
-`npm run lint` chạy riêng bốn bước lint khi đang sửa dở.
+(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), secrets và dữ liệu thật
+(`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
+`node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026). Chưa tải Chromium thì bước
+Playwright báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
+`npm run lint` chạy riêng năm bước lint khi đang sửa dở.
+
+**Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
+nhật ký triển khai và spec): `check-secrets.js` bắt số tiền nhóm chấm từ 7 chữ số (dạng `x.xxx.xxx` trở lên, trừ cỡ file ghi
+kèm "byte") và số container 4 chữ hoa + 7 số trong `docs/`, `specs/`, `contexte/`, `livrables/` và mọi file `.md`. Ghi số đếm,
+mã sổ hoặc câu giữ ý ("tổng nợ không đổi", "bằng tổng Sheet"). Dữ liệu giả cố ý (ví dụ trong spec, fixture tổng hợp) khai
+trong chính file đó bằng `<!-- du-lieu-gia: <giá trị> ... -->`; mã chủ container bịa `MAUU`, `HTHU`, `ALTU` được bỏ qua sẵn.
+File dưới `specs/v7-backend/` thì khai ở `FAKE_VALUES_BY_FILE` trong script, không thêm dòng khai vào file: mọi thay đổi ở
+thư mục đó làm `Deploy hao` dừng ở cổng triển khai tay.
+Lưới thô: số viết liền, nhóm phẩy, tiền rút gọn ("43,5 triệu") và số booking vẫn do người review; tên khách xem đoạn dưới.
+
+**Tên khách thật** (từ 18/11/2026): trong cùng phạm vi tài liệu, `check-secrets.js` bắt tên khách theo một danh sách
+**không nằm trong repo** (repo public). Nguồn, theo thứ tự: biến `WEBDEBIT_TEN_KHACH` (CI lấy từ secret cùng tên của repo
+ở job `javascript`; `scripts/check.js` chỉ đưa biến này cho bước `lint:sec`), rồi file `webdebit-ten-khach.txt` trong
+thư mục git chung (`git rev-parse --git-common-dir`, tức `.git/` của checkout chính): mọi worktree của bản clone dùng chung
+file đó và Git không theo dõi gì trong thư mục này. Mỗi dòng một tên; dòng trống và dòng bắt đầu bằng `#` bỏ qua.
+
+- So như so tên tab: bỏ dấu, `đ` thành `d`, không phân biệt hoa thường; khoảng trắng và dấu câu là ranh giới từ, khớp trọn
+  từ (tên viết trong slug tên file cũng bị bắt). Tên dưới 6 chữ/số, hoặc chỉ một từ dưới 8 chữ, bị bỏ: bỏ dấu rồi thì trùng
+  chữ thường gặp.
+- Báo khớp chỉ in `file:dòng [customer-name #n]`, `n` là số dòng của tên trong danh sách; không bao giờ in tên. Tên đủ dài
+  mà vẫn trùng một cụm từ thường gặp (báo nhầm) thì xóa dòng `n` khỏi file và secret. Không khai tên trong tài liệu để được
+  bỏ qua: dòng khai chính là chỉ đường tới tên đó.
+- Không có danh sách thì bước in `BỎ QUA customer-name` và không đỏ vì lý do đó. PR từ fork và PR của Dependabot không
+  nhận secret của repo nên luôn bỏ qua; lượt push lên `main` và PR từ nhánh trong repo thì có.
+- CI chỉ thấy tên khi nhánh đã lên GitHub, lúc đó diff của PR đã public. Máy có file danh sách thì chạy `npm run check`
+  (hoặc `node scripts/check-secrets.js` trên diff đã stage) trước khi push.
+- Dựng hoặc cập nhật danh sách: tên sổ khách V7 (cột `name` của `sokhach.customer`, phiên chỉ đọc), `display_name` và
+  tên khác (`aliases`) trong file ánh xạ tên khách (`WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH`) trên `hao`; ghi thẳng vào file
+  danh sách, chỉ giữ tên đủ ngưỡng và bỏ tên trùng sau chuẩn hóa, không in ra màn hình hay log. Chạy
+  `node scripts/check-secrets.js --all`, xử lý từng `#n` (tên thật thì sửa tài liệu, báo nhầm thì xóa dòng), rồi mới
+  `gh secret set WEBDEBIT_TEN_KHACH < <file danh sách>` từ chính file đó để `#n` trên CI và ở máy trùng nhau. Đọc từ
+  `hao` và tạo, sửa secret đều hỏi người dùng trước. Secret ĐÃ TẠO 18/11/2026 (người dùng đồng ý), 312 tên.
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
-không đổi riêng trong workflow.
+không đổi riêng trong workflow. Ngoại lệ duy nhất: `--skip=<mã bước>` (ví dụ `test:py`) để job không chạy lại bước
+mà job khác đã chạy cùng môi trường; mã gõ sai thì lệnh dừng với mã 2 chứ không im lặng bỏ bước. Ở máy không dùng cờ này.
 
 ### CI trên runner GitHub
 
@@ -113,7 +149,8 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 |---|---|---|
 | `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12, 3.13 và 3.14 qua `uv` |
 | `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | `ubuntu-latest` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
-| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 và 3.14 qua `uv` (`hao` chạy 3.14) |
+| `postgres-v7-backend`, `postgres-v7-p0`, `postgres-v7-grants-direct`, `postgres-v7-fifo`, `postgres-v7-bat-bien`, `postgres-v7-luoi-an-toan`, `postgres-doixe` | `ubuntu-latest` | harness V7, mỗi job một container PostgreSQL 18.6 dùng một lần; `postgres-v7-fifo` chạy chuỗi lệnh ghi tiền ngẫu nhiên so với mô hình tham chiếu ([spec](../specs/v7-fifo-ngau-nhien.md)), cần Hypothesis từ `requirements-dev.txt`; `postgres-v7-bat-bien` chạy chuỗi lệnh ghi tiền ngẫu nhiên seed cố định trên ba sổ giả và kiểm bất biến tiền sau mỗi lệnh ([spec](../specs/v7-bat-bien-tien.md)); `postgres-v7-luoi-an-toan` kiểm lưới an toàn của máy canh bằng vi phạm cố ý ([spec](../specs/v7-luoi-an-toan.md)); `postgres-doixe` kiểm schema đội xe `doixe` ([spec](../specs/chi-phi-xe-01.md)) |
+| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.14 qua `uv` (bản `hao` chạy). Bản ubuntu gọi `--skip=test:py` vì job `python` đã chạy unittest trên ubuntu; bản Windows chạy đủ để giữ unittest trên Windows. Không test JS nào gọi Python (đo 18/11/2026), nên một bản Python là đủ |
 | `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
 
 **Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, vẫn bắt nhánh cập nhật theo `main`
@@ -146,6 +183,41 @@ Thêm luật mới: ưu tiên biến một quy tắc nghiệp vụ đã chốt t
 có sẵn, ràng buộc SQL, hoặc một bước mới trong `scripts/check.js`. Luật chỉ nằm trong tài liệu thì
 mỗi lần review lại phải soi bằng mắt.
 
+### Job đêm tìm test chập chờn
+
+**Nguồn:** `.github/workflows/flaky-nightly.yml` (CHAP-CHON-01, 18/11/2026). Test trình duyệt chập chờn chỉ đỏ một
+trong bốn job `javascript` dù cùng mã, nên CI của PR hiếm khi bắt được trước khi nó làm đỏ `main`. Job đêm chạy riêng
+bộ browser (`node scripts/run-tests.js browser`) nhiều lượt liền trên `ubuntu-latest` và `windows-latest`, mỗi lượt y
+như CI (các file chạy song song), rồi đếm ca nào đỏ mấy lần. Không chạy lại ca đỏ cho xanh; ERR_NO_BUFFER_SPACE vẫn
+chạy lại một lần như trong `shared-browser.js` và được đếm riêng.
+
+- **Khi chạy:** 02:30 giờ Việt Nam mỗi đêm trên `main`, và chạy tay ở Actions → Flaky nightly → Run workflow
+  (chọn nhánh, số lượt, độ chậm). Từ dòng lệnh: `gh workflow run flaky-nightly.yml --ref <nhánh> -f rounds=10 -f slowdown=0`.
+  Nút chạy tay chỉ có khi file đã nằm trên `main`; PR sửa chính workflow, `scripts/flaky-*.js` hay `shared-browser.js`
+  thì job tự chạy trên PR đó. Không đụng `test.yml`, không thuộc `ci-ok`, nên không chặn merge.
+- **Đọc kết quả:** trang tóm tắt của run có một bảng mỗi máy (`Ca | File | Đỏ | Lỗi đầu tiên`, `Đỏ` là số lượt đỏ trên
+  số lượt) và một bảng gộp hai máy (job `Bảng gộp hai máy`). Ca đỏ 10/10 là lỗi thật, không phải chập chờn; ca đỏ vài
+  lượt là chập chờn. "Lượt … hỏng mà không có ca đỏ" là lượt treo quá 20 phút, file vỡ hay không chạy ca nào: mở
+  artifact `flaky-<máy>`, đọc `round-<lượt>.log` (log spec đầy đủ) và `round-<lượt>.jsonl` (mỗi ca một dòng).
+- **Có đỏ thì:** job đỏ và GitHub gửi email báo run đỏ cho người sửa lịch `cron` gần nhất trong workflow. Sửa tận gốc
+  như dưới đây, không thêm thử lại, không nới thời hạn.
+- **Ở máy:** `node scripts/flaky-repeat.js --rounds 10` (mặc định cả bộ browser, log ở `.flaky/`, đã ignore); đưa tên
+  file để chạy riêng vài file. Máy mạnh hiếm khi đỏ lại được lỗi của runner 4 lõi; khi đó bật
+  `WEBDEBIT_TEST_CPU_SLOWDOWN=4` (`shared-browser.js` làm JS của trang chậm 4 lần qua CDP) để lộ ca chờ sai. Làm chậm
+  đều không đổi thứ tự các phản hồi, nên ca đua giữa lượt đọc nền và phép đo vẫn xanh; khi đó cho fixture trả chậm ngẫu
+  nhiên một hai route (`setTimeout` trước `send`) trong một bản chép tạm của test để tái hiện, đừng commit bản chép.
+
+**Viết test trình duyệt không chập chờn.** Chờ đúng tín hiệu, không ngủ rồi đo: không `waitForTimeout`, không
+`setTimeout` trong `page.evaluate` để "chờ trang xử lý xong". Tín hiệu có sẵn: phản hồi mạng (`waitForResponse`, gắn
+trước thao tác gây ra request), phần tử hay chữ mới xuất hiện (`waitFor`, `waitForFunction`), và tín hiệu chỉ đọc của
+trang: `SoKhachV7Api.idle()` qua `settled(page)` (sổ khách), `ViecCanLam.idle()` (Việc cần làm, mọi lượt đọc nền đã vẽ),
+`body[data-loads]` (Bảng thu, số lượt đọc đã vẽ), `body[data-loaded]` (Đội xe, Báo cáo tháng, Thông tin cty). Muốn kiểm
+"không xảy ra" thì chờ một tín hiệu cho biết trang đã xử lý xong (ví dụ hai lần hỏi `/api/v7/machine/now` của Máy
+chạy, vì lần sau chỉ đi khi lần trước đã vẽ) rồi mới kiểm, không đếm trong một cửa sổ giờ. Trang thiếu tín hiệu thì
+thêm tín hiệu chỉ đọc, không đổi hành vi. Đo bố cục (`boundingBox`) chỉ sau tín hiệu "hết đọc nền": phần tử đã hiện
+vẫn có thể bị lượt vẽ sau thay, và `boundingBox` tìm phần tử rồi mới đo nên trả `null` nếu lượt vẽ chen giữa (ca
+`undefined+undefined` ở `test-viec-can-lam-tong-browser.js`, 18/11).
+
 ### Khi nào chạy harness PostgreSQL ở máy
 
 Harness `tools/test_pg_*.py` không nằm trong `npm run check`; CI chạy chúng ở các job `postgres-*`
@@ -155,8 +227,19 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 |---|---|
 | UI, preview, model JS, tài liệu | `npm run check`, không chạy harness |
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
-| `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền) |
+| `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền); đụng phân bổ thu hoặc lệnh ghi tiền thì thêm `test_pg_v7_fifo_ngau_nhien.py` (lệnh chạy và cờ `--mutant` ở [spec](../specs/v7-fifo-ngau-nhien.md)) và `test_pg_v7_bat_bien.py` (bất biến tiền trên nhiều sổ gồm cấn trừ, khóa tháng, Lịch sử; đỏ thì in chuỗi lệnh tối giản và lệnh chạy lại, [spec](../specs/v7-bat-bien-tien.md)); thêm bảng tiền, đổi `get_dashboard*`, `get_ledger` hay `_check_allocations` thì thêm `test_pg_v7_luoi_an_toan.py` (bảng tiền mới phải vào dấu vân của `_safety_fingerprints`); đổi hình dạng `get_ledger`, `get_dashboard*`, `list_customers` hay `get_fee_types` thì thêm `test_pg_v7_xuat_so.py` (bản xuất cả sổ đọc đúng các trường đó, [spec](../specs/v7-xuat-ca-so.md)); lệch so với mô hình thì sửa SQL hoặc sửa `tools/v7_fifo_model.py` kèm test tính tay trong `tests/test_v7_fifo_model.py` |
+| Schema đội xe `doixe` (migration `*-v7-doi-xe.sql`, hàm `doixe.*`) | `test_pg_doixe.py`; migration mới của `doixe` cũng vào chuỗi `--migration-test` như dưới. `v7_schema_current.pgsql` chỉ chụp `sokhach`, đọc định nghĩa `doixe` ở migration |
 | Migration mới | `test_pg_v7_backend.py --migration-test` (CI chạy lệnh này): nâng từ schema cũ, so hàm/cột/view/ràng buộc với khởi tạo mới trước mọi case. Thêm file vào chuỗi `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file |
+| Bất kỳ SQL V7 nào ở trên (hàm, view, bảng, quyền) | sinh lại file đọc định nghĩa hiện hành rồi commit cùng PR: `python cong-no-web-handoff/tools/v7_schema_snapshot.py` (cần Docker). Job `postgres-v7-backend` chạy lại với `--check`, lệch thì đỏ và in lệnh này |
+
+**Đọc định nghĩa đang chạy ở đâu.** Một hàm như `sokhach.get_ledger` có nhiều bản trong `v7_backend_functions.sql`
+và `tools/migrations/*.sql`; đừng dò migration cuối cùng. Đọc [`cong-no-web-handoff/schema/v7_schema_current.pgsql`](../cong-no-web-handoff/schema/v7_schema_current.pgsql):
+file sinh tự động từ PostgreSQL dùng một lần nạp đúng thứ tự harness (`schema-draft.sql` → `v7_backend_functions.sql`
+→ migration Sheet), mỗi hàm/view/bảng một lần, hàm sắp theo tên + chữ ký (`pg_get_functiondef`) kèm chủ sở hữu và
+quyền; bảng kèm cột, ràng buộc, chỉ mục, trigger, chú thích. `--migration-test` đã chứng minh chuỗi migration lên `hao`
+cho cùng hàm/cột/view/ràng buộc. File chỉ để đọc, không sửa tay, không nạp: đuôi `.pgsql` và thư mục `schema/` nằm
+ngoài cổng SQL và gói release của `Deploy hao` (test `tests/test_v7_schema_snapshot.py` giữ điều này), nên PR chỉ
+sinh lại file không phải triển khai tay.
 
 Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
 và `main`; lệnh chạy không đổi (vẫn một container cho mọi case). Phần dựng PostgreSQL dùng một lần và
@@ -205,7 +288,7 @@ Bảng dưới đây có hai loại luật, và cột "Nguồn" phân biệt ch�
 | `DATE-01` | "Hôm nay" phải theo `Asia/Ho_Chi_Minh`: chặn `current_date`, `localtimestamp`, `now()::date` trong SQL và `date.today()`, `datetime.now()` trần trong Python. `now()` cho cột timestamptz và `datetime.now(UTC)` cho provenance không bị chặn | `FUTURE-01`, người dùng chốt 16/10/2026 |
 | `FUTURE-01` | Mỗi hàm ghi tiền (INSERT vào `proposal`/`posting`) có dính `posting_date` phải so với hôm nay theo giờ VN rồi RAISE ngay trong hàm đó — mọi hàm ghi sổ tự chặn, không trông vào hàm khác. Luật quét từng hàm, không theo bước của luồng, nên vẫn đúng sau khi `V6-DB` (19/10/2026) bỏ bước duyệt | `FUTURE-01` + `specs/p0-fixture-future-posting-date.md` |
 | `TRIP-DATE-01` | Hàm ghi tiền nhận `p_event_date` phải chặn NULL — ngày nghiệp vụ chuyến là bắt buộc, blank/NULL giữ là chưa biết | `DATE`, người dùng làm rõ 14/10/2026 |
-| `ARCH-01` | Chỉ tầng DB được gọi `psql`. Danh sách cho phép viết tường minh trong `PSQL_ALLOWED` kèm lý do từng file: `web/db.py`, `web/ledger_db.py`, `tools/pg_m1_report.py`, `tools/test_pg_ledger_schema.py`, `tests/test_web.py`. `scripts/` ngoài phạm vi vì là mã của chính bộ kiểm | Ranh giới kiến trúc — hiện trạng đã kiểm 19/10/2026 |
+| `ARCH-01` | Chỉ tầng DB được gọi `psql`. Danh sách cho phép viết tường minh trong `PSQL_ALLOWED` kèm lý do từng file, chính là `web/v7_psql.py` (V7), `web/ledger_db.py` (lịch sử M1, còn cho harness `test_pg_m1_queries.py`), các công cụ và harness PostgreSQL trong `tools/` cùng test của chúng. `scripts/` ngoài phạm vi vì là mã của chính bộ kiểm | Ranh giới kiến trúc — hiện trạng đã kiểm 19/10/2026 |
 | `ARCH-02` | Tầng web (`web/*.py`) không import ngược vào `tools/` hay `pilot/`: kiểm câu import, `importlib.import_module` và vá `sys.path`. Chiều ngược lại được phép — phụ thuộc chạy một chiều | như trên |
 | `ARCH-03` | Tính tiền chỉ ở model: chặn `+ - *` và `+= -= *=` trên tên tiền (`*_vnd`/`*Vnd`), hằng BigInt và `BigInt(...)` trong file `*-ui.js`; so sánh và định dạng được phép. Chỉ tầng JS — xem giới hạn ngay dưới | như trên |
 
@@ -274,12 +357,16 @@ Phần **CÒN MỞ không được code hóa**, và đây là giới hạn của
   tên cột qua linter là tự đặt chính sách người dùng chưa duyệt.
 - Cấm import cross-layer *nói chung*. Ba ranh giới đo được đã code hóa thành `ARCH-01`/`ARCH-02`/
   `ARCH-03` (19/10/2026); một đồ hình tầng đầy đủ cho cả repo thì vẫn CÒN MỞ — xem mục dưới.
-- `json.loads` không có `parse_float=Decimal` ở đường đọc tiền (`web/db.py`, `web/ledger_db.py`,
-  `tools/pg_m1_verify.py`). Hiện vô hại vì `numeric(20,0)` ra JSON không có dấu thập phân, nhưng
-  `pilot/reconcile.py` đã làm đúng cách. Chưa bật thành luật vì sẽ đỏ trên ba file đang có thay đổi
-  chưa commit của người khác.
+- `json.loads` không có `parse_float=Decimal` ở đường đọc tiền (`web/ledger_db.py`,
+  `tools/pg_m1_verify.py`; `web/db.py` đã xóa 18/11/2026). Hiện vô hại vì `numeric(20,0)` ra JSON
+  không có dấu thập phân. Chưa bật thành luật vì lúc ghi (19/10/2026) sẽ đỏ trên các file đang có
+  thay đổi chưa commit của người khác.
 
 ### Ranh giới tầng — ba luật ĐÃ TRIỂN KHAI, đồ hình đầy đủ CÒN MỞ
+
+Ghi chú 18/11/2026: các file đời M1 nhắc trong mục này và hai mục "Mức bằng chứng" ở trên
+(`web/app.py`, `web/db.py`, `web/ledger_app.py`, `pilot/reconcile.py`, `customer-ledger-workbench*`)
+đã xóa khỏi repo; đoạn dưới giữ làm hồ sơ của lần kiểm 19/10/2026.
 
 **Cập nhật 19/10/2026:** ba ranh giới nêu ở cuối mục này đã code hóa thành `ARCH-01`/`ARCH-02`/
 `ARCH-03` trong `scripts/business-rules.js`, chạy trong bước `lint:biz` của `npm run check`. Phần

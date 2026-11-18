@@ -33,7 +33,7 @@ test('Định dạng: phẩy ngăn nghìn, 0 là "–", số âm trong ngoặc, 
   assert.equal(v4.dateText('2026-11-04'), '04 Nov 2026');
   assert.equal(v4.periodText('2026-11'), 'Nov 2026');
   assert.equal(v4.latin('Công ty Đồng Tháp'), 'Cong ty Dong Thap');
-  assert.deepEqual(v4.splitName('FANYA 泛亚'), { en: 'FANYA', zh: '泛亚' });
+  assert.deepEqual(v4.splitName('SAMPLE 样本'), { en: 'SAMPLE', zh: '样本' });
 });
 
 test('Chia trang (SPEC mục 6): Total luôn kèm ít nhất 3 dòng; 16 → 1, 17 → 14 + 3, 30 → 20 + 10, 60 → 20 + 23 + 17', () => {
@@ -94,7 +94,7 @@ function ledger() {
 }
 const feeTypes = [{ id: 1, name: 'Neo' }, { id: 2, name: 'Điện' }, { id: 3, name: 'Khác' }, { id: 4, name: 'Phụ phí ban đầu' }, { id: 5, name: 'Health cert' }];
 const build = (data = ledger()) => v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config,
-  form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' } } });
+  form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'SAMPLE', nameZh: '样本' } } });
 
 const SEVEN = ['Storage 早装产生费用', 'Trucking 拼柜', 'Generator / electricity fee 发电机/电费', 'Overstay 押车', 'HC fee 卫生证',
   'Cancellation fee 取消订柜费', 'AMD fee 改单费'];
@@ -214,7 +214,7 @@ test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường]
   const first = v4.pageHtml(doc, 'first', doc.rows.slice(0, 2), 1, 2);
   assert.doesNotMatch(first, /data-total|data-blk="BOTTOM"/);
   assert.match(first, /Continued on next page · 续下页<\/span><span>Page 1 of 2/);
-  assert.match(v4.pageHtml(doc, 'middle', doc.rows.slice(2, 3), 2, 3), /Debit Note No\. 账单号 HTH-2611-001 · Bill to 客户 FANYA 泛亚 · Billing Period 账单期间 Nov 2026 · Currency 币种 VND/);
+  assert.match(v4.pageHtml(doc, 'middle', doc.rows.slice(2, 3), 2, 3), /Debit Note No\. 账单号 HTH-2611-001 · Bill to 客户 SAMPLE 样本 · Billing Period 账单期间 Nov 2026 · Currency 币种 VND/);
 });
 
 // Đọc lại zip "stored": kiểm chữ ký, CRC, lấy nội dung từng file.
@@ -264,7 +264,7 @@ test('Excel v4 theo thiết kế: đầu trang, hai khối cạnh nhau, bảng k
   assert.equal(sheet.text('A3'), 'HTH LOGISTICS DV TM CO.,LTD');
   assert.equal(sheet.text('H3'), 'DEBIT NOTE  账单');
   for (const range of ['A3:G3', 'H3:L3', 'A4:L4']) assert.ok(sheet.merges.includes(range), range);
-  assert.deepEqual(['A7', 'A8', 'C7', 'C8'].map(sheet.text), ['BILL TO', '客户', 'FANYA 泛亚', '[Customer legal name &amp; address]']);
+  assert.deepEqual(['A7', 'A8', 'C7', 'C8'].map(sheet.text), ['BILL TO', '客户', 'SAMPLE 样本', '[Customer legal name &amp; address]']);
   assert.ok(![...sheet.cells.keys()].some(ref => /Attn|Contact/.test(sheet.text(ref) ?? '')), 'không còn dòng Attn 联系人');
   assert.ok(sheet.cells.get('C7').bold);
   assert.deepEqual(['G7', 'G8', 'I7'].map(sheet.text), ['DOCUMENT', '单据信息', 'Debit Note No. 账单号']);
@@ -291,7 +291,7 @@ test('Excel v4 theo thiết kế: đầu trang, hai khối cạnh nhau, bảng k
   assert.match(xmlText, /<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"\/>/);
   assert.ok(files['xl/workbook.xml'].includes(`'Debit Note'!$${header}:$${header}`));
   assert.doesNotMatch(xmlText, /HC fee/);
-  assert.equal(xlsx.baseName(doc), 'HTH-2611-001_FANYA_2026-11');
+  assert.equal(xlsx.baseName(doc), 'HTH-2611-001_SAMPLE_2026-11');
 });
 
 test('Excel v4: cột tiền đủ rộng cho số lớn nhất (không ra ####); chỉ có Unit price thì tên khối thành hàng riêng; tên dài tự ngắt hàng', () => {
@@ -307,12 +307,12 @@ test('Excel v4: cột tiền đủ rộng cho số lớn nhất (không ra ####)
   assert.deepEqual(['A7', 'F7'].map(thin.text), ['BILL TO · 客户', 'DOCUMENT · 单据信息']);
   assert.ok(thin.find('PAYMENT INFORMATION · 付款信息') && thin.find('ACCOUNT STATUS · 账户情况 · For reference only 仅供参考'));
   const long = sample('sample-14');
-  long.customer = { ...long.customer, name_en: 'FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD', name_zh: '泛亚国际物流（深圳）有限公司',
-    legal_name_address: 'Room 1203, Block B, Galaxy Century Building, No. 3069 Caitian Road, Futian District, Shenzhen, Guangdong, China' };
+  long.customer = { ...long.customer, name_en: 'SAMPLE INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD', name_zh: '样本国际物流（深圳）有限公司',
+    legal_name_address: 'Room 1203, Block B, Sample Century Building, No. 1234 Example Road, Futian District, Shenzhen, Guangdong, China' };
   const xmlText = unzip(xlsx.xlsx(v4.fromSample(long, config)))['xl/worksheets/sheet1.xml'], wide = readSheet(xmlText);
   const lines = [7, 8, 9, 10, 11].map(row => wide.text(`C${row}`)).filter(Boolean);
   assert.ok(lines.length >= 3);
-  assert.ok(lines.join(' ').startsWith('FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 泛亚国际物流（深圳）有限公司 Room 1203'), lines.join(' | '));
+  assert.ok(lines.join(' ').startsWith('SAMPLE INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 样本国际物流（深圳）有限公司 Room 1203'), lines.join(' | '));
   assert.doesNotMatch(xmlText, /<row r="(7|8|9|10)" ht="(?!15")/);   // các hàng của khối DOCUMENT không bị kéo cao
 });
 
@@ -320,7 +320,7 @@ test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 
   const xlsx = require('./debit-note-v4-xlsx.js');
   const placeCells = on => {
     const doc = v4.fromLedger(ledger(), '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config: { ...config, show_place_cn: on },
-      form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' } } });
+      form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'SAMPLE', nameZh: '样本' } } });
     const sheet = readSheet(unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml']);
     const second = rowOf(sheet.find('Amount\n金额')) + 2;   // dòng 2: TGHU2222222, Tien Giang → Qingdao
     return { excel: [sheet.text(`F${second}`), sheet.text(`G${second}`)], widths: sheet.widths, html: v4.pageHtml(doc, 'single', doc.rows) };
@@ -346,7 +346,7 @@ test('Tên tiếng Trung cùng dòng (người dùng 11/11/2026): nhiều cột 
 
 test('ACCOUNT STATUS tùy chọn (người dùng 12/11/2026): không tích thì bản in và Excel không có khối, không chặn khi thiếu số tháng, phép 5–6 không chạy', () => {
   const off = data => v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config,
-    form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' }, accountStatus: false } });
+    form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'SAMPLE', nameZh: '样本' }, accountStatus: false } });
   const doc = off(ledger());
   assert.equal(doc.showAccount, false);
   assert.equal(build().showAccount, true);   // không truyền thì in như trước

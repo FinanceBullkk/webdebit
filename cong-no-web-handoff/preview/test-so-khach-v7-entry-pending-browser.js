@@ -2,7 +2,7 @@
  * chỉ được Thử lại đúng phiếu đó; đã có kết quả ở đầu sổ thì không gửi lại. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts } = require('./so-khach-v7-browser-world');
+const { clock, withPage, posts, settled } = require('./so-khach-v7-browser-world');
 
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const drawer = page => page.locator('.entry-drawer');
@@ -26,6 +26,7 @@ test('phiếu chưa rõ: không cho Sửa lại sang phiếu khác; Thử lại 
   assert.match(await drawer(page).locator('.entry-error').innerText(), /Bấm Thử lại \(phiếu không bị ghi hai lần\) trước khi sửa/);
   assert.equal(await drawer(page).locator('.entry-review').isVisible(), true, 'vẫn ở bước xem lại của phiếu chưa rõ');
   await drawer(page).locator('.receipt-save').click();
+  await settled(page);
   assert.equal(receiptPosts(world).length, 0);
   // Đóng rồi mở lại khung khi phiếu còn chờ: vẫn là bước xem lại của đúng phiếu đó.
   await drawer(page).locator('.entry-close').click();
@@ -33,6 +34,7 @@ test('phiếu chưa rõ: không cho Sửa lại sang phiếu khác; Thử lại 
   assert.equal(await drawer(page).locator('.entry-review').isVisible(), true);
   await drawer(page).locator('.entry-retry').click();
   await page.locator('.saved-strip').waitFor();
+  await settled(page);
   assert.deepEqual(receiptPosts(world).map(([, body]) => body.amount_vnd), ['2000']);
   assert.match(await page.locator('.saved-strip').innerText(), /2\.000/);
 }));
@@ -44,11 +46,13 @@ test('phiếu chưa rõ đã lưu nhờ Thử lại ở đầu sổ: Ghi phiếu
       if (how === 'reopen') await drawer(page).locator('.entry-close').click();
       await page.locator('.retry-command').evaluate(node => node.click());   // nút ở đầu sổ (khung phiếu có thể che)
       await page.waitForFunction(() => !document.querySelector('.retry-command'));
+      await settled(page);
       assert.equal(receiptPosts(world).length, 1);
       if (how === 'reopen') await page.locator('.entry-open').click(); else await drawer(page).locator(how).click();
       await page.locator('.saved-strip').waitFor();
       assert.match(await page.locator('.saved-strip').innerText(), /2\.000/);
       assert.equal(await drawer(page).isHidden(), true);
+      await settled(page);
       assert.equal(receiptPosts(world).length, 1, `${how}: không gửi phiếu lần hai`);
     });
   }

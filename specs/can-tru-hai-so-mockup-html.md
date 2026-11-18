@@ -102,3 +102,5 @@ Mỗi khung 1280×720, có tiêu đề ngắn. Trên cùng trang có các nút 1
 
 - File `index.html` như trên.
 - Cuối câu trả lời, liệt kê những chỗ bạn phải tự đoán vì đề bài chưa nói rõ. Không tự chốt thay chủ nghiệp vụ.
+
+<!-- du-lieu-gia: 1.000.000 3.000.000 8.500.000 11.500.000 12.000.000 18.000.000 19.000.000 20.000.000 50.000.000 100.000.000 120.000.000 -->

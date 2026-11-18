@@ -49,7 +49,7 @@
     root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', panel(data));
   }
 
-  root.addEventListener('click', async event => {
+  root.addEventListener('click', api.tracked(async event => {
     const target = event.target.closest('.receipt-approve,.receipt-cancel,.receipt-review-toggle,.receipt-reload,.receipt-write,.receipt-goto');
     if (!target || target.disabled || !ctx.snapshot) return;
     if (target.matches('.receipt-approve,.receipt-cancel,.receipt-review-toggle')) {
@@ -101,7 +101,7 @@
     showNotice(result.complete === false
       ? `Đã ghi ${result.written} phiếu thu; còn ${result.remaining} phiếu chưa ghi. Bấm "Ghi … phiếu thu từ Sheet" để ghi tiếp.`
       : `Đã ghi ${result.written} phiếu thu từ Sheet.`);
-  });
+  }));
 
   Object.assign(ctx, { receiptButton: button, receiptsAfterRender: decorate });
 };

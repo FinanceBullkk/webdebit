@@ -4,7 +4,6 @@
 //
 //   node scripts/run-tests.js unit      preview/test-*.js trừ *-browser.js, cộng test ở scripts/
 //   node scripts/run-tests.js browser   preview/test-*-browser.js
-//   node scripts/run-tests.js viewer    tests/test-viewer-browser.js
 //
 // Thêm test mới: đặt tên `test-<tên>.js` (hoặc `test-<tên>-browser.js` nếu cần Chromium)
 // trong cong-no-web-handoff/preview/ là được chạy, không sửa file này. File `-browser.js` lấy `test` từ
@@ -29,11 +28,11 @@ const suites = {
   unit: () => [
     "scripts/test-business-rules.js",
     "scripts/test-check-secrets.js",
+    "scripts/test-flaky-repeat.js",
     "scripts/sheet-capture/test.js",
     ...previewTests(false),
   ],
   browser: () => previewTests(true),
-  viewer: () => ["cong-no-web-handoff/tests/test-viewer-browser.js"],
 };
 
 const suite = suites[process.argv[2]];

@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload, viewMonth } = require('./so-khach-v7-browser-world');
+const { withPage, reload, viewMonth, settled } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuyến ở hai khổ desktop', async () => withPage(async ({ page, world, shot }) => {
@@ -57,24 +57,32 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
     assert.equal(warningColor, 'rgb(255, 243, 209)');
     await shot(`handoff-${width}`);
   }
+  await settled(page);
   assert.deepEqual(world.requests, [], 'xem và đổi cỡ không ghi tiền');
 }, handoff));
 
 test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu tuyến hàng kế', async () => withPage(async ({ page, world }) => {
   const origin = id => page.locator(`.route-cell .info-edit[data-id="${id}"][data-field="origin"]`);
+  // NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào; kiểm ô đang chọn trong một lượt của trang
+  // (locator.evaluate có thể bắt ô cũ vừa bị thay) — trang chọn lại đúng ô sau mỗi lần vẽ.
+  const focused = id => page.waitForFunction(selector => document.activeElement?.matches(selector),
+    `.route-cell .info-edit[data-id="${id}"][data-field="origin"]`, { timeout: 2000 }).then(() => true, () => false);
   await origin(11).click();
   await page.locator('.info-input').fill('Kho mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="origin"]')?.textContent === 'Kho mới');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.field, 'origin');
-  assert.equal(await origin(12).evaluate(node => node === document.activeElement), true);
+  assert.equal(await focused(12), true);
   await page.keyboard.press('ArrowUp');
-  assert.equal(await origin(11).evaluate(node => node === document.activeElement), true);
+  assert.equal(await focused(11), true);
   await page.locator('.route-cell [data-id="11"][data-field="destination"]').click();
   await page.locator('.info-input').fill('Cảng mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="destination"]')?.textContent === 'Cảng mới');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.field, 'destination');
+  await settled(page);
   assert.equal(world.requests.length, 2);
 }, handoff));
 
@@ -102,6 +110,7 @@ test('Thiếu giá: nền cả ô, nhập ngay trong ô với một viền focus
   }), { background: 'rgba(0, 0, 0, 0)', border: '0px', outline: '0px', cellOutline: '2px' });
   await shot('money-edit-fee');
   await page.keyboard.press('Escape');
+  await settled(page);
   assert.deepEqual(world.requests, []);
 }, handoff));
 
@@ -118,6 +127,7 @@ test('Ưu tiên: số API cạnh phiếu thu, trên cột chuyến; mỗi số t
   assert.equal(await page.locator('.month-chip .chip-end').count(), 0);
   assert.equal(await page.locator('.subtotal').innerText().then(text => text.includes('58.750.000')), true);
   assert.equal(await page.locator('.entry-open').count(), 1);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await shot('uu-tien-1280');
 }, world => {
@@ -136,6 +146,7 @@ test('Ưu tiên: giữ NULL và số âm từ API; mở menu và đổi khách b
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#customer-search').isVisible(), false);
   assert.equal(await page.locator('.customer-switch').evaluate(node => node === document.activeElement), true);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
   await page.locator('.nav-toggle').first().click();
@@ -171,7 +182,7 @@ test('Ưu tiên: điện thoại 390px, khối tổng tháng không có khoảng
   });
   assert.ok(geo.rail <= 60 && geo.app === 0 && geo.who >= geo.toggle && !geo.navShown, JSON.stringify(geo));
   await page.locator('.nav-toggle').first().click();
-  assert.equal(await page.locator('.topbar>nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 7);
+  assert.equal(await page.locator('.topbar>nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 9);
 }));
 
 // Dữ liệu giả cho danh sách phiếu: ô ngày Sheet lẫn chữ, phiếu chia ba tháng, phiếu máy đặt ngày có mã kỹ thuật.

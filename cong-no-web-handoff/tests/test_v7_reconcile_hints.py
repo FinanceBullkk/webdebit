@@ -55,8 +55,10 @@ class PriceRowsTest(unittest.TestCase):
     def test_row_needing_a_person_is_named_with_both_totals(self):
         web = ledger(legacy=[legacy_row(6805, "MAUU0000231", "2026-10-03", 95000000, 3000000, 98000000)])
         rows = [sheet_row(231, "MAUU0000231", "2026-10-03", 95000000, 6500000, 101500000)]
-        self.assertEqual(hints.price_rows(rows, web), [{"kind": "price_review", "status": "MANUAL", "row": 231, "container": "MAUU0000231",
-                                                        "date": "2026-10-03", "sheet_vnd": 101500000, "web_vnd": 98000000, "delta_vnd": 3500000}])
+        found = hints.price_rows(rows, web)
+        self.assertRegex(found[0].pop("source_fingerprint"), r"^[0-9a-f]{64}$")   # K3: dấu vân dòng Sheet cho "Đã xem, hết báo"
+        self.assertEqual(found, [{"kind": "price_review", "status": "MANUAL", "row": 231, "container": "MAUU0000231", "closable": True,
+                                  "date": "2026-10-03", "sheet_vnd": 101500000, "web_vnd": 98000000, "delta_vnd": 3500000}])
 
     def test_sheet_row_with_money_and_no_web_row_is_named(self):
         rows = [sheet_row(284, "MAUU0000284 取消", None, 7700000, None, 7700000)]
@@ -68,6 +70,36 @@ class PriceRowsTest(unittest.TestCase):
         rows = [sheet_row(10, "AAAU1234567", "2026-10-03", 90, None, 90), sheet_row(11, "BBBU1234567", None, None, None, None),
                 sheet_row(12, "", None, 5, None, 5)]
         self.assertEqual(hints.price_rows(rows, web), [])
+
+
+class ClosedHintTest(unittest.TestCase):
+    """K3: dòng Sheet đã "Đã xem, hết báo" không còn là gợi ý; dòng Sheet đổi thì dấu vân đổi và gợi ý hiện lại."""
+
+    def closed(self, web, fingerprint, scope="price"):
+        return {**web, "events": [{"id": 1, "kind": "sheet_conflict_resolved", "after": {
+            "field": "task_source", "target": {"kind": "source", "scope": scope}, "sheet_value": fingerprint,
+            "target_value": {"scope": scope}, "decision": "keep_web"}}]}
+
+    def test_closed_row_drops_out_and_a_changed_row_comes_back(self):
+        web = ledger(legacy=[legacy_row(6805, "MAUU0000231", "2026-10-03", 95000000, 3000000, 98000000)])
+        rows = [sheet_row(231, "MAUU0000231", "2026-10-03", 95000000, 6500000, 101500000),
+                sheet_row(304, "MAUU0000304 取消", None, 25000000, None, 25000000)]
+        found, _ = hints.for_book(web, rows, 28500000)
+        self.assertEqual({h["row"] for h in found}, {231, 304})
+        manual = next(h for h in found if h["row"] == 231)["source_fingerprint"]
+        found, _ = hints.for_book(self.closed(web, manual), rows, 28500000)
+        self.assertEqual([h["row"] for h in found], [304])
+        rows[0]["sheet_other_fee_vnd"] = 6600000
+        rows[0]["sheet_total_vnd"] = 101600000   # dòng Sheet đổi: dấu vân khác
+        found, _ = hints.for_book(self.closed(web, manual), rows, 28500000)
+        self.assertEqual({h["row"] for h in found}, {231, 304})
+
+    def test_a_close_in_another_scope_does_not_hide_a_price_hint(self):
+        web = ledger()
+        rows = [sheet_row(284, "MAUU0000284 取消", None, 7700000, None, 7700000)]
+        fingerprint = hints.price_rows(rows, web)[0]["source_fingerprint"]
+        self.assertEqual(len(hints.for_book(self.closed(web, fingerprint, "ps"), rows, 1)[0]), 1)
+        self.assertEqual(hints.for_book(self.closed(web, fingerprint), rows, 1)[0], [])
 
 
 class ForBookTest(unittest.TestCase):

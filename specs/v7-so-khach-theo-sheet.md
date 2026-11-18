@@ -186,3 +186,5 @@ Bốn file mới cộng fixture. Revert commit; không đụng dữ liệu, khô
 - Gói sửa ngày/hình thức phiếu: bấm ô Ngày trả/Hình thức để sửa, bấm ô Số tiền trả để hủy. Đổi ngày làm chạy lại phân bổ theo (ngày, mã phiếu), nên một phiếu đổi ngày có thể làm nhiều phiếu khác đổi tháng (đo: đổi PH-020 về 01/01/2026 làm 13 phiếu đổi tháng). Đúng quy tắc A nhưng có thể gây bất ngờ; người dùng chưa xem.
 - Phiếu cũ thiếu dữ liệu gốc về dòng dư (`ỨNG TRƯỚC`) cần quy tắc nhận diện trước khi áp dụng ngoài bản thử.
 - Lịch sử ghi dòng điều chỉnh cả tháng thứ hai dạng `0 → -3.000.000` (số của dòng mới), không phải số lũy kế của tháng. Người dùng chưa xem.
+
+<!-- du-lieu-gia: 1.310.000 3.000.000 46.000.000 75.720.000 121.000.000 441.500.000 524.974.000 562.955.000 600.694.000 826.600.000 913.900.000 946.500.000 958.545.000 1.000.000.000 1.332.100.000 1.381.510.000 1.521.500.000 1.625.800.000 1.779.900.000 2.275.800.000 2.290.645.000 2.411.645.000 -->

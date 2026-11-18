@@ -3,7 +3,7 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, settled } = require('./so-khach-v7-browser-world');
 
 // Chuyến web tháng 9 có một khoản Neo; dòng sổ gốc OLDU0000001 chưa có giá, OLDU0000002 có Phụ phí ban đầu 3.000.000.
 const withNeo = world => {
@@ -50,6 +50,7 @@ test('Debit note: thiếu giá thì chặn và chỉ ra bản nháp; xem trướ
   await page.keyboard.press('Escape');
   assert.equal(await dialog.isHidden(), true);
   assert.equal(await page.evaluate(() => document.activeElement?.className), 'debit-open');
+  await settled(page);
   assert.deepEqual(world.requests, []);   // chỉ đọc: không gửi lệnh nào
 }, withNeo));
 
@@ -105,7 +106,7 @@ test('Debit note: đủ thông tin thì hết chặn; cảnh báo cần xác nh�
   assert.equal(await dialog.locator('[name="issuer.taxId"]').inputValue(), '0000000001');
   assert.equal(await dialog.locator('[name="payment.swift"]').inputValue(), 'BANKXXXX');
 }, world => {
-  world.legacy[0].current = { ...world.legacy[0].current, container: 'CSQU3054383', unit_price_vnd: '0', counted_vnd: '0' };
+  world.legacy[0].current = { ...world.legacy[0].current, container: 'MAUU5500008', unit_price_vnd: '0', counted_vnd: '0' };
   world.legacy[1].current = { ...world.legacy[1].current, container: 'TSTU1000019', shipper: 'Chủ hàng 2' };
   world.trips[0] = { ...world.trips[0], container: 'TSTU1000024', shipper: 'Chủ hàng 3' };
   world.trips.push({ ...world.trips[0], id: 12, container: 'PEND0000001', status: 'pending_review', amount_vnd: null });

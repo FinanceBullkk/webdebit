@@ -13,3 +13,5 @@ Người dùng chốt sổ khách V7 hiện tiền thu **như Sheet** để đ�
 ## Hiệu lực và giới hạn
 
 ĐÃ CHỐT. ĐÃ CODE: `get_ledger` (file chuẩn + migration `2026-10-28-v7-da-thu-theo-ngay-thu.sql`, chỉ đổi hàm đọc), trang live. ĐÃ KIỂM CHỨNG bằng `npm run check` và harness PostgreSQL dùng một lần (xem PR). **ĐÃ TRIỂN KHAI trên `hao` 28/10/2026** (người dùng: "Chạy triển khai thật"): migration trên `webdebit_v7` và release app `c407664`, API dừng khoảng 12 giây; số dư 236/236 khách và số dòng mọi bảng không đổi, mỗi sổ đúng đẳng thức tháng (0/236 lệch), checker 9/9 OK trước/sau trên bản sao và sau release; chi tiết ở [runbook](../v7-deploy-runbook.md#đã-thu-theo-ngày-thu--nâng-db-đang-có-đã-chạy-trên-hao-28102026). Chưa thử tay trên web sau triển khai. CÒN MỞ: trang mẫu fixture `so-khach-v7.html` vẫn vẽ phiếu theo kỳ trừ nợ.
+
+<!-- du-lieu-gia: 30.000.000 70.000.000 -->

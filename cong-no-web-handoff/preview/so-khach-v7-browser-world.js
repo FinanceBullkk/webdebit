@@ -126,7 +126,7 @@ function applyFee(world, url, body) {
   world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before: { targets: before, batch_count: infos.length },
     after: { targets: infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines })), batch_count: infos.length } });
   world.version += 1;
-  return [200, { ok: true }];
+  return [200, { ok: true, version: world.version }];   // như _change_trip_fees → _finish_command
 }
 
 function apply(world, url, body) {
@@ -371,6 +371,7 @@ function apply(world, url, body) {
   return [200, { ok: true, version: world.version }];
 }
 
+const WRITE_DELAY = Number(process.env.WEBDEBIT_TEST_WRITE_DELAY_MS) || 0;
 async function withPage(fn, setup = () => {}) {
   const world = makeWorld();
   setup(world);
@@ -462,8 +463,10 @@ async function withPage(fn, setup = () => {}) {
       req.on('data', chunk => chunks.push(chunk));
       req.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        world.requests.push({ path: url.pathname, body });
-        send(...apply(world, url.pathname, body));
+        // NHAP-NHANH-01: WEBDEBIT_TEST_WRITE_DELAY_MS=<ms> làm mọi lệnh ghi tới máy chủ giả chậm như runner CI chậm, để lộ
+        // test còn đọc world.requests trước khi hàng đợi ghi nền gửi hết (chạy: set biến rồi npm run test:browser).
+        const run = () => { world.requests.push({ path: url.pathname, body }); send(...apply(world, url.pathname, body)); };
+        if (WRITE_DELAY) setTimeout(run, WRITE_DELAY); else run();
       });
       return;
     }
@@ -514,4 +517,33 @@ async function viewMonth(page, key) {
   await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
 }
 
-module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth };
+// NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào (trang chọn lại đúng ô sau khi vẽ). Một lần
+// locator.evaluate có thể bắt ô cũ vừa bị thay, nên hỏi lại tới khi đúng (mỗi lần locator tìm ô mới), tối đa `timeout`.
+async function focused(locator, timeout = 2000) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const ok = await locator.evaluate(node => node === document.activeElement).catch(() => false);
+    if (ok || Date.now() > end) return ok;
+    await new Promise(done => setTimeout(done, 50));
+  }
+}
+
+// CHO-GHI-01: chờ trang hết việc ghi/đọc sổ — mọi lệnh đã gửi (hàng đợi ghi nền NHAP-NHANH-01, lệnh thường, chuỗi giá, lệnh
+// các phần gửi thẳng) đã có phản hồi, sổ đã đọc lại và vẽ bản đó (SoKhachV7Api.idle, so-khach-v7-api.js). Chờ đúng trạng
+// thái chứ không chờ chữ "Đang lưu…" hay hẹn giờ; kiểm lệnh đã gửi (posts, world.requests) sau bước này. Lệnh kẹt vì lỗi
+// hay mất mạng không còn chạy nên không chờ mãi. Hạn giờ đếm ở Node vì test có thể đã cài đồng hồ giả trong trang.
+async function settled(page, timeout = 5000) {
+  let timer;
+  const late = new Promise((_, fail) => {
+    timer = setTimeout(async () => {
+      const busy = await page.evaluate(() => window.SoKhachV7Api.busyCount()).catch(() => '?');
+      fail(Error(`settled: trang còn ${busy} việc ghi/đọc sổ sau ${timeout} ms`));
+    }, timeout);
+  });
+  const idle = page.evaluate(() => window.SoKhachV7Api.idle());
+  idle.catch(() => {});   // quá hạn rồi trang mới đóng: không thành lỗi lạc
+  try { await Promise.race([idle, late]); }
+  finally { clearTimeout(timer); }
+}
+
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused, settled };

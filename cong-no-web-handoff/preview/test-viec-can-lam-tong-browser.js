@@ -50,6 +50,9 @@ async function withPage(tong, fn, { width = 1280, height = 560 } = {}) {
     await page.clock.setFixedTime(new Date('2026-11-06T10:15:00+07:00'));
     await page.goto(`http://127.0.0.1:${server.address().port}/viec-can-lam.html`);
     await page.locator('.viec-status').waitFor();
+    // Mỗi lượt đọc nền về (sổ, việc từ Sheet, bảng đối chiếu) là một lần thay #inbox-root. boundingBox() tìm phần tử rồi mới đo,
+    // nên lượt vẽ chen giữa hai bước làm nó trả null (job đêm 18/11: ".viec-status nằm trong màn: undefined+undefined").
+    await page.evaluate(() => window.ViecCanLam.idle());
     await fn(page);
   } finally { await browser.close(); server.close(); }
 }
@@ -88,7 +91,6 @@ if (process.argv.includes('--preview')) {
   }));
 
   test('màn thấy 1280×560: dòng đầu, dòng TONG, ba tab và khách lệch đều trong màn khi danh sách đóng', async () => withPage(problems, async page => {
-    await page.locator('.dc-customer').first().waitFor();
     for (const selector of ['.viec-status', '.tong-line', '.viec-tabs', '.dc-customer >> nth=0']) {
       const box = await page.locator(selector).boundingBox();
       assert.ok(box && box.y + box.height <= 560, `${selector} nằm trong màn: ${box?.y}+${box?.height}`);

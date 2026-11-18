@@ -127,9 +127,16 @@
       const current = model.feeCells(info.lines, [typeId]).own[0];
       if (current === amount) { redraw(); down(); return; }
       if (!await confirmRecount([{ info, change: { set: { typeId, amountVnd: amount } } }])) { redraw(); ctx.findMark(spot)?.focus(); return; }
-      const message = await send('feeSet', { target: info.payload, fee_type_id: typeId, amount_vnd: amount === null ? null : amount.toString() });
-      if (message && td.isConnected) td.querySelector('.cell-error').textContent = message;
-      else if (!message) down();
+      // NHAP-NHANH-01: ô hiện số ngay, Thành tiền của dòng "…" tới khi máy chủ tính; lệnh "đặt loại = số" ghi nền.
+      const fields = { target: info.payload, fee_type_id: typeId, amount_vnd: amount === null ? null : amount.toString() };
+      try { api.quick('feeSet', fields, { patch: data => model.patchLedger(data, 'feeSet', fields), label: `${ctx.feeTypeName(typeId)} của ${info.what}` }); }
+      catch (problem) { showNotice(problem.message); if (td.isConnected) td.querySelector('.cell-error').textContent = problem.message; return; }
+      if (!td.isConnected) { ctx.findMark(spot)?.focus(); return; }
+      td.textContent = amount === null ? '' : model.formatVnd(amount);
+      td.classList.add('is-saving');
+      const total = td.closest('tr[data-row]')?.lastElementChild;
+      if (total && total !== td) { total.textContent = '…'; total.classList.add('is-saving'); }
+      down();
     });
   }
 

@@ -12,6 +12,7 @@ import calendar
 import datetime as dt
 import hashlib
 import itertools
+import re
 from collections import Counter
 from typing import Any
 
@@ -24,6 +25,7 @@ from v7_price_queue import (
     container_key,
     iso,
     mark_shared,
+    merge_two_row_pairs,
     name_key,
     owners,
     project_prices,
@@ -90,11 +92,72 @@ def price_delta(row: dict[str, Any]) -> int | None:
     return unit + ((fee if fee_written else web_fee) or 0) - old
 
 
+def customer_tabs(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+    """[(tên tab, health của tab)] của các tab thuộc sổ này trong bản chụp (KIEM-TAB-01), theo tên tab."""
+    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
+    return [(tab, health) for tab, health in sorted((snapshot.get("tabs") or {}).items())
+            if owned.get(name_key(tab), (None,))[0] == ledger.get("customer_id")]
+
+
+def customer_health(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> dict[str, Any]:
+    """Kết luận sức khỏe các tab của một sổ (KIEM-TAB-01, specs/v7-kiem-tab-truoc-khi-ghi.md): `broken` khi một tab của sổ có phát hiện.
+
+    Đọc `tabs` trong chính bản chụp mà nhóm ghi được tính ra, nên kết luận và dữ liệu nó bảo vệ cùng một lượt quét. Bản chụp cũ chưa có
+    `tabs` thì chưa có kết luận (coi như ổn): máy chạy lượt kế tiếp sẽ ghi lại.
+    """
+    findings = [{"tab": tab, **finding} for tab, health in customer_tabs(snapshot, ledger, customers)
+                if health.get("status") == "broken"
+                for finding in health.get("findings") or [] if finding.get("level") != "note"]   # `note`: bố cục đã duyệt, không chặn
+    return {"status": "broken" if findings else "ok", "findings": findings}
+
+
+def chain_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],
+                   held: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Chuỗi số dư gãy (`chain_break` của máy đối soát, trong `hints` của dòng khách HELD) nêu thành chỗ sai có ô: tháng đầu tiên số cuối
+    tháng trên Sheet khác số dựng lại, ô là số còn phải thu cuối tháng của khối tháng đó trong bản chụp (`blocks`). Không biết ô thì không
+    nêu, giữ câu cũ của khách HELD."""
+    found = []
+    for hint in (held or {}).get("hints") or []:
+        month = str(hint.get("month") or "")
+        if hint.get("kind") != "chain_break" or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", month):
+            continue
+        for tab, health in customer_tabs(prices, ledger, customers):
+            blocks = health.get("blocks") or {}
+            cell = blocks.get(month)
+            if not cell:
+                continue
+            delta = hint.get("delta_vnd")
+            found.append({"tab": tab, "kind": "chain_break", "level": "error", "month": month,
+                          "rows": [int(re.sub(r"[A-Z]+", "", cell))], "cells": [cell],
+                          "other_cells": [other for key, other in sorted(blocks.items()) if key != month],
+                          "message": f"Số cuối tháng {int(month[5:7])} trên Sheet lệch {delta} đ so với số dựng lại từ các dòng của tháng. "
+                                     f"Xem ô {cell} (số còn phải thu cuối tháng).",
+                          "fix": "Ô phải là công thức giống các khối tháng khác của tab (số dư đầu + phát sinh − đã thu); ô trống hoặc số gõ tay thì "
+                                 "điền lại công thức mẫu."})
+            break
+    return found
+
+
+def sheet_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],
+                   held: dict[str, Any] | None) -> dict[str, Any]:
+    """Sức khỏe tab kèm mọi chỗ sai khối "Sheet cần sửa" nêu (specs/v7-sheet-can-sua.md): phát hiện của tab rồi chuỗi số dư gãy, chỗ có
+    ô đứng trước lỗi chỉ có mã. Một nơi tính cho cả bảng đối chiếu và máy đối soát, để số chỗ ở dòng khách đúng bằng số thẻ khi mở."""
+    health = customer_health(prices, ledger, customers)
+    found = health["findings"] + chain_findings(prices, ledger, customers, held)
+    return {**health, "findings": sorted(found, key=lambda finding: not finding.get("cells"))}
+
+
+def tab_broken(health: dict[str, Any]) -> ApiError:
+    kinds = sorted({str(finding.get("kind")) for finding in health.get("findings") or []})
+    return ApiError(409, "TAB_BROKEN", "Tab Sheet của khách đang có lỗi (" + ", ".join(kinds) + "). Sửa Sheet rồi chờ máy đọc lại; chưa ghi gì.")
+
+
 def _sheet_rows(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> tuple[list, list, dict]:
     """(dòng giá Sheet của sổ đã phân loại, kể cả loại hàng chờ không hiện; đích ở web; đích theo khóa)."""
     owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
     rows = [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == ledger.get("customer_id")]
     pool = targets(ledger)
+    rows = merge_two_row_pairs(rows, snapshot, pool)   # bố cục hai dòng đã duyệt: tiền là giá của chuyến web, không phải phí lẻ
     return mark_shared([classify(row, pool) for row in rows]), pool, {(target["kind"], target["id"]): target for target in pool}
 
 
@@ -313,10 +376,13 @@ def plan(prices: dict[str, Any], receipts: dict[str, Any], ledger: dict[str, Any
     projected = project_prices(prices, ledger, customers)
     shuffled = sorted({*shuffled_months(projected), *handed_on_months(projected, results, by_target)})
     same_money = lost_container_money(results, pool)
+    ahead = web_ahead(results, pool, by_target, ledger.get("adjustments") or (), same_money)
+    if customer_health(prices, ledger, customers)["status"] == "broken":
+        return [], ahead, shuffled   # tab không đủ lành để tin: không đề xuất ghi tiền nào (đúng ca sổ 239 ngày 16/11/2026)
     groups = receipt_groups(project_receipts(receipts, ledger, customers, today), ledger)
     groups += price_groups(projected, total_only_rows(results, by_target), shuffled)
     groups += fee_groups(results, ledger, same_money)
-    return groups, web_ahead(results, pool, by_target, ledger.get("adjustments") or (), same_money), shuffled
+    return groups, ahead, shuffled
 
 
 def choose(groups: list[dict[str, Any]], need: int) -> tuple[str, list[dict[str, Any]]]:
@@ -344,7 +410,7 @@ def _version(runner, customer_id: int, result: dict[str, Any]) -> int:
 
 
 def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dict[str, Any]], digest: str,
-              today: dt.date, *, actor: str, undo_keys: list[str] | None = None) -> dict[str, int]:
+              today: dt.date, *, actor: str, undo_keys: list[str] | None = None, health: dict[str, Any] | None = None) -> dict[str, int]:
     """Ghi các nhóm đã chọn bằng lệnh có sẵn; tháng khóa thì mở, ghi, khóa lại. Lệnh lỗi thì dừng sổ và ném lỗi, lượt sau tính lại.
 
     `undo_keys`: nơi gọi muốn hoàn tác (VIEC-DOI-CHIEU-01) thì nhận khóa lệnh của giá và phiếu vào đây, đúng thứ tự đã ghi.
@@ -352,10 +418,14 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
     Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu: cùng một lượt chạy lại trả kết quả cũ, lượt sau là lệnh mới, còn phiếu đã ghi
     thì hàng chờ đã ghép và không chọn lại.
 
+    `health`: kết luận tab của sổ (`customer_health`); `broken` thì ném 409 `TAB_BROKEN` trước khi ghi bất cứ gì.
+
     `actor` bắt buộc để lần gọi tay không mang tên máy trong Lịch sử (5/11/2026: một lần gọi tay ở sổ thật hiện thành "Máy (theo Sheet)").
     Khóa chống ghi trùng không theo `actor`, để cùng một việc không ghi hai lần dù ai gọi. Mở/khóa tháng của `in_month` vẫn ghi là máy,
     như `v7_fill_fee_gap`: lượt nền chỉ khóa lại tháng máy đã mở, nên nơi gọi chết giữa chừng thì tháng không nằm mở.
     """
+    if health is not None and health.get("status") == "broken":
+        raise tab_broken(health)   # `health` từ `customer_health`: nơi gọi đã đọc cùng bản chụp với các nhóm; tab lỗi thì không ghi gì
     version = ledger["version"]
     base = f"{AUTO_ACTOR}:doi-soat:{customer_id}:{version}"
     done = {"receipts": 0, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0}

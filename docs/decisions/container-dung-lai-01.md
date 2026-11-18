@@ -23,11 +23,11 @@ Bản chụp giá của Sheet hỏng hoặc chưa có thì coi như tab không c
 | Tab có dòng riêng cho chuyến mới | 1 | Chuyến mới |
 | Tab chưa có dòng của chuyến mới | 1 | Chờ tới khi tab có |
 
-Luật "cách trên 30 ngày là chuyến mới" sẽ cộng trùng 86.980.000đ ở hai sổ đang khớp Sheet, vì tab ghi sai năm hoặc ngày lạ. Một dòng trên tab là một khoản tiền đã tính, nên đếm dòng vững hơn so ngày.
+Luật "cách trên 30 ngày là chuyến mới" sẽ cộng trùng tiền ở hai sổ đang khớp Sheet, vì tab ghi sai năm hoặc ngày lạ. Một dòng trên tab là một khoản tiền đã tính, nên đếm dòng vững hơn so ngày.
 
 ## Ngày / nguồn
 
-4/11/2026, chat. Sau khi đối soát báo một sổ thấp hơn Sheet 43.000.000đ, Claude tìm ra chuyến ngày 31/10/2026 bị giữ vì cùng container với dòng tháng 2 của chính sổ đó, khác nơi đi, khác giá, cùng booking với chuyến ngay trước. Người dùng chọn sửa luật cho máy; Claude rút lại gợi ý ban đầu theo khoảng cách ngày sau khi đo, đề xuất luật trên, người dùng duyệt.
+4/11/2026, chat. Sau khi đối soát báo một sổ thấp hơn Sheet, Claude tìm ra chuyến ngày 31/10/2026 bị giữ vì cùng container với dòng tháng 2 của chính sổ đó, khác nơi đi, khác giá, cùng booking với chuyến ngay trước. Người dùng chọn sửa luật cho máy; Claude rút lại gợi ý ban đầu theo khoảng cách ngày sau khi đo, đề xuất luật trên, người dùng duyệt.
 
 Điều kiện "không sát dòng trong sổ" do Claude thêm khi code, chặt hơn bản đã duyệt, để hai dòng lặp trên tab không thành chuyến mới.
 

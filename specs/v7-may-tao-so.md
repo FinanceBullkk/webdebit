@@ -30,7 +30,7 @@ Người nhập không đổi cách làm: thêm tab khách mới trên Sheet, th
 | Tạo khách, mốc, trạng thái | `import_cutover`, `verify_cutover_customer`, `verify_cutover`, `activate_cutover`, `activate_cutover_customer` | Mốc 21/10 đã khóa không cho thêm khách (`guard_cutover_customer_status`), nên mỗi sổ mới một mốc |
 | Thêm chuyến sau khi tạo sổ | `paste_trips` đòi mốc có `baseline_trip_ref` | Hàm tạo sổ ghi tham chiếu từ dòng chuyến của tab; tab không có container thì ghi một dòng đánh dấu |
 
-Đo trên `hao` 4/11/2026 (chỉ đọc): 13 tab ngoài danh sách mốc; 2 tab đủ điều kiện, số trên TONG khớp đúng số trên tab, tổng 334.601.234 đ. Bản giả và ảnh chụp không dùng số khách thật.
+Đo trên `hao` 4/11/2026 (chỉ đọc): 13 tab ngoài danh sách mốc; 2 tab đủ điều kiện, số trên TONG khớp đúng số trên tab. Bản giả và ảnh chụp không dùng số khách thật.
 
 ## Giao tiếp frontend–backend (bước 5, khi có)
 

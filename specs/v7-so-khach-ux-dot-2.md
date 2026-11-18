@@ -220,3 +220,5 @@ Người dùng chốt 31/10/2026 trong chat, chọn đúng phương án Claude �
 ## Câu hỏi mở
 
 - Phần dính ≤ 110px như audit gợi ý chỉ đạt được khi thanh xanh trên cùng thu lại lúc cuộn trên mọi trang. Đợt này nhắm ≤ 180px; thu thanh trên để sau, nếu người dùng thấy còn chật.
+
+<!-- du-lieu-gia: 1.000.000 12.500.000 15.000.000 49.000.000 50.000.000 199.000.000 200.000.000 1.200.000.000 1.250.000.000 -->

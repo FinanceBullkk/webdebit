@@ -10,7 +10,7 @@
 | [Kiểm chứng](verification.md) | Kết quả thực chạy và giới hạn |
 | [Spec](../specs/README.md) | Thay đổi cụ thể và tiêu chí nghiệm thu |
 | [Định dạng báo cáo M1](m1-report-format.md) | Count evidence và quy tắc phân biệt NULL với 0 |
-| [Gói deploy và rollback M1](m1-deploy-rollback.md) | Gói runtime theo allowlist, preflight chỉ đọc và rollback; đã áp dụng trên `hao` tại `c439d13`, còn hồ sơ nghiệm thu |
+| [Gói deploy và rollback M1](m1-deploy-rollback.md) | Lịch sử: gói runtime theo allowlist, preflight chỉ đọc và rollback; đã áp dụng trên `hao` tại `c439d13`. Công cụ và viewer đã xóa khỏi repo 18/11/2026 |
 | [Đề xuất ACL M1](m1-acl-proposal.md) | Cấp quyền đọc năm view cho viewer, thu hồi membership maker; đã áp dụng trong đợt M1, giữ hồ sơ ngoài Git |
 | [Runbook triển khai V7](v7-deploy-runbook.md) | Đề xuất deploy DB riêng, backup/rollback và tổng duyệt Docker |
 | [Checklist chạy song song](song-song-checklist.md) | Điều kiện bắt đầu chạy song song Sheet–web: ai làm, bằng chứng gì, trạng thái |

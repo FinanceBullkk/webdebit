@@ -281,6 +281,45 @@ if (process.argv.includes('--preview')) {
     });
   });
 
+  test('Chỗ máy tìm ra: "Đã xem, hết báo" ở dòng Sheet máy không ghi được; ghi theo dấu vân, nợ không đổi, hiện lại khi sổ không còn nêu', async () => {
+    const posted = [];
+    const missing = 'a'.repeat(64), manual = 'b'.repeat(64), conflict = 'c'.repeat(64);
+    const hints = [
+      { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
+      { kind: 'sheet_row_missing', row: 304, container: 'MAUU0000304 取消', sheet_vnd: '25000000', delta_vnd: '25000000', closable: true, source_fingerprint: missing },
+      { kind: 'price_review', status: 'MANUAL', row: 90, container: 'MAUU0000090', sheet_vnd: '83000000', web_vnd: '84500000', delta_vnd: '-1500000', closable: true, source_fingerprint: manual },
+      { kind: 'price_review', status: 'CONFLICT', row: 91, container: 'MAUU0000091', sheet_vnd: '80000000', web_vnd: '81000000', delta_vnd: '-1000000', closable: false, source_fingerprint: conflict },
+    ];
+    const guess = { ...lech, reason: 'NOTHING_TO_WRITE', sheet_editing: false, difference_vnd: '-1500000', groups: [], hints, hints_explain: false };
+    const closedByServer = [];
+    await withPage({ posted, inbox: inbox({ reconcile: { ...reconcile, customers: [guess] } }),
+      statement: () => statement({ sheet_total_vnd: '5208500000', groups: [], reason: 'NOTHING_TO_WRITE', sheet_editing: false, closed_sources: closedByServer }) }, async page => {
+      await opened(page);
+      // Chỉ dòng Sheet không khớp chuyến và dòng phụ phí gõ tay có nút; phiếu trùng và giá CONFLICT thì không.
+      assert.equal(await page.locator('.dc-hints [data-dc-dong]').count(), 2);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'PH-001' }).locator('[data-dc-dong]').count(), 0);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 91' }).locator('[data-dc-dong]').count(), 0);
+      await page.locator(`[data-dc-dong="${missing}"]`).click();
+      assert.match(await page.locator('.action-description').innerText(), /Nợ không đổi, vẫn lệch Sheet; không ghi tiền/);
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].route, '/api/v7/sheet/tasks/keep');
+      assert.deepEqual({ ...posted[0].body, idempotency_key: 'k' }, { customer_id: 7, expected_version: 12, idempotency_key: 'k', task_kind: 'source', scope: 'price', source_fingerprint: missing });
+      assert.equal(await page.locator(`[data-dc-dong="${missing}"]`).count(), 0);   // hết báo ngay, không chờ lượt máy sau
+      assert.equal(await page.locator('.dc-hints li').count(), 3);
+      // Sổ đã ghi dấu vân (closed_sources): mở lại vẫn không hiện dòng 90.
+      closedByServer.push(manual);
+      await page.locator('[data-dc-open="7"]').first().click();
+      await page.locator('[data-dc-open="7"]').first().click();
+      await page.locator('.dc-hints li', { hasText: 'Dòng 90' }).waitFor({ state: 'detached' });   // chờ sổ tải lại xong, không đọc khung cũ
+      await page.locator('.dc-hints').waitFor();
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 90' }).count(), 0);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 304' }).count(), 0);   // dòng vừa đóng ở lượt trước cũng không quay lại
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 91' }).count(), 1);
+    });
+  });
+
   test('máy đoán chỗ lệch: câu ở cột Vì sao, đủ danh sách khi mở; khách bị giữ nói khối tháng (CHAN-DOAN-LECH-01)', async () => {
     const hints = [
       { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
@@ -300,7 +339,9 @@ if (process.argv.includes('--preview')) {
       const items = await page.locator('.dc-hints li').allInnerTexts();
       assert.equal(items.length, 3);
       assert.match(items[2], /Dòng 231 \(MAUU0000231\): Sheet 101,5 tr, web 98 tr\. Máy không tự sửa vì dòng có phụ phí chia theo loại, sửa trên Sổ\./);
-      const kept = await page.locator('.dc-customer', { hasText: 'Kim Long' }).locator('.dc-why').innerText();
+      const keptCell = page.locator('.dc-customer', { hasText: 'Kim Long' }).locator('.dc-why');
+      assert.equal(await keptCell.locator('.dc-tag').innerText(), 'Sheet cần sửa');   // nhãn đứng đầu ô (KIEM-TAB-01 3e), câu theo sau
+      const kept = (await keptCell.innerText()).replace(/^Sheet cần sửa\s+/, '');
       assert.match(kept, /^Sheet có chỗ máy chưa đọc được, chưa so được\. Khối tháng 10 trên Sheet: số cuối tháng thiếu 500 đ so với/);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang ở 1280');
     });
@@ -358,7 +399,7 @@ if (process.argv.includes('--preview')) {
       const reread = page.waitForResponse(/\/api\/v7\/inbox$/);
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       await reread;
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+      await page.evaluate(() => window.ViecCanLam.idle());   // mọi lượt đọc nền đã vẽ, không ngủ rồi đoán
       assert.equal(await page.locator('.dc-detail').count(), 0, 'đóng tay thì tải nền không mở lại');
     });
   });

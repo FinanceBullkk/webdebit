@@ -8,6 +8,9 @@
 //
 //   node scripts/check.js            chạy tất cả
 //   node scripts/check.js --lint     chỉ lint (nhanh, dùng khi đang sửa)
+//   node scripts/check.js --skip=test:py[,lint:js]
+//                                    bỏ bước theo mã (chữ đầu tên bước). Chỉ CI dùng: job JS trên
+//                                    ubuntu bỏ test:py vì job `python` đã chạy unittest 3.12–3.14.
 //
 // Mã thoát khác 0 nếu bất kỳ bước nào hỏng. Bước bị bỏ qua (SKIP) không làm hỏng.
 
@@ -18,6 +21,11 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const HANDOFF = path.join(ROOT, "cong-no-web-handoff");
 const lintOnly = process.argv.includes("--lint");
+const skipKeys = process.argv
+  .filter((a) => a.startsWith("--skip="))
+  .flatMap((a) => a.slice("--skip=".length).split(","))
+  .map((k) => k.trim())
+  .filter(Boolean);
 
 // Ruff nằm trong .venv của dự án khi chạy ở máy, nằm trên PATH khi chạy trong CI.
 function ruffCommand() {
@@ -74,6 +82,13 @@ function eslintBin() {
 
 const PYTHON = pythonCommand();
 
+// Danh sách tên khách (secret `WEBDEBIT_TEN_KHACH` trên CI, xem check-secrets.js) chỉ đưa cho bước `lint:sec`;
+// bước khác không cần, và test nào in biến môi trường ra log cũng không làm lộ tên.
+const NAMES_ENV = "WEBDEBIT_TEN_KHACH";
+const envWithoutNames = { ...process.env };
+// Tên biến môi trường trên Windows không phân biệt hoa thường.
+for (const key of Object.keys(envWithoutNames)) if (key.toUpperCase() === NAMES_ENV) delete envWithoutNames[key];
+
 // Test trình duyệt cần bản Chromium đã tải. Ở máy chưa tải thì báo SKIP thay vì
 // FAIL: một lỗi không liên quan tới thay đổi của người sửa sẽ khiến họ bỏ luôn
 // thói quen chạy check.
@@ -112,6 +127,17 @@ const steps = [
     cwd: ROOT,
   },
   {
+    // Secrets và dữ liệu nghiệp vụ thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số
+    // container, tên khách theo danh sách ngoài repo) trên mọi file đã theo dõi. Trước 18/11/2026 lệnh
+    // này chỉ chạy tay trước commit, và nhật ký triển khai đã lọt tổng nợ thật vào repo public; chạy ở
+    // đây để CI chặn.
+    name: "lint:sec  secrets + dữ liệu thật",
+    cmd: process.execPath,
+    args: [path.join(__dirname, "check-secrets.js"), "--all"],
+    cwd: ROOT,
+    names: true,
+  },
+  {
     // Gọi thẳng điểm vào của eslint bằng node: trên Windows, spawn một file
     // .cmd (npx.cmd) không qua shell bị Node chặn, nên bước này sẽ luôn hỏng
     // mà không in ra lỗi nào.
@@ -145,26 +171,24 @@ const steps = [
       chromiumMissing() &&
       "chưa có Chromium — chạy `npx playwright install chromium` nếu cần",
   },
-  {
-    // Bộ test viewer dữ liệu giả, cũng cần Chromium. Tách riêng vì nó nằm ở
-    // `cong-no-web-handoff/tests/` chứ không phải `preview/`, và main thêm nó
-    // sau khi bước playwright ở trên đã có.
-    name: "test:js   viewer",
-    cmd: "npm",
-    args: ["run", "test:viewer"],
-    cwd: ROOT,
-    lint: false,
-    skip: () =>
-      chromiumMissing() &&
-      "chưa có Chromium — chạy `npx playwright install chromium` nếu cần",
-  },
 ];
+
+// Mã bước là chữ đầu của tên ("test:py", "lint:js"...). Mã gõ sai thì dừng hẳn: bỏ nhầm một bước
+// mà vẫn báo xanh là đúng kiểu lỗi lệnh này sinh ra để chặn.
+const stepKey = (step) => step.name.split(/\s+/)[0];
+const unknownSkip = skipKeys.filter((k) => !steps.some((step) => stepKey(step) === k));
+if (unknownSkip.length) {
+  console.error(`--skip có mã không tồn tại: ${unknownSkip.join(", ")}. Mã hợp lệ: ${[...new Set(steps.map(stepKey))].join(", ")}`);
+  process.exit(2);
+}
 
 const results = [];
 for (const step of steps) {
   if (lintOnly && step.lint === false) continue;
 
-  const reason = step.skip && step.skip();
+  const reason = skipKeys.includes(stepKey(step))
+    ? "bỏ theo --skip"
+    : step.skip && step.skip();
   if (reason) {
     console.log(`\n=== SKIP ${step.name}: ${reason}\n`);
     results.push({ name: step.name, status: "SKIP" });
@@ -175,6 +199,7 @@ for (const step of steps) {
   // `npm` là npm.cmd trên Windows; file .cmd chỉ chạy được qua shell.
   const r = spawnSync(step.cmd, step.args, {
     cwd: step.cwd,
+    env: step.names ? process.env : envWithoutNames,
     stdio: "inherit",
     shell: step.cmd === "npm" && process.platform === "win32",
   });

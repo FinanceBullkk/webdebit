@@ -3,7 +3,7 @@
  * Máy chủ giả, dữ liệu giả, 1280×720; không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { todayMonth, withPage, reload } = require('./so-khach-v7-browser-world');
+const { todayMonth, withPage, reload, settled } = require('./so-khach-v7-browser-world');
 
 // Thẻ đang mở: thẻ được chọn trên thanh thẻ, khung đang hiện, địa chỉ.
 const state = page => page.evaluate(() => ({
@@ -130,6 +130,7 @@ test('Đang gõ dở trong khung Ghi phiếu thu, sang thẻ khác rồi quay l�
   assert.equal(await drawer.isVisible(), true);
   assert.equal(await focused(page), 'receipt-amount');
   assert.deepEqual(await values(), ['15/09/2026', '1.234.567', 'CK thử']);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'chưa gửi lệnh nào');
 }));
 

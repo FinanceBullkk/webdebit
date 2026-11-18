@@ -146,3 +146,5 @@ and repeats mechanical gates/counts before DB access. One shared cutover uses
 SHA-256 of manifest.json bytes as source_sha256, frozen_at and control_total_vnd
 from manifest. Whole-cutover verify/activate follows all customer verifications.
 This describes copy code and format, not evidence of a database load.
+
+<!-- du-lieu-gia: 46.000.000 -->

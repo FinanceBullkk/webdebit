@@ -91,3 +91,5 @@ Chạy trên PostgreSQL thật **cô lập** theo harness của [next-task](p0-w
 ## Câu hỏi mở
 
 - <Agent hoặc reviewer ghi vào đây.>
+
+<!-- du-lieu-gia: 600.694.000 1.381.510.000 2.411.645.000 -->

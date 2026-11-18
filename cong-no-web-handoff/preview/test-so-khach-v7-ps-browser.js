@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho tách phụ phí theo bảng PS (specs/v7-phu-phi-tu-ps.md, PR-2). Máy chủ giả, số giả, không chạm DB. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts } = require('./so-khach-v7-browser-world');
+const { clock, withPage, posts, settled } = require('./so-khach-v7-browser-world');
 
 const sha = 'b'.repeat(64);
 const item = (fields) => ({ key: `${fields.container}|${fields.date}`, source_row: 3, bill_month: '09/2026', ps_source: 'PS T9',
@@ -46,6 +46,7 @@ test('tách PS: nút đúng số, khung xác nhận "Tổng tiền không đổi
   assert.equal(await page.evaluate(() => document.activeElement?.className), 'ps-write primary', 'con trỏ ở nút Tách');
   assert.deepEqual(await ownCells(page, 'trip-11'), ['1.500.000', '500.000', ''], 'ô hiện kết quả dự kiến');
   assert.equal(await page.locator('.ps-approve').count(), 0);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'mở khung chưa gửi lệnh');
   await shot('ps-khung-xac-nhan');
   await page.click('.ps-cancel');
@@ -92,6 +93,7 @@ test('phụ phí phát sinh trong ô Khác: nhãn cam, bấm mở hộp nhỏ, c
   assert.equal(await pop.locator('.ps-how').first().isHidden(), true, 'cách làm khi có tính chỉ hiện khi bấm');
   await pop.locator('.ps-yes').click();
   assert.match(await pop.locator('.ps-how').first().innerText(), /Ghi phụ phí \(số đồng nguyên\) trên tab khách ở Sheet/);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'mở hộp, bấm "Tính khách…" không gửi lệnh nào');
   await shot('ps-hop-nho');
   await page.keyboard.press('Escape');
@@ -125,6 +127,7 @@ test('phụ phí phát sinh trong ô Khác: nhãn cam, bấm mở hộp nhỏ, c
   assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), total, 'số nợ không đổi');
   await chip('legacy-22').click();
   await Promise.all([page.waitForResponse(response => response.url().endsWith('/api/v7/months/lock')), pop.locator('.ps-unlock').click()]);
+  await settled(page);
   assert.deepEqual(posts(world).filter(([path]) => path === '/api/v7/months/lock').map(([, body]) => [body.month, body.locked]), [['2026-09-01', false]]);
 }, setup));
 
@@ -134,6 +137,7 @@ test('phụ phí phát sinh: bỏ tick cùng khoản thì chỉ trả lời chuy
   await page.locator('.ps-pop .ps-group-pick').uncheck();
   await page.locator('.ps-pop .ps-keep').click();
   await page.waitForFunction(() => /Đã ghi câu trả lời cho 1 cont/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  await settled(page);
   assert.deepEqual(posts(world).filter(([path]) => path === '/api/v7/sheet/tasks/keep').map(([, body]) => [body.target_kind, body.target_id]), [['legacy', 21]]);
   await chip('trip-11').click();
   await page.locator('.ps-pop .ps-fee-open').click();

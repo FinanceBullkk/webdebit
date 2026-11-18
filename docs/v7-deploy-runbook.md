@@ -497,6 +497,8 @@ mã thoát 2, unit `failed`, không xóa gì.
 
 ### B1. Bản ghim và thư mục
 
+Từ 18/11/2026 (CHI-PHI-XE-01) bản dump gồm cả schema đội xe `doixe` khi DB có schema đó (cùng tên file `sokhach.dump`, cùng ảnh dữ liệu); manifest thêm `doixe_row_counts`, phục hồi so cả số dòng `doixe` và từ chối đích đã có `sokhach` hoặc `doixe`. Bản cũ (chỉ `sokhach`) vẫn kiểm và phục hồi được. Đổi `v7_backup.py` thì cài lại bản ghim theo mục này.
+
 Lấy file từ release đang chạy sau khi PR đã merge và `Deploy hao` xanh (hoặc chép từ commit), rồi so hash với
 `git show <commit>:cong-no-web-handoff/tools/v7_backup.py | sha256sum` ở một checkout; khác thì dừng. Ghi commit và hash
 vào `<evidence_dir>`. Công cụ coi thư mục hai cấp trên (`/opt/webdebit-backup`) là gốc mã, từ chối ghi backup vào đó;
@@ -931,6 +933,9 @@ sudo systemctl enable --now v7-backup-offsite.timer
 
 ### O4. Trên PC: script và lịch
 
+Đặt `<pc_tools>` và `<pc_dir>` dưới một thư mục cha riêng, chỉ bỏ thừa hưởng ở thư mục cha: `icacls "<cha>" /inheritance:r /grant:r
+"<user>:(OI)(CI)F" "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F"`, để thư mục con và file thừa hưởng lại. Chạy `/inheritance:r` kèm `/T`
+thì file con trống quyền, chính chủ máy cũng không đọc được (gặp 18/11/2026; sửa bằng `icacls "<con>" /inheritance:e /T`).
 Chép `cong-no-web-handoff/tools/v7_offsite_pull.py` và `v7_backup.py` của cùng commit vào `<pc_tools>`; `Get-FileHash`
 phải khớp `git show <commit>:<đường dẫn> | sha256sum` ở một checkout. `known_hosts` của chủ máy phải có khóa máy của
 `<hao_ip>` (bản Vaultwarden dùng cùng địa chỉ); lần đầu thì so fingerprint với `/etc/ssh/ssh_host_ed25519_key.pub` trên `hao`.
@@ -1759,6 +1764,22 @@ WantedBy=timers.target
 4. **Theo dõi:** tab Việc cần làm, `reconcile-log.jsonl`, `journalctl -u v7-reconcile-auto`. Stdout của unit chỉ có số đếm. Phép kiểm tab TONG ([`KIEM-TONG-01`](decisions/kiem-tong-01.md)) nằm ở khối `tong` của `reconcile.json`; log và journal chỉ có số đếm `tong`. `skipped: ERROR` là lượt đó không kiểm được TONG (mã ở `error`, journal có một dòng), phần đối soát vẫn đạt.
 5. **Tắt:** `systemctl disable --now v7-reconcile-auto.timer`. Muốn vẫn đối soát mà không ghi thì bỏ `--fix` khỏi `ExecStart`, `daemon-reload`, rồi bật lại timer. Việc máy đã ghi vẫn nằm trong sổ và Lịch sử; sửa tay nếu sai: hủy phiếu, xóa dòng điều chỉnh, sửa giá tại ô (tháng khóa: mở khóa trước).
 
+**Kiểm booking trong cùng lượt** ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)). Không có unit hay timer mới, mã lên bằng `Deploy hao`.
+
+- **Cách chạy:** mỗi lượt mở thêm một tiến trình con, chỉ đọc. Nó chạy `tools/v7_booking_check.py` trên bản tải của lượt, cùng `snapshot.json` và `road.json` (đường dẫn lấy từ `WEBDEBIT_SNAPSHOT_PATH`, `WEBDEBIT_ROAD_SNAPSHOT_PATH` của `sheet-sync.env`). Kết quả ghi `/var/lib/webdebit-sheet-sync/booking-check.json`, mode 600, có tên khách.
+- **Chi phí:** khoảng 250 giây và 286 MB, song song với lượt nên lượt không dài thêm. Lượt chờ con xong trước khi xóa bản tải, tối đa 900 giây.
+- **Theo dõi:**
+  - Khối `booking` ở stdout, `reconcile.json` và `reconcile-log.jsonl` chỉ có số đếm, hoặc `{"error": "<mã>"}`.
+  - Journal có một dòng `V7 kiểm booking: không kiểm được (<mã>)` khi lỗi.
+  - `SEA_*`/`ROAD_*` (`MISSING`, `UNREADABLE`, `EMPTY`, `STALE`): xem timer `webdebit-sheet-sync`.
+  - `SHEET_EMPTY`: bản tải không có dòng chuyến nào trong khoảng kiểm, thường do Sheet đổi cấu trúc.
+  - `RUN_FAILED`: lượt đối soát lỗi giữa chừng, phép kiểm bị dừng theo. Xem journal của lượt.
+  - `TIMEOUT`: quá 900 giây tính từ lúc bắt đầu.
+  - `START_*`, `EXIT_*`: không mở được tiến trình con, hoặc nó dừng mà không in kết quả.
+  - Lượt lỗi giữ kết quả cũ, trang Máy chạy ghi rõ là lỗi.
+- **Tắt** mà không đổi release: thêm drop-in `[Service]` `Environment=WEBDEBIT_BOOKING_CHECK=off` cho `v7-reconcile-auto.service`, rồi `daemon-reload`. Muốn trang báo "chưa có lượt kiểm" thì xóa `booking-check.json`.
+- **Chạy tay chỉ đọc:** tải xlsx như bước 1 của "Đối soát cuối tháng", rồi `v7_booking_check.py --xlsx <xlsx> --output <thư mục ngoài Git>/booking-check.json`.
+
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
 ## Thông tin cty (THONG-TIN-CTY-01) — timer `webdebit-company-info`
@@ -1847,7 +1868,7 @@ Rollback: `DROP FUNCTION sokhach.get_activity(date);` dưới `sokhach_owner`; k
 
 Đã chạy 9/11/2026, xem [nhật ký](deploys/2026-11-09-thu-thang-theo-so.md).
 
-Migration `cong-no-web-handoff/tools/migrations/2026-11-09-v7-thu-thang-theo-so.sql` chỉ thay thân hàm đọc `get_dashboard_debt` (`DASH-08`): `this_month` có thêm `customers` (thu và phát sinh tháng này từng sổ có số khác 0, kèm mặt hàng và cảng/bộ) để thẻ Thu tháng của Tổng quan lọc được. Mọi trường khác giữ nguyên từng byte; tổng `this_month` không đổi vì là tổng của các sổ. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu, quyền hay ngưỡng. Chạy lại được. **Chạy sau `2026-11-06-v7-ngay-tra-that.sql`. Chạy lại file đó hoặc `2026-10-29-v7-tong-quan-quan-ly-no.sql` thì phải chạy lại file này**, vì chúng trả hàm về thân cũ.
+Migration `cong-no-web-handoff/tools/migrations/2026-11-09-v7-thu-thang-theo-so.sql` chỉ thay thân hàm đọc `get_dashboard_debt` (`DASH-08`): `this_month` có thêm `customers` (thu và phát sinh tháng này từng sổ có số khác 0, kèm mặt hàng và cảng/bộ) để thẻ Thu tháng của Tổng quan lọc được. Mọi trường khác giữ nguyên từng byte; tổng `this_month` không đổi vì là tổng của các sổ. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu, quyền hay ngưỡng. Chạy lại được. **Chạy sau `2026-11-06-v7-ngay-tra-that.sql`. Chạy lại file đó hoặc `2026-10-29-v7-tong-quan-quan-ly-no.sql` thì phải chạy lại file này**, vì chúng trả hàm về thân cũ. Sau file này phải chạy lại `2026-11-18-v7-tong-quan-tat-jit.sql` (HIEU-NANG-02).
 
 Thứ tự với release: độc lập. Release cũ bỏ qua trường mới; release mới trên DB cũ thì thẻ Thu tháng giữ nhãn "cả công ty" khi lọc.
 
@@ -1866,6 +1887,55 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha`. App không đọc trường mới, nên release cũ và mới đều chạy được với DB mới.
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
+
+## Chuẩn hóa chữ rỗng (KIEM-TAB-01 đợt 2) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-kiem-tab.md))
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql` chạy sau `2026-11-16-v7-bao-cao-thang.sql` và mọi migration trước nó ([spec](../specs/v7-kiem-tab-dot2.md)). Chỉ thay thân hai hàm: `resolve_sheet_conflict` (so trước–sau bằng `nullif(btrim(...),'')`; chủ hàng của dòng sổ gốc lấy hãng tàu khi chủ hàng trống hoặc toàn khoảng trắng) và `edit_trip_info` (sửa ô chữ rỗng thành rỗng là `NO_CHANGE`). Không đổi bảng, ràng buộc, event, quyền, dữ liệu hay trường tiền. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release (release mới gửi NULL cho chủ hàng rỗng; với hàm cũ vẫn báo `STALE_LEDGER` như trước, không sai tiền). Release cũ chạy được với DB mới.
+
+Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trên bản sao (catalog ổn định, checker), đối soát tổng từng khách trước/sau (không đổi). Không cần cửa sổ dừng ghi riêng ngoài thứ tự trên.
+
+Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả hai hàm), dữ liệu và quyền giữ nguyên.
+
+## "Đã xem, hết báo" theo dòng Sheet (KIEM-TAB-01 đợt 4, K3) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-nguon-het-bao.md))
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-nguon-het-bao.sql` chạy sau `2026-11-16-v7-chuan-hoa-chu.sql` ([spec](../specs/v7-kiem-tab-truoc-khi-ghi.md#k3-hết-báo-chung-theo-dấu-vân-dòng-sheet-gốc-của-5)). Chỉ `CREATE OR REPLACE sokhach.keep_sheet_task`: nhận thêm `task_kind = 'source'` (không cần chuyến đích). Không đổi bảng, view, hàm khác, event hiện có, quyền, dữ liệu hay trường tiền. Chạy lại được.
+
+Thứ tự: bản sao thử trước (restore dump vào DB tạm, áp hai lượt, catalog ổn định, gọi hàm trong giao dịch rồi `ROLLBACK`), merge, rồi cửa sổ dừng ghi (dừng `v7-reconcile-auto` và API, dump kèm hash, áp với `ON_ERROR_STOP`, đối soát tổng từng khách và số event, `v7_post_deploy_check.sql`, bật lại), rồi đổi release. Migration trước release: release mới gửi `task_kind = 'source'` mà hàm cũ trả `INVALID_SHEET_RESOLUTION` (không ghi gì); release cũ chạy được với hàm mới. Tránh phút :05–:15 vì máy đối soát mỗi giờ ghi vào DB.
+
+Rollback: áp lại `2026-11-09-v7-ps-khong-thu.sql` (bản trước của hàm; các event `task_source` đã ghi vẫn nằm trong Lịch sử, không ảnh hưởng tiền; các dòng đã "hết báo" khi đó hiện lại ở bản mới của hàng chờ).
+
+## Vùng ô Sheet cho khối "Sheet cần sửa" (KIEM-TAB-01 đợt 3c) — đổi release và thêm drop-in cho API (ĐÃ CHẠY trên `hao` 16/11/2026, [nhật ký](deploys/2026-11-16-kiem-tab.md))
+
+Route mới `GET /api/v7/sheet/vung-o?customer=<id>&finding=<số>` ([spec](../specs/v7-sheet-can-sua.md)) đọc **một vùng nhỏ** của Sheet (`spreadsheets.get` kèm `includeGridData`, tài khoản dịch vụ chỉ đọc có sẵn) khi người dùng mở một chỗ sai. Vùng do server tính, client không gửi A1; cache 60 giây; không ghi gì. Không SQL, không migration, không `v7_load*`: `Deploy hao` tự đổi release.
+
+Cần một **drop-in cho `v7-ledger-api.service`**, phiên điều phối duyệt 16/11/2026 theo quyền người dùng trao 21/10 (không đổi quyền, role hay mạng; chỉ hai biến môi trường), để API có ID Sheet và đường dẫn khóa; API chạy bằng `v7app`, khóa `/etc/webdebit/google-sheet-reader.json` cũng của `v7app`, không đổi quyền file:
+
+```ini
+# /etc/systemd/system/v7-ledger-api.service.d/sheet-region.conf
+[Service]
+EnvironmentFile=/etc/webdebit/sheet-prices.env
+Environment=WEBDEBIT_GOOGLE_CREDENTIALS=/etc/webdebit/google-sheet-reader.json
+```
+
+`sheet-prices.env` chỉ có `WEBDEBIT_SHEET_ID` (không đưa giá trị vào Git hay chat). Chữ ký RS256 bằng `openssl` (có sẵn), khóa đi qua bộ nhớ (`memfd`), không ghi ra đĩa. Thiếu cấu hình thì route trả `503 SHEET_REGION_UNAVAILABLE` và màn nói "chưa đọc được Sheet"; các route khác không đổi.
+
+Thứ tự: đổi release (tự động) rồi drop-in, `daemon-reload`, restart `v7-ledger-api`, kiểm `/healthz` 200 và gọi route cho một khách có chỗ sai (chỉ đọc; kiểm số dòng, cột, `read_at`, link mở ô có `gid`). Bản chụp giá cần chạy lại một lượt (15 phút) để có `blocks` cho `chain_break`.
+
+Rollback: xóa `/etc/systemd/system/v7-ledger-api.service.d/sheet-region.conf`, `systemctl daemon-reload`, `systemctl restart v7-ledger-api`; hoặc `webdebit-release.sh deploy <sha trước>`. Làm ngoài khoảng :05–:15 của giờ (lượt đối soát). Mỗi lần gọi Google tối đa 8 giây; log (`journalctl -u v7-ledger-api`) chỉ có tên tab, vùng, thời gian và mã lỗi, không có nội dung ô.
+
+## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-bao-cao-thang.md))
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql` chạy sau `2026-11-13-v7-dau-doc.sql` ([`BAO-CAO-THANG-01`](decisions/bao-cao-thang-01.md), [spec](../specs/v7-bao-cao-thang.md)). Chỉ thêm hàm đọc `get_trip_month(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release. Release mới với DB cũ: trang Báo cáo tháng báo không tải được (hàm chưa có), các trang khác không đổi. Release cũ chạy được với DB mới (hàm mới không ai gọi).
+
+Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trên bản sao (catalog ổn định, dấu vân tay không đổi, checker), gọi `get_trip_month('<tháng>-01')` trên bản sao và so số chuyến với `get_ledger` của vài sổ. Vì là hàm đọc, không cần cửa sổ dừng ghi; vẫn đối soát tổng từng khách trước/sau.
+
+Job: phép kiểm booking (`tools/v7_booking_check.py`, chạy trong lượt `v7-reconcile-auto`) ghi thêm `booking-report.json` (mode 600, có tên tab khách và số tiền) cạnh `booking-check.json` trong `/var/lib/webdebit-sheet-sync`. API đọc qua `WEBDEBIT_BOOKING_REPORT_PATH` hoặc thư mục máy (`WEBDEBIT_MACHINE_DIR`). Trước lượt đầu sau khi đổi release, trang ghi "Chưa có kết quả đối chiếu" và chỉ có cột Web.
+
+Rollback: `DROP FUNCTION sokhach.get_trip_month(date);` (không gì phụ thuộc). Release cũ không đọc file mới; file có thể để lại.
 
 ## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026, [nhật ký](deploys/2026-11-13-dau-doc.md))
 
@@ -1907,9 +1977,35 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
+## Mở sổ lớn không JIT (MO-SO-NHANH-03) — nâng DB (ĐÃ CHẠY trên hao 18/11/2026)
+
+Đã chạy 18/11/2026, xem [nhật ký](deploys/2026-11-18-mo-so-tat-jit.md). Spec [`mo-so-nhanh-03`](../specs/mo-so-nhanh-03.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_ledger(bigint) SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_ledger` trùng từng byte. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-04-v7-ledger-events.sql` (hoặc rollback của nó, hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_ledger`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
+
+Thứ tự với release: độc lập, vì release cũ và mới gọi cùng một hàm. Chỉ đổi cấu hình của một hàm đọc nên không cần cửa sổ dừng ghi. Tránh phút :05–:15 khi máy đối soát chạy.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử (thu `CONNECT` của PUBLIC), `ANALYZE`. Băm JSON `get_ledger` mọi sổ và đo giây sổ 104, 79, 149. Chạy migration hai lượt, rồi băm và đo lại: băm phải trùng từng sổ. Chạy `ALTER FUNCTION … RESET jit` rồi nâng lại, băm vẫn trùng. Dấu vân dữ liệu trùng, checker đạt.
+2. **DB thật:** backup toàn phần và kiểm đọc lại; ghi dấu vân và băm mọi sổ; áp với `psql -X -v ON_ERROR_STOP=1`; ghi lại dấu vân và băm (phải trùng); `proconfig` có `jit=off`; chạy `v7_post_deploy_check.sql`.
+3. **Release:** `Deploy hao` dừng ở cổng SQL. Đưa release tay bằng đúng gói của workflow, đặt `.release-sha`.
+4. **Sau:** đo lại `get_ledger(104)` và GET sổ 104; chạy lưới an toàn `--dry-run` (không có mục nào, vì dữ liệu không đổi).
+
+Rollback: `ALTER FUNCTION sokhach.get_ledger(bigint) RESET jit;` dưới `sokhach_owner`. Kết quả không đổi, chỉ chậm lại như trước.
+
+## Tổng quan không JIT (HIEU-NANG-02) — nâng DB (ĐÃ CHẠY trên hao 18/11/2026)
+
+Đã chạy 18/11/2026, xem [nhật ký](deploys/2026-11-18-tong-quan-tat-jit.md). Spec [`hieu-nang-02`](../specs/hieu-nang-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_dashboard_debt() SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_dashboard_debt` trùng từng byte, và kết quả `get_safety_net` (hàm gọi nó) cũng vậy. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-09-v7-thu-thang-theo-so.sql` (hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_dashboard_debt`: `2026-11-06-v7-ngay-tra-that.sql`, `2026-10-29-v7-tong-quan-quan-ly-no.sql`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
+
+Thứ tự với release: độc lập, vì release cũ và mới gọi cùng một hàm. Chỉ đổi cấu hình của một hàm đọc nên không cần cửa sổ dừng ghi. Tránh phút :05–:15 khi máy đối soát chạy.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử (thu `CONNECT` của PUBLIC), `ANALYZE`. Băm JSON kết quả các hàm đọc: `get_dashboard_debt`, `get_dashboard`, `get_receivables_matrix`, `get_receivables_detail`, `get_receipt_book`, `get_trip_month`, `get_activity`, `get_ledger` mọi sổ và `get_safety_net` mọi phần. Đo `get_dashboard_debt`. Chạy migration hai lượt, rồi băm và đo lại: băm phải trùng. Chạy `ALTER FUNCTION … RESET jit` rồi nâng lại, băm vẫn trùng. Dấu vân dữ liệu trùng, checker đạt.
+2. **DB thật:** backup toàn phần và kiểm đọc lại; ghi dấu vân và băm; áp với `psql -X -v ON_ERROR_STOP=1`; ghi lại dấu vân và băm (phải trùng); `proconfig` có `jit=off`; chạy `v7_post_deploy_check.sql`.
+3. **Release:** `Deploy hao` dừng ở cổng SQL. Đưa release tay bằng đúng gói của workflow, đặt `.release-sha`.
+4. **Sau:** đo lại `get_dashboard_debt` như API (mỗi lần một psql mới dưới `v7_app`), và chạy `auto_explain` để thấy không câu nào trong hàm bị JIT; chạy lưới an toàn `--dry-run` (không có mục nào, vì dữ liệu không đổi).
+
+Rollback: `ALTER FUNCTION sokhach.get_dashboard_debt() RESET jit;` dưới `sokhach_owner`. Kết quả không đổi, chỉ chậm lại như trước.
+
 ## Lịch sử đọc riêng (MO-SO-NHANH-02) — nâng DB (ĐÃ CHẠY trên hao 4/11/2026)
 
-Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng).
+Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng). Sau file này (và sau rollback của nó) phải chạy lại `2026-11-18-v7-mo-so-tat-jit.sql` (MO-SO-NHANH-03).
 
 Thứ tự với release: **chạy migration trước.** Release cũ chạy được với DB mới vì `get_ledger` không đổi kết quả. Release mới trên DB cũ thì mở Lịch sử báo "Không tải được lịch sử", sổ vẫn đọc được.
 
@@ -1983,11 +2079,54 @@ WantedBy=timers.target
 
 Cài: đặt hai file, `systemd-analyze verify`, `daemon-reload`, `systemctl enable --now v7-watchdog.timer`. Chưa có link thì máy canh chỉ ghi journal: `journalctl -u v7-watchdog.service -n 5 -o cat`.
 
+Bổ sung 18/11/2026 (nguồn booking, hộp việc): không đổi unit hay file nào trên `hao`, mã lên bằng `Deploy hao`. Máy canh đọc thêm `rows[].event_date` của `snapshot.json`, `road.json` và phần `inbox` của `/healthz` (API mới có sau lượt deploy này; API cũ thì phép kiểm hộp việc im). Muốn đổi khung "nguồn không có chuyến mới" (mặc định 3 ngày) thì thêm `WEBDEBIT_ALERT_SOURCE_DAYS=<số ngày>` vào `/etc/webdebit/alert.env`. Kiểm sau deploy: `sudo systemctl start v7-watchdog.service`, rồi `journalctl -u v7-watchdog.service -n 3 -o cat` ra `"ok": true`.
+
+Bổ sung 18/11/2026 (bản sao ngoài máy, [nhật ký](deploys/2026-11-18-canh-bao-keo-ngoai-may.md)): drop-in `/etc/systemd/system/v7-watchdog.service.d/doc-log-ssh.conf` chỉ có `[Service]` `SupplementaryGroups=systemd-journal` (riêng unit này đọc journal, không thêm nhóm cho user `v7app`), và một dòng `WEBDEBIT_OFFSITE_PULL_KEYS=<nhãn>=<dấu vân>,…` trong `/etc/webdebit/alert.env`. Dấu vân lấy bằng `ssh-keygen -lf` trên từng dòng `webdebit-v7-offsite-pull*` của `authorized_keys` của `<admin>`; thêm hay bỏ một PC kéo thì sửa dòng này cùng lúc với `authorized_keys`. Ngưỡng mặc định 48 giờ, đổi bằng `WEBDEBIT_ALERT_OFFSITE_HOURS`. Tắt phép kiểm: xóa dòng khóa. Rollback hẳn: xóa drop-in, `daemon-reload`.
+
 **Bật email (chủ sổ làm):** tạo tài khoản healthchecks.io bằng email nhận cảnh báo. Thêm một check: chu kỳ 15 phút, thời gian chờ 45 phút. Sao chép link ping, đặt vào `/etc/webdebit/alert.env` dòng `WEBDEBIT_ALERT_PING_URL=…`, `root:v7app`, quyền 640. Không đưa link vào Git hay nhật ký.
 
 **Thử:** chạy `v7_watchdog.py --test-fail` dưới `v7app` với cùng biến môi trường: email tới trong vài phút; lượt timer kế gửi email hết lỗi. Dừng thử: `systemctl stop v7-watchdog.timer` quá 60 phút thì có email, `start` lại thì hết.
 
 **Tắt:** `systemctl disable --now v7-watchdog.timer`, rồi tắt hoặc xóa check trên healthchecks.io để không báo nhầm là máy dừng. Khi bảo trì `hao` lâu thì bấm Pause trên trang của check.
+
+## Lưới an toàn (LUOI-AN-TOAN-01) — nâng DB và drop-in cho máy canh
+
+ĐÃ CHẠY trên `hao` 18/11/2026 ([nhật ký](deploys/2026-11-18-luoi-an-toan.md)).
+
+Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên sổ thật ([quyết định](decisions/luoi-an-toan-01.md), [spec](../specs/v7-luoi-an-toan.md)). Cần một hàm đọc mới (migration `2026-11-18-v7-luoi-an-toan.sql`, cấp `sokhach_app`), mã theo release, và một drop-in cho unit máy canh. Không đổi role, quyền bảng hay pg_hba: máy canh vào DB bằng `v7_app` như API.
+
+1. **Nâng DB** theo mục chung ([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)): backup, bản sao hai lượt, dấu vân trước/sau, `v7_post_deploy_check.sql`. Chỉ thêm hàm đọc nên không cần cửa sổ dừng ghi. Trên bản sao gọi thử như máy canh, đo giây:
+
+   ```sql
+   BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY; SET LOCAL ROLE v7_app; SET LOCAL sokhach.actor = 'may-canh';
+   SELECT sokhach.get_safety_net('{"ledger_slices": 8, "ledger_slice": 0}'); ROLLBACK;
+   ```
+
+2. **Release:** `Deploy hao` dừng ở gate SQL; đổi release tay như mọi đợt. Release mới trên DB chưa nâng thì mục này im (journal ghi `"skipped"`).
+3. **Drop-in** `/etc/systemd/system/v7-watchdog.service.d/luoi-an-toan.conf` (root, 644):
+
+   ```ini
+   [Service]
+   StateDirectory=v7-watchdog
+   StateDirectoryMode=0700
+   ```
+
+   `systemd-analyze verify v7-watchdog.service`, `daemon-reload`; unit là oneshot nên lượt timer kế tự dùng. systemd tạo `/var/lib/v7-watchdog` (chủ `v7app`, 700), ghi được dù `ProtectSystem=strict`, và đặt `STATE_DIRECTORY` cho máy canh. Chạy lượt đầu: `sudo systemctl start v7-watchdog.service`, rồi `journalctl -u v7-watchdog.service -n 5 -o cat`: có dòng `lưới an toàn: {… "baseline": "lần đầu, lấy mốc" …}` và `"ok": true`. Lượt sau dòng đó ghi `"so với lượt …"`.
+4. **Chạy tay, không ghi mốc:**
+
+   ```bash
+   sudo -u v7app python3 -B /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_safety_net.py --state-dir /var/lib/v7-watchdog --dry-run
+   ```
+
+   Thêm `--full` để so `get_ledger` của mọi sổ (8 câu SQL, mỗi câu trong giới hạn 60 giây của câu đọc nền); mỗi lượt máy canh chỉ so 1/8 số sổ. Luôn chạy bằng `sudo -u v7app`: lệnh từ chối chạy bằng root vì file mốc của root làm máy canh không ghi được nữa.
+5. **Khi có báo.** Kiểm 1, 2 (phiếu thu chia, Tổng quan, sổ lưu trữ, tổng trong sổ): mở sổ đó trên web, sửa bằng lệnh (hủy và ghi lại phiếu, điều chỉnh…), không sửa tay DB; sổ đúng lại thì lượt sau tự hết báo. Kiểm 3, 4 (đổi không qua lệnh, số lần ghi lùi, sổ biến mất, Lịch sử bị sửa): tìm việc ngoài lệnh vừa xảy ra (migration, loader, phục hồi bản sao, phiên psql quản trị); cần thì so với bản `v7-backup-hourly` trước giờ thấy báo. Xem xong thì chấp nhận:
+
+   ```bash
+   sudo -u v7app python3 -B /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_safety_net.py --state-dir /var/lib/v7-watchdog --accept
+   ```
+
+   Lệnh in các mục được chấp nhận rồi lấy mốc mới. **Sau mỗi migration hay loader đổi dữ liệu sổ hoặc Lịch sử mà không qua lệnh:** ngay sau đợt nâng chạy `--dry-run`, danh sách phải đúng phạm vi migration, rồi `--accept`. Lượt máy canh lỡ chạy trước thì có một email; chấp nhận xong lượt kế báo ổn lại.
+6. **Tắt:** xóa drop-in rồi `daemon-reload`: kiểm 3, 4 nghỉ, kiểm 1, 2 vẫn chạy. Gỡ hẳn mục: quay release. Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerprints(), sokhach._safety_events(bigint,interval);` (không gì phụ thuộc, không đụng dữ liệu); `/var/lib/v7-watchdog` xóa được.
 
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 

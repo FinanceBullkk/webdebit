@@ -18,7 +18,7 @@ globalThis.DoiChieuView = (() => {
     VERIFY_FAILED: 'Máy đã ghi nhưng tổng chưa khớp. Cần xem ngay.',
     WRITE_ERROR: 'Máy ghi chưa xong, lượt sau thử lại.',
     CHECK_ERROR: 'Máy chưa kiểm được khách này, lượt sau thử lại.',
-    HELD: 'Sheet của khách này có chỗ máy chưa đọc được (số dư tự lệch hoặc thiếu số), chưa so được.',
+    HELD: 'Sheet của khách này có chỗ máy chưa đọc được (số dư tự lệch hoặc thiếu số), chưa so được. Mở dòng để xem ô cần sửa.',
     CHI_CO_SHEET: 'Có trên Sheet, chưa có sổ trên web.',
     CHI_CO_WEB: 'Có sổ trên web, không thấy trên Sheet.',
     THIEU_SO: 'Một bên chưa có tổng.',
@@ -155,10 +155,12 @@ globalThis.DoiChieuView = (() => {
   }
 
   // Bảng đối chiếu của một khách: số web ± từng khoản = số Sheet, phần chưa giải thích hiện riêng.
-  function statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints = [], aheadCheck = false }) {
+  function statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints = [], hintRows = null, aheadCheck = false }) {
     const link = `<a class="dc-open-book" href="${href(id)}">Mở cả sổ ${icon('right')}</a>`;
     if (statement === undefined) return '<p class="loading dc-loading">Đang tính các khoản…</p>';
     if (statement === null) return `<p class="dc-failed" role="alert">Không đọc được các khoản từ Sheet. <button type="button" class="btn" data-dc-retry="${id}">Thử lại</button> ${link}</p>`;
+    // Tab Sheet hỏng hoặc máy đang giữ khách (KIEM-TAB-01): không có khoản để ghi, chỉ nói chỗ sai và dựng lại vùng ô.
+    if (statement.blocked) return `<div class="dc-sheet">${link}${globalThis.SheetCanSua.html(id, statement, state, { esc })}</div>`;
     const selected = state.sel.get(id) ?? new Set();
     const off = state.off.get(id) ?? new Set();
     const kept = state.kept.get(id) ?? new Set();
@@ -187,18 +189,34 @@ globalThis.DoiChieuView = (() => {
     const undo = state.undo.get(id);
     const done = undo ? `<p class="dc-done" role="status">${esc(undo.text)}${undo.keys ? ` <button type="button" class="btn" data-dc-undo="${id}"${locked ? ' disabled' : ''}>Hoàn tác</button>` : undo.note ? ` ${esc(undo.note)}` : ''}</p>` : '';
     const buttons = pending ? '' : `<div class="dc-actions">${statement.groups.length ? `<button type="button" class="btn primary" data-dc-ghi="${id}"${sum.items.length && !locked ? '' : ' disabled'}>${sum.items.length ? `Ghi ${sum.items.length} khoản đã chọn` : 'Chọn khoản để ghi'}</button>` : ''}${statement.sheet_editing ? `<span class="dc-note">Không chọn gì thì máy xem lại lúc ${esc(M.nextCheck(now))}.</span>` : ''}${kept.size ? `<span class="dc-note">Đã giữ số web ${kept.size} dòng.</span>` : ''}${link}</div>`;
-    const found = hints.length ? `<div class="dc-hints"><p><strong>Chỗ máy tìm ra</strong> <span class="dc-note">· máy không tự sửa, người sửa trên Sổ hoặc Sheet</span></p><ul>${hints.map(text => `<li>${esc(text)}</li>`).join('')}</ul></div>` : '';
+    const found = hints.length ? `<div class="dc-hints"><p><strong>Chỗ máy tìm ra</strong> <span class="dc-note">· máy không tự sửa, người sửa trên Sổ hoặc Sheet</span></p><ul>${(hintRows ?? hints.map(text => ({ text, source: null }))).map(entry => `<li>${esc(entry.text)}${entry.source ? ` <button type="button" class="dc-link quiet" data-dc-dong="${entry.source}"${locked ? ' disabled' : ''}>Đã xem, hết báo</button>` : ''}</li>`).join('')}</ul></div>` : '';
     const ai = state.ai?.get(id);
     const aiPreview = ai?.preview?.packet;
     const aiBlock = `<section class="dc-ai" aria-label="Giải thích bằng Claude"><button type="button" class="btn" data-ai-preview="${id}"${ai?.loading || ai?.sending ? ' disabled' : ''}>${ai?.loading ? 'Đang xem trước…' : 'Giải thích với AI'}</button>${ai?.error ? `<p role="alert">${esc(ai.error)}</p>` : ''}${aiPreview ? `<div class="dc-ai-preview"><p><strong>Dữ liệu sẽ gửi Anthropic Claude API</strong> · một khách, tối đa 30 dòng. ${aiPreview.partial ? 'Chỉ một phần dữ liệu.' : ''} Có dùng API credit; AI chỉ giải thích, không ghi sổ.</p><pre tabindex="0" role="region" aria-label="Dữ liệu sắp gửi Claude">${esc(JSON.stringify(aiPreview, null, 2))}</pre>${ai?.result ? `<p role="status"><strong>Claude trả lời:</strong> ${esc(ai.result.text)}</p>${ai.result.answer_partial ? '<p>Câu trả lời bị cắt do giới hạn token.</p>' : ''}<small>Token: ${esc(ai.result.usage?.input_tokens)} vào, ${esc(ai.result.usage?.output_tokens)} ra.</small>` : `<button type="button" class="btn primary" data-ai-send="${id}"${!ai.preview.enabled || ai.sending ? ' disabled' : ''}>${ai.sending ? 'Đang hỏi Claude…' : 'Đồng ý gửi và hỏi Claude'}</button>`}${!ai.preview.enabled ? '<p>AI chưa được cấu hình trên máy chủ.</p>' : ''} <button type="button" class="btn" data-ai-close="${id}">Đóng</button></div>` : ''}</section>`;
     return `<div class="dc-sheet">${done}<div class="dc-table"><div class="dc-row"><span class="dc-label">Số nợ trên web</span><span class="dc-num" title="${esc(F.full(sum.web))}">${money(sum.web, F)}</span></div>${groups}${sum.items.length ? `<div class="dc-row dc-sub"><span class="dc-label">Số nợ web sau khi ghi</span><span class="dc-num" title="${esc(F.full(sum.after))}">${money(sum.after, F)}</span></div>` : ''}${ahead}<div class="dc-row dc-sheet-total"><span class="dc-label">Số nợ trên Sheet${statement.checked_at ? ` <span class="dc-note">· lúc ${esc(when(statement.checked_at, now))}</span>` : ''}</span><span class="dc-num"${sum.sheet ? ` title="${esc(F.full(sum.sheet))}"` : ''}>${money(sum.sheet, F)}</span></div>${left}</div>${found}${confirm}${buttons}${aiBlock}</div>`;
   }
 
+  // Gợi ý của máy cho một khách: bỏ dòng Sheet đã "Đã xem, hết báo" (theo sổ khi đã tải, và theo lần vừa bấm).
+  function hintProps(item, statement, state, F) {
+    const closed = new Set([...(statement?.closed_sources ?? []), ...(state.dismissed?.get(item.customer_id) ?? [])]);
+    const rows = M.hintRows(item, value => say(value, F), closed);
+    return { hints: rows.map(entry => entry.text), hintRows: rows };
+  }
+
   function lechHtml(reconcile, state, { F, esc, href, now, action, busy, nothing }) {
     if (!reconcile?.checked_at) return `<p class="dc-empty">${esc(nothing ?? 'Chưa có kết quả đối soát nên chưa biết số nợ có đúng không.')}</p>`;
-    const rows = M.openRows(reconcile);
-    const outside = reconcile.outside_tabs ?? [];
+    const all = M.openRows(reconcile);
+    const allOutside = reconcile.outside_tabs ?? [];
     const ahead = M.aheadRows(reconcile);
+    // Chip "Sheet cần sửa (n)" (specs/v7-sheet-can-sua.md, phương án A): lọc còn các khách máy giữ vì tab Sheet có chỗ sai.
+    const fix = all.filter(M.isSheetFix);
+    const sheetOnly = state.filter === 'sheet' && fix.length > 0;
+    const rows = sheetOnly ? fix : all;
+    const outside = sheetOnly ? [] : allOutside;
+    const chips = fix.length ? `<div class="dc-filter" role="group" aria-label="Lọc khách lệch">`
+      + `<button type="button" class="filter-chip" data-dc-filter="" aria-pressed="${!sheetOnly}">Tất cả <b>${all.length + allOutside.length}</b></button>`
+      + `<button type="button" class="filter-chip" data-dc-filter="sheet" aria-pressed="${sheetOnly}" title="Khách máy chưa so được vì tab Sheet có chỗ sai · bấm để lọc">Sheet cần sửa <b>${fix.length}</b></button></div>` : '';
+    const tag = item => (M.isSheetFix(item) ? `<span class="dc-tag">${esc(M.sheetFixLabel(item))}</span> ` : '');
     const row = item => {
       const id = item.customer_id;
       const open = id && state.open === id;
@@ -207,14 +225,14 @@ globalThis.DoiChieuView = (() => {
       const live = open && statement?.sheet_total_vnd != null
         ? (M.aheadToCheck(item) ? (BigInt(statement.web_vnd) - BigInt(statement.sheet_total_vnd)).toString() : M.summarize(statement).now) : item.difference_vnd;
       const web = open && statement ? statement.web_vnd : item.web_total_vnd;
-      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints: M.hintTexts(item, value => say(value, F)), aheadCheck: M.aheadToCheck(item) })}</td></tr>` : ''}`;
+      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${tag(item)}${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, ...hintProps(item, statement, state, F), aheadCheck: M.aheadToCheck(item) })}</td></tr>` : ''}`;
     };
     const outsideRows = outside.map(tab => `<tr class="dc-customer"><th scope="row">${esc(tab.customer)}</th><td class="num">—</td><td class="num">${money(tab.sheet_total_vnd, F)}</td><td class="num dc-gap">—</td><td class="dc-why">${esc(OUTSIDE_TEXT[tab.reason] ?? 'Tab còn nợ, máy chưa tạo được sổ.')}</td><td></td></tr>`).join('');
     const empty = !rows.length && !outside.length ? `<div class="dc-empty ok"><p><strong>Không có khách nào lệch. Chưa cần làm gì.</strong></p><p>Máy kiểm lại lúc ${esc(M.nextCheck(now))}. Email chỉ gửi khi máy lỗi hoặc dừng; khách lệch hiện ở đây.</p></div>` : '';
     const table = rows.length || outside.length ? `<div class="work-scroll dc-scroll"><table class="dc-customers"><thead><tr><th scope="col">Khách</th><th scope="col" class="num">Web <span class="muted">tr</span></th><th scope="col" class="num">Sheet <span class="muted">tr</span></th><th scope="col" class="num">Lệch <span class="muted">tr</span></th><th scope="col">Vì sao máy chưa tự sửa</th><th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows.map(row).join('')}${outsideRows}</tbody></table></div>` : '';
     const aheadNote = ahead.length ? `<details class="dc-side"><summary>${ahead.length} khách web đi trước Sheet, không cần làm gì</summary><ul>${ahead.map(item => `<li><strong>${esc(item.customer)}</strong> ${money(item.difference_vnd, F, true)} tr${item.customer_id ? ` · <a href="${href(item.customer_id)}">Mở sổ</a>` : ''}</li>`).join('')}</ul></details>` : '';
     const months = reconcile.months_differ?.length ? `<p class="inbox-note">${reconcile.months_differ.length} khách khớp tổng nhưng chia theo tháng khác Sheet (web trừ nợ cũ trước).</p>` : '';
-    return `${empty}${table}${aheadNote}${months}`;
+    return `${empty}${chips}${table}${aheadNote}${months}`;
   }
 
   const machineCount = (auto, reconcile) => (auto?.today_count ?? 0) + (auto?.today_trips ?? 0) + (auto?.today_prices ?? 0) + (auto?.today_ps ?? 0) + M.fixedRows(reconcile).length;

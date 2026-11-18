@@ -8,10 +8,9 @@
   "scripts": {
     "check": "node scripts/check.js",
     "lint": "node scripts/check.js --lint",
-    "test": "npm run test:unit && npm run test:browser && npm run test:viewer",
+    "test": "npm run test:unit && npm run test:browser",
     "test:unit": "node scripts/run-tests.js unit",
-    "test:browser": "node scripts/run-tests.js browser",
-    "test:viewer": "node scripts/run-tests.js viewer"
+    "test:browser": "node scripts/run-tests.js browser"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

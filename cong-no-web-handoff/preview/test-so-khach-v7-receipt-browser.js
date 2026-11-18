@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho ghi phiếu thu từ Sheet (THU-SHEET-01, specs/v7-receipt-queue.md). Máy chủ giả, tiền giả, không chạm DB. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, posts } = require('./so-khach-v7-browser-world');
+const { withPage, posts, settled } = require('./so-khach-v7-browser-world');
 
 const item = (date, amount, extra = {}) => ({ customer_tab: 'Khách Thử Sửa', source_row: 40, debt_month: '2026-09',
   amount_vnd: amount, note: date ? `${date.slice(8)}/${date.slice(5, 7)}/${date.slice(0, 4)} tt` : 'da tt', date, status: 'READY', ...extra });
@@ -23,6 +23,7 @@ test('Ghi phiếu thu từ Sheet: khung xác nhận có từng phiếu và tổn
   await shot('thu-sheet-2-xac-nhan');
   await page.locator('.receipt-cancel').click();
   assert.equal(await page.locator('.receipt-panel').count(), 0);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await button.click();
   await page.locator('.receipt-write').click();
@@ -31,6 +32,7 @@ test('Ghi phiếu thu từ Sheet: khung xác nhận có từng phiếu và tổn
   assert.equal(path, '/api/v7/sheet/receipts');
   assert.deepEqual(Object.keys(body).sort(), ['customer_id', 'expected_version', 'idempotency_key', 'snapshot_sha256']);
   assert.equal(body.snapshot_sha256, 'e'.repeat(64));
+  await settled(page);
   assert.equal(world.requests.length, 1);
   assert.equal(world.receipts.length, 2);
   assert.match(await page.locator('.live-notice').innerText(), /Đã ghi 2 phiếu thu từ Sheet\./);
@@ -67,6 +69,7 @@ test('Phiếu thu Sheet cần xem: không ngày, ngày tương lai, web đã xó
   await shot('thu-sheet-3-can-xem');
   await panel.locator('.receipt-goto').click();
   assert.equal(await page.evaluate(() => document.activeElement.dataset.id), '31');
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, world => {
   world.legacy.push({ id: 31, month: '2026-09-01', kind: 'receipt', source_total_vnd: '48000000', editable: false,

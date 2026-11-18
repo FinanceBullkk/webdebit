@@ -2,7 +2,7 @@
  * Máy chủ giả giữ phiên bản sổ như API thật (lệnh sai phiên bản → STALE_LEDGER, lệnh đúng trả phiên bản mới). Dữ liệu giả. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, posts } = require('./so-khach-v7-browser-world');
+const { withPage, posts, focused } = require('./so-khach-v7-browser-world');
 
 // Tháng 9/2026 (mở): sổ gốc 21, 22; chuyến web 11 (50 triệu), 13 (chưa giá), 15 (40 triệu), 14 (chờ kiểm). Tổng còn nợ 100 triệu.
 function world(w) {
@@ -38,7 +38,7 @@ test('một cột theo thứ tự: xem lại giá cũ → mới và nợ trướ
   assert.equal(await page.evaluate(() => document.activeElement.classList.contains('paste-cancel')), true, 'tiêu điểm vào Thôi, không vào Ghi');
   await page.keyboard.press('Escape');
   assert.equal(await review.count(), 0);
-  assert.equal(await price(page, 11).evaluate(cell => cell === document.activeElement), true, 'Esc trả tiêu điểm về ô đã dán');
+  assert.equal(await focused(price(page, 11)), true, 'Esc trả tiêu điểm về ô đã dán');
   await paste(page, 11, '45000000\n30000000\n42000000');
   await page.locator('.paste-cancel').click();
   assert.equal(pricePosts(w).length, 0);
@@ -51,7 +51,7 @@ test('một cột theo thứ tự: xem lại giá cũ → mới và nợ trướ
   assert.equal(new Set(pricePosts(w).map(body => body.idempotency_key)).size, 3);
   assert.match(await toast(page).innerText(), /Đã ghi 3 giá\./);
   assert.equal(await page.locator('.paste-review').count(), 0);
-  assert.equal(await price(page, 11).evaluate(cell => cell === document.activeElement), true, 'ghi xong tiêu điểm về ô đã dán');
+  assert.equal(await focused(price(page, 11)), true, 'ghi xong tiêu điểm về ô đã dán');
 }, world));
 
 test('hai cột theo container; chữ dán sai thì chặn, nêu dòng; đang gõ trong ô thì dán như chữ thường', async () => withPage(async ({ page, world: w }) => {
@@ -66,7 +66,7 @@ test('hai cột theo container; chữ dán sai thì chặn, nêu dòng; đang g�
   assert.match(await page.locator('.paste-review .price-panel.err').innerText(), /Chưa dán được: chưa ghi gì\.[\s\S]*Dòng 2: “abc” không đọc được/);
   assert.equal(await page.locator('.paste-write').count(), 0);
   await page.locator('.paste-cancel').click();
-  assert.equal(await price(page, 15).evaluate(cell => cell === document.activeElement), true);
+  assert.equal(await focused(price(page, 15)), true);
 
   await page.keyboard.press('Enter');   // mở ô với giá đang có
   await page.evaluate(() => {

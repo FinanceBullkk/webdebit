@@ -9,6 +9,7 @@ from pg_v7_harness import (
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
     KHOA_CHU_MIGRATION,
+    KIEM_TAB_MIGRATION,
     NOI_DEN_TUY_CHON_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     actor_sql,
@@ -44,6 +45,7 @@ def check_ra_ghi_tien(pg) -> str:
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-04
+    pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau KHOA-CHU-01
     after = pg.value(CATALOG)
     require(after == fresh, f"ra-ghi-tien migration rerun changed function catalog: {[k for k in json.loads(after).keys() | json.loads(fresh).keys() if json.loads(after).get(k) != json.loads(fresh).get(k)]}")
     pg.true("EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.trip'::regclass AND tgname='trip_sheet_cross_customer')",

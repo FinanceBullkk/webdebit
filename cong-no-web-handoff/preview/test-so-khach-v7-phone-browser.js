@@ -3,7 +3,7 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload, todayMonth } = require('./so-khach-v7-browser-world');
+const { withPage, reload, todayMonth, settled } = require('./so-khach-v7-browser-world');
 
 // Tháng 9/2026 của sổ giả có đủ trạng thái: chuyến web đủ giá, sổ gốc chưa giá, sổ gốc có phụ phí, chuyến chờ kiểm,
 // chuyến Sheet mới (có nút Duyệt trên máy tính) và chuyến Sheet chưa nối được vào sổ.
@@ -80,6 +80,7 @@ test('điện thoại 390px: bấm hàng mở khung chi tiết, không mở ô s
   await page.locator('.ph-veil').click({ position: { x: 20, y: 20 } });
   assert.equal(await panel.isHidden(), true);
   assert.equal(await page.locator('#app td input:not(.fee-pick), #app .delete-prompt, #app .review-prompt').count(), 0, 'không mở ô sửa hay hỏi xóa');
+  await settled(page);
   assert.deepEqual(world.requests, [], 'không gửi lệnh nào');
 }, allStates));
 
@@ -157,6 +158,7 @@ test('điện thoại 390px: bảng kê ba cột, luôn bảng gọn, tình tr�
   // Về màn rộng: chế độ đã chọn (Đủ cột) trở lại, không cần tải lại.
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.locator('.dt-du').waitFor();
+  await settled(page);
   assert.deepEqual(world.requests, [], 'không gửi lệnh nào');
 }, withKe));
 
@@ -173,7 +175,10 @@ test('điện thoại 390px: phiếu thu hai dòng, số tiền trong màn cùng
   assert.deepEqual(box, { side: 0, sumIn: true, sameLine: true, methodBelow: true, text: '12.345.000' });
   await shot('dien-thoai-390-phieu-thu');
   await page.setViewportSize({ width: 1280, height: 720 });
-  assert.equal(await page.locator('.pay-list tr.pay-row').first().evaluate(tr => getComputedStyle(tr).display), 'table-row');
+  // Đổi khổ thì sổ vẽ lại (matchMedia): locator.evaluate có thể bắt hàng cũ vừa bị gỡ (display ''), nên tìm và đọc trong
+  // cùng một lượt chạy trong trang.
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.pay-list tr.pay-row')).display), 'table-row');
+  await settled(page);
   assert.deepEqual(world.requests, []);
 }, world => {
   world.receipts.push({ id: 1, pid: 'PH-001', date: '2026-09-20', method: 'CHUYỂN KHOẢN', amount_vnd: '12345000', reference: 'TT mẫu', voided_by_event: null, void_reason: null,

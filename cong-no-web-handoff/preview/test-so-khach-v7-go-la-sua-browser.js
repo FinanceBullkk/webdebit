@@ -4,7 +4,7 @@ const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { withPage, legacyCell, posts } = require('./so-khach-v7-browser-world');
+const { withPage, legacyCell, posts, focused, settled } = require('./so-khach-v7-browser-world');
 
 const DEBIT_V4 = { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'debit-note-config.default.json'), 'utf8')), template: 'v4' };
 
@@ -25,12 +25,14 @@ test('ô Đơn giá chuyến web: gõ số là mở ô với số đó, Enter l�
   await page.keyboard.type('5000000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('45.000.000'));
+  await settled(page);
   assert.deepEqual(pricePosts(world).at(-1), ['/api/v7/trips/price', { ...pricePosts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '45000000', other_fee_vnd: null }]);
   // Enter lưu thì tiêu điểm xuống ô Đơn giá hàng dưới; gõ tiếp là sửa luôn chuyến đó.
-  assert.equal(await price(page, 13).evaluate(cell => cell === document.activeElement), true);
+  assert.equal(await focused(price(page, 13)), true);
   await page.keyboard.type('41000000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="13"]')?.textContent.startsWith('41.000.000'));
+  await settled(page);
   assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000'], [13, '41000000']]);
 }, moreTrips));
 
@@ -42,6 +44,7 @@ test('ô Đơn giá dòng sổ gốc: gõ số là mở ô, Enter lưu', async (
   await page.keyboard.type('0.000.000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="legacy"][data-id="21"][data-field="unit_price_vnd"]')?.textContent.startsWith('70.000.000'));
+  await settled(page);
   assert.deepEqual(pricePosts(world).at(-1), ['/api/v7/legacy/edit', { ...pricePosts(world).at(-1)[1], legacy_row_id: 21, field: 'unit_price_vnd', value: '70000000' }]);
 }, moreTrips));
 
@@ -53,12 +56,14 @@ test('ô Đơn giá chuyến web: gõ giá rồi bấm chuột ra ngoài là lư
   await page.locator('.book-head').click();
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('45.000.000'));
   assert.equal(await page.locator('td.editable[data-trip="11"] input').count(), 0);
+  await settled(page);
   assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000']]);
   // Esc rồi bấm ra ngoài: không lưu gì thêm.
   await price(page, 13).focus();
   await page.keyboard.type('9');
   await page.keyboard.press('Escape');
   await page.locator('.book-head').click();
+  await settled(page);
   assert.equal(pricePosts(world).length, 1);
 }, moreTrips));
 
@@ -72,6 +77,7 @@ test('ô Đơn giá chuyến web: gõ giá rồi bấm thẳng Debit note thì c
   // Tháng 9: chuyến 11 (45.000.000 vừa gõ) + 13 (40.000.000) + sổ gốc 22 (93.000.000); sổ gốc 21 chưa giá; 14 chờ kiểm không lên.
   assert.equal(await page.locator('.debit-dialog .debit-status').innerText(), '4 container · 178.000.000 đ · 1 chuyến chưa có giá');
   assert.match(await page.frameLocator('.debit-preview').locator('[data-row]', { hasText: 'DEMU1234567' }).innerText(), /45,000,000/);
+  await settled(page);
   assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000']]);
 }, world => { moreTrips(world); world.debitConfig = DEBIT_V4; }));
 
@@ -80,7 +86,7 @@ test('không mở khi: Esc trả lại, chữ cái, phím Ctrl, ô chỉ đọc 
   await page.keyboard.press('9');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('td.editable[data-trip="11"] input').count(), 0);
-  assert.equal(await price(page, 11).evaluate(cell => cell === document.activeElement), true, 'Esc trả tiêu điểm về ô');
+  assert.equal(await focused(price(page, 11)), true, 'Esc trả tiêu điểm về ô');
   assert.match(await price(page, 11).innerText(), /^50\.000\.000/);
   await page.keyboard.press('a');
   await page.keyboard.press('Control+1');
@@ -90,5 +96,6 @@ test('không mở khi: Esc trả lại, chữ cái, phím Ctrl, ô chỉ đọc 
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('5');
   assert.equal(await page.locator('tr[data-row="trip-14"] input').count(), 0);
+  await settled(page);
   assert.equal(pricePosts(world).length, 0);
 }, moreTrips));
