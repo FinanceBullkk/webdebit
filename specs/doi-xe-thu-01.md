@@ -1,6 +1,6 @@
 # Đội xe đợt 2: thu cước, bảng kê và công nợ cước (DOI-XE-THU-01)
 
-Trạng thái: luồng ĐÃ CHỐT 18/11/2026 ([`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md), người dùng "Chốt mockup" sau khi bấm thử); mô hình dữ liệu ĐỀ XUẤT. Đây là đợt 2 của mục tiêu [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), xem [spec đợt 1](chi-phi-xe-01.md). Đợt 1 đã chạy trên `hao` (18/11/2026), nên đợt 2 code được ngay trên schema `doixe` của đợt 1.
+Trạng thái: luồng ĐÃ CHỐT 18/11/2026 ([`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md), người dùng "Chốt mockup" sau khi bấm thử); mô hình dữ liệu và cách tính ĐÃ CODE (PR #491), chưa triển khai. Đây là đợt 2 của mục tiêu [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), xem [spec đợt 1](chi-phi-xe-01.md). Đợt 1 đã chạy trên `hao` (18/11/2026), nên đợt 2 code được ngay trên schema `doixe` của đợt 1.
 
 ## Mục tiêu
 
@@ -50,23 +50,48 @@ Kiểm thêm theo yêu cầu người dùng (18/11/2026), trên file tháng 9 v�
 - **Phí cảng không có trên debit, vì đội xe chịu.** Phí nâng (do tài xế trả, hoặc trả qua file điều xe) và phí hạ (file điều xe) là các khoản lớn, không nằm trên debit. Người dùng chốt 18/11/2026: đội xe chịu các khoản này trong cước. Vậy đây là chi phí thật của chặng, không phải chi hộ.
 - **Xe Trần Hùng tính cùng giá cước với Tín Phát.** Trong 11 nhóm tuyến cả hai bên cùng chạy, 10 nhóm có cùng mức giá. Phát sinh thì có mức riêng. File điều xe trả phí cảng cho cả chặng của xe Trần Hùng. Chưa đủ để biết tiền cước của Trần Hùng đi qua mình hay không: CÒN MỞ (2).
 
-## Mô hình dữ liệu (ĐỀ XUẤT)
+## Mô hình dữ liệu (ĐÃ CODE)
 
-Nối vào schema `doixe` của đợt 1. Các bảng đã có: `xe`, `nguoi`, `chang`, `dong`, `dong_phi`, `loai_phi`, `ung`, `dot_hoan`, `thang_khoa`, `su_kien`, `lenh`. Đợt 2 thêm các bảng dưới đây, và thêm cờ chi hộ vào `loai_phi` để lãi lỗ đợt 3 loại được chi hộ ở cả hai phía. Chỉ đọc bảng của `sokhach`, không ghi vào đó.
+Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-doi-xe-thu.sql` (PR #491), nối vào schema `doixe`, áp sau migration đợt 1 và migration phiếu chi. Chỉ đọc bảng của `sokhach`, không ghi vào đó. Harness: `cong-no-web-handoff/tools/test_pg_doixe_thu.py`.
 
 | Bảng | Một dòng là | Ghi chú |
 | --- | --- | --- |
-| `tuyen` | một tuyến chuẩn | Tên hàng + vùng (tỉnh/kho) + nơi hạ; kèm danh sách tên gốc để nhận ra khi dán |
-| `bang_gia_tuyen` | một mức cước | Theo bên nhận bảng kê, tuyến, loại chặng, áp dụng từ ngày. Chặng phụ có giá cố định hoặc tính % giá tuyến |
-| `danh_muc_phat_sinh` | một loại phát sinh | Tên, cách tính (cố định / theo ngày / theo số đơn vị / nhập tay), mức theo từng bên, có phải chi hộ không |
-| `dong_thu` | một khoản thu của chặng | Đã có trong mô hình đợt 1. Số tiền do web gợi ý theo bảng giá, người nhập sửa được, mọi lần sửa ghi Lịch sử |
-| `bang_ke` | một bảng kê tháng gửi một công ty hàng | Trạng thái: nháp → đã gửi → đã đối chiếu; có số bảng kê |
-| `dieu_chinh_bang_ke` | một khoản cộng hoặc trừ khi đối chiếu | Bắt buộc lý do, ghi người làm; thay cho cột +/− tiền và check lý do |
-| `tien_ve_cuoc` | một lần công ty hàng trả tiền | Ngày tiền về, số tiền, gắn vào bảng kê tháng mà khoản tiền đó trả (người dùng cho biết công ty hàng trả theo tháng, đủ bảng kê) |
+| `ben` | một bên nhận bảng kê | Hiện một dòng: HTH, nhận chặng của xe công ty (`xe_thue_ngoai = false`). Bảng kê riêng cho xe Trần Hùng thêm một dòng khi câu 2 có trả lời |
+| `tuyen`, `tuyen_ten_goc` | một tuyến chuẩn; một tên gốc | Tuyến hàng (hàng + đi + đến tùy chọn), tuyến chuyển cảng, trả rỗng. Tên gốc là `TÊN HÀNG\|TỈNH` đã chuẩn hóa (bỏ dấu, chữ hoa, dấu câu thành khoảng trắng), chỉ cho tuyến hàng; mỗi tên gốc trỏ một tuyến |
+| `gia_tuyen` | một mức giá từ một ngày | Theo bên nhận và tuyến; giá của chặng là bản có ngày áp dụng lớn nhất không sau ngày chặng. Ngày áp dụng được trước tới một năm |
+| `phat_sinh`, `phat_sinh_ten` | một khoản phát sinh; một tên đọc được | Cách tính, mức (để trống tới khi người dùng ghi), chi hộ, cột trên bảng kê (phát sinh hay đóng ghép), loại phí phía chi tương ứng |
+| `thu_chang` | phần thu riêng của một chặng chưa gửi | Tuyến gắn tay, giá cước nhập tay. Không có dòng: theo tên gốc và bảng giá |
+| `bang_ke` | một bảng kê đã gửi | Số bảng kê `HTH-yyyy-mm`; trạng thái đã gửi → đã đối chiếu; thu đủ là tiền về bằng số đòi |
+| `bang_ke_dong` | một dòng chép lúc gửi | Chữ và số như lúc gửi (tài xế, xe, tuyến, cước, đóng ghép, phát sinh, chi hộ, từng khoản). Một chặng vào tối đa một bảng kê. Không sửa, không xóa |
+| `dieu_chinh_bk` | một điều chỉnh của một dòng | Số có dấu, khác 0, lý do bắt buộc. Chỉ thêm |
+| `tien_ve` | một lần HTH trả | Gắn bảng kê của tháng. Không xóa; hủy bắt buộc lý do |
 
-Web tự tính, không có ô sửa tay: **công nợ cước** = tổng bảng kê đã gửi + điều chỉnh − tiền đã về.
+`loai_phi` có thêm cờ `chi_ho` (xí cont, cont mới, hạ sớm/KH). Lịch sử dùng chung `su_kien` với đợt 1, thêm các việc thu; Lịch sử của màn Người và xe không hiện việc thu.
 
-## Người dùng và luồng (ĐỀ XUẤT)
+Web tự tính, không có ô sửa tay: **công nợ cước** = tổng các bảng kê đã gửi + điều chỉnh − tiền về chưa hủy.
+
+## Cách tính khi code (Claude, 18/11/2026)
+
+Các điểm dưới đây theo bản bấm thử đã chốt. Chỗ bản bấm thử không nói, Claude chọn cách an toàn và ghi rõ là ĐỀ XUẤT; người dùng thấy khác thì đổi.
+
+- **Thu tính ở màn Bảng kê, không điền lúc nhập chặng.** Khi chưa gửi, mọi số tính lại mỗi lần mở: đổi giá, sửa ghi chú, gắn tuyến thấy ngay. Bấm "Gửi bảng kê" thì web chép từng dòng; sau đó đổi giá hay sửa chặng không làm đổi bảng kê đã gửi. Máy gửi kèm số đòi, số chặng và dấu của các dòng đang thấy; khác hiện tại thì chặn, phải tải lại rồi gửi (thấy gì gửi nấy).
+- **Chặng ghi muộn** vào tháng đã gửi tự sang bảng kê đang gom của tháng kế tiếp chưa gửi. Gửi bảng kê tháng này rồi mới ghi thêm chặng thì chặng sang tháng sau: thanh tháng hiện tháng đó, xem được, gửi được từ ngày 1 của tháng đó. ĐỀ XUẤT, theo câu cảnh báo "chặng chạy sau vào bảng kê tháng sau" của bản bấm thử.
+- **Cước:** giá tay của chặng, nếu không thì giá tuyến ở ngày chặng. Tuyến của chặng là tuyến gắn tay; nếu không thì theo tên gốc; nếu không, chặng chuyển cảng hay trả rỗng nhận tuyến cùng loại khi chỉ có đúng một tuyến loại đó. Tuyến phải hợp loại chặng: chặng hàng, rút/thả mooc theo tuyến hàng; chặng chuyển cảng, trả rỗng theo tuyến cùng loại (ghi hàng, tỉnh trùng tên gốc của tuyến hàng cũng không nhận tuyến hàng). Gắn tuyến sai loại bị chặn; "Nhớ tên gốc" chỉ cho chặng hàng, rút/thả mooc. Rút/thả mooc lấy 70% giá tuyến hàng, làm tròn tới nghìn đồng (nửa nghìn làm tròn lên). Gõ giá tay bằng giá bảng thì coi như theo bảng.
+- **Phát sinh và đóng ghép** đọc từ ghi chú của chặng. Mỗi khoản bắt đầu bằng "_" (đầu ghi chú hoặc sau khoảng trắng); chữ trước "_" đầu tiên là ghi chú thường (ghi chú chi phí của tài xế không lên bảng kê).
+  - Số tiền ở cuối khoản: `125k`, `1tr5`, `1,5tr`, `125.000`, `125000đ`; dấu câu hay ngoặc đóng sau số tiền bỏ qua. Không có số tiền thì khoản theo ngày lấy số ngày (mức + (ngày − 1) × mức thêm), khoản theo đơn vị lấy số đơn vị, khoản cố định lấy mức (chỉ khi khoản không có số nào).
+  - Tên khoản là tên dài nhất của danh mục ở đầu khoản, phần còn lại là mô tả. Mô tả được có số lượng kèm đơn vị: ngày, đêm, giờ, lần, kho, km, cont (ví dụ "_ Đóng ghép 2 kho cách 70km 3100k").
+  - Không đoán, gắn cờ và không tính: số ở cuối thiếu đơn vị tiền (`Kiểm hoá 125`), số tiền không ở cuối khoản, hai số tiền trong một khoản (quên dấu "_", kể cả cách nhau bằng dấu phẩy), số lạ khác trong khoản (`Xí cont 2 x 150k`), số lẻ trước k (`1.250k`), số tiền dưới 10.000, số không đơn vị lớn hơn 10, danh mục chưa có mức.
+  - Tên không có trong danh mục mà có số tiền: vẫn tính, không coi là chi hộ, gắn cờ "khoản lạ". ĐỀ XUẤT.
+  - Đo trên ghi chú file debit tháng 9–10: tháng 10 đọc ra đúng cột ĐÓNG GHÉP tới từng đồng và đúng cột PHÁT SINH ở mọi dòng trừ một dòng mà chính file ghi chú và ô lệch nhau; tháng 9 có một khoản thiếu chữ k bị gắn cờ thay vì đoán.
+- **Ô ngày neo, giờ máy phát của phiếu chi mới:** ghi chú chưa có khoản Neo hay Nổ máy phát thì lấy số ở ô, tính theo danh mục; ghi chú có thì theo ghi chú, không cộng hai lần; danh mục chưa có mức thì gắn cờ. ĐỀ XUẤT, sau khi phiên phiếu chi báo nhân viên sẽ nhập số ngày, số giờ ở ô thay cho ghi chú.
+- **Trước khi gửi** web liệt kê: chặng chưa có giá, giá tay khác bảng giá, khoản phát sinh chưa tính được, khoản lạ, và chặng cùng ngày, container, loại với một dòng đã gửi (chặng đã gửi bị xóa rồi nhập lại). Mỗi việc mở đúng bộ lọc. Chặng trùng chỉ báo, không tự bỏ.
+- **Điều chỉnh** chỉ khi bảng kê đã gửi, chưa đối chiếu xong; tổng dòng sau điều chỉnh không được âm. Dòng đã gửi có chặng bị xóa hoặc bỏ ở sổ tài xế sau khi gửi thì gắn cờ "Chặng đã bỏ". Khung "Đối chiếu xong" nhắc dòng chưa có giá và dòng có chặng đã bỏ, vì sau bước này không điều chỉnh được nữa.
+- **Tiền về** chỉ sau "Đối chiếu xong" (nút chính theo bước của bản bấm thử); ngày không sau hôm nay (giờ VN), không trước ngày gửi; trả thừa chặn.
+- **File Excel** (nút tải ở đầu bảng kê, và tự tải khi bấm Gửi): 19 cột như file debit hiện nay, dòng "Kính gửi: HTH", số bảng kê và ngày gửi. GHI CHÚ chỉ có các khoản phát sinh đã đọc; điều chỉnh vào cột "+ - TIỀN", cột CHECK LÝ DO chỉ ghi lý do (không ghi người làm: file gửi công ty khác; Lịch sử trên web giữ ai, lúc nào). Tổng cộng lại phải bằng tổng máy chủ, lệch thì không xuất. Tháng chưa gửi là bản nháp.
+
+## Người dùng và luồng (ĐỀ XUẤT trước bản bấm thử)
+
+Bản bấm thử đã chốt thay vài điểm dưới đây (xem [quyết định](../docs/decisions/doi-xe-thu-01.md) và mục Cách tính khi code): thu tính ở màn Bảng kê chứ không điền lúc nhập chặng; trả thừa bị chặn.
 
 Người thao tác: hai nhân viên đang nhập chi phí (đợt 1) và kế toán đang làm file công nợ cảng. Màn 1280×720, theo phong cách sổ khách.
 
@@ -89,7 +114,7 @@ Bản bấm thử (dữ liệu giả) nằm trên canvas thiết kế của dự
 
 ## Hành vi và bất biến
 
-- Tiền là số nguyên VND. Giá tính theo phần trăm phải làm tròn rõ ràng; quy tắc làm tròn: CÒN MỞ (10).
+- Tiền là số nguyên VND. Giá tính theo phần trăm (rút/thả mooc 70%) làm tròn tới nghìn đồng, nửa nghìn làm tròn lên (theo bản bấm thử đã chốt).
 - Ô trống là NULL, không hiện là 0.
 - Bảng giá có ngày áp dụng: đổi giá không làm đổi cước của các tháng đã khóa.
 - Chi hộ không tính vào doanh thu, cũng không tính vào chi phí của đội xe.
