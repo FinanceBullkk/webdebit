@@ -1,6 +1,6 @@
 # Đội xe đợt 2: thu cước, bảng kê và công nợ cước (DOI-XE-THU-01)
 
-Trạng thái: luồng ĐÃ CHỐT 18/11/2026 ([`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md), người dùng "Chốt mockup" sau khi bấm thử); mô hình dữ liệu và cách tính ĐÃ CODE (PR #491), chưa triển khai. Đây là đợt 2 của mục tiêu [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), xem [spec đợt 1](chi-phi-xe-01.md). Đợt 1 đã chạy trên `hao` (18/11/2026), nên đợt 2 code được ngay trên schema `doixe` của đợt 1.
+Trạng thái: luồng ĐÃ CHỐT 18/11/2026 ([`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md), người dùng "Chốt mockup" sau khi bấm thử); mô hình dữ liệu và cách tính ĐÃ CODE (PR #491), ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 ([nhật ký](../docs/deploys/2026-11-18-doi-xe-thu.md)). Đây là đợt 2 của mục tiêu [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), xem [spec đợt 1](chi-phi-xe-01.md). Đợt 1 đã chạy trên `hao` (18/11/2026), nên đợt 2 code được ngay trên schema `doixe` của đợt 1.
 
 ## Mục tiêu
 
