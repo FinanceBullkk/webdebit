@@ -136,7 +136,8 @@ file đó và Git không theo dõi gì trong thư mục này. Mỗi dòng một 
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
-không đổi riêng trong workflow.
+không đổi riêng trong workflow. Ngoại lệ duy nhất: `--skip=<mã bước>` (ví dụ `test:py`) để job không chạy lại bước
+mà job khác đã chạy cùng môi trường; mã gõ sai thì lệnh dừng với mã 2 chứ không im lặng bỏ bước. Ở máy không dùng cờ này.
 
 ### CI trên runner GitHub
 
@@ -149,7 +150,7 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 | `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12, 3.13 và 3.14 qua `uv` |
 | `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | `ubuntu-latest` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
 | `postgres-v7-backend`, `postgres-v7-p0`, `postgres-v7-grants-direct`, `postgres-v7-fifo`, `postgres-v7-luoi-an-toan`, `postgres-doixe` | `ubuntu-latest` | harness V7, mỗi job một container PostgreSQL 18.6 dùng một lần; `postgres-v7-fifo` chạy chuỗi lệnh ghi tiền ngẫu nhiên so với mô hình tham chiếu ([spec](../specs/v7-fifo-ngau-nhien.md)), cần Hypothesis từ `requirements-dev.txt`; `postgres-v7-luoi-an-toan` kiểm lưới an toàn của máy canh bằng vi phạm cố ý ([spec](../specs/v7-luoi-an-toan.md)); `postgres-doixe` kiểm schema đội xe `doixe` ([spec](../specs/chi-phi-xe-01.md)) |
-| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 và 3.14 qua `uv` (`hao` chạy 3.14) |
+| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.14 qua `uv` (bản `hao` chạy). Bản ubuntu gọi `--skip=test:py` vì job `python` đã chạy unittest trên ubuntu; bản Windows chạy đủ để giữ unittest trên Windows. Không test JS nào gọi Python (đo 18/11/2026), nên một bản Python là đủ |
 | `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
 
 **Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, vẫn bắt nhánh cập nhật theo `main`
