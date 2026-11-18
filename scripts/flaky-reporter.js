@@ -1,8 +1,13 @@
 // Reporter cho `node --test` dùng trong scripts/flaky-repeat.js: mỗi ca xong in một dòng JSON
 // {kind, file, name, nesting, ms, error}; kind là pass, fail hoặc retry (shared-browser.js chạy lại vì
 // ERR_NO_BUFFER_SPACE). Không dùng riêng; xem docs/development.md, mục "Job đêm tìm test chập chờn".
+//
+// `file` của từng ca là chỗ gọi test(): ca khai qua shared-browser.js thì mang tên file đó. Sự kiện của mỗi file
+// test đến thành một khối, kết thúc bằng test:summary có `file` là chính file test, nên giữ các dòng tới đó rồi
+// mới ghi, kèm tên file thật.
 
 module.exports = async function* flakyReporter(source) {
+  let pending = [];
   for await (const event of source) {
     const data = event.data ?? {};
     if (event.type === 'test:pass' || event.type === 'test:fail') {
@@ -22,9 +27,13 @@ module.exports = async function* flakyReporter(source) {
         row.failureType = error?.failureType ?? null;
         row.error = String(cause?.message ?? cause ?? error?.message ?? '').split('\n').slice(0, 3).join(' ').slice(0, 300);
       }
-      yield `${JSON.stringify(row)}\n`;
+      pending.push(row);
     } else if (event.type === 'test:diagnostic' && /ERR_NO_BUFFER_SPACE/.test(data.message ?? '')) {
-      yield `${JSON.stringify({ kind: 'retry', file: data.file ?? null, name: data.message, nesting: data.nesting })}\n`;
+      pending.push({ kind: 'retry', file: data.file ?? null, name: data.message, nesting: data.nesting });
+    } else if (event.type === 'test:summary' && data.file) {
+      for (const row of pending) yield `${JSON.stringify({ ...row, file: data.file })}\n`;
+      pending = [];
     }
   }
+  for (const row of pending) yield `${JSON.stringify(row)}\n`;
 };

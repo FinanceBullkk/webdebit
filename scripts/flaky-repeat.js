@@ -158,6 +158,9 @@ function runRounds(options) {
     // Reporter phải là đường dẫn tương đối: trên Windows "D:\…" bị hiểu nhầm là URL có scheme "d:".
     const run = spawnSync(process.execPath, [
       '--test',
+      // Ca treo thì đỏ với tên của nó sau 3 phút, không giữ cả lượt tới --round-minutes. Ca chậm nhất đo được
+      // khoảng 15 giây (CPU trang chậm 4 lần, 18/11/2026), nên 3 phút chỉ bắt ca treo thật.
+      `--test-timeout=${3 * 60_000}`,
       '--test-reporter=spec', `--test-reporter-destination=${log}`,
       '--test-reporter=./scripts/flaky-reporter.js', `--test-reporter-destination=${jsonl}`,
       ...files,

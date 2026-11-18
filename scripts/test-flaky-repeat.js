@@ -45,12 +45,14 @@ test('gộp hai máy: mỗi máy một cột đỏ/lượt, ô có dấu | khôn
   assert.match(renderMerged([one('ubuntu', 0)]), /Không ca nào đỏ ở máy nào\./);
 });
 
-test('chạy thật một lượt trên file mẫu: thoát mã 1, summary.json có đúng ca đỏ', () => {
+test('chạy thật một lượt trên file mẫu: thoát mã 1, summary.json có đúng ca đỏ và đúng file dù test() khai qua file khác', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flaky-repeat-'));
   try {
+    // Như shared-browser.js: test() gọi qua một file bọc, nên chỗ gọi node:test không phải file test.
+    fs.writeFileSync(path.join(dir, 'boc.js'), "const nodeTest = require('node:test'); exports.test = (...args) => nodeTest.test(...args);");
     const sample = path.join(dir, 'test-mau.js');
     fs.writeFileSync(sample, [
-      "const { test } = require('node:test');",
+      "const { test } = require('./boc.js');",
       "test('xanh', () => {});",
       "test('đỏ', () => { throw new Error('hỏng thật'); });",
       "test('bỏ qua', { skip: true }, () => {});",
@@ -65,6 +67,7 @@ test('chạy thật một lượt trên file mẫu: thoát mã 1, summary.json c
     assert.equal(summary.label, 'mẫu');
     assert.equal(summary.perRound[0].tests, 2);
     assert.deepEqual(summary.table.map(row => [row.name, row.count, row.error]), [['đỏ', 1, 'hỏng thật']]);
+    assert.match(summary.table[0].file, /test-mau\.js$/);
     assert.ok(fs.existsSync(path.join(out, 'round-1.log')));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

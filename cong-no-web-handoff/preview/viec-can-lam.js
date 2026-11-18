@@ -17,7 +17,7 @@
   let inboxLoading = false;
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
 
-  // CHO-NEN-01, chỉ để test đọc: đếm lượt đọc nền đang chạy (tự tải lại, đọc sổ đang mở, bảng đối chiếu, vùng ô).
+  // CHAP-CHON-01, chỉ để test đọc: đếm lượt đọc nền đang chạy (tự tải lại, đọc sổ đang mở, bảng đối chiếu, vùng ô).
   // ViecCanLam.idle() xong khi không còn lượt nào, tức mọi lượt đã vẽ bản đọc về hoặc đã bỏ vì cũ. Chỉ đếm, không đổi luồng.
   const work = new Set();
   const track = promise => {
