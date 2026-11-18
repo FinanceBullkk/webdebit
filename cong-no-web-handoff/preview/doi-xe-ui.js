@@ -196,8 +196,47 @@
     if (S.loading && !S.data) { root.innerHTML = '<p class="dx-loading">Đang tải…</p>'; return; }
     if (S.loadError && !S.data) { root.innerHTML = `<div class="dx-err" role="alert">${esc(S.loadError)} <button type="button" class="dx-btn" data-act="thu-lai">Thử lại</button></div>`; return; }
     const stale = S.loadError ? `<div class="dx-err" role="alert">${esc(S.loadError)} Đang hiện số đọc lần trước. <button type="button" class="dx-btn" data-act="thu-lai">Thử lại</button></div>` : '';
+    // Vẽ lại cùng một bảng (lưu ô, tải lại) thì giữ chỗ đang kéo ngang; đổi người, tháng, Gọn/Đủ cột hay mở Hoàn thì về đầu bảng.
+    const x = root.querySelector('.dx-scroll')?.scrollLeft ?? 0;
+    const khoaNgang = `${S.view}:${S.id}:${S.data?.thang}:${S.cach}:${Boolean(S.hoan)}`;
     if (S.view === 'tong') root.innerHTML = stale + tongHtml();
     else root.innerHTML = stale + soHtml();
+    if (x && khoaNgang === ngang.bang) for (const el of root.querySelectorAll(NGANG)) el.scrollLeft = x;
+    ngang.bang = khoaNgang;
+    // Chỉ hai dải này chặn lăn chuột; gắn cả vùng sổ với passive:false thì Chrome phải chờ JS trước mỗi lần cuộn dọc.
+    for (const el of root.querySelectorAll('.dx-hdw, .dx-hbar')) el.addEventListener('wheel', lanNgang, { passive: false });
+  }
+
+  // ---------- Kéo ngang bảng rộng ----------
+  // Tiêu đề cột (.dx-hdw) dính đầu màn, thanh kéo ngang (.dx-hbar) dính đáy màn, thân bảng (.dx-scroll) ở giữa: ba khung luôn
+  // cùng một chỗ ngang. Đặt chỗ cho hai khung kia cũng sinh sự kiện cuộn; nhớ giá trị vừa đặt để nhận ra tiếng vọng đó và bỏ qua,
+  // nếu không khung theo sẽ kéo ngược khung đang trượt (bấm rãnh thanh kéo trượt êm qua nhiều khung hình).
+  const NGANG = '.dx-hdw, .dx-scroll, .dx-hbar';
+  const ngang = { bang: '', vong: new WeakMap() };
+  root.addEventListener('scroll', e => {
+    const el = e.target;
+    if (!(el instanceof Element) || !el.matches(NGANG)) return;
+    const cho = ngang.vong.get(el);
+    ngang.vong.delete(el);
+    if (cho !== undefined && Math.abs(el.scrollLeft - cho) < 1) return;
+    for (const o of el.closest('.dx-bang').querySelectorAll(NGANG)) {
+      if (o === el || Math.abs(o.scrollLeft - el.scrollLeft) < 1) continue;
+      o.scrollLeft = el.scrollLeft;
+      ngang.vong.set(o, o.scrollLeft);
+    }
+  }, true);
+  // Lăn chuột trên dòng tiêu đề cột hoặc thanh kéo ngang thì bảng chạy ngang; trên thân bảng vẫn lên xuống như thường (Shift + lăn
+  // thì ngang ở mọi chỗ, trình duyệt tự làm). Hết đường ngang thì nhả để trang cuộn tiếp.
+  function lanNgang(e) {
+    if (e.ctrlKey) return;
+    const than = e.currentTarget.closest('.dx-bang').querySelector('.dx-scroll');
+    const buoc = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? than.clientWidth : 1;
+    const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * buoc;
+    const x = Math.max(0, Math.min(than.scrollWidth - than.clientWidth, than.scrollLeft + d));
+    if (Math.abs(x - than.scrollLeft) < 1) return;
+    e.preventDefault();
+    ngang.vong.delete(than);
+    than.scrollLeft = x;
   }
 
   // ---------- Màn Đội xe ----------
@@ -410,14 +449,16 @@
     if (khoaT && !hoanMo) {
       html += `<div class="dx-khoa"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span>Tháng ${Number(d.thang.slice(5, 7))} đã khóa. Sửa số tiền sẽ thêm dòng điều chỉnh, số cũ giữ nguyên.</span><button type="button" class="dx-btn" data-act="doi-khoa">Mở khóa</button></div>`;
     }
-    html += `<div class="dx-scroll"><div class="dx-inner" style="min-width:${minW}px"><div class="dx-hd" style="grid-template-columns:${g}">${heads}</div>${rows.join('')}`;
+    // Tiêu đề cột nằm ngoài khung cuộn ngang thì mới dính được đầu màn khi lăn trang xuống (sticky không thoát khỏi overflow).
+    html += `<div class="dx-hdw"><div class="dx-hd" style="min-width:${minW}px;grid-template-columns:${g}">${heads}</div></div>`
+      + `<div class="dx-scroll"><div class="dx-inner" style="min-width:${minW}px">${rows.join('')}`;
     if (!hoanMo) html += nhapBarHtml(ctx);
     if (!hoanMo && changs.length) html += tongHtmlRow(changs, cols, ctx, g, st, khac);
     if (hoanMo && dsHoan.length) {
       const tongChon = M.tongChon(dsHoan, S.hoan.chon);
       html += `<div class="dx-tong" style="grid-template-columns:${g}">${cols.map((c, i) => `<span class="${cls(c, i)}${c.k === 'ngay' ? ' nhan' : ''}"${st(i)}>${c.k === 'ngay' ? 'Tổng đang chọn' : c.k === 'chi' ? M.fmt(tongChon) : ''}</span>`).join('')}</div>`;
     }
-    return `${html}</div></div></div>`;
+    return `${html}</div></div><div class="dx-hbar" aria-hidden="true"><div style="width:${minW}px"></div></div></div>`;
   }
 
   const cellIn = (f, v, opt = {}) => `<input class="dx-in${opt.tien ? ' r num' : ''}${opt.loi ? ' loi' : ''}${opt.cont ? ' mono' : ''}" data-f="${f}" value="${esc(v ?? '')}"${opt.ph ? ` placeholder="${esc(opt.ph)}"` : ''} aria-label="${esc(opt.aria ?? '')}"${opt.title ? ` title="${esc(opt.title)}"` : ''} autocomplete="off"${opt.dis ? ' disabled' : ''}>`;

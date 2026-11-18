@@ -387,3 +387,62 @@ test('Tải lỗi có Thử lại; thiếu quyền báo câu của máy chủ; 1
     }
   }, { viewport: { width: 1265, height: 560 }, query: '?nguoi=1' });
 });
+
+test('Bảng rộng ở 1280×560: tiêu đề cột dính đầu màn, thanh kéo ngang dính đáy; lăn chuột trên tiêu đề thì chạy ngang, thân bảng vẫn lên xuống', () => withPage(async page => {
+  await page.locator('[data-cach="du"]').first().click();
+  const ngang = () => page.evaluate(() => ['.dx-hdw', '.dx-scroll', '.dx-hbar'].map(s => Math.round(document.querySelector(s).scrollLeft)));
+  const khung = () => page.evaluate(() => {
+    const r = s => document.querySelector(s).getBoundingClientRect();
+    return { hd: r('.dx-hdw').top, bar: r('.dx-hbar').bottom, than: r('.dx-scroll').bottom, y: scrollY };
+  });
+  await page.evaluate(() => scrollTo(0, document.querySelector('.dx-scroll').getBoundingClientRect().top + scrollY + 200));
+  let k = await khung();
+  assert.ok(Math.abs(k.hd) <= 1, `tiêu đề cột không dính đầu màn: ${k.hd}`);
+  assert.ok(k.than > 560 && Math.abs(k.bar - 560) <= 1, `thanh kéo ngang không dính đáy màn: ${JSON.stringify(k)}`);
+
+  const hd = await page.locator('.dx-hdw').boundingBox();
+  await page.mouse.move(hd.x + 400, hd.y + hd.height / 2);
+  await page.mouse.wheel(0, 300);
+  await page.waitForFunction(() => document.querySelector('.dx-hdw').scrollLeft > 0 && document.querySelector('.dx-hbar').scrollLeft === document.querySelector('.dx-scroll').scrollLeft);
+  const [a, b, c] = await ngang();
+  assert.ok(b >= 290 && a === b && b === c, `ba khung lệch ngang: ${[a, b, c]}`);
+  assert.equal((await khung()).y, k.y, 'lăn trên tiêu đề không được cuộn trang');
+  const cot = await page.evaluate(() => {
+    const t = [...document.querySelectorAll('.dx-hd span')].find(s => s.textContent === 'Người trả').getBoundingClientRect().left;
+    const i = [...document.querySelectorAll('.dx-hd span')].findIndex(s => s.textContent === 'Người trả');
+    return [t, document.querySelector('.dx-r:not(.moi)').children[i].getBoundingClientRect().left];
+  });
+  assert.ok(Math.abs(cot[0] - cot[1]) <= 1, `cột tiêu đề lệch cột dữ liệu: ${cot}`);
+
+  // Thân bảng: lăn là lên xuống trang, không chạy ngang.
+  const than = await page.locator('.dx-r:not(.moi)').nth(3).boundingBox();
+  await page.mouse.move(than.x + 400, than.y + 10);
+  await page.mouse.wheel(0, 200);
+  await page.waitForFunction(y => scrollY > y, k.y);
+  assert.equal((await ngang())[1], b);
+
+  // Kéo thanh dưới đáy thì tiêu đề và thân bảng chạy theo; vẽ lại cùng bảng (bấm lọc) vẫn giữ chỗ đang xem.
+  await page.evaluate(() => { document.querySelector('.dx-hbar').scrollLeft = 120; });
+  await page.waitForFunction(() => Math.round(document.querySelector('.dx-scroll').scrollLeft) === 120 && Math.round(document.querySelector('.dx-hdw').scrollLeft) === 120);
+  await page.locator('[data-loc="chuahoan"]').click();
+  assert.deepEqual(await ngang(), [120, 120, 120]);
+
+  // Hết đường ngang thì lăn trên tiêu đề nhả cho trang cuộn tiếp.
+  await page.evaluate(() => { const s = document.querySelector('.dx-scroll'); s.scrollLeft = s.scrollWidth; });
+  await page.evaluate(() => scrollTo(0, 0));
+  k = await khung();
+  const hd2 = await page.locator('.dx-hdw').boundingBox();
+  await page.mouse.move(hd2.x + 400, hd2.y + hd2.height / 2);
+  await page.mouse.wheel(0, 200);
+  await page.waitForFunction(y => scrollY > y, k.y);
+  await shot(page, '7-bang-rong');
+}, {
+  viewport: { width: 1280, height: 560 }, query: '?nguoi=1',
+  setup: w => {
+    const mau = w.chang[1];
+    for (let i = 0; i < 24; i += 1) {
+      w.chang.push({ ...structuredClone(mau), id: 500 + i, ngay: `2026-11-${String(1 + (i % 17)).padStart(2, '0')}`, container: `MAUU30000${String(i).padStart(2, '0')}`,
+        dong: [{ ...structuredClone(mau.dong[0]), id: 600 + i }] });
+    }
+  },
+}));
