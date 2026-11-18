@@ -13,6 +13,7 @@ Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 5. Ứng tiền **cho từng tài xế**.
 6. Công ty hoàn tiền tài xế đã chi **theo đợt, gộp vài chuyến một lần**.
 7. Lương chuyến **chưa làm** ở đợt đầu.
+8. Số dư mỗi tài xế = **tổng tài xế chi − tổng đã hoàn − tổng đã ứng**, một số dư chung cho mỗi tài xế. Dương: công ty còn nợ tài xế; âm: tài xế còn giữ tiền ứng.
 
 ĐỀ XUẤT (Claude, 18/11/2026; người dùng chưa phản đối): làm trong repo và cơ sở dữ liệu hiện có, schema PostgreSQL riêng, không lập dự án mới. Lý do: dùng chung chuyến/container, đăng nhập, triển khai, backup với sổ khách.
 
@@ -22,4 +23,4 @@ Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 
 ## Hiệu lực và giới hạn
 
-Chỉ chốt phạm vi và thứ tự. Chưa chốt công thức số dư, khóa tháng, sổ theo tài xế hay theo xe, mốc bắt đầu: xem Câu hỏi mở trong spec. Không cấp quyền nạp dữ liệu thật, chạy DDL hay ghi Sheet.
+Chốt phạm vi, thứ tự và công thức số dư. Chưa chốt khóa tháng, sổ theo tài xế hay theo xe, mốc bắt đầu: xem Câu hỏi mở trong spec. Không cấp quyền nạp dữ liệu thật, chạy DDL hay ghi Sheet.

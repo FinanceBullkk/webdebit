@@ -31,7 +31,7 @@ Ngoài phạm vi đợt 1 (đã chốt làm sau): công nợ cước với công
 
 ## Đầu ra
 
-Mục "Đội xe" trên web hiện bảng 18 tài xế với số dư. Sổ từng tài xế nhập được chi phí chuyến bằng dán hoặc gõ, ghi được ứng và đợt hoàn. Số dư mỗi tài xế = tổng tài xế chi − tổng đã hoàn − tổng đã ứng (CÒN MỞ (1) xác nhận công thức). Mọi thao tác tiền có Lịch sử.
+Mục "Đội xe" trên web hiện bảng 18 tài xế với số dư. Sổ từng tài xế nhập được chi phí chuyến bằng dán hoặc gõ, ghi được ứng và đợt hoàn. Số dư mỗi tài xế = tổng tài xế chi − tổng đã hoàn − tổng đã ứng, một số dư chung cho mỗi tài xế (người dùng chốt 18/11/2026). Mọi thao tác tiền có Lịch sử.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
 
@@ -78,6 +78,7 @@ Mẫu cột chung của Sheet "TÀI XẾ T10" và các tab T5–T11 của "BK T�
 - Chuyến chi phí độc lập với chuyến trong sổ khách. Ghép theo container + ngày chỉ để xem ở các đợt sau, không đổi số nợ khách.
 - Một chuyến thuộc tối đa một đợt hoàn chưa hủy.
 - Số dư tài xế tính lại được từ các dòng gốc. Không lưu số dư như một trường sửa tay.
+- Số dư dương: công ty còn nợ tài xế. Số dư âm: tài xế còn giữ tiền ứng. Ứng không trừ riêng vào từng đợt hoàn; cả ba loại dòng cùng vào một số dư.
 
 ## Chỗ dễ sai thấy trong dữ liệu hiện tại
 
@@ -120,7 +121,7 @@ Revert PR. Không có dữ liệu.
 
 ## Câu hỏi mở
 
-1. Số dư = tài xế chi − đã hoàn − đã ứng, một số dư chung mỗi tài xế, đúng không? Hay ứng được trừ thẳng vào đợt hoàn?
+1. ~~Số dư = tài xế chi − đã hoàn − đã ứng, một số dư chung mỗi tài xế, đúng không?~~ ĐÃ TRẢ LỜI 18/11/2026: đúng.
 2. Khối "LẦN ỨNG" trong file điều xe (ví dụ nhiều lần 20 triệu một tháng) là ứng cho từng tài xế hay cho người điều xe trả phí cảng? Nếu cho từng tài xế thì hiện ghi chi tiết theo người ở đâu?
 3. Sổ theo **tài xế** hay theo **xe**? Đề xuất theo tài xế, vì ứng và hoàn là tiền của người, mỗi chuyến vẫn ghi biển số xe để đợt 3 tính lãi lỗ theo xe.
 4. Có khóa tháng như sổ khách không, hay sửa lúc nào cũng được kèm Lịch sử?
