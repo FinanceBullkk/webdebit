@@ -34,6 +34,11 @@ Số đo:
 - **Web chưa biết xe nào chở container nào.** Ô `carrier` của chuyến trên web là hãng tàu.
   - Tab tổng hợp trong file điều xe, kéo từ sheet booking và sheet điều xe, có nhà xe và số xe cho 255/256 container tháng 10.
   - Nhưng tab này ghi nhà xe "TP" cho cả xe Trần Hùng. Muốn phân biệt xe mình với xe thuê phải dựa vào biển số.
+  - Danh sách xe gốc là tab THONG TIN CHUNG của file điều xe: 23 xe, gồm 18 xe mình (hai mã số thuế, 12 và 6 xe) và 5 xe Trần Hùng (mã số thuế riêng). Người dùng xác nhận 5 xe Trần Hùng trong danh sách này ngày 18/11/2026.
+- **Một container có thể do nhiều xe chạy.** Sheet điều xe chỉ có một ô số xe cho mỗi container, là xe chở hàng.
+  - Tháng 10 có 4 chặng phụ do xe khác công ty với xe trong sheet điều xe chạy (mỗi file công nợ có 2).
+  - Một container theo dõi được qua 3 chặng, 3 xe, 2 công ty, ghi ở 3 file: xe Trần Hùng chở hàng, xe mình rút mooc, một xe Trần Hùng khác chuyển cảng.
+  - Vì vậy gán xe phải theo từng chặng, không theo container.
 - **Phí cảng của một chuyến nằm ở hai file.** Kiểm 42 chuyến tháng 10 có phí nâng ở sheet tài xế: cả 42 đều có trong file điều xe, ở đó phí nâng bằng 0 và các phí hạ được ghi.
 - **Khoản lớn nhất không có ở file nào đã đọc:** dầu, lương tài xế, trả góp hoặc khấu hao, bảo hiểm, lốp, sửa chữa lớn.
 - **Đã từng thử làm lãi lỗ trên Excel.** File BK tháng 3–4 có cột doanh thu, lợi nhuận, lương chuyến, đổ dầu.
@@ -84,7 +89,7 @@ Không lưu số tổng nào cho người sửa tay. Web tự tính:
 
 | Người | Nhập trên web | Thay cho |
 | --- | --- | --- |
-| Điều xe | Gán xe, tài xế cho chuyến hàng có sẵn từ booking; thêm chặng phụ | Cột số xe ở sheet điều xe |
+| Điều xe | Gán xe, tài xế cho từng chặng: chặng hàng lấy sẵn từ booking, chặng phụ thêm mới | Cột số xe ở sheet điều xe |
 | Hai nhân viên | Chi phí từng chặng (chọn chặng, gõ hoặc dán tiền theo cột như Sheet, chọn người trả); ghi ứng, đợt hoàn | Sheet chi phí tài xế, file BK, phần phí cảng của file điều xe |
 | Kế toán | Đợt 2: thu theo bảng giá tuyến + phát sinh, bảng kê gửi công ty hàng. Đợt 3: dầu, sửa chữa, lốp, định phí, lương | File công nợ cảng, các file chi phí khác |
 
@@ -230,6 +235,7 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 9. Định phí từng xe (trả góp hoặc khấu hao, bảo hiểm, đăng kiểm, phí đường bộ, GPS) do ai giữ số?
 10. Sửa chữa lớn và lốp đang ghi ở đâu?
 11. Xe gắn định vị của hãng nào, có xuất được km theo ngày không?
-12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay?
+12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay? Đọc sheet chỉ lấy được xe chở hàng; chặng phụ vẫn phải nhập trên web.
 13. Khoản nào là chi hộ (đòi lại công ty hàng đúng số đã trả)?
 14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
+15. Cước các chặng của 5 xe Trần Hùng: công ty hàng trả thẳng cho Trần Hùng, hay trả cho mình rồi mình trả lại Trần Hùng? Nếu qua mình thì phần chênh là lãi của đội xe và phải vào lãi lỗ.

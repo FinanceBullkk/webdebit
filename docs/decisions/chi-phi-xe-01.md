@@ -6,7 +6,7 @@
 
 Người dùng trả lời trong chat ngày 18/11/2026 (ĐÃ CHỐT phạm vi):
 
-1. 18 xe nhóm VTP và NSX là **xe của công ty**. 5 xe nhóm Trần Hùng là **nhà xe thuê ngoài**.
+1. 18 xe nhóm VTP và NSX là **xe của công ty**. 5 xe nhóm Trần Hùng là **nhà xe thuê ngoài**; người dùng chỉ ra đó là 5 xe cuối trong danh sách xe ở file điều xe (tab THONG TIN CHUNG).
 2. Chiều nợ ở file "Công nợ cảng" tháng: **công ty hàng nợ đội xe** (bảng kê cước đội xe gửi công ty hàng).
 3. Việc làm trước trên web: **chi phí tài xế + ứng**. Công nợ cước, lương chuyến và lãi lỗ từng xe làm sau.
 4. Người nhập chi phí: **hai nhân viên văn phòng** như hiện nay. Tài xế không nhập ở đợt đầu.
