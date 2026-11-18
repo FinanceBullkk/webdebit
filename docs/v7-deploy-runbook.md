@@ -1972,9 +1972,9 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
-## Mở sổ lớn không JIT (MO-SO-NHANH-03) — nâng DB
+## Mở sổ lớn không JIT (MO-SO-NHANH-03) — nâng DB (ĐÃ CHẠY trên hao 18/11/2026)
 
-Spec [`mo-so-nhanh-03`](../specs/mo-so-nhanh-03.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_ledger(bigint) SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_ledger` trùng từng byte. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-04-v7-ledger-events.sql` (hoặc rollback của nó, hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_ledger`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
+Đã chạy 18/11/2026, xem [nhật ký](deploys/2026-11-18-mo-so-tat-jit.md). Spec [`mo-so-nhanh-03`](../specs/mo-so-nhanh-03.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql` chỉ có `ALTER FUNCTION sokhach.get_ledger(bigint) SET jit = off` dưới `sokhach_owner`. Thân hàm không đổi, nên kết quả `get_ledger` trùng từng byte. Không đổi bảng, view, dữ liệu, chủ, quyền, cấu hình cụm hay role. Chạy lại được. **Chạy lại `2026-11-04-v7-ledger-events.sql` (hoặc rollback của nó, hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_ledger`) thì phải chạy lại file này**, vì `CREATE OR REPLACE` xóa cấu hình hàm.
 
 Thứ tự với release: độc lập, vì release cũ và mới gọi cùng một hàm. Chỉ đổi cấu hình của một hàm đọc nên không cần cửa sổ dừng ghi. Tránh phút :05–:15 khi máy đối soát chạy.
 
