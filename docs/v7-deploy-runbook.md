@@ -2058,6 +2058,8 @@ Bổ sung 18/11/2026 (nguồn booking, hộp việc): không đổi unit hay fil
 
 ## Lưới an toàn (LUOI-AN-TOAN-01) — nâng DB và drop-in cho máy canh
 
+ĐÃ CHẠY trên `hao` 18/11/2026 ([nhật ký](deploys/2026-11-18-luoi-an-toan.md)).
+
 Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên sổ thật ([quyết định](decisions/luoi-an-toan-01.md), [spec](../specs/v7-luoi-an-toan.md)). Cần một hàm đọc mới (migration `2026-11-18-v7-luoi-an-toan.sql`, cấp `sokhach_app`), mã theo release, và một drop-in cho unit máy canh. Không đổi role, quyền bảng hay pg_hba: máy canh vào DB bằng `v7_app` như API.
 
 1. **Nâng DB** theo mục chung ([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)): backup, bản sao hai lượt, dấu vân trước/sau, `v7_post_deploy_check.sql`. Chỉ thêm hàm đọc nên không cần cửa sổ dừng ghi. Trên bản sao gọi thử như máy canh, đo giây:
@@ -2083,7 +2085,7 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
    sudo -u v7app python3 -B /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_safety_net.py --state-dir /var/lib/v7-watchdog --dry-run
    ```
 
-   Thêm `--full` để so `get_ledger` của mọi sổ (8 câu SQL, mỗi câu dưới giới hạn 15 giây); mỗi lượt máy canh chỉ so 1/8 số sổ. Luôn chạy bằng `sudo -u v7app`: lệnh từ chối chạy bằng root vì file mốc của root làm máy canh không ghi được nữa.
+   Thêm `--full` để so `get_ledger` của mọi sổ (8 câu SQL, mỗi câu trong giới hạn 60 giây của câu đọc nền); mỗi lượt máy canh chỉ so 1/8 số sổ. Luôn chạy bằng `sudo -u v7app`: lệnh từ chối chạy bằng root vì file mốc của root làm máy canh không ghi được nữa.
 5. **Khi có báo.** Kiểm 1, 2 (phiếu thu chia, Tổng quan, sổ lưu trữ, tổng trong sổ): mở sổ đó trên web, sửa bằng lệnh (hủy và ghi lại phiếu, điều chỉnh…), không sửa tay DB; sổ đúng lại thì lượt sau tự hết báo. Kiểm 3, 4 (đổi không qua lệnh, số lần ghi lùi, sổ biến mất, Lịch sử bị sửa): tìm việc ngoài lệnh vừa xảy ra (migration, loader, phục hồi bản sao, phiên psql quản trị); cần thì so với bản `v7-backup-hourly` trước giờ thấy báo. Xem xong thì chấp nhận:
 
    ```bash

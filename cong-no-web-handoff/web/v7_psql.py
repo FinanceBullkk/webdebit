@@ -16,6 +16,11 @@ from pathlib import Path
 from v7_api_tables import BASE64, ERRORS, IMAGE_MARK, SQL
 from v7_api_validate import ApiError, no_duplicates, vnd
 
+# LUOI-AN-TOAN-01: câu đọc nền (read_only, máy canh) được chạy lâu hơn lệnh của người dùng (15 giây). Đo trên hao 18/11/2026
+# lúc API vừa khởi động lại: một sổ lớn mất 8 giây mở bằng get_ledger, cả phần sổ chứa nó 11 giây.
+READ_ONLY_STATEMENT_TIMEOUT = "60s"
+READ_ONLY_PROCESS_TIMEOUT = 90
+
 
 def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[str]:
     """Lệnh psql nhanh nhất mà vẫn chắc chắn tới đúng cluster.
@@ -75,8 +80,12 @@ class _PsqlRunner:
             if not isinstance(image, str) or len(image) % 4 or not BASE64.fullmatch(image):
                 raise ApiError(422, "IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
             statement = statement.replace(IMAGE_MARK, image)
+        begin = "BEGIN;\n"
+        if read_only:
+            begin = ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n"
+                     f"SET LOCAL statement_timeout = '{READ_ONLY_STATEMENT_TIMEOUT}';\n")
         sql = (
-            ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n" if read_only else "BEGIN;\n")
+            begin
             + "SET LOCAL sokhach.actor = :'actor';\n"
             + statement
             + "\nCOMMIT;\n"
@@ -98,18 +107,17 @@ class _PsqlRunner:
                 encoding="utf-8",
                 errors="replace",
                 capture_output=True,
-                timeout=25,
+                timeout=READ_ONLY_PROCESS_TIMEOUT if read_only else 25,
                 check=False,
                 env=env,
             )
         except subprocess.TimeoutExpired as exc:
+            reading = read_only or function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status", "preview_price_table")
             raise ApiError(
                 503,
-                "DB_UNAVAILABLE"
-                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status", "preview_price_table")
-                else "RESULT_UNKNOWN",
+                "DB_UNAVAILABLE" if reading else "RESULT_UNKNOWN",
                 "Sổ tạm thời không truy cập được."
-                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status", "preview_price_table")
+                if reading
                 else "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.",
             ) from exc
         except OSError as exc:
