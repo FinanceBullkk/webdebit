@@ -11,7 +11,8 @@ const HOM_NAY = '2026-11-18';
 const PHI = [['nang', 'Phí nâng', 12], ['nangha', 'Nâng hạ', 13], ['cau', 'Cầu đường', 14], ['neo', 'Neo', 15], ['xi', 'Xí cont', 16],
   ['dao', 'Đảo cont', 17], ['moi', 'Cont mới', 18], ['doi', 'Dời cont', 19], ['seal', 'Mua seal', 20], ['bai', 'Bãi chờ', 21],
   ['dieu', 'Điều độ', 22], ['dau', 'Đổ dầu', 23], ['ps', 'Phát sinh', 24], ['may', 'Nổ máy', 27], ['vetc', 'VETC', 26]]
-  .map(([ma, ten, cot], i) => ({ ma, ten, ten_day_du: null, thu_tu: i + 1, cot_sheet: cot, cong_ty_tra: ma === 'vetc' }));
+  .map(([ma, ten, cot], i) => ({ ma, ten, ten_day_du: null, thu_tu: i + 1, cot_sheet: cot, cong_ty_tra: ma === 'vetc' }))
+  .concat({ ma: 'hasom', ten: 'Hạ sớm/KH', ten_day_du: 'Hạ sớm · kiểm hoá', thu_tu: 16, cot_sheet: null, cong_ty_tra: false });
 
 function world() {
   const w = {
@@ -26,7 +27,7 @@ function world() {
   const add = (ngay, cont, phi, o = {}) => {
     const id = ++w.seq;
     w.chang.push({ id, ngay, container: cont, loai: 'hang', xe_id: 1, tai_xe_id: 1, tra: 'nguoi', nguoi_tra_id: 1, noi_lay: 'KHO GIA', noi_ha: 'CANG GIA',
-      kho: null, tinh: null, ten_hang: null, ghi_chu: null, sau_khoa: false, da_bo: false, da_xoa: false, actor: 'nv', luc: '01/11 08:00',
+      kho: null, tinh: null, ten_hang: null, ghi_chu: null, neo_ngay: null, may_gio: null, km: null, sau_khoa: false, da_bo: false, da_xoa: false, actor: 'nv', luc: '01/11 08:00',
       chuyen: cont.endsWith('1') ? { khach: 'KHACH GIA', ngay, tu: 'KHO GIA', den: 'CANG GIA' } : null,
       dong: [{ id: ++w.seq, loai: 'goc', dot_hoan_id: null, dot_ngay: null, dc_phi: null, dc_truoc_vnd: null, dc_sau_vnd: null, actor: 'nv', luc: '01/11 08:00', phi }], ...o });
   };
@@ -112,7 +113,8 @@ function write(w, route, b) {
     }
     if (b.cot === 'ngay' && b.gia_tri > HOM_NAY) throw loi(422, 'NGAY_TUONG_LAI', 'Ngày không được sau hôm nay.');
     const col = b.cot === 'nguoi_tra' ? 'nguoi_tra_id' : b.cot;
-    c[col] = b.cot === 'nguoi_tra' ? (b.gia_tri === 'cong_ty' ? null : Number(b.gia_tri)) : b.cot === 'xe_id' ? Number(b.gia_tri) : b.gia_tri;
+    const so = ['xe_id', 'neo_ngay', 'may_gio', 'km'].includes(b.cot);
+    c[col] = b.cot === 'nguoi_tra' ? (b.gia_tri === 'cong_ty' ? null : Number(b.gia_tri)) : so && b.gia_tri !== null ? Number(b.gia_tri) : b.gia_tri;
     if (b.cot === 'nguoi_tra') c.tra = c.nguoi_tra_id ? 'nguoi' : 'cong_ty';
     return { ok: true, cach: 'ghi_de' };
   }
@@ -362,6 +364,28 @@ test('Tháng khóa: báo rõ, sửa tiền thành dòng điều chỉnh gửi k�
   assert.match(await page.locator('.dx-ls').innerText(), /Mở khóa tháng 10\/2026[\s\S]*Đã khóa → Đang mở/);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.dx-ls').count(), 0);
+}, { query: '?nguoi=1&thang=2026-10' }));
+
+test('Phiếu chi mới: Đủ cột có Hạ sớm/KH, Km, Ngày neo, Giờ máy; số lượng ghi đè cả tháng khóa, gõ lẻ thì báo, không gửi', () => withPage(async (page, w) => {
+  await page.locator('[data-cach="du"]').first().click();
+  const heads = await page.locator('.dx-hd > span').allInnerTexts();
+  for (const t of ['Km', 'Ngày neo', 'Giờ máy', 'Hạ sớm/KH']) assert.ok(heads.includes(t), `thiếu cột ${t}: ${heads}`);
+  const km = page.locator('[data-f="luu:101:km"]');
+  await km.fill('45 km');
+  await km.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[data-f="luu:101:km"]')?.value === '45');
+  const sua = posts(w, '/api/v7/doixe/chang/sua');
+  assert.deepEqual(sua.map(p => [p.body.cot, p.body.truoc, p.body.gia_tri]), [['km', null, '45']]);
+  assert.equal(await page.locator('.dx-r.phu').count(), 0, 'số lượng không thêm dòng điều chỉnh ở tháng khóa');
+  const gio = page.locator('[data-f="luu:101:may_gio"]');
+  await gio.fill('1,5');
+  await gio.press('Enter');
+  await page.locator('.dx-toast', { hasText: 'Số lẻ ở ô Giờ máy' }).waitFor();
+  assert.equal(posts(w, '/api/v7/doixe/chang/sua').length, 1, 'ô lỗi không gửi lệnh');
+  const hs = page.locator('[data-f="luu:101:phi:hasom"]');
+  await hs.fill('250.000');
+  await hs.press('Enter');
+  await page.locator('.dx-toast', { hasText: 'thêm dòng điều chỉnh +250.000' }).waitFor();
 }, { query: '?nguoi=1&thang=2026-10' }));
 
 test('Tải lỗi có Thử lại; thiếu quyền báo câu của máy chủ; 1265×560 không cuộn ngang, menu chín mục lọt khung', async () => {
