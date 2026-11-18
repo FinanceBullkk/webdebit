@@ -143,5 +143,22 @@
     .map(hint => ({ text: hintText(hint, say), source: hint.closable && /^[0-9a-f]{64}$/.test(hint.source_fingerprint ?? '') ? hint.source_fingerprint : null }))
     .filter(entry => entry.text);
 
-  return { openRows, aheadRows, fixedRows, openIds, isSheetFix, sheetFixLabel,share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, hintRows, tongView };
+  // Gợi ý tính lúc đối soát chỉ còn đúng khi sổ chưa đổi; dòng đang mở so thêm hai nguồn Sheet và số hiện tại với bản đối chiếu.
+  // `statement`: undefined là dòng đang đóng, null là dòng mở chưa có bản đọc (đang tải hoặc lỗi). Câu "chuyến đi trước"
+  // (MAY-DOI-SOAT-01) không phải gợi ý số tiền và không có `hints_basis`, nên giữ.
+  const BASIS_KINDS = new Set(['receipt_twice', 'price_review', 'sheet_row_missing']);
+  function currentHints(row, statement, bookVersion, unverified = false) {
+    if (!row.hints?.some(hint => BASIS_KINDS.has(hint.kind)) || row.reason === 'HELD') return row;
+    const basis = row.hints_basis;
+    const book = Number.isInteger(basis?.version) && basis.version === bookVersion
+      && ['web_total_vnd', 'sheet_total_vnd'].every(key => basis[key] !== null && basis[key] !== undefined && String(basis[key]) === String(row[key]));
+    // Chỉ so nguồn khi `book` đã qua (basis có thật); statement null thì version không bằng nên không xác nhận.
+    const source = book && (statement === undefined || (basis.version === statement?.version
+      && ['prices_sha256', 'receipts_sha256'].every(key => /^[0-9a-f]{64}$/.test(basis[key] ?? '') && basis[key] === statement?.[key])
+      && ['web_total_vnd', 'sheet_total_vnd'].every(key => String(basis[key]) === String(statement?.[key === 'web_total_vnd' ? 'web_vnd' : key]))));
+    if (source && !unverified) return row;
+    return { ...row, hints: row.hints.filter(hint => !BASIS_KINDS.has(hint.kind)), hints_explain: false, hints_stale: true };
+  }
+
+  return { openRows, aheadRows, fixedRows, openIds, isSheetFix, sheetFixLabel, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, hintRows, tongView, currentHints };
 }));
