@@ -1018,8 +1018,11 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
  FROM sokhach.event WHERE event.customer_id=p_customer
 $$;
 
+-- MO-SO-NHANH-03 (18/11/2026): JIT tắt trong hàm. Câu dựng bảng tháng có chi phí ước tính vượt ngưỡng JIT ở sổ lớn
+-- (sổ 104 ~800.000) nên mỗi lần mở sổ PostgreSQL biên dịch LLVM vài trăm hàm: ~3 giây cho vài chục ms chạy thật.
+-- Không đổi kết quả. Viết lại khai báo hàm này thì giữ SET jit = off (migration 2026-11-18-v7-mo-so-tat-jit.sql).
 CREATE OR REPLACE FUNCTION sokhach.get_ledger(customer_id bigint) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp SET jit = off AS $$
 DECLARE v_version bigint; v_active boolean; v_months jsonb; v_trips jsonb;
         v_adjustments jsonb; v_receipts jsonb; v_opening jsonb; v_legacy jsonb;
         v_events jsonb; v_flags jsonb; v_total numeric; v_pending bigint; v_locks jsonb;
