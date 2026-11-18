@@ -313,6 +313,7 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 11. Định vị: người dùng chưa biết (18/11/2026). Tạm lấy km từ ảnh đồng hồ (ODO), như sổ dầu khoán đang làm.
 12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay? Đọc sheet chỉ lấy được xe chở hàng; chặng phụ vẫn phải nhập trên web.
 13. Khoản nào là chi hộ (đòi lại công ty hàng đúng số đã trả)?
+    ĐỀ XUẤT 18/11/2026 (phiên đợt 2, spec `doi-xe-thu-01`, PR #474; người dùng chưa xác nhận danh sách): người dùng chốt phí nâng và phí hạ cảng do đội xe chịu trong cước, không phải chi hộ; đo trên debit tháng 9–10 thì kiểm hóa (cột HẠ KH), hạ sớm, cân, xí cont, cont mới được thu lại đúng số đã chi, tức là chi hộ. Đề nghị thêm cờ "chi hộ" vào danh mục phí `doixe.loai_phi` (dữ liệu, không cố định trong code) để lãi lỗ đợt 3 loại được cả hai phía. Danh mục đợt 1 chưa có các cột phí cảng của file điều xe (PHỤ THU NL, HẠ SỚM, HẠ KH, PHÍ HẠ) do người đi lệnh trả: thêm cùng lúc với cờ, ở một migration riêng.
 14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
 15. Cước các chặng của 5 xe Trần Hùng: công ty hàng trả thẳng cho Trần Hùng, hay trả cho mình rồi mình trả lại Trần Hùng? Nếu qua mình thì phần chênh là lãi của đội xe và phải vào lãi lỗ.
 16. Ba tài khoản dầu đã ngưng vẫn còn số nợ (số tròn) trên sổ mua dầu. Người dùng chưa rõ đã trả hay chưa (18/11/2026); cần đối chiếu với nơi bán.
