@@ -182,6 +182,37 @@ Thêm luật mới: ưu tiên biến một quy tắc nghiệp vụ đã chốt t
 có sẵn, ràng buộc SQL, hoặc một bước mới trong `scripts/check.js`. Luật chỉ nằm trong tài liệu thì
 mỗi lần review lại phải soi bằng mắt.
 
+### Job đêm tìm test chập chờn
+
+**Nguồn:** `.github/workflows/flaky-nightly.yml` (CHAP-CHON-01, 18/11/2026). Test trình duyệt chập chờn chỉ đỏ một
+trong bốn job `javascript` dù cùng mã, nên CI của PR hiếm khi bắt được trước khi nó làm đỏ `main`. Job đêm chạy riêng
+bộ browser (`node scripts/run-tests.js browser`) nhiều lượt liền trên `ubuntu-latest` và `windows-latest`, mỗi lượt y
+như CI (các file chạy song song), rồi đếm ca nào đỏ mấy lần. Không chạy lại ca đỏ cho xanh; ERR_NO_BUFFER_SPACE vẫn
+chạy lại một lần như trong `shared-browser.js` và được đếm riêng.
+
+- **Khi chạy:** 02:30 giờ Việt Nam mỗi đêm trên `main`, và chạy tay ở Actions → Flaky nightly → Run workflow
+  (chọn nhánh, số lượt, độ chậm). Từ dòng lệnh: `gh workflow run flaky-nightly.yml --ref <nhánh> -f rounds=10 -f slowdown=0`.
+  Nút chạy tay chỉ có khi file đã nằm trên `main`; PR sửa chính workflow, `scripts/flaky-*.js` hay `shared-browser.js`
+  thì job tự chạy trên PR đó. Không đụng `test.yml`, không thuộc `ci-ok`, nên không chặn merge.
+- **Đọc kết quả:** trang tóm tắt của run có một bảng mỗi máy (`Ca | File | Đỏ | Lỗi đầu tiên`, `Đỏ` là số lượt đỏ trên
+  số lượt) và một bảng gộp hai máy (job `Bảng gộp hai máy`). Ca đỏ 10/10 là lỗi thật, không phải chập chờn; ca đỏ vài
+  lượt là chập chờn. "Lượt … hỏng mà không có ca đỏ" là lượt treo quá 20 phút, file vỡ hay không chạy ca nào: mở
+  artifact `flaky-<máy>`, đọc `round-<lượt>.log` (log spec đầy đủ) và `round-<lượt>.jsonl` (mỗi ca một dòng).
+- **Có đỏ thì:** job đỏ và GitHub gửi email báo run đỏ cho người sửa lịch `cron` gần nhất trong workflow. Sửa tận gốc
+  như dưới đây, không thêm thử lại, không nới thời hạn.
+- **Ở máy:** `node scripts/flaky-repeat.js --rounds 10` (mặc định cả bộ browser, log ở `.flaky/`, đã ignore); đưa tên
+  file để chạy riêng vài file. Máy mạnh hiếm khi đỏ lại được lỗi của runner 4 lõi; khi đó bật
+  `WEBDEBIT_TEST_CPU_SLOWDOWN=4` (`shared-browser.js` làm JS của trang chậm 4 lần qua CDP) để lộ ca chờ sai.
+
+**Viết test trình duyệt không chập chờn.** Chờ đúng tín hiệu, không ngủ rồi đo: không `waitForTimeout`, không
+`setTimeout` trong `page.evaluate` để "chờ trang xử lý xong". Tín hiệu có sẵn: phản hồi mạng (`waitForResponse`, gắn
+trước thao tác gây ra request), phần tử hay chữ mới xuất hiện (`waitFor`, `waitForFunction`), và tín hiệu chỉ đọc của
+trang: `SoKhachV7Api.idle()` qua `settled(page)` (sổ khách), `ViecCanLam.idle()` (Việc cần làm, mọi lượt đọc nền đã vẽ),
+`body[data-loads]` (Bảng thu, số lượt đọc đã vẽ), `body[data-loaded]` (Đội xe, Báo cáo tháng, Thông tin cty). Muốn kiểm
+"không xảy ra" thì chờ một tín hiệu cho biết trang đã xử lý xong (ví dụ hai lần hỏi `/api/v7/machine/now` của Máy
+chạy, vì lần sau chỉ đi khi lần trước đã vẽ) rồi mới kiểm, không đếm trong một cửa sổ giờ. Trang thiếu tín hiệu thì
+thêm tín hiệu chỉ đọc, không đổi hành vi.
+
 ### Khi nào chạy harness PostgreSQL ở máy
 
 Harness `tools/test_pg_*.py` không nằm trong `npm run check`; CI chạy chúng ở các job `postgres-*`

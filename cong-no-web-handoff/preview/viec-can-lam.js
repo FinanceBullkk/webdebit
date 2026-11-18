@@ -17,6 +17,16 @@
   let inboxLoading = false;
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
 
+  // CHO-NEN-01, chỉ để test đọc: đếm lượt đọc nền đang chạy (tự tải lại, đọc sổ đang mở, bảng đối chiếu, vùng ô).
+  // ViecCanLam.idle() xong khi không còn lượt nào, tức mọi lượt đã vẽ bản đọc về hoặc đã bỏ vì cũ. Chỉ đếm, không đổi luồng.
+  const work = new Set();
+  const track = promise => {
+    const settled = Promise.resolve(promise).catch(() => {}).finally(() => work.delete(settled));
+    work.add(settled);
+    return promise;
+  };
+  globalThis.ViecCanLam = Object.freeze({ idle: async () => { while (work.size) await Promise.allSettled([...work]); }, busyCount: () => work.size });
+
   const json = async url => {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw Error(url);
@@ -225,7 +235,7 @@
     paintInbox();
     if (inbox.data && (inbox.data.state === 'computing' || inbox.data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
     inboxLoading = false;
-    if (inbox.open !== null) refreshDetail(inbox.open);
+    if (inbox.open !== null) track(refreshDetail(inbox.open));
     syncStatement();
   }
 
@@ -236,7 +246,7 @@
     const ids = Doi.openRows(inbox.data?.reconcile).map(row => row.customer_id).filter(Boolean);
     if (dc.open !== null && !ids.includes(dc.open)) dc.open = null;
     if (dc.open === null && !dc.closed && ids.length) dc.open = ids[0];
-    if (dc.open !== null) refreshStatement(dc.open);
+    if (dc.open !== null) track(refreshStatement(dc.open));
     paintInbox();
   }
   // Khối "Sheet cần sửa": vùng ô của chỗ sai đầu tiên mở sẵn (một lần cho mỗi khách; người dùng đóng thì để đóng); các chỗ sau mở khi bấm.
@@ -245,7 +255,7 @@
     if (first < 0 || dc.regionSeen.has(id)) return;
     dc.regionSeen.add(id);
     dc.regionOpen.add(`${id}:${first}`);
-    loadRegion(id, first);
+    track(loadRegion(id, first));
   }
   async function loadRegion(id, index, fresh = false) {
     const dc = inbox.dc, key = `${id}:${index}`;
@@ -995,10 +1005,10 @@
     }
   }
   showSnapshot(globalThis.AppNav?.readTodoSnapshot());
-  load();
-  loadInbox();
-  loadActivity();
-  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); loadInbox(); loadActivity(); sheetRefresh?.load(); };
+  track(load());
+  track(loadInbox());
+  track(loadActivity());
+  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; track(load()); track(loadInbox()); track(loadActivity()); track(sheetRefresh?.load()); };
   document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {

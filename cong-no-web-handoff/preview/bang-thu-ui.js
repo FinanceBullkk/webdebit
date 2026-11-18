@@ -431,6 +431,8 @@
       alert.innerHTML = `${esc(F.loadError('bảng thu'))}<button type="button" class="btn" id="retry">Thử lại</button>`;
       if (!state.book) root.replaceChildren();
     }
+    // Chỉ để test đọc: số lượt đọc đã vẽ xong (kể cả lỗi), để chờ đúng lượt tự tải lại thay vì ngủ.
+    document.body.dataset.loads = String(mine);
   }
 
   function showMonth(month) {
