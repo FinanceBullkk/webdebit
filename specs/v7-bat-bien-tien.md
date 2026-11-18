@@ -66,7 +66,7 @@ CASCADE` (chỉ dọn DB thử; schema, hàm, danh mục phụ phí và lỗi c�
 python cong-no-web-handoff/tools/test_pg_v7_bat_bien.py
 ```
 
-Cần Docker. `--sequences N` (mặc định 120, bản CI), `--steps N` (lệnh mỗi chuỗi, mặc định 25), `--books N`
+Cần Docker. `--sequences N` (mặc định 200, bản CI), `--steps N` (lệnh mỗi chuỗi, mặc định 25), `--books N`
 (mặc định 3), `--seed N` (mặc định cố định để CI ổn định), `--sequence I` (chỉ chạy chuỗi số I, để chạy lại chuỗi đỏ),
 `--shrink-seconds`, `--report <file>.json`. Mỗi chuỗi có seed riêng `"<seed>:<số chuỗi>"`, nên `--seed S --sequence I
 --steps M` dựng lại đúng chuỗi đó (ngày tính lùi từ hôm nay, nên chạy khác ngày thì ngày tuyệt đối dịch theo). Chuỗi
@@ -86,10 +86,10 @@ Phụ phí nhiều loại và cột phí riêng, bảng giá, đồng bộ/khớ
 
 ## Tiêu chí nghiệm thu
 
-- [ ] Xanh ở máy với ít nhất 1.000 chuỗi.
-- [ ] `--mutant fifo-dao` đỏ và rút gọn được chuỗi; các mutant khác đỏ đúng bất biến.
-- [ ] CI: job `postgres-v7-bat-bien` xanh, dưới khoảng 90 giây phần chạy test.
-- [ ] `npm run check` và `node scripts/check-secrets.js` xanh.
+- [x] Xanh ở máy với ít nhất 1.000 chuỗi.
+- [x] `--mutant fifo-dao` đỏ và rút gọn được chuỗi; các mutant khác đỏ đúng bất biến.
+- [x] CI: job `postgres-v7-bat-bien` xanh, dưới khoảng 90 giây phần chạy test.
+- [x] `npm run check` và `node scripts/check-secrets.js` xanh.
 
 ## Phạm vi file
 
@@ -102,7 +102,23 @@ Revert PR. Không có dữ liệu, migration hay triển khai nào để gỡ.
 
 ## Bằng chứng
 
-(điền khi xong)
+ĐÃ KIỂM CHỨNG 18/11/2026, nhánh tách từ `445713e`, PostgreSQL 18.6 theo digest của harness, seed mặc định `20261118`.
+Chỉ là sổ giả trong container dùng một lần; không chứng minh gì về dữ liệu hay service trên `hao`.
+
+- Máy dev Windows (Docker Desktop, máy đang tải nặng): 1.000 chuỗi × 25 lệnh xanh; 24.959 lệnh, 20.075 được nhận,
+  4.884 bị từ chối đúng mã (nhiều nhất `MONTH_NOT_FOUND` 1.055, `OFFSET_EXCEEDS_CREDIT` 747, `TRIP_NOT_PENDING` 505,
+  `FUTURE_DATE` 489, `MONTH_LOCKED` 402); 2.024 giây.
+- CI (`ubuntu-latest`), 120 chuỗi: 2.992 lệnh, phần test 37,5 giây, cả job 51 giây; nâng mặc định lên 200 chuỗi.
+- `--mutant`, mỗi lỗi đỏ đúng bất biến và rút gọn còn:
+  - `fifo-dao` → `fifo`, 1 lệnh: ghi một phiếu vào sổ có ba tháng nợ, phiếu trả tháng mới khi tháng cũ còn nợ.
+  - `huy-phan-bo-lai` → `huy-phieu`, 3 lệnh: hai phiếu, hủy phiếu đầu, phiếu sau bị dời phân bổ.
+  - `tuong-lai` → `tuong-lai`, 1 lệnh: phiếu ngày tương lai được nhận.
+  - `khoa-thang` → `thang-khoa`, 3 lệnh: khóa tháng, dán chuyến, đổi ngày chuyến vào tháng khóa được nhận.
+  - `lich-su` → `lich-su`, 1 lệnh: điều chỉnh tháng ghi Lịch sử sai người làm.
+  - `null-0` → `null`, 1 lệnh: dán chuyến chưa giá, DB lưu đơn giá 0.
+  - `can-tru` → `can-tru`, 1 lệnh: một lần cấn trừ làm đổi tổng hai sổ.
+- Không có vi phạm nào trên mã `main`. Hai lượt đầu chỉ lộ lỗi của chính test (đường dẫn `psql` phạm ARCH-01 — đổi
+  sang `Pg.value`; dựng lại DB bằng chép mẫu vượt 30 giây trên Docker Windows — đổi sang `TRUNCATE`).
 
 ## Câu hỏi mở
 

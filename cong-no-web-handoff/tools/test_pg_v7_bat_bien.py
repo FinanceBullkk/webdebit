@@ -1190,7 +1190,7 @@ def main() -> int:
             reconfigure(encoding="utf-8", errors="backslashreplace")
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED, help=f"seed (mặc định {DEFAULT_SEED})")
-    ap.add_argument("--sequences", type=int, default=120, help="số chuỗi (mặc định 120, bản CI)")
+    ap.add_argument("--sequences", type=int, default=200, help="số chuỗi (mặc định 200, bản CI)")
     ap.add_argument("--steps", type=int, default=25, help="số lệnh mỗi chuỗi (mặc định 25)")
     ap.add_argument("--books", type=int, default=3, help="số sổ giả mỗi chuỗi (mặc định 3)")
     ap.add_argument("--sequence", type=int, help="chỉ chạy chuỗi số này (chạy lại chuỗi đỏ)")
