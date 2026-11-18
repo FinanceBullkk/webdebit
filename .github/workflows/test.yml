@@ -170,6 +170,19 @@ jobs:
       - name: V7 safety net checks on isolated PostgreSQL
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_luoi_an_toan.py
 
+  # Đội xe đợt 1 (specs/chi-phi-xe-01.md): schema doixe trên PostgreSQL dùng một lần; lệnh ghi thật, quyền, chống ghi trùng,
+  # số dư theo công thức đã chốt, khóa tháng, không ghi sokhach.
+  postgres-doixe:
+    needs: changes
+    if: needs.changes.outputs.pg_v7 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Doi xe schema on isolated PostgreSQL
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe.py
+
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;
   # hàm Tổng quan hay get_ledger bị làm sai thì tự kiểm đỏ.
   postgres-v7-xuat-so:
@@ -302,6 +315,7 @@ jobs:
       - postgres-v7-grants-direct
       - postgres-v7-fifo
       - postgres-v7-luoi-an-toan
+      - postgres-doixe
       - postgres-m1-history-queries
       - pg18-versioned-approval-fixture
       - javascript
