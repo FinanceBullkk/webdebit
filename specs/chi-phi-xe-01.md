@@ -262,10 +262,10 @@ Sheet "TÀI XẾ T10" và các tab tháng 5 đến tháng 11 của "BK TÍN PHÁ
 
 - [ ] Trên bản thử (dữ liệu sao chép), dán chi phí tháng 10 của cả 16 tài xế. Chặng hàng nối được chuyến khách, lệch không quá 10 ngày; chặng phụ ghi đúng loại; không có chặng nào bị tạo hai lần khi dán lại cùng một khối.
 - [ ] Dán 1 tab tài xế tháng 10/2026: tổng "tài xế chi" và tổng từng cột phí khớp dòng tổng của tab, trừ các dòng bị chặn đã liệt kê.
-- [ ] Ghi ứng, ghi đợt hoàn, hủy từng loại: số dư đổi đúng; Lịch sử có người làm, trước → sau, lý do hủy.
-- [ ] Bấm hai lần hoặc mất mạng giữa chừng không tạo hai lần ứng hay hai đợt hoàn.
-- [ ] Harness PostgreSQL cho schema `doixe` chạy xanh; `npm run check` xanh.
-- [ ] Kiểm trình duyệt 1280×720: bàn phím, nhập sai, tải chậm, thiếu quyền.
+- [x] Ghi ứng, ghi đợt hoàn, hủy từng loại: số dư đổi đúng; Lịch sử có người làm, trước → sau, lý do hủy. Bằng chứng: `tools/test_pg_doixe.py` (PostgreSQL dùng một lần, dữ liệu giả), 18/11/2026. Còn kiểm lại trên bản thử khi có dữ liệu.
+- [x] Bấm hai lần hoặc mất mạng giữa chừng không tạo hai lần ứng hay hai đợt hoàn. Bằng chứng: harness (ba lệnh song song cùng mã chỉ ghi một), `test-doi-xe-browser.js` (mất trả lời rồi bấm lại dùng lại mã, bấm đúp không gửi thêm).
+- [x] Harness PostgreSQL cho schema `doixe` chạy xanh; `npm run check` xanh (job CI `postgres-doixe`, PR #477, #478).
+- [x] Kiểm trình duyệt 1280×720 (và 1265×560): bàn phím, nhập sai, tải chậm, thiếu quyền. Bằng chứng: `test-doi-xe-browser.js` trên máy chủ giả; chưa phải nghiệm thu trên dữ liệu thật.
 - [ ] Hai nhân viên và điều xe tự đi hết luồng trên bản thử với dữ liệu một tháng, và xác nhận.
 
 ## Phạm vi agent
@@ -313,6 +313,7 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 11. Định vị: người dùng chưa biết (18/11/2026). Tạm lấy km từ ảnh đồng hồ (ODO), như sổ dầu khoán đang làm.
 12. Tháng đầu, web đọc số xe từ sheet điều xe để khỏi gõ hai lần, hay điều xe gán trên web ngay? Đọc sheet chỉ lấy được xe chở hàng; chặng phụ vẫn phải nhập trên web.
 13. Khoản nào là chi hộ (đòi lại công ty hàng đúng số đã trả)?
+    ĐỀ XUẤT 18/11/2026 (phiên đợt 2, spec `doi-xe-thu-01`, PR #474; người dùng chưa xác nhận danh sách): người dùng chốt phí nâng và phí hạ cảng do đội xe chịu trong cước, không phải chi hộ; đo trên debit tháng 9–10 thì kiểm hóa (cột HẠ KH), hạ sớm, cân, xí cont, cont mới được thu lại đúng số đã chi, tức là chi hộ. Đề nghị thêm cờ "chi hộ" vào danh mục phí `doixe.loai_phi` (dữ liệu, không cố định trong code) để lãi lỗ đợt 3 loại được cả hai phía. Danh mục đợt 1 chưa có các cột phí cảng của file điều xe (PHỤ THU NL, HẠ SỚM, HẠ KH, PHÍ HẠ) do người đi lệnh trả: thêm cùng lúc với cờ, ở một migration riêng.
 14. Sau đợt 1, làm thu và bảng kê (đợt 2) trước, hay chi phí xe và lãi lỗ (đợt 3) trước?
 15. Cước các chặng của 5 xe Trần Hùng: công ty hàng trả thẳng cho Trần Hùng, hay trả cho mình rồi mình trả lại Trần Hùng? Nếu qua mình thì phần chênh là lãi của đội xe và phải vào lãi lỗ.
 16. Ba tài khoản dầu đã ngưng vẫn còn số nợ (số tròn) trên sổ mua dầu. Người dùng chưa rõ đã trả hay chưa (18/11/2026); cần đối chiếu với nơi bán.
