@@ -3874,7 +3874,7 @@ BEGIN
 END $function$;
 ALTER FUNCTION sokhach.get_ledger(bigint) OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach.get_ledger(bigint) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION sokhach.get_ledger(bigint) TO sokhach_app;
+-- LỆCH CỐ Ý để chứng minh CI đỏ (sẽ hoàn lại)
 GRANT EXECUTE ON FUNCTION sokhach.get_ledger(bigint) TO sokhach_reader;
 
 -- FUNCTION sokhach.get_ledger_events(bigint)
