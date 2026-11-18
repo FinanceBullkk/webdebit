@@ -222,7 +222,7 @@
     };
     const nhom = [['Xe công ty', xeLoc.filter(x => !x.thue_ngoai), ''], ['Xe thuê ngoài', xeLoc.filter(x => x.thue_ngoai), ' · chi phí xe thuê làm ở đợt 2']]
       .filter(([, ds]) => ds.length).map(([ten, ds, ghi]) => `<div class="dx-nhom"><b>${ten}</b><span>${ds.length} xe${ghi}</span></div>${ds.map(xeRow).join('')}`).join('');
-    const thangs = (d.thang_co ?? []).slice(-6);
+    const thangs = M.cacThang(d.thang_co, d.hom_nay, d.thang);
     return `<div class="dx-grid2"><section class="dx-card" aria-labelledby="dx-nguoi-t"><div class="dx-card-h"><h2 id="dx-nguoi-t">Người nhận ứng</h2><span class="muted">${nguoi.length} người</span><span class="muted dx-right">Số dư hôm nay</span></div>`
       + '<div class="dx-th dx-g-nguoi"><span>Người</span><span class="r">Chưa hoàn</span><span class="r">Công ty còn nợ</span><span class="r">Đang giữ tiền ứng</span></div>'
       + (rows || '<p class="dx-empty">Không có người khớp chữ đang tìm.</p>')
@@ -239,7 +239,7 @@
     const hoanMo = S.view === 'nguoi' && Boolean(S.hoan);
     let html = '';
     if (!hoanMo) {
-      html += `<div class="dx-tabs" role="group" aria-label="Tháng">${(d.thang_co ?? []).slice(-6).map(t => `<button type="button" class="dx-tab${t === d.thang ? ' on' : ''}" aria-pressed="${t === d.thang}" data-act="thang" data-thang="${t}">Tháng ${Number(t.slice(5, 7))}${khoa(t) ? '<svg viewBox="0 0 24 24" role="img" aria-label="đã khóa"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>' : ''}</button>`).join('')}</div>`;
+      html += `<div class="dx-tabs" role="group" aria-label="Tháng">${M.cacThang(d.thang_co, d.hom_nay, d.thang).map(t => `<button type="button" class="dx-tab${t === d.thang ? ' on' : ''}" aria-pressed="${t === d.thang}" data-act="thang" data-thang="${t}">Tháng ${Number(t.slice(5, 7))}${khoa(t) ? '<svg viewBox="0 0 24 24" role="img" aria-label="đã khóa"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>' : ''}</button>`).join('')}</div>`;
     }
     if (S.view === 'nguoi' && !hoanMo) html += theTienHtml(d);
     if (hoanMo) html += hoanHtml(d);
