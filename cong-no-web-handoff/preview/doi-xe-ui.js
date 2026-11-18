@@ -12,7 +12,7 @@
   const S = {
     view: 'tong', id: null, thang: null, data: null, loadError: '', loading: true, q: '', doiQ: '',
     cach: 'gon', loc: '', drafts: [], moi: null, danCau: '', hoan: null, hop: '', uf: null, huy: null,
-    lichSu: null, busy: false, xoaHoi: null, toast: null, seq: 0,
+    lichSu: null, busy: false, xoaHoi: null, toast: null, giuBao: null, seq: 0,
   };
   const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
 
@@ -100,6 +100,7 @@
   }
 
   function bao(text, loai = 'ok') {
+    if (S.giuBao) { S.giuBao.push([text, loai]); return; }
     S.toast = { text, loai, n: (S.toast?.n ?? 0) + 1 };
     const n = S.toast.n;
     drawToast();
@@ -111,10 +112,16 @@
     draw();
     try {
       const out = await post(path, body);
+      // Thông báo kết quả chỉ hiện sau khi sổ đọc lại xong: người dùng thấy câu báo cùng lúc với số mới.
+      S.giuBao = [];
       if (ok) ok(out);
       await load();
+      const giu = S.giuBao;
+      S.giuBao = null;
+      for (const [text, loai] of giu) bao(text, loai);
       return out;
     } catch (e) {
+      S.giuBao = null;
       bao(e.message, 'err');
       if (e.code === 'CHANGED' || e.code === 'DONG_DA_DOI' || e.code === 'CHANG_NOT_FOUND') await load();
       return null;
