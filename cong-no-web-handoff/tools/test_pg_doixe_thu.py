@@ -32,6 +32,7 @@ from pg_v7_harness import (
     require,
 )
 from test_pg_doixe import MIGRATION as MIGRATION_1
+from test_pg_doixe import PHIEU_CHI
 from test_pg_doixe import PUBLIC_FUNCTIONS as PUBLIC_1
 from test_pg_doixe import Dx, count
 
@@ -83,15 +84,17 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     book = new_book(pg, ("2026-01-01", 1000))
     stamp = pg.value(actor_sql("SELECT sokhach.get_read_stamp()->>'stamp'"))
     pg.sql(MIGRATION_1.read_text(encoding="utf-8"))
+    pg.sql(PHIEU_CHI.read_text(encoding="utf-8"))   # đúng thứ tự trên hao: đợt 1, phiếu chi, rồi đợt 2
     source = MIGRATION_2.read_text(encoding="utf-8")
     pg.rejects(source.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'THU_FAULT'; END $$; COMMIT;"), message="THU_FAULT")
     require(pg.value("SELECT to_regclass('doixe.bang_ke') IS NULL AND NOT EXISTS (SELECT 1 FROM pg_attribute "
                      "WHERE attrelid='doixe.loai_phi'::regclass AND attname='chi_ho')") == "t", "migration lỗi không quay lại")
     pg.sql(source)
     pg.sql(source)
-    require(pg.value("SELECT string_agg(ma, ',' ORDER BY ma) FROM doixe.loai_phi WHERE chi_ho") == "moi,xi", "cờ chi hộ phía chi")
+    require(pg.value("SELECT string_agg(ma, ',' ORDER BY ma) FROM doixe.loai_phi WHERE chi_ho") == "hasom,moi,xi", "cờ chi hộ phía chi")
     require(count(pg, "SELECT count(*) FROM doixe.phat_sinh") == 14 and count(pg, "SELECT count(*) FROM doixe.ben") == 1, "danh mục thu")
-    cases.append("migration đợt 2 lỗi thì quay lại, chạy lại được hai lượt; cờ chi hộ xí cont/cont mới; 14 khoản phát sinh, một bên HTH")
+    cases.append("migration đợt 2 (sau đợt 1 và phiếu chi) lỗi thì quay lại, chạy lại được hai lượt; cờ chi hộ xí cont, cont mới, hạ sớm/KH; "
+                 "14 khoản phát sinh, một bên HTH")
 
     granted = json.loads(pg.value("SELECT coalesce(json_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' "
                                   "ORDER BY 1),'[]') FROM pg_proc p WHERE p.pronamespace='doixe'::regnamespace "

@@ -57,6 +57,23 @@
     return { v };
   }
 
+  // Phiếu chi mới (11/2026): số lượng của chặng, không phải tiền. Số nguyên 1..max; trống là null; đơn vị gõ kèm được bỏ đi.
+  const SO_LUONG = { neo_ngay: { max: 365, ten: 'Ngày neo' }, may_gio: { max: 999, ten: 'Giờ máy' }, km: { max: 9999, ten: 'Km' } };
+  function docSoLuong(text, max) {
+    const t = boDau(text).replace(/\s+/g, ' ').trim().replace(/\s*(ngay|h|gio|tieng|km)$/, '');
+    if (t === '' || t === '-') return { v: null };
+    if (/^\d+[.,]\d+$/.test(t)) return { loi: 'Số lẻ' };
+    if (!/^\d+$/.test(t)) return { loi: 'Không phải số' };
+    const v = Number(t);
+    if (v === 0) return { loi: 'Số 0: để trống' };
+    if (v > max) return { loi: `Quá ${max}` };
+    return { v };
+  }
+  // Ô NỔ MÁY PHÁT trên Sheet ghi giờ kèm đơn vị ("5H", "3 TIẾNG"): là số giờ, không phải tiền.
+  const gioMay = raw => { const m = boDau(raw).trim().match(/^(\d{1,3})\s*(h|gio|tieng)$/); return m && Number(m[1]) > 0 ? Number(m[1]) : null; };
+  // Ô TỈNH theo phiếu mới ghi "huyện, tỉnh, km": lấy số km nếu có.
+  const kmTinh = raw => { const m = boDau(raw).match(/(\d{1,4})\s*km(?![a-z])/); return m && Number(m[1]) > 0 ? Number(m[1]) : null; };
+
   function ngayHopLe(y, m, d) {
     if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2020 || y > 2100) return { loi: 'Ngày lạ' };
     const dt = new Date(Date.UTC(y, m - 1, d));
@@ -153,10 +170,11 @@
     const ngay = docNgaySheet(g(COT.ngay));
     const container = chuanCont(g(COT.cont) || g(COT.contKeo));
     const phi = {}, loiO = {}, tho = {};
-    let coTien = false;
+    let coTien = false, mayGio = null;
     for (const p of loaiPhi) {
       if (p.cot_sheet === null || p.cot_sheet === undefined) continue;
       const raw = g(p.cot_sheet);
+      if (p.ma === 'may' && gioMay(raw) !== null) { mayGio = gioMay(raw); continue; }
       const r = docTien(raw);
       if (r.loi) { loiO[p.ma] = r.loi; tho[p.ma] = raw; coTien = true; } else if (r.v !== null) { phi[p.ma] = r.v; coTien = true; }
     }
@@ -168,6 +186,7 @@
       raw: cells.join('\t'), ngay: ngay.v ?? '', ngayLoi: ngay.loi ?? '', container, loai: doanLoai(ghiChu),
       noi_lay: g(COT.lay), noi_ha: g(COT.ha), kho: g(COT.kho), tinh: g(COT.tinh), ten_hang: g(COT.hang), ghi_chu: ghiChu,
       xe: xe.v ?? null, xeLoi: xe.loi ?? '', phi, loiO, tho, tongSheet: tong.v ?? null,
+      neo_ngay: null, may_gio: mayGio, km: kmTinh(g(COT.tinh)), loiSL: {}, thoSL: {},
     };
     return { d: hoanThien(d, ctx, xeList) };
   }
@@ -198,11 +217,21 @@
       raw: '', ngay: ngay.v ?? '', ngayLoi: ngay.loi ?? '', container: chuanCont(moi.container), loai: moi.loai || 'hang',
       noi_lay: (moi.noi_lay ?? '').trim(), noi_ha: (moi.noi_ha ?? '').trim(), kho: (moi.kho ?? '').trim(), tinh: '', ten_hang: '',
       ghi_chu: (moi.ghi_chu ?? '').trim(), xe: moi.xe ? Number(moi.xe) : ctx.xe ?? null, xeLoi: '', phi, loiO, tho, tongSheet: null,
+      loiSL: {}, thoSL: {},
     };
+    for (const [k, sl] of Object.entries(SO_LUONG)) ganSoLuong(d, k, moi[k] ?? '', sl.max);
     return hoanThien(d, ctx, xeList);
   }
 
+  // Gán một ô số lượng của dòng nháp: lỗi giữ nguyên chữ đã gõ để sửa tại ô.
+  function ganSoLuong(d, k, text, max) {
+    const r = docSoLuong(text, max);
+    d.loiSL ??= {}; d.thoSL ??= {};
+    if (r.loi) { d.loiSL[k] = r.loi; d.thoSL[k] = String(text); d[k] = null; } else { delete d.loiSL[k]; delete d.thoSL[k]; d[k] = r.v; }
+  }
+
   const moiCo = moi => Boolean(moi && (moi.ngay || moi.container || moi.noi_lay || moi.noi_ha || moi.kho || moi.ghi_chu
+    || Object.keys(SO_LUONG).some(k => String(moi[k] ?? '').trim())
     || Object.values(moi.phi ?? {}).some(v => String(v ?? '').trim())));
 
   const khoaChang = d => `${d.ngay}|${d.container}|${d.loai}|${d.xe}`;
@@ -217,7 +246,7 @@
 
   // Kiểm dòng nháp: trả {loiCot, loi (lỗi đầu tiên), canhBao}. `daLuu` là khóa chặng đã lưu đang biết; `nhap` là mọi dòng nháp.
   function kiemDong(d, daLuu, nhap, loaiPhi, homNay) {
-    const loiCot = { ...d.loiO };
+    const loiCot = { ...d.loiO, ...d.loiSL };
     const coTien = loaiPhi.some(p => d.phi[p.ma] !== undefined) || Object.keys(d.loiO).length > 0;
     if (!d.ngay && !d.container && coTien) {
       loiCot.ngay = 'Có tiền, thiếu ngày và cont';
@@ -236,7 +265,7 @@
       const k = khoaChang(d);
       if (daLuu.has(k) || nhap.some(x => x !== d && khoaChang(x) === k)) loiCot.container = 'Đã có chặng này';
     }
-    const thu = ['ngay', 'container', 'xe', ...loaiPhi.map(p => p.ma)];
+    const thu = ['ngay', 'container', 'xe', ...Object.keys(SO_LUONG), ...loaiPhi.map(p => p.ma)];
     const dau = thu.find(c => loiCot[c]);
     let canhBao = '';
     if (!dau && d.tongSheet !== null) {
@@ -283,6 +312,7 @@
       ngay: d.ngay || null, container: d.container, loai: d.loai, xe_id: d.xe, tai_xe_id: d.taiXe ?? null,
       tra: d.nguoiTra ? 'nguoi' : 'cong_ty', nguoi_tra_id: d.nguoiTra ?? null,
       noi_lay: chu(d.noi_lay), noi_ha: chu(d.noi_ha), kho: chu(d.kho), tinh: chu(d.tinh), ten_hang: chu(d.ten_hang), ghi_chu: chu(d.ghi_chu), phi,
+      ...Object.fromEntries(Object.keys(SO_LUONG).map(k => [k, d[k] === null || d[k] === undefined ? null : String(d[k])])),
     };
   }
 
@@ -437,7 +467,7 @@
     return String(v);
   };
   const TEN_COT = { ngay: 'Ngày', container: 'Container', loai: 'Loại chặng', xe_id: 'Xe', noi_lay: 'Nơi lấy', noi_ha: 'Nơi hạ', kho: 'Kho',
-    ghi_chu: 'Ghi chú' };
+    ghi_chu: 'Ghi chú', ...Object.fromEntries(Object.entries(SO_LUONG).map(([k, sl]) => [k, sl.ten])) };
   const tenCot = (cot, loaiPhi) => (String(cot).startsWith('phi:') ? loaiPhi.find(p => p.ma === cot.slice(4))?.ten ?? cot : TEN_COT[cot] ?? cot);
   const LY_DC = { thang_khoa: 'Tháng đã khóa', da_hoan: 'Dòng đã hoàn', co_dieu_chinh: 'Đã có điều chỉnh' };
 
@@ -471,7 +501,7 @@
   }
 
   return {
-    LOAI, TEN_LOAI, COT, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, cacThang, chuanCont,
+    LOAI, TEN_LOAI, COT, SO_LUONG, docSoLuong, ganSoLuong, gioMay, kmTinh, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, cacThang, chuanCont,
     tachTSV, doanLoai, timXe, dongTuSheet, hoanThien, nhapTuGo, moiCo, khoaChang, khoaDaLuu, chiNhap, kiemDong, danKhoi, dongGui, loiMay,
     tienDong, phiHieuLuc, phiGoc, tienChang, coPhi, daHoan, chuaNoi, laChuaHoan, dongChuaHoan, tongTien, chenhDot, tongChon, lechHoan, truUngGiu, sauKhiGhi,
     sauKhiHuy, cuoiThe, loiDu, nhanCuoi, cotPhiGon, phiKhac, phiKhacNhap, tongCot, tongChi, theXe, xepNguoi, tongNguoi, tenNguoi, tenCot,

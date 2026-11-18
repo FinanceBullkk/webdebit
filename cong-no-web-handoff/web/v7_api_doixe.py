@@ -25,10 +25,12 @@ CHANG_PATH = PREFIX + "/chang"
 MAX_CHANG_BODY = 256 * 1024
 MAX_ROWS = 200
 LOAI = ("hang", "chuyen_cang", "tra_rong", "rut_mooc", "tha_mooc", "khac")
-PHI = ("nang", "nangha", "cau", "neo", "xi", "dao", "moi", "doi", "seal", "bai", "dieu", "dau", "ps", "may", "vetc")
+PHI = ("nang", "nangha", "cau", "neo", "xi", "dao", "moi", "doi", "seal", "bai", "dieu", "dau", "ps", "may", "vetc", "hasom")
+# Phiếu chi mới (11/2026): số lượng của chặng, chuỗi số nguyên 1..trần; null là trống. Không phải tiền.
+SO_LUONG = {"neo_ngay": 365, "may_gio": 999, "km": 9999}
 TEXT_COLS = ("noi_lay", "noi_ha", "kho", "ghi_chu")
 ROW_FIELDS = {"ngay", "container", "loai", "xe_id", "tai_xe_id", "tra", "nguoi_tra_id", "noi_lay", "noi_ha", "kho", "tinh",
-              "ten_hang", "ghi_chu", "phi"}
+              "ten_hang", "ghi_chu", "phi", *SO_LUONG}
 MONEY = re.compile(r"0|[1-9][0-9]{0,15}")
 MONTH = re.compile(r"[0-9]{4}-[0-9]{2}-01")
 KEY_LIMIT = 128
@@ -67,6 +69,13 @@ def _money(value: object, *, nullable: bool = True) -> None:
         bad("INVALID_VND", "Số tiền phải là số nguyên VND, không âm.")
 
 
+def _count(value: object, limit: int) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,4}", value) or int(value) > limit:
+        bad("INVALID_SO_LUONG", f"Số lượng phải là số nguyên từ 1 tới {limit}.")
+
+
 def _id(value: object, *, nullable: bool = False) -> None:
     if value is None and nullable:
         return
@@ -100,6 +109,8 @@ def _row(row: object) -> None:
         bad()
     for value in fees.values():
         _money(value)
+    for name, limit in SO_LUONG.items():
+        _count(row.get(name), limit)
 
 
 def _cell(body: dict) -> None:
@@ -111,6 +122,9 @@ def _cell(body: dict) -> None:
             bad()
         _money(before)
         _money(value)
+    elif column in SO_LUONG:
+        _count(before, 99999)
+        _count(value, SO_LUONG[column])
     elif column in ("ngay", "container", "loai", "xe_id", "nguoi_tra", *TEXT_COLS):
         for item in (before, value):
             _text(item, 200)

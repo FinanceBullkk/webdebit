@@ -16,7 +16,7 @@
   };
   const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
 
-  const moiTrong = () => ({ ngay: '', container: '', loai: 'hang', xe: '', noi_lay: '', noi_ha: '', kho: '', ghi_chu: '', phi: {} });
+  const moiTrong = () => ({ ngay: '', container: '', loai: 'hang', xe: '', noi_lay: '', noi_ha: '', kho: '', ghi_chu: '', neo_ngay: '', may_gio: '', km: '', phi: {} });
   S.moi = moiTrong();
 
   // ---------- Địa chỉ ----------
@@ -333,6 +333,10 @@
     if (du || ctx.xemXe) cols.push({ k: 'xe', t: 'Xe', w: 116 });
     cols.push({ k: 'loai', t: 'Loại chặng', w: 136 });
     if (du) cols.push({ k: 'noi_lay', t: 'Nơi lấy', w: 124 }, { k: 'noi_ha', t: 'Nơi hạ', w: 124 }, { k: 'kho', t: 'Kho', w: 110 });
+    // Phiếu chi mới (11/2026): số lượng ghi trên phiếu, không phải tiền nên không vào cột Tài xế chi.
+    if (du) cols.push({ k: 'km', t: 'Km', d: 'Km của chặng ghi trên phiếu chi', w: 64, sl: true },
+      { k: 'neo_ngay', t: 'Ngày neo', d: 'Số ngày neo kho (tiền neo ở cột Neo)', w: 70, sl: true },
+      { k: 'may_gio', t: 'Giờ máy', d: 'Số giờ nổ máy phát (tiền ở cột Nổ máy)', w: 70, sl: true });
     const wPhi = ctx.xemTx || ctx.xemXe ? 82 : 88;
     let khac = [];
     if (du) {
@@ -373,7 +377,7 @@
     let left = 0;
     const stickyAt = cols.map(c => { if (!sticky.has(c.k)) return null; const at = left; left += c.w; return at; });
     const st = i => (stickyAt[i] !== null ? ` style="left:${stickyAt[i]}px"` : '');
-    const cls = (c, i) => `${c.tien ? 'r num' : ''}${stickyAt[i] !== null ? ' dx-stick' : ''}${c.cty ? ' cty' : ''}`;
+    const cls = (c, i) => `${c.tien || c.sl ? 'r num' : ''}${stickyAt[i] !== null ? ' dx-stick' : ''}${c.cty ? ' cty' : ''}`;
     const heads = cols.map((c, i) => `<span class="${cls(c, i)}"${st(i)} ${c.d ? `title="${esc(c.d)}"` : ''}>${esc(c.t)}</span>`).join('');
     const rows = [];
     if (hoanMo) {
@@ -459,6 +463,10 @@
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') {
         if (phu) return wrap('');
         return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, c[k], { aria: `${col.t} · ${aria}` }));
+      }
+      if (col.sl) {
+        if (phu) return wrap('');
+        return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, c[k] ?? '', { tien: true, aria: `${col.t} · ${aria}` }));
       }
       if (k === 'khac') {
         const s = phu ? M.phiKhac({ dong: [dong] }, khac) : M.phiKhac({ dong: [dong] }, khac);
@@ -547,6 +555,7 @@
       if (k === 'xe') return wrap(selXe('moi:0:xe', Number(m.xe) || ctx.xe, 'Xe · hàng trống'));
       if (k === 'loai') return wrap(selLoai('moi:0:loai', m.loai, 'Loại chặng · hàng trống'));
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') return wrap(cellIn(`moi:0:${k}`, m[k], { aria: `${col.t} · hàng trống` }));
+      if (col.sl) return wrap(cellIn(`moi:0:${k}`, m[k], { tien: true, aria: `${col.t} · hàng trống` }));
       if (col.tien && k !== 'chi' && k !== 'khac') return wrap(cellIn(`moi:0:phi:${k}`, m.phi[k] ?? '', { tien: true, aria: `${col.t} · hàng trống` }));
       if (k === 'tt') return wrap(co ? tag('Enter để thêm', 'xam', 'Bấm Enter để đưa dòng này vào nháp') : '');
       if (k === 'del') return wrap(co ? `<button type="button" class="dx-del" data-act="xoa-moi" aria-label="Xóa chữ đang gõ ở hàng trống" title="Xóa chữ đang gõ ở hàng trống"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>` : '');
@@ -568,6 +577,7 @@
       if (k === 'xe') return wrap(selXe(`nhap:${id}:xe`, x.xe, `Xe · ${aria}`, kq.loiCot.xe));
       if (k === 'loai') return wrap(selLoai(`nhap:${id}:loai`, x.loai, `Loại chặng · ${aria}`));
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') return wrap(cellIn(`nhap:${id}:${k}`, x[k], { aria: `${col.t} · ${aria}` }));
+      if (col.sl) return wrap(cellIn(`nhap:${id}:${k}`, loi ? x.thoSL?.[k] ?? '' : x[k] ?? '', { tien: true, loi, title: loi, aria: `${col.t} · ${aria}` }));
       if (k === 'khac') {
         const loiK = khac.map(p => kq.loiCot[p.ma]).find(Boolean);
         if (loiK) return wrap(tag(loiK, 'loi', 'Ô phí khác có lỗi: xem Đủ cột'));
@@ -769,6 +779,7 @@
       else { delete x.loiO[ma]; delete x.tho[ma]; if (r.v === null) delete x.phi[ma]; else x.phi[ma] = r.v; }
       x.tongSheet = null;
     } else if (col === 'xe') { x.xe = text ? Number(text) : null; x.xeLoi = ''; M.hoanThien(x, ngCanh(), dm().xe); }
+    else if (M.SO_LUONG[col]) M.ganSoLuong(x, col, text, M.SO_LUONG[col].max);
     else x[col] = text;
   }
 
@@ -800,6 +811,12 @@
     } else if (col === 'nguoi_tra') {
       truoc = c.nguoi_tra_id === null ? 'cong_ty' : String(c.nguoi_tra_id); giaTri = text;
       if (truoc === giaTri) return;
+    } else if (M.SO_LUONG[col]) {
+      const sl = M.SO_LUONG[col], r = M.docSoLuong(text, sl.max);
+      if (r.loi) { bao(`${r.loi} ở ô ${sl.ten}: gõ số nguyên từ 1 tới ${sl.max}, hoặc để trống.`, 'err'); draw(); return; }
+      if (r.v === (c[col] ?? null)) { draw(); return; }
+      truoc = c[col] === null || c[col] === undefined ? null : String(c[col]);
+      giaTri = r.v === null ? null : String(r.v);
     } else {
       const moi = text.trim() || null;
       if (moi === (c[col] ?? null)) return;
