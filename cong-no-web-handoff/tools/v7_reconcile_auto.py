@@ -300,7 +300,11 @@ def attach_hints(row: dict[str, Any], ledger: dict, prices: dict, receipts: dict
         print(f"V7 đối soát máy: không đoán được lý do lệch ({type(exc).__name__})", file=sys.stderr, flush=True)
         return
     if found:   # chuyến đi trước cần xem (nếu có) đứng sau các chỗ gây lệch
-        row.update(hints=[*(hints.money_fields(hint) for hint in found), *(row.get("hints") or [])], hints_explain=explained)
+        row.update(hints=[*(hints.money_fields(hint) for hint in found), *(row.get("hints") or [])], hints_explain=explained,
+                   hints_basis={"version": ledger.get("version"), "prices_sha256": prices["sha256"],
+                                "receipts_sha256": receipts["sha256"],
+                                "web_total_vnd": str(row["web_total_vnd"]),
+                                "sheet_total_vnd": str(row["sheet_total_vnd"]) if row["sheet_total_vnd"] is not None else None})
 
 
 def attach_ahead_check(row: dict[str, Any], ledger: dict, prices: dict, customers: list[dict], today: dt.date) -> None:

@@ -53,12 +53,13 @@ globalThis.DoiChieuView = (() => {
     const texts = M.hintTexts(row, value => say(value, F));
     if (!texts.length) return null;
     const aheadOnly = M.aheadToCheck(row) && (row.reason === 'WEB_AHEAD' || row.reason === 'FIXED');
-    const head = row.reason === 'HELD' ? 'Sheet có chỗ máy chưa đọc được, chưa so được. ' : aheadOnly ? 'Web đi trước Sheet, có chuyến cần xem: ' : row.hints_explain ? 'Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: ' : 'Máy chưa chắc, có thể do: ';
+    const head = row.reason === 'HELD' ? 'Sheet có chỗ máy chưa đọc được, chưa so được. ' : aheadOnly ? 'Web đi trước Sheet, có chuyến cần xem: ' : row.hints_explain ? 'Có tổ hợp gợi ý khớp số tiền lệch, cần kiểm chứng: ' : 'Máy chưa chắc, có thể do: ';
     const more = texts.length > 2 ? ` Còn ${texts.length - 2} chỗ nữa, mở để xem.` : '';
     return `${head}${texts.slice(0, 2).join(' ')}${more}`;
   }
 
   function whyText(row, now, F) {
+    if (row.hints_stale && !row.hints?.length) return 'Gợi ý của lượt đối soát chưa được xác nhận với sổ và nguồn hiện tại. Mở đối chiếu; nếu dữ liệu đã đổi, chờ lượt đối soát mới.';
     const shuffled = row.shuffled_months?.length ? ` Tháng có đơn giá đổi chỗ: ${monthsShort(row.shuffled_months)}.` : '';
     const editing = row.sheet_editing ? `Sheet vừa sửa lúc ${when(row.sheet_last_edit_at, now)}, máy xem lại ở lượt sau. ` : '';
     const lastEdit = !row.sheet_editing && row.sheet_last_edit_at && !/^WOULD_/.test(row.reason) ? ` Sheet sửa lần cuối lúc ${when(row.sheet_last_edit_at, now)}.` : '';
@@ -203,7 +204,7 @@ globalThis.DoiChieuView = (() => {
     return { hints: rows.map(entry => entry.text), hintRows: rows };
   }
 
-  function lechHtml(reconcile, state, { F, esc, href, now, action, busy, nothing }) {
+  function lechHtml(reconcile, state, { F, esc, href, now, action, busy, nothing, bookVersions }) {
     if (!reconcile?.checked_at) return `<p class="dc-empty">${esc(nothing ?? 'Chưa có kết quả đối soát nên chưa biết số nợ có đúng không.')}</p>`;
     const all = M.openRows(reconcile);
     const allOutside = reconcile.outside_tabs ?? [];
@@ -217,7 +218,9 @@ globalThis.DoiChieuView = (() => {
       + `<button type="button" class="filter-chip" data-dc-filter="" aria-pressed="${!sheetOnly}">Tất cả <b>${all.length + allOutside.length}</b></button>`
       + `<button type="button" class="filter-chip" data-dc-filter="sheet" aria-pressed="${sheetOnly}" title="Khách máy chưa so được vì tab Sheet có chỗ sai · bấm để lọc">Sheet cần sửa <b>${fix.length}</b></button></div>` : '';
     const tag = item => (M.isSheetFix(item) ? `<span class="dc-tag">${esc(M.sheetFixLabel(item))}</span> ` : '');
-    const row = item => {
+    const row = original => {
+      const item = M.currentHints(original, state.open === original.customer_id ? (state.data.get(original.customer_id) ?? null) : undefined,
+        bookVersions?.get(original.customer_id), state.hintsUnverified?.has(original.customer_id));
       const id = item.customer_id;
       const open = id && state.open === id;
       const statement = open ? state.data.get(id) : undefined;
@@ -225,7 +228,7 @@ globalThis.DoiChieuView = (() => {
       const live = open && statement?.sheet_total_vnd != null
         ? (M.aheadToCheck(item) ? (BigInt(statement.web_vnd) - BigInt(statement.sheet_total_vnd)).toString() : M.summarize(statement).now) : item.difference_vnd;
       const web = open && statement ? statement.web_vnd : item.web_total_vnd;
-      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${tag(item)}${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, ...hintProps(item, statement, state, F), aheadCheck: M.aheadToCheck(item) })}</td></tr>` : ''}`;
+      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(open && statement ? statement.sheet_total_vnd : item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${tag(item)}${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, ...hintProps(item, statement, state, F), aheadCheck: M.aheadToCheck(item) })}</td></tr>` : ''}`;
     };
     const outsideRows = outside.map(tab => `<tr class="dc-customer"><th scope="row">${esc(tab.customer)}</th><td class="num">—</td><td class="num">${money(tab.sheet_total_vnd, F)}</td><td class="num dc-gap">—</td><td class="dc-why">${esc(OUTSIDE_TEXT[tab.reason] ?? 'Tab còn nợ, máy chưa tạo được sổ.')}</td><td></td></tr>`).join('');
     const empty = !rows.length && !outside.length ? `<div class="dc-empty ok"><p><strong>Không có khách nào lệch. Chưa cần làm gì.</strong></p><p>Máy kiểm lại lúc ${esc(M.nextCheck(now))}. Email chỉ gửi khi máy lỗi hoặc dừng; khách lệch hiện ở đây.</p></div>` : '';
