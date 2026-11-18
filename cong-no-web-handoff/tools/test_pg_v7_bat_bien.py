@@ -32,6 +32,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from pg_v7_harness import (
+    DATABASE,
     FUNCTIONS,
     IMAGE,
     SCHEMA,
@@ -73,6 +74,10 @@ MUTANTS = {
 }
 METHODS = ("THU TIỀN", "CẤN TRỪ", "ỨNG TRƯỚC", "KHÁC")
 MONEY = re.compile(r"^-?[0-9]+$")
+# get_ledger chậm dần theo số sổ của cả DB (đo 18/11/2026: v_outstanding_month gọi với tham số, như trong hàm,
+# tính cửa sổ trên mọi sổ, khoảng 16 ms mỗi tháng khi DB có 600 sổ), nên cứ RESET_EVERY chuỗi dựng lại DB thử từ bản mẫu.
+RESET_EVERY = 20
+TEMPLATE = "bat_bien_mau"
 WINDOW = 6  # tháng hiện tại và 5 tháng trước có dòng month_state mở; tháng cũ hơn mặc định khóa
 
 HELPERS = r"""
@@ -1084,6 +1089,11 @@ class Runner:
         self.pg = pg
         self.round_trips = 0
 
+    def reset(self) -> None:
+        """Dựng lại DB thử từ bản mẫu (schema, hàm, hàm trợ giúp và lỗi cấy nếu có), bỏ các sổ của chuỗi trước."""
+        self.pg.sql(f"SET statement_timeout = 0; DROP DATABASE {DATABASE}; "
+                    f"CREATE DATABASE {DATABASE} TEMPLATE {TEMPLATE} STRATEGY = FILE_COPY", database="postgres")
+
     def query(self, sql: str) -> str:
         """Một lượt psql qua `Pg` của harness; bỏ statement_timeout 15 giây của harness cho cả chuỗi (giới hạn
         30 giây của một lượt vẫn còn: một chuỗi 25 lệnh mất dưới 2 giây)."""
@@ -1205,8 +1215,12 @@ def main() -> int:
             pg.sql(HELPERS)
             if args.mutant:
                 apply_mutant(pg, args.mutant)
+            pg.sql(f"SET statement_timeout = 0; CREATE DATABASE {TEMPLATE} TEMPLATE {DATABASE} STRATEGY = FILE_COPY",
+                   database="postgres")
             runner = Runner(pg)
-            for i in which:
+            for n, i in enumerate(which):
+                if n and n % RESET_EVERY == 0:
+                    runner.reset()
                 rng = random.Random(f"{args.seed}:{i}")
                 setup = gen_setup(rng, args.books)
                 shadow, ops, violation = runner.sequence(f"s{i}", setup, None, rng, args.steps)
@@ -1218,10 +1232,11 @@ def main() -> int:
                     else:
                         stats["rejected"][p["expect"]] = stats["rejected"].get(p["expect"], 0) + 1
                 if violation is not None:
+                    runner.reset()
                     report_violation(args, i, setup, ops, violation, runner, report)
                     break
-                if (i + 1) % 100 == 0:
-                    print(f"  {i + 1} chuỗi, {stats['commands']} lệnh, {round(time.monotonic() - started)} s", flush=True)
+                if (n + 1) % 100 == 0:
+                    print(f"  {n + 1} chuỗi, {stats['commands']} lệnh, {round(time.monotonic() - started)} s", flush=True)
             report["round_trips"] = runner.round_trips
         if "violation" not in report:
             report["result"] = "pass"

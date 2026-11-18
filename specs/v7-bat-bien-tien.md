@@ -40,7 +40,8 @@ Bóng sổ dự đoán từng lệnh được nhận hay bị từ chối với 
 chuyến đã xóa → chờ kiểm → tháng khóa → không đổi → dòng phụ phí không ngày). Cả chuỗi chạy trong một lượt psql
 (`bat_bien.run` trong DB thử: mỗi lệnh một subtransaction với `sokhach.actor` riêng, ràng buộc hoãn kiểm ngay sau lệnh
 như lúc COMMIT, rồi chụp ảnh các sổ); Python đi lại từng bước để kiểm. Cách này cần vì mỗi lượt `docker exec` trên
-Windows mất khoảng 150 ms.
+Windows mất khoảng 150 ms. Cứ 20 chuỗi, DB thử được dựng lại từ một bản mẫu (schema, hàm, hàm trợ giúp, lỗi cấy nếu
+có) vì `get_ledger` chậm dần theo tổng số sổ của cả DB (xem Câu hỏi mở).
 
 ## Bất biến kiểm sau mỗi bước
 
@@ -102,3 +103,11 @@ Revert PR. Không có dữ liệu, migration hay triển khai nào để gỡ.
 ## Bằng chứng
 
 (điền khi xong)
+
+## Câu hỏi mở
+
+- Hiệu năng, ngoài phạm vi test này: trong DB thử có khoảng 600 sổ nhỏ, `get_ledger` của một sổ gần trống mất khoảng
+  340 ms. Đo 18/11/2026: `SELECT count(*) FROM sokhach.v_outstanding_month WHERE customer_id=$1` với plan chung (như
+  khi chạy trong hàm plpgsql) mất khoảng 16 ms vì cửa sổ được tính trên mọi sổ, còn với hằng số chỉ 0,2 ms; `get_ledger`
+  gọi view này một lần cho mỗi tháng của sổ. Trên `hao` (242 sổ) mở cả 242 sổ mất 23 giây ([lưới an toàn](v7-luoi-an-toan.md)),
+  khớp hướng này. Chưa kiểm trên `hao`; cần một việc riêng để đo và sửa.
