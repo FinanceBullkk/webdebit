@@ -20,6 +20,18 @@ const { chromium } = require('playwright');
 
 const NO_BUFFER = 'ERR_NO_BUFFER_SPACE';
 
+// Nút làm lộ test chờ sai (CHAP-CHON-01): WEBDEBIT_TEST_CPU_SLOWDOWN=4 làm JS của trang chậm 4 lần (CDP
+// Emulation.setCPUThrottlingRate), như runner CI đang tải nặng. Ca ngủ cố định rồi đo, hay đo DOM ngay sau một thao tác,
+// sẽ đỏ; ca chờ đúng tín hiệu thì chỉ chậm hơn. Mặc định tắt. Job đêm flaky-nightly.yml có một lượt bật nút này.
+const SLOWDOWN = Number(process.env.WEBDEBIT_TEST_CPU_SLOWDOWN) || 0;
+
+async function slowDown(page) {
+  if (SLOWDOWN <= 1) return page;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: SLOWDOWN });
+  return page;
+}
+
 let launched = null;
 nodeTest.after(() => launched?.then(browser => browser.close(), () => {}));
 
@@ -66,6 +78,10 @@ async function launchShared() {
     async newContext(options) {
       const context = watchNetwork(await browser.newContext(options));
       contexts.push(context);
+      if (SLOWDOWN > 1) {
+        const open = context.newPage.bind(context);
+        context.newPage = async () => slowDown(await open());
+      }
       return context;
     },
     async newPage(options) {

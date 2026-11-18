@@ -62,7 +62,9 @@ function ledgerRoute(world, req, url, body, json) {
     const id = url.searchParams.get('conversation');
     return json(200, { marks: world.marks.filter(row => row.conversation_id === id).slice().reverse() });
   }
-  if (req.method !== 'POST') return false;
+  // Báo vị trí (presence.js) cũng là POST và đi theo nhịp giờ: không phải lệnh ghi sổ, để nhánh presence bên dưới trả lời.
+  // Ghi nó vào posts thì posts.at(-1) có lúc là nhịp báo vị trí rơi vào sau lệnh cần kiểm (máy chậm thì dễ gặp).
+  if (req.method !== 'POST' || url.pathname.startsWith('/api/v7/presence')) return false;
   world.posts.push({ path: url.pathname, body });
   if (url.pathname === '/api/v7/zalo/link') {
     const book = world.customers.find(row => row.id === body.customer_id);
