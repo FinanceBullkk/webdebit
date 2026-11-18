@@ -2,6 +2,8 @@
 
 Trạng thái: luồng đợt 1 ĐÃ CHỐT (người dùng, 18/11/2026, sau khi bấm thử bản trên canvas: "Chốt, code đi"); mô hình dữ liệu và đợt 2–3 vẫn ĐỀ XUẤT (Claude). Những gì người dùng đã chốt ghi ở [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md). Chỗ ghi CÒN MỞ phải hỏi lại trước khi code phần đó.
 
+Bức tranh tổng của dữ liệu nhà xe và hướng kiến trúc ĐỀ XUẤT ngày 19/11/2026 (chưa chốt, không thay nội dung spec này): [Đội xe: bản đồ dữ liệu và kiến trúc](../docs/doi-xe-kien-truc-du-lieu.md).
+
 ## Mục tiêu
 
 Người dùng chốt ngày 18/11/2026:
