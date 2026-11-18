@@ -3697,6 +3697,7 @@ CREATE OR REPLACE FUNCTION sokhach.get_ledger(customer_id bigint)
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+ SET jit TO 'off'
 AS $function$
 DECLARE v_version bigint; v_active boolean; v_months jsonb; v_trips jsonb;
         v_adjustments jsonb; v_receipts jsonb; v_opening jsonb; v_legacy jsonb;
