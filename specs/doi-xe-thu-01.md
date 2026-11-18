@@ -31,6 +31,20 @@ Hai file công nợ cảng: Tín Phát có 204 dòng, Trần Hùng có 68 dòng.
 - File BK tháng 3–4 có mẫu bảng kê "Kính gửi" công ty hàng. Các cột doanh thu: cước, kiểm hóa, đóng ghép, neo, nổ máy phát, hạ sớm, lấy xa, xí cont/trái tuyến/xe nâng, hạ Hưng Thịnh, phát sinh, cont mới; thêm một cột chi hộ.
 - Không có chỗ nào ghi tiền công ty hàng đã trả.
 
+Kiểm thêm theo yêu cầu người dùng (18/11/2026), trên file tháng 9 và tháng 10 của cả hai bên:
+
+- **Không file debit nào ghi tên công ty nhận.** Cả 5 file chỉ có tiêu đề "DEBIT … THÁNG …". Cột kho có mã khách của HTH, còn mẫu BK tháng 3–4 ghi "Kính gửi" AS Logistics: CÒN MỞ (1).
+- **Chi hộ, đo bằng cách so khoản thu trên debit với khoản đội xe đã chi cho cùng container:**
+  - Kiểm hoá: 51/51 lần thu đúng bằng số đã chi (ghi ở cột hạ kiểm hoá của file điều xe).
+  - Hạ sớm: 49/50 lần thu đúng bằng số đã chi.
+  - Cân: 7/9 lần thu đúng bằng số đã chi; khoản này đang bị ghi vào cột phí nâng của file điều xe.
+  - Xí cont: 89/165 lần thu đúng bằng số tài xế đã chi; các lần còn lại không có dòng chi tương ứng (phần lớn là chặng không có trong sheet chi phí tài xế).
+  - Cont mới: 10/20 lần thu đúng bằng số đã chi.
+  - Neo: 59/94 lần thu cao hơn số tài xế được chi, không lần nào bằng nhau. Vậy neo là doanh thu, kèm một khoản chi cho tài xế.
+  - Nổ máy phát, phí bãi Đồng An: không có dòng chi tương ứng, tức là doanh thu.
+- **Phí cảng không có trên debit.** Phí nâng (do tài xế trả, hoặc trả qua file điều xe) và phí hạ (file điều xe) là các khoản lớn, nhưng không nằm trên debit. Chưa biết công ty hàng trả lại riêng hay đội xe chịu luôn trong cước: CÒN MỞ (11).
+- **Xe Trần Hùng tính cùng giá cước với Tín Phát.** Trong 11 nhóm tuyến cả hai bên cùng chạy, 10 nhóm có cùng mức giá. Phát sinh thì có mức riêng. File điều xe trả phí cảng cho cả chặng của xe Trần Hùng. Chưa đủ để biết tiền cước của Trần Hùng đi qua mình hay không: CÒN MỞ (2).
+
 ## Mô hình dữ liệu (ĐỀ XUẤT)
 
 Nối vào schema `doixe` của đợt 1. Chỉ đọc bảng của `sokhach`, không ghi vào đó.
@@ -43,7 +57,7 @@ Nối vào schema `doixe` của đợt 1. Chỉ đọc bảng của `sokhach`, k
 | `dong_thu` | một khoản thu của chặng | Đã có trong mô hình đợt 1. Số tiền do web gợi ý theo bảng giá, người nhập sửa được, mọi lần sửa ghi Lịch sử |
 | `bang_ke` | một bảng kê tháng gửi một công ty hàng | Trạng thái: nháp → đã gửi → đã đối chiếu; có số bảng kê |
 | `dieu_chinh_bang_ke` | một khoản cộng hoặc trừ khi đối chiếu | Bắt buộc lý do, ghi người làm; thay cho cột +/− tiền và check lý do |
-| `tien_ve_cuoc` | một lần công ty hàng trả tiền | Ngày tiền về, số tiền, trừ vào bảng kê nào |
+| `tien_ve_cuoc` | một lần công ty hàng trả tiền | Ngày tiền về, số tiền, gắn vào bảng kê tháng mà khoản tiền đó trả (người dùng cho biết công ty hàng trả theo tháng, đủ bảng kê) |
 
 Web tự tính, không có ô sửa tay: **công nợ cước** = tổng bảng kê đã gửi + điều chỉnh − tiền đã về.
 
@@ -54,7 +68,7 @@ Người thao tác: hai nhân viên đang nhập chi phí (đợt 1) và kế to
 1. **Gợi ý thu khi nhập chặng:** lúc nhập chặng ở đợt 1, web điền sẵn cước theo bảng giá tuyến và các khoản phát sinh đọc được từ ghi chú. Người nhập sửa nếu khác. Chặng chưa có giá tuyến thì hiện cờ "chưa có giá".
 2. **Ra bảng kê:** chọn công ty hàng và tháng. Web gom các chặng có thu, cho xem trước đúng mẫu file hiện nay, rồi xuất Excel.
 3. **Đối chiếu:** công ty hàng góp ý từng dòng. Kế toán ghi điều chỉnh, bắt buộc lý do. Bảng kê chuyển sang "đã đối chiếu".
-4. **Ghi tiền về:** nhập ngày và số tiền. Tiền trừ vào bảng kê cũ trước. Số còn nợ hiện ở đầu trang Đội xe.
+4. **Ghi tiền về:** chọn bảng kê tháng, nhập ngày và số tiền. Trả đủ thì bảng kê chuyển "đã thu đủ"; thiếu hoặc thừa thì hiện số chênh. Số còn nợ hiện ở đầu trang Đội xe.
 5. **Xe thuê ngoài:** nếu cước của xe Trần Hùng đi qua mình (câu hỏi 2), thêm một bảng kê phải trả Trần Hùng, cùng mô hình nhưng chiều ngược lại.
 
 **Bị chặn khi:** ngày tương lai (giờ VN); số tiền không phải số nguyên VND; sửa bảng kê đã đối chiếu mà không ghi điều chỉnh; tiền về lớn hơn số còn nợ mà không ghi rõ là trả trước.
@@ -93,13 +107,14 @@ Revert PR. Không có dữ liệu.
 
 ## Câu hỏi mở
 
-1. Bảng kê gửi cho ai: AS Logistics (như mẫu BK tháng 3–4), HTH, hay tùy chuyến? Hiện có mấy công ty hàng?
-2. Cước các chặng của xe Trần Hùng đi qua mình hay công ty hàng trả thẳng cho Trần Hùng? (Trùng câu 15 của `CHI-PHI-XE-01`.)
-3. Khoản nào là chi hộ, tức đòi lại đúng số đã trả, không phải doanh thu: kiểm hoá, cân, nâng hạ? (Trùng câu 13.)
-4. Công ty hàng trả cước thế nào (theo tháng, theo từng bảng kê, có trả một phần không), và hiện ai ghi tiền về?
+1. Bảng kê gửi cho ai: AS Logistics (như mẫu BK tháng 3–4), HTH, hay tùy chuyến? Hiện có mấy công ty hàng? File debit không ghi tên người nhận (kiểm 18/11/2026).
+2. Cước các chặng của xe Trần Hùng đi qua mình hay công ty hàng trả thẳng cho Trần Hùng? (Trùng câu 15 của `CHI-PHI-XE-01`.) Dữ liệu chỉ cho thấy cùng giá cước và văn phòng điều xe trả phí cảng cho xe Trần Hùng (kiểm 18/11/2026).
+3. Chi hộ: ĐỀ XUẤT theo số đo 18/11/2026, chi hộ gồm kiểm hoá, hạ sớm, cân, xí cont, cont mới (vì thu đúng bằng chi); doanh thu gồm cước, đóng ghép, neo, nổ máy phát, phí bãi Đồng An. Cần người dùng xác nhận. (Trùng câu 13.)
+4. ĐÃ TRẢ LỜI 18/11/2026: công ty hàng trả theo tháng, đủ bảng kê. Còn hỏi: hiện ai ghi tiền về?
 5. Neo tính theo số ngày như dữ liệu cho thấy (mức ngày đầu + mỗi ngày thêm một mức)? Nổ máy phát tính theo giờ hay theo lần?
 6. Đóng ghép tính theo số kho, theo khoảng cách, hay thỏa thuận từng chuyến?
 7. Giá tuyến đổi khi nào, có đi theo giá dầu không?
-8. Tiền về trừ vào bảng kê cũ trước (giống thu nợ khách), hay trừ đúng bảng kê ghi trên chứng từ?
+8. ~~Tiền về trừ vào bảng kê cũ trước hay trừ đúng bảng kê?~~ Theo câu 4, tiền về gắn vào bảng kê tháng mà nó trả.
 9. Ba cột đối chiếu trống ở tháng 10: việc đối chiếu với công ty hàng đang làm ở đâu (Zalo, file khác)?
 10. Giá tính theo phần trăm làm tròn thế nào: tới nghìn đồng, hay tới đồng?
+11. Phí nâng và phí hạ cảng không có trên debit: công ty hàng trả lại riêng (chi hộ, có bảng kê chi hộ như cột "Chi hộ" của mẫu BK tháng 3–4), hay đội xe chịu luôn trong cước? Câu này đổi lãi lỗ rất nhiều, vì đây là khoản lớn.
