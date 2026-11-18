@@ -12,6 +12,8 @@ LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ph
 # MO-SO-NHANH-02 4/11/2026: bản chuẩn get_ledger và hai hàm Lịch sử bằng migration mới nhất thay chúng.
 LEDGER_EVENTS_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql"
 LEDGER_EVENTS_ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql"
+# MO-SO-NHANH-03 18/11/2026: get_ledger chuẩn = bản MO-SO-NHANH-02 cộng đúng một mệnh đề SET jit = off (migration ALTER FUNCTION).
+LEDGER_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 # Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
@@ -132,10 +134,20 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertEqual(definition(can_du, kind, name), definition(canonical, kind, name))
         ledger_events = LEDGER_EVENTS_MIGRATION.read_text(encoding="utf-8")
         schema_copy = SCHEMA.read_text(encoding="utf-8")
+        jit_off = " SET jit = off AS $$"
         for name in ("_ledger_events", "get_ledger", "get_ledger_events"):
             with self.subTest(name=name):
-                self.assertEqual(definition(ledger_events, "FUNCTION", name), definition(canonical, "FUNCTION", name))
-                self.assertEqual(definition(ledger_events, "FUNCTION", name), definition(schema_copy, "FUNCTION", name))
+                expected = definition(canonical, "FUNCTION", name)
+                self.assertEqual(definition(schema_copy, "FUNCTION", name), expected)
+                if name == "get_ledger":   # MO-SO-NHANH-03: thân giữ nguyên, chỉ thêm cấu hình hàm
+                    self.assertEqual(expected.count(jit_off), 1)
+                    expected = expected.replace(jit_off, " AS $$")
+                self.assertEqual(definition(ledger_events, "FUNCTION", name), expected)
+        with self.subTest(name="get_ledger jit off"):
+            statements = [line for line in LEDGER_JIT_MIGRATION.read_text(encoding="utf-8").splitlines()
+                          if line and not line.startswith("--")]
+            self.assertEqual(statements, ["BEGIN;", "SET LOCAL ROLE sokhach_owner;",
+                                          "ALTER FUNCTION sokhach.get_ledger(bigint) SET jit = off;", "COMMIT;"])
         with self.subTest(name="get_ledger rollback"):
             self.assertEqual(definition(LEDGER_EVENTS_ROLLBACK.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
                              definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"))
