@@ -109,9 +109,9 @@ Không lưu số tổng nào cho người sửa tay. Web tự tính:
 
 Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ XUẤT.
 
-## Mặc định đề xuất cho đợt 1
+## Mặc định cho đợt 1 (ĐÃ CHỐT 18/11/2026)
 
-Để code được đợt 1 mà không phải chờ các câu hỏi chưa có người trả lời, Claude đề xuất bốn mặc định sau (chờ người dùng đồng ý):
+Để code được đợt 1 mà không phải chờ các câu hỏi chưa có người trả lời, Claude đề xuất bốn mặc định sau. Người dùng đồng ý ngày 18/11/2026 khi giao việc: "code và mockup lên canvas cho mình test trước". Trước khi code giao diện, dựng mockup bấm thử được trên canvas Claude Design để người dùng test.
 
 1. **Chặng tạo ra từ dòng chi phí.**
    - Nhân viên dán hoặc nhập dòng chi phí như Sheet hiện nay. Mỗi dòng đã có container, ngày, tài xế, xe, nên tạo luôn chặng.
