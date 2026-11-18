@@ -302,7 +302,7 @@ Các số trong mục Hiện trạng được đo bằng script đọc file, kh�
 3. ~~Tiền theo tài xế, chặng và chi phí theo xe?~~ ĐÃ TRẢ LỜI 18/11/2026 bằng mặc định 2: tiền theo người nhận ứng; chặng và chi phí theo phương tiện, mỗi chặng ghi cả xe lẫn tài xế.
 4. ~~Có khóa tháng như sổ khách không?~~ ĐÃ TRẢ LỜI 18/11/2026: có, chung cả đội xe (`CHI-PHI-XE-01` mục 12).
 5. Bắt đầu từ tháng nào, và số dư đầu của từng tài xế lấy ở đâu? Nạp dữ liệu thật cần người dùng duyệt riêng.
-6. ~~Cột "Nổ máy phát" có tính vào phần hoàn tài xế không?~~ ĐÃ TRẢ LỜI 18/11/2026: có.
+6. ~~Cột "Nổ máy phát" có tính vào phần hoàn tài xế không?~~ ĐÃ TRẢ LỜI 18/11/2026: có. CÒN MỞ (phát hiện khi nạp bản thử 18/11/2026): trên Sheet tháng 10–11 cột này ghi **số giờ** máy phát ("3 tiếng", "2H"), không có ô nào là tiền. Khi nạp, số giờ vào ghi chú. Cần hỏi người dùng: tiền nổ máy tính thế nào (giờ × đơn giá, hay khoản khác), có cần cột giờ riêng.
 7. Dầu: ĐÃ TRẢ LỜI 18/11/2026, nguồn là sheet "THEO DOI DAU". Còn hỏi:
    - Đơn giá đổi bậc từ đầu tháng 3/2026 có đúng là giá thật không?
    - Tháng 11/2026: người dùng cho biết có lẽ chưa ghi (18/11/2026). Khi cần, lấy lại từ hóa đơn, bảng kê của nơi bán.
