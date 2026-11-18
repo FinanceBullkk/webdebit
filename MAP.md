@@ -21,6 +21,7 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `docs/` | Nghiệp vụ, quyết định (`decisions.md` mục lục + `decisions/<id>.md`), nhật ký triển khai tay (`deploys/`), quy trình (`development.md`; `multi-agent.md` chỉ còn là lịch sử), gói thiết kế debit note v4 (`debit-note-v4/`: SPEC, trang mẫu, dữ liệu mẫu) |
 | `specs/` | Spec từng thay đổi, theo `specs/_template.md` |
 | `cong-no-web-handoff/` | Mã web/tools/tests (Python + JS) đang phát triển |
+| `cong-no-web-handoff/schema/v7_schema_current.pgsql` | SINH TỰ ĐỘNG bởi `tools/v7_schema_snapshot.py`: định nghĩa hiện hành của mọi hàm/view/bảng/quyền V7, mỗi thứ một lần. Đọc ở đây thay vì dò migration; không sửa tay, không chạy trên `hao`; CI so với SQL nguồn |
 | `.github/workflows/test.yml` | CI chạy `npm run check` |
 | `.github/dependabot.yml` | Nâng phụ thuộc hằng tuần, gom một PR mỗi hệ (actions ghim SHA, npm, pip) |
 
