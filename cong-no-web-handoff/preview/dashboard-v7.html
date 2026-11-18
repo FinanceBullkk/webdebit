@@ -16,9 +16,10 @@
   <main class="page tq-page">
     <div class="page-head topbar">
       <h1>Tổng quan công nợ</h1>
-      <div class="live-controls"><time class="clock" id="as-of" tabindex="0">—</time><span id="updated-at" class="sr-only" aria-live="polite">Tự cập nhật mỗi 60 giây</span><button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới số liệu" data-tip="Làm mới&#10;Lấy lại từ Sheet và tính lại số"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
+      <div class="live-controls"><button id="export-books" class="btn" type="button" data-tip="Tải cả sổ&#10;Mọi sổ khách ra một file Excel, cất làm bản dự phòng khi web hỏng"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>Tải cả sổ</span></button><time class="clock" id="as-of" tabindex="0">—</time><span id="updated-at" class="sr-only" aria-live="polite">Tự cập nhật mỗi 60 giây</span><button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới số liệu" data-tip="Làm mới&#10;Lấy lại từ Sheet và tính lại số"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
     </div>
     <div id="error" role="alert" hidden></div>
+    <div id="export-status" class="export-status" role="status" aria-live="polite" hidden></div>
     <div id="dashboard" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>
   <div class="tip" id="tip" role="tooltip" hidden></div>
@@ -28,6 +29,7 @@
   <script src="app-nav.js"></script>
   <script src="sheet-refresh.js"></script>
   <script src="data-tip.js"></script>
+  <script src="xuat-so.js"></script>
   <script src="dashboard-v7.js"></script>
   <script src="presence.js"></script>
 </body>
