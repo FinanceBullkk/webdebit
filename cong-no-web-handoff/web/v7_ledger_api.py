@@ -15,15 +15,17 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime  # noqa: F401  test đọc `api.datetime`
+from datetime import datetime  # test đọc `api.datetime`; XUAT-SO-01 lấy giờ của file
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
 
 import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_sheet
 import v7_api_zalo
+import v7_book_export
 import v7_booking_view
 import v7_company_info
 import v7_debit_note_config
@@ -89,6 +91,11 @@ from v7_psql import (
 
 PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến trình
 READS = v7_read_cache.ReadCache()   # HIEU-NANG-01: kết quả đọc nặng theo dấu dữ liệu, chỉ cho GET
+# XUAT-SO-01: file cả sổ, một lượt mỗi lúc trong tiến trình (mỗi lượt đọc mọi sổ trong một giao dịch).
+EXPORT_PATH = "/api/v7/xuat-so.xlsx"
+EXPORT_LOCK = threading.Lock()
+XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+VN = ZoneInfo("Asia/Ho_Chi_Minh")
 # Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): kết quả chiếu của mọi sổ, tính nền, chỉ trong RAM của tiến trình.
 INBOX = v7_inbox.Inbox(
     ledger_projections,
@@ -496,6 +503,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_export(self, actor: str) -> None:
+        """XUAT-SO-01: dựng file cả sổ rồi gửi; kết quả tự kiểm ở header `X-Xuat-So`, journal ghi một dòng số đếm."""
+        if not EXPORT_LOCK.acquire(blocking=False):
+            raise ApiError(429, "EXPORT_BUSY", "Đang có một lượt xuất khác. Chờ khoảng một phút rồi bấm lại.")
+        started = time.monotonic()
+        prefix = "so-web-du-lieu-gia" if self.demo else "so-web-ban-sao" if self.real_copy else "so-web"
+        try:
+            result = v7_book_export.export(self.runner, actor, datetime.now(VN), names=with_display_names, prefix=prefix)
+        except ApiError:
+            raise
+        except Exception as exc:   # dữ liệu sổ khác hình dạng đã biết hay lỗi dựng file: báo gọn, không gửi nửa file
+            print(f"XUAT-SO-01: {actor} xuất lỗi {type(exc).__name__}", file=sys.stderr, flush=True)
+            raise ApiError(503, "EXPORT_FAILED", "Chưa xuất được cả sổ. Báo quản trị kiểm.") from exc
+        finally:
+            EXPORT_LOCK.release()
+        found = ",".join(problem["code"] for problem in result.problems) or "khớp"
+        print(f"XUAT-SO-01: {actor} tải cả sổ: {result.books} sổ, kiểm {found}, {len(result.data)} byte, "
+              f"{time.monotonic() - started:.1f} giây", file=sys.stderr, flush=True)
+        self.send_response(200)
+        for name, field in (("Content-Type", XLSX_TYPE), ("Content-Length", str(len(result.data))),
+                            ("Content-Disposition", f'attachment; filename="{result.filename}"'),
+                            ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                            ("X-Xuat-So", result.header())):
+            self.send_header(name, field)
+        self.end_headers()
+        self.wfile.write(result.data)
+
     def stream(self, actor: str, tab: str) -> None:
         """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
         presence = PRESENCE
@@ -579,6 +613,12 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header(name, field)
                 self.end_headers()
                 self.wfile.write(data)
+                return
+            if self.command == "GET" and route.path == EXPORT_PATH:
+                # XUAT-SO-01: file cả sổ, sau xác thực danh tính như mọi /api/v7/*.
+                if route.query:
+                    bad()
+                self.send_export(actor)
                 return
             raw = b""
             if self.command == "POST":

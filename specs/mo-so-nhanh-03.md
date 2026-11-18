@@ -1,6 +1,6 @@
 # Mở sổ lớn nhanh hơn: `get_ledger` chạy với JIT tắt (MO-SO-NHANH-03)
 
-Trạng thái: ĐÃ CHỐT. Việc do phiên lưới an toàn giao ngày 18/11/2026 (mục CÒN MỞ "Sổ 104 mở chậm" trong [nhật ký LUOI-AN-TOAN-01](../docs/deploys/2026-11-18-luoi-an-toan.md)); Claude chọn cách làm theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Phạm vi: cấu hình của một hàm đọc là `get_ledger`. Không đổi thân hàm, luật tiền, bảng, view, dữ liệu, quyền hay giao diện.
+Trạng thái: ĐÃ CHỐT. Việc do phiên lưới an toàn giao ngày 18/11/2026 (mục CÒN MỞ "Sổ 104 mở chậm" trong [nhật ký LUOI-AN-TOAN-01](../docs/deploys/2026-11-18-luoi-an-toan.md)); Claude chọn cách làm theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Phạm vi: cấu hình của một hàm đọc là `get_ledger`. Không đổi thân hàm, luật tiền, bảng, view, dữ liệu, quyền hay giao diện. ĐÃ TRIỂN KHAI trên `hao` 18/11/2026 lúc 08:55, bản `6b93a4e`, [nhật ký](../docs/deploys/2026-11-18-mo-so-tat-jit.md).
 
 Tiếp [MO-SO-NHANH-02](mo-so-nhanh-02.md) (phần "bước 3: thời gian SQL `get_ledger` sổ lớn") và [HIEU-NANG-01](hieu-nang-01.md) (bộ nhớ đọc theo dấu dữ liệu: chỉ tính lại sau mỗi lệnh ghi).
 
@@ -63,7 +63,7 @@ Bật `auto_explain` (`log_nested_statements`, `log_analyze`, `log_buffers`) r�
 - [x] Harness case `MO-SO-NHANH.03`: `proconfig` là `search_path` + `jit=off`; khi phiên ép JIT cho mọi câu (`jit_above_cost = 0`), `auto_explain` thấy chỉ câu SELECT ngoài cùng có JIT, không câu nào lồng trong `get_ledger` có. Bỏ cấu hình thì cả 269 câu lồng của một sổ thật bị JIT (đã thử ngược trên bản sao ở PC).
 - [x] `test_pg_v7_backend.py --migration-test`: chuỗi nâng có file mới, chạy lại sau `ledger-events` (và trong case phí, nơi chạy lại migration cũ trên DB chung); catalog hàm trùng bản khởi tạo mới. Chuỗi trong harness locks/price có file mới. `test_pg_v7_luoi_an_toan.py` xanh. `npm run check` xanh, `node scripts/check-secrets.js` sạch.
 - [x] Bản sao trên `hao`: băm `get_ledger` 242/242 sổ trùng trước và sau khi chạy migration hai lượt (98 ms, 91 ms), sau hoàn tác rồi nâng lại; dấu vân dữ liệu trùng; catalog chỉ đổi cấu hình `get_ledger` (chủ, quyền giữ nguyên); checker 9/9; DB thử đã xóa. Số đo ở bảng trên.
-- [ ] DB thật: backup và kiểm đọc lại, áp với `ON_ERROR_STOP`, dấu vân và băm trước/sau, checker; đo lại sổ 104; lưới an toàn `--dry-run` không báo.
+- [x] DB thật: backup và kiểm đọc lại, áp với `ON_ERROR_STOP`, dấu vân và băm trước/sau, checker; đo lại sổ 104; lưới an toàn `--dry-run` không báo. Sổ 104 (mỗi lần một psql mới như API) từ 8.520–8.550 ms còn 534–549 ms ([nhật ký](../docs/deploys/2026-11-18-mo-so-tat-jit.md)).
 
 ## Phạm vi agent
 
@@ -81,9 +81,9 @@ Bật `auto_explain` (`log_nested_statements`, `log_analyze`, `log_buffers`) r�
 - 18/11/2026, bản sao trên PC (backup giờ 08:00): số đo ở bảng trên; `auto_explain` như mục Nguyên nhân. Đặt `SET jit = off` trên hàm cho băm `get_ledger` trùng 242/242 sổ so với trước.
 - 18/11/2026, harness ở máy: `test_pg_v7_backend.py --migration-test` 82 đạt, 2 bỏ qua (7.11c, 7.15c, mục mở từ trước); `test_pg_v7_luoi_an_toan.py` đạt. `npm run check`: mọi bước xanh trừ ruff, vì ruff 0.16.3 trên PATH máy này báo I001 ở file không sửa; chạy bằng bản ghim của CI (`uvx ruff@0.17.3 check .`) thì sạch.
 - 18/11/2026 08:36–08:39, bản sao trên `hao`: như tiêu chí ở trên; bằng chứng ngoài Git ở `/srv/v7/backup-20261118-mo-so-tat-jit/` (quyền 700).
-- Kết quả bản sao trên `hao` và DB thật: ghi ở nhật ký triển khai trong `docs/deploys/` sau đợt nâng.
+- 18/11/2026 08:55, DB thật và release `6b93a4e`: [nhật ký triển khai](../docs/deploys/2026-11-18-mo-so-tat-jit.md).
 
 ## CÒN MỞ
 
-- `get_dashboard_debt` (Tổng quan, Việc cần làm, huy hiệu menu) cũng tốn thời gian chủ yếu cho JIT (bản sao: 358 ms, tắt JIT còn 86 ms). Cần một việc riêng, đo các hàm đọc nặng khác (`get_dashboard`, `get_receivables_matrix`, `get_safety_net`…) rồi quyết định tắt JIT theo từng hàm hay cho cả DB V7.
+- `get_dashboard_debt` (Tổng quan, Việc cần làm, huy hiệu menu) cũng tốn thời gian chủ yếu cho JIT (bản sao: 358 ms, tắt JIT còn 86 ms). Đã đo tám hàm đọc nặng ở [HIEU-NANG-02](hieu-nang-02.md): chỉ `get_dashboard_debt` có câu bị JIT (`get_safety_net` chịu JIT qua lần gọi hàm này), nên chỉ tắt JIT trong `get_dashboard_debt`, không đổi cấu hình DB.
 - 135 ms còn lại của sổ 104: dòng sổ gốc khoảng 60%, bảng tháng khoảng 30%. Chưa cần làm.

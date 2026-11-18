@@ -933,7 +933,7 @@
     const button = event.target.closest('button');
     if (!button) return;
     if (button.matches('.price-table-save')) { bar = null; startReview(); }
-    else if (button.matches('.price-review-save')) save(button);
+    else if (button.matches('.price-review-save')) api.track(save(button));
     else if (button.matches('.price-review-back')) { review = null; render(); $('.price-table-save')?.focus(); }
     else if (button.matches('.price-table-close')) requestClose();
     else if (button.matches('.price-discard')) closeDialog();
@@ -995,7 +995,7 @@
     const button = event.target.closest('.price-table-open,.price-table-apply,.price-reapply-open,.price-table-cancel,.price-table-write');
     if (!button || button.disabled || !ctx.snapshot) return;
     if (button.matches('.price-table-open')) { openDialog(); return; }
-    if (button.matches('.price-table-write')) { writeApply(button); return; }
+    if (button.matches('.price-table-write')) { api.track(writeApply(button)); return; }
     if (button.matches('.price-table-cancel')) confirm = null;
     else {
       const kind = button.matches('.price-table-apply') ? 'ready' : 'reapply';

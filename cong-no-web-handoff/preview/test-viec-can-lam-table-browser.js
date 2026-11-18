@@ -501,8 +501,11 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       const started = [];
       page.on('request', request => { if (/\/api\/v7\/(dashboard|dashboard\/debt|customers)$/.test(request.url())) started.push(new URL(request.url()).pathname); });
       const release = await holdApi(page, /\/api\/v7\/dashboard$/);
+      // Trang gọi /inbox ngay khi script chạy, trước sự kiện load mà reload() chờ: máy chủ giả trả nhanh thì phản hồi
+      // về trước khi reload() xong. Phải gắn chờ trước reload(), gắn sau thì lỡ sự kiện và chờ đủ 30 giây.
+      const inboxRead = page.waitForResponse(/\/api\/v7\/inbox$/);
       await page.reload();
-      await page.waitForResponse(/\/api\/v7\/inbox$/);
+      await (await inboxRead).finished();
       await page.waitForFunction(() => document.querySelector('.loading'));
       assert.equal(await page.locator('.band-count').count(), 0, 'việc từ Sheet đã về nhưng số Tổng quan chưa về thì chưa vẽ');
       assert.deepEqual(started.sort(), ['/api/v7/customers', '/api/v7/dashboard', '/api/v7/dashboard/debt'], 'không chờ dashboard xong mới đọc hai nguồn kia');

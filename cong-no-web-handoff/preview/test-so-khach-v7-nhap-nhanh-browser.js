@@ -1,20 +1,23 @@
 /* Trình duyệt (Playwright): gõ xong hiện ngay như Sheet, lệnh ghi nền theo hàng đợi (NHAP-NHANH-01, specs/nhap-nhanh-01.md).
- * Máy chủ giả ghi chậm 400 ms để thấy ô hiện trước khi máy chủ trả lời. Dữ liệu giả, không chạm DB hay Sheet. */
+ * Lệnh ghi bị giữ tới khi test cho đi, để thấy ô hiện trước khi máy chủ trả lời. Dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell, posts } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, posts, settled } = require('./so-khach-v7-browser-world');
 
 const WRITES = /\/api\/v7\/(trips\/(info|price|delete)|legacy\/(edit|delete))$/;
-const slow = page => page.route(url => WRITES.test(url.pathname), async route => {
-  await new Promise(done => setTimeout(done, 400));
-  await route.continue();
-});
+// CHO-GHI-01: giữ mọi lệnh ghi tới khi test gọi hàm trả về. Trước đây là chậm cố định 400 ms: máy bận gõ ba ô lâu hơn thế thì
+// lệnh đầu đã xong và sổ đọc lại trước khi ô sau vào hàng đợi, test đỏ dù trang đúng.
+async function hold(page) {
+  let release;
+  const gate = new Promise(done => { release = done; });
+  await page.route(url => WRITES.test(url.pathname), async route => { await gate; await route.continue(); });
+  return release;
+}
 const writes = world => posts(world).filter(([path]) => WRITES.test(path));
-const idle = page => page.waitForFunction(() => !document.querySelector('.book-status-row.is-saving'));
 const amount = page => page.locator('tr[data-row="trip-11"] > td:last-child');
 
 test('gõ ba ô liên tiếp: cả ba hiện ngay, lệnh đi lần lượt với phiên bản nối tiếp, sổ chỉ đọc lại một lần', async () => withPage(async ({ page, world }) => {
-  await slow(page);
+  const release = await hold(page);
   // Thứ tự lệnh ghi và lượt đọc sổ trình duyệt gửi đi (lượt đọc khác của trang, như sau khi kiểm Sheet lúc mở, có thể chen
   // vào trước lệnh đầu hay sau cùng; giữa các lệnh ghi thì không được có).
   const order = [];
@@ -37,7 +40,8 @@ test('gõ ba ô liên tiếp: cả ba hiện ngay, lệnh đi lần lượt vớ
   assert.equal(await amount(page).innerText(), '…', 'Thành tiền chờ máy chủ tính, trang không tự cộng');
   await page.locator('.book-status-row.is-saving').waitFor();
 
-  await idle(page);
+  release();
+  await settled(page);
   await page.waitForFunction(() => document.querySelector('tr[data-row="trip-11"] > td:last-child')?.textContent === '45.000.000');
   assert.deepEqual(writes(world).map(([path, body]) => [path, body.expected_version]),
     [['/api/v7/trips/info', 1], ['/api/v7/trips/info', 2], ['/api/v7/trips/price', 3]]);
@@ -49,11 +53,12 @@ test('gõ ba ô liên tiếp: cả ba hiện ngay, lệnh đi lần lượt vớ
 }));
 
 test('xóa dòng: dòng biến mất ngay, lệnh xóa ghi nền một lần', async () => withPage(async ({ page, world }) => {
-  await slow(page);
+  const release = await hold(page);
   await page.locator('td.row-delete[data-kind="trip"][data-id="11"]').click();
   await page.locator('.delete-prompt .confirm-delete').click();
   assert.equal(await page.locator('tr[data-row="trip-11"], .delete-prompt').count(), 0, 'mất ngay, chưa chờ máy chủ');
-  await idle(page);
+  release();
+  await settled(page);
   assert.equal(await page.locator('tr[data-row="trip-11"]').count(), 0);
   assert.deepEqual(writes(world).map(([path, body]) => [path, body.trip_id]), [['/api/v7/trips/delete', 11]]);
 }));
@@ -99,7 +104,7 @@ test('mất mạng ở lệnh giữa: băng đầu sổ có Thử lại; Thử l
   assert.equal(await tripCell(page, 'destination').innerText(), 'Nơi Y', 'ô chưa ghi vẫn giữ chữ vừa gõ');
   assert.deepEqual(writes(world).map(([, body]) => body.field), ['carrier']);
   await page.locator('.retry-command').click();
-  await idle(page);
+  await settled(page);
   await page.waitForFunction(() => !document.querySelector('.retry-command'));
   const sentNow = writes(world);
   assert.deepEqual(sentNow.map(([, body]) => [body.field, body.expected_version]), [['carrier', 1], ['origin', 2], ['destination', 3]]);
@@ -108,7 +113,7 @@ test('mất mạng ở lệnh giữa: băng đầu sổ có Thử lại; Thử l
 }));
 
 test('ghi phiếu thu trong lúc hàng đợi còn lệnh: chờ hàng đợi xong rồi mới gửi, không báo "chưa rõ kết quả"', async () => withPage(async ({ page, world }) => {
-  await slow(page);
+  const release = await hold(page);
   await tripCell(page, 'carrier').click();
   await page.locator('.info-input').fill('Tàu 1');
   await page.keyboard.press('Enter');
@@ -119,7 +124,9 @@ test('ghi phiếu thu trong lúc hàng đợi còn lệnh: chờ hàng đợi xo
   const receipt = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v7/receipts');
   await page.locator('.entry-drawer .receipt-save').click();
   assert.equal(await page.locator('.entry-drawer .entry-error').innerText(), '', 'không chặn vì lệnh đang ghi nền');
+  release();
   await receipt;
+  await settled(page);   // CHO-GHI-01: phản hồi phiếu thu đã về; chờ trang xử lý xong rồi mới đọc băng đầu sổ
   const order = posts(world).map(([path]) => path).filter(path => path === '/api/v7/trips/info' || path === '/api/v7/receipts');
   assert.deepEqual(order, ['/api/v7/trips/info', '/api/v7/receipts'], 'phiếu thu gửi sau khi hàng đợi ghi xong');
   assert.doesNotMatch(await page.locator('.book-status').innerText(), /chưa rõ/i);

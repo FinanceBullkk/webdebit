@@ -3536,6 +3536,7 @@ CREATE OR REPLACE FUNCTION sokhach.get_dashboard_debt()
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+ SET jit TO 'off'
 AS $function$
 -- DASH-03 (29/10/2026). Nhóm hạn trả theo tháng nợ (giờ VN): nợ tháng M đến hạn cuối tháng M+1,
 -- số tháng quá hạn = (tháng hiện tại - M) - 1: dưới 0 chưa đến hạn, 0 đến hạn cuối tháng này, 1-2, 3-6, từ 7.
