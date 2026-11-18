@@ -250,10 +250,12 @@ class CollectTests(Base):
                 patch.object(dog, "check_sources", return_value=["Nguồn chuyến biển (CONT_NGUON) không có chuyến mới."]):
             found = dog.collect(NOON, healthz="x", reconcile=self.path, snapshots=self.root,
                                 show=lambda *a: (_ for _ in ()).throw(FileNotFoundError("systemctl")),
-                                safety=lambda now: (_ for _ in ()).throw(ImportError("v7_safety_net")))
+                                safety=lambda now: (_ for _ in ()).throw(ImportError("v7_safety_net")),
+                                offsite=lambda now: (_ for _ in ()).throw(TimeoutError("journalctl")))
         self.assertIn("Không kiểm được phần timer (FileNotFoundError).", found)
         self.assertIn("Không kiểm được phần hộp việc (ValueError).", found)
         self.assertIn("Không kiểm được phần lưới an toàn (ImportError).", found)
+        self.assertIn("Không kiểm được phần bản sao ngoài máy (TimeoutError).", found)
         self.assertIn("Nguồn chuyến biển (CONT_NGUON) không có chuyến mới.", found)
         self.assertTrue(any(line.startswith("Máy đối soát chưa chạy được") for line in found))
         self.assertTrue(any(line.startswith("Thiếu bản chụp") for line in found))

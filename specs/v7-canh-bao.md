@@ -18,6 +18,7 @@ Trạng thái: ĐÃ CHỐT (người dùng chọn email, 4/11/2026, [`CANH-BAO-0
 | Log sửa Sheet | `edit_log` trong `reconcile.json` ([`SHEET-LOG-01`](../docs/decisions/sheet-log-01.md)) | `STALE`; `UNAVAILABLE` với mã 401, 403, 404. Hết giờ, lỗi 5xx của Google thì lượt sau tự lành, không báo |
 | Bản chụp Sheet | Giờ sửa của `snapshot.json`, `prices.json`, `receipts.json`, `road.json`, `ps.json` | Quá 60 phút. Runner 15 phút một lần, lỗi lẻ tự lành (audit DevOps mục 14: 5 lần trong 2 ngày) |
 | Nguồn booking còn chuyến mới (bổ sung 18/11/2026) | `rows[].event_date` của `snapshot.json` (`CONT_NGUON`, chuyến biển) và `road.json` (`CONT_BO`, chuyến bộ) | Không dòng nào mang ngày trong 3 ngày gần nhất kể cả hôm nay (`WEBDEBIT_ALERT_SOURCE_DAYS`). Bỏ qua ngày sau hôm nay và ô ngày hỏng. Đo từ 1/5/2026: hai nguồn chưa từng trống quá 2 ngày liền; Tết thì báo là đúng. Không áp cho bảng PS: chỉ giữ dòng có phí nên thưa (có lúc trống 85 ngày) |
+| Bản sao ngoài máy còn được PC kéo (bổ sung 18/11/2026) | Dòng `Accepted publickey` của `sshd-session` trong journal, so dấu vân với `WEBDEBIT_OFFSITE_PULL_KEYS` ở `/etc/webdebit/alert.env` (ngoài Git). Unit máy canh có nhóm `systemd-journal` qua drop-in `doc-log-ssh.conf`, không cấp cho cả user `v7app` | Không khóa kéo nào đăng nhập quá 48 giờ (`WEBDEBIT_ALERT_OFFSITE_HOURS`), nêu giờ kéo cuối. Chưa khai khóa thì im; thiếu nhóm journal thì báo "không đọc được log SSH" chứ không báo nhầm "không PC nào kéo". Đăng nhập chưa chắc là kéo xong (`PASS` nằm ở `pull.log` của PC) |
 | Hộp việc của API (bổ sung 18/11/2026) | Phần `inbox` của `GET /healthz`: `state`, `books`, `failed`, `failed_rounds`, `computed_age_seconds`, chỉ số đếm | `state` là `unavailable`; có sổ lỗi từ 2 lượt nền liền trở lên; chưa tính lại quá 90 phút. Web không trả lời thì im (phần web đã báo); API cũ chưa có phần này thì cũng im |
 | Timer | `systemctl show`: đối soát, đồng bộ Sheet, giá Sheet, PS, 4 sao lưu | Không `active` |
 | Sao lưu | `Result` của service; `LastTriggerUSec` của timer | `Result` khác `success`; hourly quá 12 giờ, ba loại còn lại quá 26 giờ |
@@ -44,8 +45,9 @@ Cấu hình trên healthchecks.io: một check, chu kỳ 15 phút, thời gian c
 
 - [x] `tests/test_v7_watchdog.py`: từng phép kiểm, lỗi lẻ không báo, đêm không tính là dừng, không lộ tên khách, thử lại khi mạng lỗi, không in link ping.
 - [x] Bổ sung 18/11/2026: `tests/test_v7_watchdog.py` (nguồn trống theo từng nguồn, khoảng trống 2 ngày như dữ liệu thật không báo, ngày sau hôm nay và ô hỏng không che việc dừng; hộp việc: lỗi phải lặp 2 lượt, không đọc được bản chụp, nhịp nền dừng, thân của 503 vẫn đọc), `tests/test_v7_inbox.py` (đếm lượt lỗi liền, tự lành về 0, thiếu bản chụp thành `unavailable`), `tests/test_v7_api_healthz.py` (phần `inbox` chỉ có số đếm).
-- [ ] Bổ sung 18/11/2026: sau `Deploy hao`, một lượt máy canh trên `hao` ra "ổn" với hai phép kiểm mới.
+- [x] Bổ sung 18/11/2026: sau `Deploy hao` (bản `30f3abe`), `/healthz` có phần `inbox` (242 sổ, 0 lỗi) và một lượt máy canh thật trên `hao` ra `"ok": true` với hai phép kiểm mới.
+- [x] Bổ sung 18/11/2026 (bản sao ngoài máy): `tests/test_v7_offsite_watch.py` (một PC kéo là đủ, khóa quản trị cùng PC không tính, thiếu nhóm journal nói rõ thay vì báo nhầm, không lộ IP hay khóa, đọc journal bỏ dòng hỏng). Chạy module trong sandbox của unit trên `hao` trước khi merge: ngưỡng 48 giờ im, ngưỡng 0 giờ báo đúng giờ kéo cuối.
 - [ ] Chạy trên `hao` dưới `v7app`, trong sandbox của unit: mọi phép kiểm đọc được, kết quả "ổn" khớp thực tế.
-- [ ] Chủ sổ tạo check và đặt link ping lên `hao`.
+- [x] Chủ sổ tạo check và đặt link ping lên `hao` (máy canh báo `configured`, 18/11/2026).
 - [ ] `--test-fail`: email tới hộp thư chủ sổ; lượt kế có email hết lỗi.
 - [ ] Dừng thử: ngừng timer máy canh quá thời gian chờ thì có email, bật lại thì có email hết lỗi.
