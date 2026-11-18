@@ -38,7 +38,7 @@ Kịch bản để script chụp giao diện thật trước/sau thay đổi cho
 
 ```json
 {
-  "page": "cong-no-web-handoff/preview/customer-ledger-workbench.html",
+  "page": "cong-no-web-handoff/preview/so-khach-v7.html",
   "viewports": [[1280, 720]],
   "states": [
     {"name": "1-ten-trang-thai", "board": "<tên board mockup>", "note": "<người dùng đang làm gì>",

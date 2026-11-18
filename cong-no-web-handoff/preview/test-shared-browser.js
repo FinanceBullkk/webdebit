@@ -111,10 +111,9 @@ test('Chromium thật: launchShared gắn sẵn theo dõi; request bị cắt ki
 });
 
 test('mọi file test trình duyệt lấy `test` từ shared-browser.js để được thử lại đúng lỗi này', () => {
-  const files = [
-    ...fs.readdirSync(__dirname).filter(name => /^test-.+-browser\.js$/.test(name) && name !== path.basename(__filename)).map(name => path.join(__dirname, name)),
-    path.join(__dirname, '..', 'tests', 'test-viewer-browser.js'),
-  ];
+  const files = fs.readdirSync(__dirname)
+    .filter(name => /^test-.+-browser\.js$/.test(name) && name !== path.basename(__filename))
+    .map(name => path.join(__dirname, name));
   assert.ok(files.length > 20);
   const direct = files.filter(file => /\btest\b[^;\n]*=\s*require\(['"]node:test['"]\)/.test(fs.readFileSync(file, 'utf8'))).map(file => path.basename(file));
   assert.deepEqual(direct, []);

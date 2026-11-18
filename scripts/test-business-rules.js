@@ -256,17 +256,17 @@ test("ARCH-01 bắt file ngoài tầng DB gọi psql", () => {
   assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/db_extra.py"));
   assert.ok(found.some((v) => v.file === "cong-no-web-handoff/pilot/reconcile.py"));
   assert.ok(found.every((v) => /ranh giới kiến trúc/.test(v.detail)), "detail phải nói rõ đây là ranh giới");
-  assert.match(found[0].detail, /web\/db\.py/, "detail phải chỉ ra tầng DB đi qua đâu");
+  assert.match(found[0].detail, /web\/v7_psql\.py/, "detail phải chỉ ra tầng DB đi qua đâu");
 });
 
-test("ARCH-01 cho qua đúng năm file tầng DB, và không tính chữ trong chú thích", () => {
+test("ARCH-01 cho qua đúng các file tầng DB, và không tính chữ trong chú thích", () => {
   const found = check("ARCH-01", {
-    "cong-no-web-handoff/web/db.py": "import subprocess\nCMD = ['psql', '-X']\n",
+    "cong-no-web-handoff/web/v7_psql.py": "import subprocess\nCMD = ['psql', '-X']\n",
     "cong-no-web-handoff/web/ledger_db.py": "CMD = ['psql', '-X', '-w']\n",
     "cong-no-web-handoff/tools/pg_m1_report.py": "command = [psql, '-X']\n",
     "cong-no-web-handoff/tools/test_pg_ledger_schema.py": "run(['psql', '-qAt'])\n",
-    "cong-no-web-handoff/tests/test_web.py": "def test_psql_quoting(self):\n    pass\n",
-    "cong-no-web-handoff/web/ledger_app.py": "# Dữ liệu tới từ adapter, không gọi psql thẳng.\nfrom ledger_db import LedgerDB\n",
+    "cong-no-web-handoff/tests/test_v7_ledger_api.py": "def test_psql_quoting(self):\n    pass\n",
+    "cong-no-web-handoff/web/v7_ledger_api.py": "# Dữ liệu tới từ adapter, không gọi psql thẳng.\nfrom v7_psql import Psql\n",
   });
   assert.deepStrictEqual(found, []);
 });

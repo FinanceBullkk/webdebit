@@ -61,4 +61,4 @@ Drawer chi tiết khách (mẫu history-panel của sổ V7: tổng nợ, nợ t
 
 ## Áp dụng
 
-Trang thật (`dashboard-v7`, `so-khach-v7`, `customer-ledger-workbench`) đưa token vào một stylesheet chung, thay dần màu hardcode. Mockup tham chiếu sống trong `preview/mockups/` (serve bằng `python -m http.server` từ thư mục mockups).
+Trang thật (`dashboard-v7`, `so-khach-v7`) đưa token vào một stylesheet chung, thay dần màu hardcode. Mockup tham chiếu sống trong `preview/mockups/` (serve bằng `python -m http.server` từ thư mục mockups).
