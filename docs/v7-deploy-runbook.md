@@ -1906,7 +1906,7 @@ Thứ tự: bản sao thử trước (restore dump vào DB tạm, áp hai lượ
 
 Rollback: áp lại `2026-11-09-v7-ps-khong-thu.sql` (bản trước của hàm; các event `task_source` đã ghi vẫn nằm trong Lịch sử, không ảnh hưởng tiền; các dòng đã "hết báo" khi đó hiện lại ở bản mới của hàng chờ).
 
-## Hai kiểm thiếu của lệnh ghi từ audit kiến trúc 19/11 (A12, A08) — nâng DB đang có (CHƯA CHẠY)
+## Hai kiểm thiếu của lệnh ghi từ audit kiến trúc 19/11 (A12, A08) — nâng DB đang có (ĐÃ CHẠY trên hao 19/11/2026, [nhật ký](deploys/2026-11-19-audit-kien-truc.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-audit-kien-truc.sql` chạy sau `2026-11-16-v7-chuan-hoa-chu.sql`, `2026-11-01-v7-zalo-group.sql` và mọi migration trước nó. Chỉ thay thân hai hàm: `edit_trip_info` (đổi container/ngày của chuyến `confirmed` thêm luật dòng sổ gốc không ngày `BASELINE_UNDATED_MONTH` như `paste_trips`, đúng hợp đồng [specs/v7-sua-xoa-chuyen.md](../specs/v7-sua-xoa-chuyen.md) mục 2) và `record_mark` (gửi lại cùng khóa mà tiền, ngày, ghi chú hay tin gắn khác thì `IDEMPOTENCY_CONFLICT`). Không đổi bảng, ràng buộc, event, quyền, dữ liệu hay trường tiền; chuyến đã `confirmed` không bị quét lại, chỉ lần sửa container/ngày sau đó mới xét. Chạy lại được.
 

@@ -113,5 +113,29 @@ class SnapshotTest(unittest.TestCase):
             results.close()
 
 
+class ConsistentReadTest(unittest.TestCase):
+    """Audit 19/11/2026 (A01): lượt GET đọc nặng chạy trong một ảnh dữ liệu, giữ giới hạn thời gian thường của người dùng."""
+
+    setUp, seen = SnapshotTest.setUp, SnapshotTest.seen
+
+    def run_one(self, **flags):
+        seen = self.folder / "seen.json"
+        with patch.dict(os.environ, {"FAKE_PSQL_MODE": "ok", "FAKE_PSQL_OUT": str(seen)}), \
+                patch.object(v7_psql.subprocess, "run", wraps=v7_psql.subprocess.run) as spy:
+            self.runner.run_text("get_ledger", {"customer_id": 5}, "nguoi-xem", **flags)
+        return self.seen()["sql"].splitlines(), spy.call_args.kwargs["timeout"]
+
+    def test_consistent_get_is_one_repeatable_read_only_transaction(self):
+        lines, timeout = self.run_one(consistent=True)
+        self.assertEqual(lines[:2], ["BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;", "SET LOCAL sokhach.actor = :'actor';"])
+        self.assertEqual(timeout, 25, "lượt GET của người dùng không nhận giới hạn 90 giây của việc nền")
+
+    def test_default_and_background_headers_unchanged(self):
+        self.assertEqual(self.run_one()[0][0], "BEGIN;")   # lệnh ghi: READ COMMITTED, thấy chính phần mình ghi
+        lines, timeout = self.run_one(read_only=True)
+        self.assertEqual(lines[:2], ["BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;", "SET LOCAL statement_timeout = '60s';"])
+        self.assertEqual(timeout, v7_psql.READ_ONLY_PROCESS_TIMEOUT)
+
+
 if __name__ == "__main__":
     unittest.main()
