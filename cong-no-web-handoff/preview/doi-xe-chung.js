@@ -15,13 +15,16 @@
   const THANG_TRANG_THAI = /^\d{4}-(0[1-9]|1[0-2])-01$/;
   const thangUrl = thang => (typeof thang === 'string' && THANG_TRANG_THAI.test(thang) ? thang.slice(0, 7) : null);
   // Địa chỉ của ba mục trên đầu trang: Người và xe, Bảng kê gửi HTH, Bảng giá. Không có tháng hợp lệ thì như mở thẳng.
+  // homNay (YYYY-MM-DD, nếu biết) để bỏ tháng mà trang đích không nhận.
   const TRANG = { nguoi: '/doi-xe.html', bangke: '/doi-xe-bang-ke.html', gia: '/doi-xe-bang-ke.html' };
-  function duongDanMuc(muc, thang) {
+  function duongDanMuc(muc, thang, homNay) {
     if (!(muc in TRANG)) throw new RangeError(`Mục Đội xe không có: ${muc}`);
     const q = new URLSearchParams();
     if (muc === 'gia') q.set('man', 'gia');
     const t = thangUrl(thang);
-    if (t) q.set('thang', t);
+    // Người và xe (get_tong, get_so) từ chối tháng sau hôm nay; Bảng kê cho xem tới tháng sau. Biết hom_nay thì không mang tháng sau sang đó.
+    const quaHan = muc === 'nguoi' && typeof homNay === 'string' && t !== null && thang > homNay;
+    if (t && !quaHan) q.set('thang', t);
     const s = q.toString();
     return TRANG[muc] + (s ? `?${s}` : '');
   }

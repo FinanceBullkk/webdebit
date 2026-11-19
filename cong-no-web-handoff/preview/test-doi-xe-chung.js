@@ -16,6 +16,16 @@ test('địa chỉ ba mục: mang tháng hợp lệ, bỏ tháng sai khuôn ho�
   assert.equal(C.thangUrl('2026-12-01'), '2026-12');
 });
 
+test('địa chỉ ba mục: biết hom_nay thì không mang tháng sau sang Người và xe (máy chủ không nhận), Bảng kê và Bảng giá vẫn mang', () => {
+  const nay = '2026-11-18';
+  assert.equal(C.duongDanMuc('nguoi', '2026-11-01', nay), '/doi-xe.html?thang=2026-11', 'tháng của hôm nay vẫn nhận');
+  assert.equal(C.duongDanMuc('nguoi', '2026-10-01', nay), '/doi-xe.html?thang=2026-10');
+  assert.equal(C.duongDanMuc('nguoi', '2026-12-01', nay), '/doi-xe.html', 'tháng sau thì bỏ');
+  assert.equal(C.duongDanMuc('bangke', '2026-12-01', nay), '/doi-xe-bang-ke.html?thang=2026-12');
+  assert.equal(C.duongDanMuc('gia', '2026-12-01', nay), '/doi-xe-bang-ke.html?man=gia&thang=2026-12');
+  assert.equal(C.duongDanMuc('nguoi', '2026-12-01'), '/doi-xe.html?thang=2026-12', 'chưa biết hom_nay thì mang (trang đích tự bỏ khi bị từ chối)');
+});
+
 // Đồ giả cho `tao`: máy chủ trả lời theo kịch bản, ghi lại các lần gọi.
 function dung(kichBan, opts = {}) {
   const calls = [], timers = [];
@@ -71,7 +81,17 @@ test('ghi: bấm lặp bị bỏ; câu báo kết quả chỉ hiện sau khi đ�
   const t = dung(n => (n === 1 ? { status: 200, body: { ok: 1 } }
     : n === 2 ? { status: 409, body: { error: 'CHANGED', message: 'đã đổi' } } : { status: 409, body: { error: 'KHAC', message: 'khác' } }),
   { load: () => new Promise(r => { thaLoad = r; }) });
-  const choTai = async () => { while (!thaLoad) await new Promise(r => setImmediate(r)); const tha = thaLoad; thaLoad = null; return tha; };
+  // Chờ `load` được gọi, có hạn: hỏng thì đỏ ở đây thay vì treo tới khi job hết giờ.
+  const choTai = async () => {
+    const han = Date.now() + 2000;
+    while (!thaLoad) {
+      if (Date.now() > han) throw Error('load không được gọi trong 2 giây');
+      await new Promise(r => setImmediate(r));
+    }
+    const tha = thaLoad;
+    thaLoad = null;
+    return tha;
+  };
   try {
     const dau = t.api.ghi('/p', { a: 1 }, () => t.api.bao('Đã ghi.'));
     assert.equal(await t.api.ghi('/p', { a: 2 }), null, 'đang ghi thì lệnh thứ hai bị bỏ');
@@ -112,4 +132,38 @@ test('drawToast: ẩn khi không có câu báo, thoát HTML khi có', () => {
     assert.equal(t.toastBox.className, 'dx-toast warn');
     assert.match(t.toastBox.innerHTML, /^<span>&lt;b>x&lt;\/b><\/span><button[^>]*data-act="dong-toast"/);
   } finally { t.tra(); }
+});
+
+test('ghi: callback ok trả Promise thì được chờ xong trước khi đọc lại; ok ném lỗi thì báo lỗi, không đọc lại, mở khóa', async () => {
+  const t = dung(() => ({ status: 200, body: { ok: 1 } }));
+  try {
+    t.api.ghi('/p', { a: 1 }, async () => { await new Promise(r => setImmediate(r)); t.log.push('ok xong'); });
+    // load của đồ giả ghi 'load' vào cùng t.log: so thứ tự sau khi ghi xong.
+    const han = Date.now() + 2000;
+    while (t.S.busy || !t.log.includes('load')) {
+      if (Date.now() > han) throw Error('ghi không xong trong 2 giây');
+      await new Promise(r => setImmediate(r));
+    }
+    assert.ok(t.log.indexOf('ok xong') > -1 && t.log.indexOf('ok xong') < t.log.indexOf('load'), 'callback trả Promise được chờ xong rồi mới đọc lại');
+    t.log.length = 0;
+    assert.equal(await t.api.ghi('/p', { a: 2 }, () => { throw Error('callback hỏng'); }), null);
+    assert.equal(t.S.toast.text, 'callback hỏng');
+    assert.equal(t.S.toast.loai, 'err');
+    assert.ok(!t.log.includes('load'));
+    assert.equal(t.S.busy, false);
+    assert.equal(t.S.giuBao, null);
+  } finally { t.tra(); }
+});
+
+test('post: không có crypto.randomUUID thì mã dự phòng có tiền tố của màn', async () => {
+  const goc = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  const t = dung(() => ({ status: 200, body: {} }));
+  try {
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true, writable: true });
+    await t.api.post('/p', { a: 1 });
+    assert.match(t.calls[0].body.idempotency_key, /^tx-\d+-[0-9a-f]+$/);
+  } finally {
+    if (goc) Object.defineProperty(globalThis, 'crypto', goc); else delete globalThis.crypto;
+    t.tra();
+  }
 });

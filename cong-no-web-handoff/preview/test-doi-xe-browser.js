@@ -164,6 +164,8 @@ function makeServer(w) {
         if (w.down) return out({ error: 'DB_UNAVAILABLE', message: 'x' }, 503);
         if (w.forbidden) return out({ error: 'LOGIN_NOT_ALLOWED', message: 'Tài khoản này chưa được cấp quyền dùng sổ. Báo quản trị thêm vào danh sách.' }, 403);
         const q = url.searchParams;
+        // Như get_tong/get_so của máy chủ thật: tháng sau hôm nay không nhận (Bảng kê thì cho xem tới tháng sau).
+        if (q.get('thang') > HOM_NAY) return out({ error: 'INVALID_MONTH', message: 'Tháng không hợp lệ.' }, 422);
         if (route === '/api/v7/doixe') return out(getTong(w, q.get('thang')));
         if (route === '/api/v7/doixe/so') return out(getSo(w, q.get('loai'), Number(q.get('id')), q.get('thang')));
         if (route === '/api/v7/doixe/lich-su') return out({ events: w.events });
@@ -496,3 +498,24 @@ test('Đổi mục giữ tháng: mở bằng ?thang= thì ba mục mang tháng �
 test('Đổi mục giữ tháng: tháng sai khuôn trong địa chỉ không được mang sang mục khác', () => withPage(async page => {
   assert.deepEqual(await hrefs(page), ['/doi-xe.html', '/doi-xe-bang-ke.html', '/doi-xe-bang-ke.html?man=gia']);
 }, { query: '?thang=2026-13' }));
+
+test('Đổi mục giữ tháng: tháng mặc định không thành "đã chọn" sau khi vào sổ rồi tải lại (F5)', () => withPage(async page => {
+  await page.locator('.dx-g-nguoi.dx-row').first().click();
+  await page.locator('.dx-the').waitFor();
+  assert.doesNotMatch(page.url(), /thang=/, 'địa chỉ không ghi tháng mặc định');
+  await page.reload();
+  await page.locator('.dx-the').waitFor();
+  await page.locator('[data-act="ve-tong"]').click();
+  await page.locator('.dx-card').first().waitFor();
+  assert.deepEqual(await hrefs(page), ['/doi-xe.html', '/doi-xe-bang-ke.html', '/doi-xe-bang-ke.html?man=gia']);
+}));
+
+test('Tháng trong địa chỉ mà máy chủ không nhận (tháng sau): bỏ tháng, đọc tháng mặc định, không kẹt lỗi', () => withPage(async (page, w) => {
+  assert.equal(await page.locator('.dx-err').count(), 0, 'không hiện lỗi');
+  assert.ok(await page.locator('.dx-card').first().isVisible());
+  assert.equal(await page.locator('.dx-chip.on').innerText(), 'Chặng tháng 11', 'về tháng mặc định');
+  const doc = w.calls.filter(call => call.startsWith('GET /api/v7/doixe'));
+  assert.deepEqual(doc, ['GET /api/v7/doixe?thang=2026-12-01', 'GET /api/v7/doixe'], 'đọc tháng sau bị từ chối, rồi đọc lại không kèm tháng');
+  assert.doesNotMatch(page.url(), /thang=/);
+  assert.deepEqual(await hrefs(page), ['/doi-xe.html', '/doi-xe-bang-ke.html', '/doi-xe-bang-ke.html?man=gia']);
+}, { query: '?thang=2026-12' }));

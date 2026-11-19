@@ -39,7 +39,7 @@
   }
   function go(man, thang = S.thang) {
     Object.assign(S, { man, thang, mo: null, panel: null, f: null, loc: 'all', giaSua: null, psSua: null, tuyenMoi: null });
-    history.pushState(null, '', urlOf(man, thang));
+    history.pushState(null, '', urlOf(man, S.chon));   // địa chỉ chỉ ghi tháng đã chọn, không ghi tháng mặc định
     load();
   }
   addEventListener('popstate', () => { readUrl(); Object.assign(S, { mo: null, panel: null, f: null }); load(); });
@@ -99,7 +99,7 @@
   function draw() { withFocus(() => { drawHead(); drawBody(); }); }
   function drawHead() {
     const tab = (man, text) => `<button type="button" class="dx-man-tab" data-act="man" data-man="${man}" aria-pressed="${S.man === man}">${text}</button>`;
-    head.innerHTML = `<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="${DoiXeChung.duongDanMuc('nguoi', S.chon)}">Người và xe</a>`
+    head.innerHTML = `<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="${DoiXeChung.duongDanMuc('nguoi', S.chon, (S.data ?? S.gia)?.hom_nay)}">Người và xe</a>`
       + `${tab('bangke', 'Bảng kê gửi HTH')}${tab('gia', 'Bảng giá')}</nav>`;
   }
   function drawBody() {

@@ -46,7 +46,7 @@
     const changed = view !== S.view || id !== S.id;
     if (changed) Object.assign(S, { drafts: [], moi: moiTrong(), danCau: '', hoan: null, loc: '', xoaHoi: null, hop: '', lichSu: null });
     Object.assign(S, { view, id, thang });
-    history[push ? 'pushState' : 'replaceState'](null, '', urlOf(view, id, thang));
+    history[push ? 'pushState' : 'replaceState'](null, '', urlOf(view, id, S.chon));   // địa chỉ chỉ ghi tháng đã chọn, không ghi tháng mặc định
     load();
   }
   addEventListener('popstate', () => { readUrl(); Object.assign(S, { drafts: [], moi: moiTrong(), hoan: null, hop: '' }); load(); });
@@ -66,6 +66,12 @@
       document.body.dataset.loaded = '1';
     } catch (e) {
       if (seq !== S.seq) return;
+      // Tháng trong địa chỉ mà máy chủ không nhận (ví dụ tháng sau, mang từ Bảng kê sang): bỏ tháng, đọc tháng mặc định, không để người dùng kẹt.
+      if (e.code === 'INVALID_MONTH' && S.thang) {
+        Object.assign(S, { thang: null, chon: null });
+        history.replaceState(null, '', urlOf(S.view, S.id, null));
+        return load();
+      }
       Object.assign(S, { loadError: e.status === 403 ? (e.message || 'Tài khoản này chưa được cấp quyền.') : `Không tải được ${S.view === 'tong' ? 'Đội xe' : 'sổ'}. Kiểm tra mạng rồi bấm Thử lại.`, loading: false });
       if (e.status === 422 || e.status === 404) S.data = null;
       document.body.dataset.loaded = '1';

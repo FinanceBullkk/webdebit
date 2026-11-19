@@ -499,3 +499,27 @@ test('Đổi mục giữ tháng: mở thẳng Bảng giá kèm tháng thì "Ngư
   await page.locator('[data-man="bangke"]').click();
   await page.locator('.dxt-card-h h2', { hasText: 'tháng 10' }).waitFor();
 }, { query: '?man=gia&thang=2026-10' }));
+
+test('Đổi mục giữ tháng: tháng sau (Bảng kê cho xem) không mang sang Người và xe; bấm sang thì trang đích đọc tháng mặc định', () => withPage(async (page, w) => {
+  const yeuCau = [];
+  await page.route(/\/api\/v7\/doixe(\?.*)?$/, route => { yeuCau.push(new URL(route.request().url()).search); return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"DB_UNAVAILABLE","message":"x"}' }); });
+  await page.locator('[data-act="thang"][data-thang="2026-12-01"]').click();
+  await page.locator('.dxt-card-h h2', { hasText: 'tháng 12' }).waitFor();
+  const nguoi = page.locator('.dx-man a').first();
+  assert.equal(await nguoi.getAttribute('href'), '/doi-xe.html', 'tháng sau hôm nay không mang sang trang không nhận');
+  await page.locator('[data-man="gia"]').click();
+  await page.locator('.dxt-gia').waitFor();
+  assert.equal(await nguoi.getAttribute('href'), '/doi-xe.html', 'Bảng giá cũng vậy');
+  await Promise.all([page.waitForURL(/\/doi-xe\.html$/), nguoi.click()]);
+  await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
+  assert.deepEqual(yeuCau, [''], 'trang đích đọc không kèm tháng');
+}, { setup: w => { w.nhap['2026-12-01'] = [nhap(401, '2026-12-02', 'MAUU3000001')]; } }));
+
+test('Đổi mục giữ tháng: tháng mặc định không thành "đã chọn" sau khi sang Bảng giá rồi tải lại (F5)', () => withPage(async page => {
+  await page.locator('[data-man="gia"]').click();
+  await page.locator('.dxt-gia').waitFor();
+  assert.doesNotMatch(page.url(), /thang=/, 'địa chỉ không ghi tháng mặc định');
+  await page.reload();
+  await page.locator('.dxt-gia').waitFor();
+  assert.equal(await page.locator('.dx-man a').first().getAttribute('href'), '/doi-xe.html');
+}));
