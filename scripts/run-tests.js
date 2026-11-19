@@ -27,6 +27,7 @@ function previewTests(browser) {
 const suites = {
   unit: () => [
     "scripts/test-business-rules.js",
+    "scripts/test-check-gates.js",
     "scripts/test-check-secrets.js",
     "scripts/test-flaky-repeat.js",
     "scripts/sheet-capture/test.js",

@@ -231,7 +231,7 @@ class DeployAliveTest(unittest.TestCase):
 
     SCRIPT = ROOT.parent / "scripts" / "deploy" / "hao-release.sh"
 
-    def run_deploy(self, healthz_code):
+    def run_deploy(self, healthz_code, restart_new_exit=0):
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, directory, True)
         releases, stubs = directory / "releases", directory / "bin"
@@ -242,13 +242,15 @@ class DeployAliveTest(unittest.TestCase):
         (old / ".release-sha").write_text("a" * 40 + "\n")
         current = directory / "current"
         current.symlink_to(old)
-        log = directory / "curl.log"
+        log, restarts = directory / "curl.log", directory / "restart.log"
         stub = {
             # curl ghi URL được gọi và trả mã cấu hình; chỉ /healthz được 200/503, route khác 403.
             "curl": f'#!/bin/sh\nfor a; do url=$a; done\necho "$url" >> "{log}"\n'
                     f'case $url in */healthz) printf %s "{healthz_code}";; *) printf 403;; esac\n',
             "systemctl": "#!/bin/sh\nexit 0\n",
-            "sudo": "#!/bin/sh\nexit 0\n",
+            # sudo ghi bản đang trỏ lúc restart; restart bản mới trả `restart_new_exit` (A04: unit không lên).
+            "sudo": f'#!/bin/sh\nrunning=$(basename "$(readlink -f "{current}")")\necho "$running" >> "{restarts}"\n'
+                    f'[ "$running" = "{"b" * 40}" ] && exit {restart_new_exit}\nexit 0\n',
             "sleep": "#!/bin/sh\nexit 0\n",
         }
         for name, body in stub.items():
@@ -266,13 +268,15 @@ class DeployAliveTest(unittest.TestCase):
                                 capture_output=True, timeout=60, check=False,
                                 env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}",
                                      "WEBDEBIT_DEPLOY_CONF": str(conf), "SSH_ORIGINAL_COMMAND": ""})
-        return result, current.resolve().name, log.read_text().split()
+        self.restarts = restarts.read_text().split() if restarts.exists() else []
+        return result, current.resolve().name, log.read_text().split() if log.exists() else []
 
     def test_healthz_200_switches_release(self):
         result, running, urls = self.run_deploy(200)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual(running, "b" * 40)
         self.assertEqual(set(urls), {"http://127.0.0.1:8780/healthz"})
+        self.assertEqual(self.restarts, ["b" * 40])
 
     def test_healthz_403_or_503_rolls_back(self):
         for code in (403, 503):
@@ -280,6 +284,95 @@ class DeployAliveTest(unittest.TestCase):
                 result, running, _ = self.run_deploy(code)
                 self.assertEqual(result.returncode, 5, result.stderr.decode())
                 self.assertEqual(running, "a" * 40)
+                self.assertEqual(self.restarts, ["b" * 40, "a" * 40])
+
+    def test_restart_failure_rolls_back_and_restarts_previous(self):
+        # A04 (audit 19/11/2026): trước đây `set -e` thoát 7 ngay sau restart lỗi, `current` ở lại bản mới.
+        result, running, _ = self.run_deploy(200, restart_new_exit=7)
+        self.assertEqual(result.returncode, 5, result.stderr.decode())
+        self.assertEqual(running, "a" * 40)
+        self.assertEqual(self.restarts, ["b" * 40, "a" * 40])
+        self.assertIn("đã quay lại", result.stderr.decode())
+
+
+def working_bash():
+    """bash chạy được thật (trên Windows, `bash` trên PATH có thể là trình khởi chạy WSL không có bản phân phối)."""
+    candidates = [shutil.which("bash"), r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe"]
+    for candidate in dict.fromkeys(item for item in candidates if item and Path(item).is_file()):
+        try:
+            done = subprocess.run([candidate, "-c", "seq 1 1"], capture_output=True, check=False, timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode == 0:
+            return candidate
+    return None
+
+
+BASH = working_bash()
+
+
+@unittest.skipUnless(BASH, "cần bash để chạy khối đổi bản của hao-release.sh")
+class DeploySwitchBlockTest(unittest.TestCase):
+    """A04 (audit 19/11/2026): chạy thật khối đổi bản/quay lại của `hao-release.sh`, lệnh OS giả bằng hàm bash.
+
+    Chạy được cả trên Windows (Git Bash), nơi `DeployAliveTest` bỏ qua vì cần symlink và flock thật. `ln`/`mv` giả giữ
+    bản đang trỏ trong biến `current`; `sudo` (restart) và `alive` (kiểm sống) trả theo bản đang trỏ.
+    """
+
+    SCRIPT = ROOT.parent / "scripts" / "deploy" / "hao-release.sh"
+    MOCK = """set -euo pipefail
+sha=new-sha; new=new-release; prev=${PREV-old-release}; CURRENT_LINK=current; UNIT=fake.service; current=old-release; pending=
+ln() { pending=$2; }
+mv() { current=$pending; echo "CURRENT:$current"; }
+sudo() { echo "RESTART:$current"; case " $FAIL_RESTART " in *" $current "*) return 7;; esac; }
+sleep() { :; }
+alive() { case " $HEALTHY " in *" $current "*) return 0;; esac; return 1; }
+"""
+
+    def run_block(self, fail_restart="", healthy="new-release old-release", prev="old-release"):
+        script = self.SCRIPT.read_text(encoding="utf-8")
+        block = script[script.index("    switch()"):script.index("    # ponytail:")]
+        # Đưa qua stdin dạng byte UTF-8: tham số dòng lệnh chứa tiếng Việt có thể bị đổi mã trên Windows, còn chế độ
+        # text của Python trên Windows đổi "\n" thành "\r\n".
+        done = subprocess.run([BASH, "--noprofile", "--norc", "-s"], input=(self.MOCK + block).encode("utf-8"),
+                              capture_output=True, timeout=60, check=False,
+                              env={**os.environ, "FAIL_RESTART": fail_restart, "HEALTHY": healthy, "PREV": prev})
+        result = subprocess.CompletedProcess(done.args, done.returncode, done.stdout.decode("utf-8", "replace"),
+                                             done.stderr.decode("utf-8", "replace"))
+        words = result.stdout.split()
+        links = [word.split(":", 1)[1] for word in words if word.startswith("CURRENT:")]
+        restarts = [word.split(":", 1)[1] for word in words if word.startswith("RESTART:")]
+        return result, links[-1] if links else "old-release", restarts
+
+    def test_restart_failure_rolls_back_to_previous_and_fails(self):
+        result, current, restarts = self.run_block(fail_restart="new-release")
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+        self.assertEqual(current, "old-release")
+        self.assertEqual(restarts, ["new-release", "old-release"])
+        self.assertIn("đổi bản hoặc restart thất bại", result.stderr)
+        self.assertIn("đã quay lại old-release", result.stderr)
+
+    def test_restart_and_health_ok_keep_new_release(self):
+        result, current, restarts = self.run_block()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((current, restarts), ("new-release", ["new-release"]))
+
+    def test_health_failure_rolls_back_as_before(self):
+        result, current, restarts = self.run_block(healthy="old-release")
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+        self.assertEqual((current, restarts), ("old-release", ["new-release", "old-release"]))
+        self.assertIn("kiểm sống thất bại, quay lại old-release", result.stderr)
+
+    def test_rollback_that_also_fails_is_reported_and_still_exits_5(self):
+        result, current, _ = self.run_block(fail_restart="new-release old-release")
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+        self.assertEqual(current, "old-release")
+        self.assertIn("QUAY LẠI CHƯA ĐẠT", result.stderr)
+
+    def test_first_release_without_previous_fails_without_rollback(self):
+        result, current, restarts = self.run_block(fail_restart="new-release", prev="")
+        self.assertEqual(result.returncode, 5, result.stdout + result.stderr)
+        self.assertEqual((current, restarts), ("new-release", ["new-release"]))
 
 
 if __name__ == "__main__":
