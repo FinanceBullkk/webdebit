@@ -10,6 +10,7 @@ thì đọc thẳng như trước bộ nhớ.
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import sys
@@ -26,11 +27,29 @@ _STAMP = re.compile(r"[0-9a-f]{32}")
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
+def _takes_consistent(method) -> bool:
+    try:
+        return "consistent" in inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _consistent(method, function: str, payload: dict, actor: str):
+    """Audit 19/11/2026 (A01): hàm đọc nặng chạy trong một ảnh dữ liệu (REPEATABLE READ READ ONLY) khi runner hỗ trợ.
+
+    Dưới READ COMMITTED mỗi câu trong get_ledger thấy dữ liệu đã commit lúc câu đó chạy, nên một phiếu thu commit giữa chừng
+    làm tổng nợ (trước phiếu) và danh sách phiếu (sau phiếu) lệch nhau trong cùng một trả lời. Dấu trước/sau chỉ ngăn giữ bản
+    đó vào bộ nhớ, không sửa được trả lời đã ghép. Chỉ dùng ở GET: lệnh ghi gọi get_ledger phải thấy chính phần nó ghi."""
+    if function in CACHED and _takes_consistent(method):
+        return method(function, payload, actor, consistent=True)
+    return method(function, payload, actor)
+
+
 def _text(runner, function: str, payload: dict, actor: str) -> str:
     run_text = getattr(runner, "run_text", None)
     if run_text is not None:
-        return run_text(function, payload, actor)
-    return json.dumps(runner.run(function, payload, actor), ensure_ascii=False, separators=(",", ":"))
+        return _consistent(run_text, function, payload, actor)
+    return json.dumps(_consistent(runner.run, function, payload, actor), ensure_ascii=False, separators=(",", ":"))
 
 
 class ReadCache:
@@ -68,7 +87,7 @@ class ReadCache:
             return runner.run(function, payload, actor)
         stamp = self.current_stamp(runner, actor)
         if stamp is None:
-            return runner.run(function, payload, actor)
+            return _consistent(runner.run, function, payload, actor)
         key = (stamp, function, json.dumps(payload, sort_keys=True, separators=(",", ":")))
         with self.lock:
             text = self.entries.get(key)

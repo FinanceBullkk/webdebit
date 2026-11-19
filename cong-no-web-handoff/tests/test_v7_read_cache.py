@@ -197,6 +197,46 @@ class ReadCacheTests(unittest.TestCase):
         self.assertNotIn(1, [json.loads(key[2])["customer_id"] for key in cache.entries])
 
 
+class ConsistentRunner(Runner):
+    """Runner giả nhận cờ `consistent` như adapter psql thật; ghi lại cờ của từng lượt gọi hàm đọc."""
+
+    def __init__(self, *args, text=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.flags = []
+        if not text:
+            self.run_text = None
+
+    def run(self, function, payload, actor, *, consistent=False):
+        if function != "get_read_stamp":
+            self.flags.append((function, consistent))
+        return super().run(function, payload, actor)
+
+    def run_text(self, function, payload, actor, *, consistent=False):
+        self.flags.append((function, consistent))
+        return json.dumps(super().run(function, payload, actor))
+
+
+class ConsistentReadTests(unittest.TestCase):
+    """Audit 19/11/2026 (A01): hàm đọc nặng ở GET chạy trong một ảnh dữ liệu, kể cả khi dấu hỏng và đọc thẳng."""
+
+    def test_cached_reads_ask_for_one_snapshot(self):
+        cache = v7_read_cache.ReadCache()
+        for text in (True, False):
+            with self.subTest(run_text=text):
+                runner = ConsistentRunner(text=text)
+                cache.run(runner, "get_ledger", {"customer_id": 7 if text else 8}, "fake")
+                cache.run(runner, "list_customers", {}, "fake")
+                self.assertEqual(runner.flags, [("get_ledger", True), ("list_customers", False)])
+
+    def test_broken_stamp_reads_directly_still_consistent(self):
+        runner = ConsistentRunner(stamp=RuntimeError("no stamp"))
+        v7_read_cache.ReadCache().run(runner, "get_dashboard", {}, "fake")
+        self.assertEqual(runner.flags, [("get_dashboard", True)])
+
+    def test_runner_without_flag_still_works(self):
+        self.assertEqual(v7_read_cache.ReadCache().run(Runner(), "get_ledger", {"customer_id": 7}, "fake")["version"], 1)
+
+
 class ApiWiringTests(unittest.TestCase):
     """GET Tổng quan và sổ qua bộ nhớ; POST đi thẳng; kết quả GET giống khi không có bộ nhớ."""
 
