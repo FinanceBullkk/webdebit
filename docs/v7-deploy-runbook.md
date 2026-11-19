@@ -1977,9 +1977,9 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
-## Cờ khách mới ở Tổng quan (KHACH-MOI-01) — nâng DB
+## Cờ khách mới ở Tổng quan (KHACH-MOI-01) — nâng DB (ĐÃ CHẠY trên hao 19/11/2026)
 
-Spec [`v7-khach-moi`](../specs/v7-khach-moi.md), quyết định [`KHACH-MOI-01`](decisions/khach-moi-01.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi.sql` thay thân hàm đọc `get_dashboard_debt`: mỗi sổ đang nợ có thêm `first_trip_day`, `first_trip_exact`, `is_new`, `new_flag`, `oldest_unpaid_trip_day`, và `rule` có thêm `new_days`, `new_no_pay_days`, `new_unpaid_days`. Mọi trường cũ giữ nguyên giá trị. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu hay quyền. Khai báo hàm giữ `SET jit = off` (HIEU-NANG-02), nên không cần chạy lại `2026-11-18-v7-tong-quan-tat-jit.sql`. Chạy lại được. **Chạy sau `2026-11-18-v7-tong-quan-tat-jit.sql`. Chạy lại một migration cũ hơn có `CREATE OR REPLACE get_dashboard_debt` thì phải chạy lại file này.**
+Đã chạy 19/11/2026, xem [nhật ký](deploys/2026-11-19-khach-moi.md). Spec [`v7-khach-moi`](../specs/v7-khach-moi.md), quyết định [`KHACH-MOI-01`](decisions/khach-moi-01.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi.sql` thay thân hàm đọc `get_dashboard_debt`: mỗi sổ đang nợ có thêm `first_trip_day`, `first_trip_exact`, `is_new`, `new_flag`, `oldest_unpaid_trip_day`, và `rule` có thêm `new_days`, `new_no_pay_days`, `new_unpaid_days`. Mọi trường cũ giữ nguyên giá trị. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu hay quyền. Khai báo hàm giữ `SET jit = off` (HIEU-NANG-02), nên không cần chạy lại `2026-11-18-v7-tong-quan-tat-jit.sql`. Chạy lại được. **Chạy sau `2026-11-18-v7-tong-quan-tat-jit.sql`. Chạy lại một migration cũ hơn có `CREATE OR REPLACE get_dashboard_debt` thì phải chạy lại file này.**
 
 Thứ tự với release: độc lập. Release cũ không đọc trường mới; release mới (frontend, PR riêng) gặp DB cũ thì không hiện nhãn. Chỉ thay một hàm đọc nên không cần cửa sổ dừng ghi. Tránh phút :05–:15 khi máy đối soát chạy.
 
