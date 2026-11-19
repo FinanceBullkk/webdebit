@@ -98,8 +98,11 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 `npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
 (`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), secrets và dữ liệu thật
 (`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
-`node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026). Chưa tải Chromium thì bước
-Playwright báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
+`node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026).
+Từ 19/11/2026 (audit kiến trúc, A11) thiếu Python hoặc chưa tải Chromium là **FAIL** kèm câu thiếu gì và cách cài theo
+README, không còn SKIP: trước đó máy thiếu công cụ vẫn thoát 0 dù không chạy tầng test. Cố ý chạy thiếu thì bỏ bằng
+`--skip=<mã bước>` (`test:py`, `test:browser`...): bước đó in SKIP, mã thoát vẫn 0 nhưng tổng kết in dòng `CHƯA ĐỦ` kèm
+các mã đã bỏ — xanh khi đó chỉ nói về các bước đã chạy, không dùng làm bằng chứng đủ kiểm.
 `npm run lint` chạy riêng năm bước lint khi đang sửa dở.
 
 **Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
@@ -137,7 +140,9 @@ file đó và Git không theo dõi gì trong thư mục này. Mỗi dòng một 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
 không đổi riêng trong workflow. Ngoại lệ duy nhất: `--skip=<mã bước>` (ví dụ `test:py`) để job không chạy lại bước
-mà job khác đã chạy cùng môi trường; mã gõ sai thì lệnh dừng với mã 2 chứ không im lặng bỏ bước. Ở máy không dùng cờ này.
+mà job khác đã chạy cùng môi trường; mã gõ sai thì lệnh dừng với mã 2 chứ không im lặng bỏ bước. Ở máy chỉ dùng cờ này
+khi cố ý chạy thiếu (xem trên) và báo kết quả kèm dòng `CHƯA ĐỦ`. Mọi job của `test.yml` phải nằm trong `needs` của
+`ci-ok`; `scripts/test-check-gates.js` đỏ nếu quên (audit kiến trúc 19/11/2026, A09: job `postgres-v7-xuat-so` từng thiếu).
 
 ### CI trên runner GitHub
 

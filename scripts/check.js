@@ -8,11 +8,13 @@
 //
 //   node scripts/check.js            chạy tất cả
 //   node scripts/check.js --lint     chỉ lint (nhanh, dùng khi đang sửa)
-//   node scripts/check.js --skip=test:py[,lint:js]
-//                                    bỏ bước theo mã (chữ đầu tên bước). Chỉ CI dùng: job JS trên
-//                                    ubuntu bỏ test:py vì job `python` đã chạy unittest 3.12–3.14.
+//   node scripts/check.js --skip=test:py[,test:browser]
+//                                    bỏ bước theo mã (chữ đầu tên bước). CI dùng: job JS trên ubuntu
+//                                    bỏ test:py vì job `python` đã chạy unittest 3.12–3.14.
 //
-// Mã thoát khác 0 nếu bất kỳ bước nào hỏng. Bước bị bỏ qua (SKIP) không làm hỏng.
+// Mã thoát khác 0 nếu bất kỳ bước nào hỏng. Thiếu công cụ bước cần (Python, Chromium) là hỏng, không
+// phải bỏ qua (audit 19/11/2026, A11): trước đó máy thiếu công cụ vẫn thoát 0 dù không chạy tầng test.
+// Chỉ bước bỏ bằng `--skip` là bỏ có chủ đích: không làm hỏng, nhưng tổng kết in "CHƯA ĐỦ" kèm mã bước.
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -20,12 +22,14 @@ const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
 const HANDOFF = path.join(ROOT, "cong-no-web-handoff");
-const lintOnly = process.argv.includes("--lint");
-const skipKeys = process.argv
-  .filter((a) => a.startsWith("--skip="))
-  .flatMap((a) => a.slice("--skip=".length).split(","))
-  .map((k) => k.trim())
-  .filter(Boolean);
+
+function parseSkipKeys(argv) {
+  return argv
+    .filter((a) => a.startsWith("--skip="))
+    .flatMap((a) => a.slice("--skip=".length).split(","))
+    .map((k) => k.trim())
+    .filter(Boolean);
+}
 
 // Ruff nằm trong .venv của dự án khi chạy ở máy, nằm trên PATH khi chạy trong CI.
 function ruffCommand() {
@@ -89,9 +93,8 @@ const envWithoutNames = { ...process.env };
 // Tên biến môi trường trên Windows không phân biệt hoa thường.
 for (const key of Object.keys(envWithoutNames)) if (key.toUpperCase() === NAMES_ENV) delete envWithoutNames[key];
 
-// Test trình duyệt cần bản Chromium đã tải. Ở máy chưa tải thì báo SKIP thay vì
-// FAIL: một lỗi không liên quan tới thay đổi của người sửa sẽ khiến họ bỏ luôn
-// thói quen chạy check.
+// Test trình duyệt cần bản Chromium đã tải. Trước 19/11/2026 thiếu thì báo SKIP để người sửa không bỏ thói quen
+// chạy check; nhưng như vậy mã thoát 0 không còn nghĩa là đã chạy đủ, nên giờ là FAIL kèm cách cài.
 function chromiumMissing() {
   try {
     const { chromium } = require("playwright");
@@ -152,7 +155,10 @@ const steps = [
     args: PYTHON ? [...PYTHON.args, "-m", "unittest", "discover", "-s", "tests"] : [],
     cwd: HANDOFF,
     lint: false,
-    skip: () => !PYTHON && "không tìm thấy Python — tạo .venv theo README rồi chạy lại",
+    // `missing()` trả câu báo thiếu gì và cách cài (theo README), hoặc false khi đủ công cụ.
+    missing: () =>
+      !PYTHON &&
+      "Python — tạo .venv và cài requirements theo README (hoặc đặt VIRTUAL_ENV tới venv đã cài) rồi chạy lại",
   },
   {
     name: "test:js   node --test",
@@ -162,56 +168,86 @@ const steps = [
     lint: false,
   },
   {
-    name: "test:js   playwright",
+    // Mã riêng `test:browser` (trước 19/11/2026 chung mã `test:js` với node --test) để bỏ có chủ đích
+    // đúng bước này mà không bỏ luôn test JS không cần trình duyệt.
+    name: "test:browser playwright",
     cmd: "npm",
     args: ["run", "test:browser"],
     cwd: ROOT,
     lint: false,
-    skip: () =>
-      chromiumMissing() &&
-      "chưa có Chromium — chạy `npx playwright install chromium` nếu cần",
+    missing: () =>
+      chromiumMissing() && "Chromium của Playwright — chạy `npx playwright install chromium` theo README rồi chạy lại",
   },
 ];
 
-// Mã bước là chữ đầu của tên ("test:py", "lint:js"...). Mã gõ sai thì dừng hẳn: bỏ nhầm một bước
-// mà vẫn báo xanh là đúng kiểu lỗi lệnh này sinh ra để chặn.
+// Mã bước là chữ đầu của tên ("test:py", "lint:js"...).
 const stepKey = (step) => step.name.split(/\s+/)[0];
-const unknownSkip = skipKeys.filter((k) => !steps.some((step) => stepKey(step) === k));
-if (unknownSkip.length) {
-  console.error(`--skip có mã không tồn tại: ${unknownSkip.join(", ")}. Mã hợp lệ: ${[...new Set(steps.map(stepKey))].join(", ")}`);
-  process.exit(2);
+
+// Quyết định trước khi chạy một bước. Bỏ có chủ đích thắng thiếu công cụ, vì người gọi đã nói rõ không cần
+// bước đó; còn thiếu công cụ mà không ai xin bỏ thì là FAIL.
+function planStep(step, skipKeys) {
+  if (skipKeys.includes(stepKey(step))) return { status: "SKIP", reason: "bỏ có chủ đích theo --skip" };
+  const missing = step.missing && step.missing();
+  if (missing) {
+    return { status: "FAIL", reason: `thiếu ${missing}. Cố ý chạy thiếu bước này thì gọi --skip=${stepKey(step)}` };
+  }
+  return { status: "RUN" };
 }
 
-const results = [];
-for (const step of steps) {
-  if (lintOnly && step.lint === false) continue;
-
-  const reason = skipKeys.includes(stepKey(step))
-    ? "bỏ theo --skip"
-    : step.skip && step.skip();
-  if (reason) {
-    console.log(`\n=== SKIP ${step.name}: ${reason}\n`);
-    results.push({ name: step.name, status: "SKIP" });
-    continue;
+// Tổng kết và mã thoát từ kết quả các bước. Hàm thuần để test (scripts/test-check-gates.js).
+function summarize(results) {
+  const lines = results.map((r) => `  ${r.status.padEnd(4)} ${r.name}${r.reason ? `: ${r.reason}` : ""}`);
+  const skipped = results.filter((r) => r.status === "SKIP");
+  if (skipped.length) {
+    lines.push(`CHƯA ĐỦ: lượt này bỏ có chủ đích ${skipped.map(stepKey).join(", ")}; xanh chỉ nói về các bước đã chạy.`);
   }
-
-  console.log(`\n=== ${step.name}\n`);
-  // `npm` là npm.cmd trên Windows; file .cmd chỉ chạy được qua shell.
-  const r = spawnSync(step.cmd, step.args, {
-    cwd: step.cwd,
-    env: step.names ? process.env : envWithoutNames,
-    stdio: "inherit",
-    shell: step.cmd === "npm" && process.platform === "win32",
-  });
-  if (r.error) {
-    console.error(`không chạy được ${step.cmd}: ${r.error.message}`);
-    results.push({ name: step.name, status: "FAIL" });
-    continue;
-  }
-  results.push({ name: step.name, status: r.status === 0 ? "OK" : "FAIL" });
+  const failed = results.filter((r) => r.status === "FAIL");
+  return { exitCode: failed.length ? 1 : 0, lines };
 }
 
-console.log("\n=== Tổng kết");
-for (const r of results) console.log(`  ${r.status.padEnd(4)} ${r.name}`);
-const failed = results.filter((r) => r.status === "FAIL");
-process.exit(failed.length ? 1 : 0);
+function main(argv) {
+  const lintOnly = argv.includes("--lint");
+  const skipKeys = parseSkipKeys(argv);
+  // Mã gõ sai thì dừng hẳn: bỏ nhầm một bước mà vẫn báo xanh là đúng kiểu lỗi lệnh này sinh ra để chặn.
+  const unknownSkip = skipKeys.filter((k) => !steps.some((step) => stepKey(step) === k));
+  if (unknownSkip.length) {
+    console.error(`--skip có mã không tồn tại: ${unknownSkip.join(", ")}. Mã hợp lệ: ${[...new Set(steps.map(stepKey))].join(", ")}`);
+    return 2;
+  }
+
+  const results = [];
+  for (const step of steps) {
+    if (lintOnly && step.lint === false) continue;
+
+    const plan = planStep(step, skipKeys);
+    if (plan.status !== "RUN") {
+      console.log(`\n=== ${plan.status} ${step.name}: ${plan.reason}\n`);
+      results.push({ name: step.name, status: plan.status, reason: plan.reason });
+      continue;
+    }
+
+    console.log(`\n=== ${step.name}\n`);
+    // `npm` là npm.cmd trên Windows; file .cmd chỉ chạy được qua shell.
+    const r = spawnSync(step.cmd, step.args, {
+      cwd: step.cwd,
+      env: step.names ? process.env : envWithoutNames,
+      stdio: "inherit",
+      shell: step.cmd === "npm" && process.platform === "win32",
+    });
+    if (r.error) {
+      console.error(`không chạy được ${step.cmd}: ${r.error.message}`);
+      results.push({ name: step.name, status: "FAIL", reason: `không chạy được ${step.cmd}` });
+      continue;
+    }
+    results.push({ name: step.name, status: r.status === 0 ? "OK" : "FAIL" });
+  }
+
+  const { exitCode, lines } = summarize(results);
+  console.log("\n=== Tổng kết");
+  for (const line of lines) console.log(line);
+  return exitCode;
+}
+
+if (require.main === module) process.exit(main(process.argv.slice(2)));
+
+module.exports = { planStep, summarize, stepKey, parseSkipKeys };

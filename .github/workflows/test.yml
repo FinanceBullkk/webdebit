@@ -338,6 +338,7 @@ jobs:
       - postgres-v7-bat-bien
       - postgres-v7-luoi-an-toan
       - postgres-doixe
+      - postgres-v7-xuat-so
       - postgres-m1-history-queries
       - pg18-versioned-approval-fixture
       - javascript

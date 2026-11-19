@@ -51,13 +51,25 @@ case $action in
     printf '%s\n' "$sha" > "$new.tmp/.release-sha"
     rm -rf "$new"; mv "$new.tmp" "$new"
 
+    # Đổi bản và kiểm sống luôn gọi trong điều kiện `if` (audit 19/11/2026, A04): gọi trần thì restart trả mã khác 0
+    # làm `set -e` thoát ngay, bỏ qua nhánh quay lại, `current` nằm lại trên bản hỏng. Restart lỗi giờ cũng quay lại
+    # như kiểm sống lỗi; quay lại thì restart và kiểm sống lại bản cũ. Lượt hỏng luôn thoát 5.
+    # Test chạy thật khối từ `switch()` tới dòng `ponytail` với lệnh OS giả (cong-no-web-handoff/tests/test_v7_api_healthz.py).
     switch() { ln -sfn "$1" "$CURRENT_LINK.new" && mv -T "$CURRENT_LINK.new" "$CURRENT_LINK" && sudo -n systemctl restart "$UNIT"; }
-    switch "$new"
-    ok=0
-    for _ in $(seq 1 15); do sleep 2; if alive; then ok=1; break; fi; done
-    if [[ $ok != 1 ]]; then
-      echo "kiểm sống thất bại, quay lại ${prev:-không có bản cũ}" >&2
-      [[ -n $prev ]] && switch "$prev"
+    wait_alive() { local _; for _ in $(seq 1 15); do sleep 2; if alive; then return 0; fi; done; return 1; }
+    failure=
+    if ! switch "$new"; then failure="đổi bản hoặc restart thất bại"
+    elif ! wait_alive; then failure="kiểm sống thất bại"
+    fi
+    if [[ -n $failure ]]; then
+      echo "$failure, quay lại ${prev:-không có bản cũ}" >&2
+      if [[ -n $prev ]]; then
+        if switch "$prev" && wait_alive; then
+          echo "đã quay lại $(basename "$prev"), bản cũ kiểm sống đạt" >&2
+        else
+          echo "QUAY LẠI CHƯA ĐẠT: $(basename "$prev") restart hoặc kiểm sống thất bại, cần xử lý tay (docs/hao-auto-deploy.md)" >&2
+        fi
+      fi
       exit 5
     fi
     echo "đã chạy $sha (trước đó: $(basename "${prev:-none}"))"
