@@ -4,15 +4,16 @@
 
 ## Quyết định
 
-Ngoại lệ của [`PHU-PHI-01`](phu-phi-01.md) (8): **cột phí trên tab khách có tên nhận ra được thì tiền ở cột đó vào đúng loại phí, không vào Khác.** Cột không tên, tên lạ hoặc tên chứa từ hai loại trở lên ("Neo / Phi dien / Dong ghep") vẫn là Khác như (8).
+Ngoại lệ của [`PHU-PHI-01`](phu-phi-01.md) (8): **cột phí trên tab khách có tên nhận ra được thì tiền ở cột đó vào đúng loại phí, không vào Khác.** Cột không tên, tên lạ (phí hủy, DET, kiểm cadmium, cân xe, 拖车...) hoặc tên chứa từ hai loại trở lên ("Neo / Phi dien / Dong ghep") vẫn là Khác như (8).
 
 | Tên cột chứa | Loại phí trên web | Cột debit note |
 |---|---|---|
-| `NEO`, `押车`, `OVERSTAY` | Neo | OVERSTAY 押车 |
-| `GHÉP`, `拼柜`, `TRUCKING` | Ghép | TRUCKING 拼柜 |
+| `NEO`, `押车`, `压车` (đồng âm), `OVERSTAY` | Neo | OVERSTAY 押车 |
+| `GHÉP`, `拼柜`, `并柜`, `TRUCKING` | Ghép | TRUCKING 拼柜 |
 | `ĐIỆN`, `发电`, `插电`, `电费`, `GENSET`, `GENERATOR` | Điện | GENSET 发电机/电费 |
 | `卫生证`, `HEALTH`, `HC FEE` | Health + KĐ | HC FEE 卫生证 |
-| `BẢO HIỂM`, `保险`, `INSURANCE` | Bảo hiểm | INSURANCE 保险 |
+| `BẢO HIỂM`, `保险`, `INSURANCE`, `ÍNURANCE` (gõ sai) | Bảo hiểm | INSURANCE 保险 |
+| `KIỂM ĐỊNH` | Kiểm định | INSPECTION 检验费 |
 
 - `卫生证` là Health cert (người dùng xác nhận). Ghi vào loại "Health + KĐ" vì đó là cột HC FEE mặc định của mọi sổ ([`COT-PHU-PHI-01`](cot-phu-phi-01.md)); loại "Health cert" không có cột nên sẽ hiện ở cột Khác. Debit note in hai loại như nhau.
 - Cột `开发电器` (chữ gõ lệch, nhiều khả năng là `发电机`) là Điện, theo câu hỏi của người dùng ("phí điện hay máy phát"); cột này chưa thấy có tiền.
