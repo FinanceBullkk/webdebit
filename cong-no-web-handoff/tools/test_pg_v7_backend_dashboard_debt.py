@@ -213,7 +213,7 @@ def check_dashboard_debt(pg: Pg) -> None:
             "summary does not match customers")
     require(result["rule"] == {"due_after_months": 1, "long_overdue_months": 3, "no_pay_days": 60,
                                "no_trip_days": 90, "active_trip_days": 30,
-                               "new_days": 90, "new_no_pay_days": 30, "new_unpaid_days": 45}, "rule constants")
+                               "new_days": 60, "new_no_pay_days": 30, "new_unpaid_days": 45}, "rule constants")
 
     month = result["this_month"]
     require(month["month"] == m0, "this_month is not the current VN month")
@@ -241,7 +241,7 @@ def check_dashboard_debt(pg: Pg) -> None:
 
 
 def check_new_customer(pg: Pg, today: str) -> None:
-    """KHACH-MOI-01: sổ mới trong 90 ngày đầu; no_pay sau 30 ngày chưa trả; slow khi chuyến cũ nhất chưa trả đủ quá 45 ngày."""
+    """KHACH-MOI-01: sổ mới trong 60 ngày đầu; no_pay sau 30 ngày chưa trả; slow khi chuyến cũ nhất chưa trả đủ quá 45 ngày."""
     now = date.fromisoformat(today)
 
     def ago(days: int) -> str:
@@ -270,8 +270,8 @@ def check_new_customer(pg: Pg, today: str) -> None:
         day = now - timedelta(days=days)
         _legacy(pg, book_id, day.replace(day=1).isoformat(), "receipt", day.strftime("%d/%m/%Y"), row, amount=1000)
 
-    edge90 = book("e90", 90)                 # đúng 90 ngày: còn là sổ mới, đủ 30 ngày chưa trả
-    edge91 = book("e91", 91)                 # 91 ngày: hết là sổ mới
+    edge60 = book("e60", 60)                 # đúng 60 ngày: còn là sổ mới, đủ 30 ngày chưa trả
+    edge61 = book("e61", 61)                 # 61 ngày: hết là sổ mới
     nopay29 = book("n29", 29)
     nopay30 = book("n30", 30)
     voided = book("vd", 35)                  # phiếu đã hủy không tính là đã trả
@@ -319,8 +319,8 @@ def check_new_customer(pg: Pg, today: str) -> None:
         got = (row["first_trip_day"], row["first_trip_exact"], row["is_new"], row["new_flag"], row["oldest_unpaid_trip_day"])
         require(got == (first, exact, is_new, flag, unpaid), f"{name}: {got}")
 
-    expect(edge90, "90 days is new", ago(90), True, "no_pay", ago(90))
-    expect(edge91, "91 days is not new", ago(91), False, None, None)
+    expect(edge60, "60 days is new", ago(60), True, "no_pay", ago(60))
+    expect(edge61, "61 days is not new", ago(61), False, None, None)
     expect(nopay29, "29 days unpaid", ago(29), True, None, ago(29))
     expect(nopay30, "30 days unpaid", ago(30), True, "no_pay", ago(30))
     expect(voided, "voided receipt", ago(35), True, "no_pay", ago(35))

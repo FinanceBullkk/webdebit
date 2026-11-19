@@ -14,8 +14,8 @@ LEDGER_EVENTS_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-0
 LEDGER_EVENTS_ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql"
 # MO-SO-NHANH-03 18/11/2026: get_ledger chuẩn = bản MO-SO-NHANH-02 cộng đúng một mệnh đề SET jit = off (migration ALTER FUNCTION).
 LEDGER_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql"
-# KHACH-MOI-01 19/11/2026: get_dashboard_debt chuẩn = bản của migration khach-moi (đã gồm SET jit = off của HIEU-NANG-02).
-DASHBOARD_DEBT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi.sql"
+# KHACH-MOI-01 19/11/2026: get_dashboard_debt chuẩn = bản của migration khach-moi-60-ngay (đã gồm SET jit = off của HIEU-NANG-02).
+DASHBOARD_DEBT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi-60-ngay.sql"
 DASHBOARD_DEBT_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"

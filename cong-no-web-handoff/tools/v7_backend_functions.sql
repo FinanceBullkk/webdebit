@@ -2239,7 +2239,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- Tổng cộng bằng numeric (không ép bigint) để không tràn số khi cộng nhiều sổ.
 -- DASH-08 (9/11/2026): this_month.customers là thu/phát sinh tháng này từng sổ có số khác 0 (cả sổ đã hết nợ), để Tổng quan
 -- lọc thẻ Thu tháng theo mặt hàng / nhóm khách; cộng các sổ đúng bằng charges_vnd / received_vnd của this_month.
--- KHACH-MOI-01 (19/11/2026): sổ mới = chuyến đầu (sớm nhất, cùng luật ngày với lần đi hàng) cách hôm nay ≤ 90 ngày và không có
+-- KHACH-MOI-01 (19/11/2026): sổ mới = chuyến đầu (sớm nhất, cùng luật ngày với lần đi hàng) cách hôm nay ≤ 60 ngày (người dùng
+-- rút từ 90 xuống 60 ngày cùng ngày) và không có
 -- lần trả nào sớm hơn chuyến đầu quá 7 ngày. no_pay: đủ 30 ngày từ chuyến đầu mà chưa trả lần nào; slow: chuyến cũ nhất còn chưa
 -- trả đủ quá 45 ngày. Sổ có nợ mốc từ tháng trước tháng của chuyến đầu cũng không phải sổ mới (sổ tách từ khách cũ).
 -- Chuyến chưa trả đủ = các chuyến mới nhất cộng lại vừa phủ số còn nợ của sổ (nợ cũ trả trước). Tiền chuyến tính như số dư:
@@ -2299,7 +2300,7 @@ BEGIN
           FROM leg_trip),
     trip_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM trip_day ORDER BY customer_id,dt DESC,exact DESC),
     trip_first AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM trip_day ORDER BY customer_id,dt,exact DESC),
-    newb AS (SELECT f.customer_id,f.dt FROM trip_first f JOIN debtor b ON b.id=f.customer_id WHERE f.dt>=d-90
+    newb AS (SELECT f.customer_id,f.dt FROM trip_first f JOIN debtor b ON b.id=f.customer_id WHERE f.dt>=d-60
         AND NOT EXISTS (SELECT 1 FROM pay_day p WHERE p.customer_id=f.customer_id AND p.dt<f.dt-7)
         AND NOT EXISTS (SELECT 1 FROM sokhach.opening_balance o WHERE o.customer_id=b.id AND o.cutover_id=b.cutover_id
             AND o.amount_vnd<>0 AND o.debt_month<date_trunc('month',f.dt)::date)),
@@ -2374,7 +2375,7 @@ BEGIN
     flow AS (SELECT coalesce(sum(charges),0) AS charges,coalesce(sum(received),0) AS received FROM flow_c)
   SELECT jsonb_build_object('as_of',d::text,'month',m::text,
     'rule',jsonb_build_object('due_after_months',1,'long_overdue_months',3,'no_pay_days',60,'no_trip_days',90,'active_trip_days',30,
-      'new_days',90,'new_no_pay_days',30,'new_unpaid_days',45),
+      'new_days',60,'new_no_pay_days',30,'new_unpaid_days',45),
     'receivable_vnd',(SELECT coalesce(sum(total),0)::text FROM ranked),
     'due_tiers',(SELECT jsonb_build_array(
         jsonb_build_object('tier','not_due','receivable_vnd',coalesce(sum(t0),0)::text),

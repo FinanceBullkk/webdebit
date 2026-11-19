@@ -107,7 +107,7 @@
       + `${debt.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('số quá hạn'))} ${button('retry:debt', 'Thử lại')}</p>` : ''}`
       + `${pendingLine(data, freshLine(row, asOf))}${detailPanel(months, parts)}</section>`;
   }
-  // KHACH-MOI-01: sổ mới (chuyến đầu trong 90 ngày) có một dữ kiện ở đầu phải hàng "Còn nợ chưa tính" (không thêm chiều cao,
+  // KHACH-MOI-01: sổ mới (chuyến đầu trong `rule.new_days` ngày, hiện 60) có một dữ kiện ở đầu phải hàng "Còn nợ chưa tính" (không thêm chiều cao,
   // khung 560px giữ nguyên), cùng chữ với nhãn "Mới" ở Tổng quan; không gợi ý việc.
   function freshLine(row, asOf) {
     const fresh = CongNoFormat.newCustomer(row, asOf);
