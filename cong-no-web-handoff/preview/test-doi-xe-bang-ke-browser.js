@@ -500,7 +500,7 @@ test('Đổi mục giữ tháng: mở thẳng Bảng giá kèm tháng thì "Ngư
   await page.locator('.dxt-card-h h2', { hasText: 'tháng 10' }).waitFor();
 }, { query: '?man=gia&thang=2026-10' }));
 
-test('Đổi mục giữ tháng: tháng sau (Bảng kê cho xem) không mang sang Người và xe; bấm sang thì trang đích đọc tháng mặc định', () => withPage(async (page, w) => {
+test('Đổi mục giữ tháng: tháng sau (Bảng kê cho xem) không mang sang Người và xe; bấm sang thì trang đích đọc tháng mặc định', () => withPage(async page => {
   const yeuCau = [];
   await page.route(/\/api\/v7\/doixe(\?.*)?$/, route => { yeuCau.push(new URL(route.request().url()).search); return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"DB_UNAVAILABLE","message":"x"}' }); });
   await page.locator('[data-act="thang"][data-thang="2026-12-01"]').click();
