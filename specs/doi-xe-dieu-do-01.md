@@ -143,6 +143,30 @@ File điều xe còn giữ năm cột phí cảng (195/205 dòng tháng 10 có p
 
 Bước 2 làm song song với bước 1 được.
 
+## Bản bấm thử (bước 2, dữ liệu giả)
+
+Đã dựng 19/11/2026 trên canvas thiết kế của dự án, trang "Đội xe: Điều độ (bản thử, bước 2)". Chưa ai thử và chưa ai chốt luồng; mọi lựa chọn trên bản thử là ĐỀ XUẤT, không phải quy tắc. Dữ liệu giả theo tỉ lệ đã đo (số đếm ở mục Hiện trạng), "hôm nay" cố định là thứ Năm 19/11/2026, không có tên người, biển số, container hay mã nhà xe thật.
+
+Các khung (bấm được trừ khi ghi khác):
+
+- **A · Theo việc:** màn Điều độ đầy đủ. Bốn ô đếm lọc, lọc ngày, kho, xe, tài xế, trạng thái, ô tìm theo vài số cuối container trong mọi ngày; nhóm Cũ hơn còn chờ, Hôm nay, Hôm qua, Sắp tới. Phân xe bằng bàn phím trên dòng (gõ, Enter, con trỏ sang việc chờ kế tiếp), gợi ý xe kèm số việc xe đó đã có trong ngày, Hoàn tác. Chi tiết dòng (booking, hàng, hãng tàu, tên tàu, seal, nhiệt độ, chặng, Lịch sử), + chặng, đổi và bỏ phân công, booking đã đổi, chặng không còn trên booking, chặng ngoài booking.
+- **B · Theo xe:** cùng dữ liệu và luật, việc chờ bên trái, xe bên phải kèm số việc trong ngày; chuyển qua lại bằng nút "Xem theo".
+- **Phía nhập chi phí:** sổ tài xế có sẵn chặng đã phân xe với tình trạng "Chưa có phí"; gõ tiền là sang "Đã có phí"; ngày chạy sau hôm nay khóa ô tiền.
+- **Điện thoại 390:** thẻ thay bảng.
+- **Các trường hợp:** đang gõ biển số, + chặng, chặng ngoài booking (kho và cảng điền sẵn khi container có ở booking nhà xe khác), đổi phân công, chặng đã có phí bị khóa, booking đổi, bị chặn, tìm việc cũ.
+- **Khung 1280×560 và trạng thái:** màn mặc định, trống, đang tải, không tải được, thiếu quyền, mất mạng khi lưu, chữ dài.
+
+Chỗ bản thử buộc phải chọn, làm theo ĐỀ XUẤT ở trên (câu hỏi mở vẫn còn):
+
+- Chưa có số container thì chưa phân xe được (câu 3).
+- Seal, nhiệt độ, tên tàu chỉ xem trong Chi tiết, không sửa (câu 6).
+- Việc bị giao nhà xe khác: người chọn Giữ thành chặng ngoài booking hoặc Bỏ chặng (câu 8).
+- Chặng đã có phí, đã hoàn hoặc đã lên bảng kê đã gửi: Đổi và Bỏ ở màn Điều độ chỉ giải thích và chỉ đường sang sổ tài xế hoặc bảng kê, chưa cho đổi tại chỗ. Điểm này thêm so với spec, cần người dùng xác nhận.
+- Trên dòng chỉ 9 cột; hàng, hãng tàu, số booking, seal, nhiệt độ, tên tàu nằm ở Chi tiết.
+- Việc cũ còn chờ nằm trên cùng, trước Hôm nay.
+
+Người dùng và điều xe thử xong thì chốt luồng trước khi code bước 3. Bản bấm thử không thay nghiệm thu backend và không cấp quyền ghi tiền.
+
 ## Nguồn quyết định
 
 - [`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md): chặng sinh từ booking, điều xe phân công trên web.
