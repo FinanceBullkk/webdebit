@@ -150,11 +150,14 @@ def _cell(body: dict) -> None:
         bad("INVALID_FIELD", "Ô không được sửa.")
 
 
-def _write(function: str, required: set[str], check, optional: set[str] = frozenset()):
+def _write(function: str, required: set[str], check, optional: set[str] = frozenset(), pre=None):
+    """`pre(body, runner, actor)`: kiểm cần đọc dữ liệu ngoài thân lệnh (ví dụ bản chụp booking), chạy sau `check`, trước khi ghi."""
     def handler(raw: bytes, runner, actor: str) -> tuple[int, dict]:
         body = _body(raw)
         _fields(body, required, optional)
         check(body)
+        if pre is not None:
+            pre(body, runner, actor)
         return 200, runner.run("doixe_" + function, body, actor)
     return handler
 
@@ -322,7 +325,7 @@ NHAN_TEXT = ("kho", "noi_lay", "noi_ha", "ten_hang", "tinh")
 def _cont_required(value: object) -> None:
     if value is None or (isinstance(value, str) and not value.strip()):
         bad("CONT_THIEU", ERRORS["CONT_THIEU"][1])
-    _text(value, 40, required=True)
+    _text(value, 20, required=True)   # giới hạn của chang.container; hàm SQL chặn dài hơn
 
 
 def _check_phan_xe(body: dict) -> None:
@@ -381,7 +384,8 @@ POST_HANDLERS = {
     PREFIX + "/chang/xoa": _write("xoa_chang", {"chang_id"}, lambda b: _id(b["chang_id"])),
     # DOI-XE-CHANG-01
     PREFIX + "/chang/phan-xe": _write("phan_xe", {"container", "ngay_dong", "xe_id"}, _check_phan_xe,
-                                      {"ngay", "loai", "tai_xe_id", "noi_lay", "noi_ha", "kho", "tinh", "ten_hang", "ghi_chu", "ngay_dong_khac"}),
+                                      {"ngay", "loai", "tai_xe_id", "noi_lay", "noi_ha", "kho", "tinh", "ten_hang", "ghi_chu", "ngay_dong_khac"},
+                                      pre=lambda body, runner, actor: _check_on_booking(body, runner, actor)),  # noqa: PLW0108 (hàm định nghĩa ở dưới)
     PREFIX + "/chang/doi-phan-cong": _write("doi_phan_cong", {"chang_id", "truoc", "xe_id", "tai_xe_id", "ngay"}, _check_doi_phan_cong),
     PREFIX + "/chang/bo-phan-cong": _write("bo_phan_cong", {"chang_id"}, lambda b: _id(b["chang_id"])),
     PREFIX + "/chang/nhan-booking": _write("nhan_booking", {"chang_id", "kieu"}, _check_nhan_booking, {"ngay_dong", "container", *NHAN_TEXT}),
@@ -462,12 +466,14 @@ VN = ZoneInfo("Asia/Ho_Chi_Minh")
 MAX_VIEC = 1500        # 1500 việc ≈ 84 KB trong tham số psql, dưới trần 128 KB của một đối số dòng lệnh Linux
 MAX_SPAN_DAYS = 93
 MAX_CU = 92
+NEAR_DAYS = 3          # luật nối chặng ↔ việc (NGUON-CHUYEN-01): lệch ngày đóng không quá 3 ngày
+MIN_DAY = "2020-01-01"  # doixe._ngay từ chối ngày trước mốc này (INVALID_DATE cho cả lượt gọi), nên dòng booking cũ hơn bị bỏ ở đây
 STALE_AFTER = timedelta(hours=1)
-CONTAINER = re.compile(r"[A-Z0-9]{6,20}")
 STATES = ("sap_toi", "cho_phan_xe", "da_phan_xe", "da_co_phi", "da_len_bang_ke")
 BOOKING_FIELDS = (("kho", "origin"), ("hang", "commodity"), ("cang", "destination"), ("hang_tau", "carrier"), ("so_booking", "booking"),
                   ("khach", "customer_name"), ("seal", "seal"), ("nhiet_do", "nhiet_do"), ("ten_tau", "ten_tau"))
 NO_COLUMN = ("NGUON_THIEU_NHA_XE", "Bản chụp booking chưa có cột Nhà xe. Chờ lượt đồng bộ kế tiếp (15 phút) rồi tải lại.")
+NOT_ON_BOOKING = ("VIEC_KHONG_CON", "Việc này không còn trên booking của đội xe (số container hoặc ngày đóng đã đổi). Tải lại danh sách.")
 
 
 def load_booking() -> dict:
@@ -485,6 +491,14 @@ def _ma(value: object) -> str:
 
 def _plain(value: object) -> str:
     return " ".join(unicodedata.normalize("NFC", str(value or "")).split()).casefold()
+
+
+def _cont(value: object) -> str | None:
+    """Số container của một dòng booking: viết hoa, bỏ khoảng trắng, như bộ đọc sổ khách (`normalize_container`: repo không có luật chặt
+    hơn cho cột này). Rỗng, hoặc dài quá 20 ký tự (giới hạn cột `chang.container`, và một giá trị dài làm hàm nối từ chối cả lượt) thì
+    coi là chưa có số cont."""
+    text = re.sub(r"\s+", "", str(value or "")).upper()
+    return text if 1 <= len(text) <= 20 else None
 
 
 def _month_end(first: date) -> date:
@@ -516,9 +530,10 @@ def parse_chang_query(query: str, now: datetime | None = None) -> dict:
 
 
 def _booking_viec(snapshot: dict, codes: set[str], window: dict) -> tuple[list[dict], dict]:
-    """Việc của đội xe trong bản chụp: dòng có mã nhà xe nằm NGUYÊN trong `codes`, có ngày đóng, bỏ dòng lặp (cùng container và ngày).
-    Giữ việc trong [lùi, đến] cộng việc ngoài khoảng nhưng cùng container với một việc trong khoảng: hàm nối chặng chọn việc gần
-    nhất, nên nó phải thấy các việc lân cận. Dòng chưa có số cont (hoặc chữ không phải số cont) là việc "sắp tới", chưa phân xe được."""
+    """Việc của đội xe trong bản chụp: dòng có mã nhà xe nằm NGUYÊN trong `codes`, có ngày đóng hợp lệ, bỏ dòng lặp (cùng container và ngày).
+    Giữ việc trong [lùi − 3 ngày, đến + 3 ngày] cộng việc ngoài đó nhưng cùng container với một việc giữ lại: hàm nối chặng chọn việc
+    gần nhất và chỉ nối chặng với việc trong ±3 ngày, nên nó phải thấy các việc sát mép khoảng xem (nếu không, một chặng có booking dời
+    qua mép bị coi là mồ côi). Dòng chưa có số cont là việc "sắp tới", chưa phân xe được."""
     skipped = {"khong_nha_xe": 0, "khong_ngay": 0, "trung": 0}
     mine = []
     for row in snapshot["rows"]:
@@ -526,15 +541,16 @@ def _booking_viec(snapshot: dict, codes: set[str], window: dict) -> tuple[list[d
             skipped["khong_nha_xe"] += 1
             continue
         day = str(row.get("event_date") or "")
-        if not valid_date(day) or day < "2000":
+        if not valid_date(day) or day < MIN_DAY:
             skipped["khong_ngay"] += 1
             continue
-        cont = str(row.get("container") or "").strip().upper()
-        mine.append({"cont": cont if CONTAINER.fullmatch(cont) else None, "day": day, "row": row})
-    near = {m["cont"] for m in mine if m["cont"] and window["lui"] <= m["day"] <= window["den"]}
+        mine.append({"cont": _cont(row.get("container")), "day": day, "row": row})
+    lo = (date.fromisoformat(window["lui"]) - timedelta(days=NEAR_DAYS)).isoformat()
+    hi = (date.fromisoformat(window["den"]) + timedelta(days=NEAR_DAYS)).isoformat()
+    near = {m["cont"] for m in mine if m["cont"] and lo <= m["day"] <= hi}
     seen, out = set(), []
     for m in mine:
-        if not (window["lui"] <= m["day"] <= window["den"] or m["cont"] in near):
+        if not (lo <= m["day"] <= hi or m["cont"] in near):
             continue
         key = (m["cont"], m["day"]) if m["cont"] else (None, m["day"], m["row"].get("source_row"))
         if key in seen:
@@ -572,20 +588,43 @@ def _state(cont: str | None, hang: dict | None) -> str:
     return "da_len_bang_ke" if hang["da_gui"] else "da_co_phi" if hang["co_phi"] or hang["da_hoan"] else "da_phan_xe"
 
 
-def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -> dict:
-    """`GET /api/v7/doixe/chang`: việc của đội xe trong khoảng (từ bản chụp booking) cùng chặng đã nối và trạng thái.
-    Hai lượt DB: lượt đầu (mảng việc rỗng) lấy danh mục mã nhà xe để lọc bản chụp; lượt hai lấy chặng của đúng các việc đó."""
-    window = parse_chang_query(query, now)
+def _nearest(days: list[str], day: str) -> list[str]:
+    """Tối đa 20 ngày đóng khác của cùng container, gần `day` nhất (bằng nhau thì ngày sớm hơn), xếp tăng dần."""
+    here = date.fromisoformat(day)
+    near = sorted((d for d in days if d != day), key=lambda d: (abs((date.fromisoformat(d) - here).days), d))[:20]
+    return sorted(near)
+
+
+def _booking_snapshot() -> dict:
     snapshot = load_booking()
     if "nha_xe" not in (snapshot.get("columns") or []):
         raise ApiError(503, *NO_COLUMN)
-    base = runner.run("doixe_get_dieu_do", [], actor)
+    return snapshot
+
+
+def _check_on_booking(body: dict, runner, actor: str) -> None:
+    """`phan-xe` chỉ cho một việc có thật trên booking của đội xe (cặp container + ngày đóng trong bản chụp hiện tại, mã nhà xe đang dùng);
+    gõ sai thì không tạo chặng mồ côi. Chặng ngoài booking (container nhà xe khác kéo, chuyển cảng...) đi đường `POST /chang` (luu_chang)."""
+    snapshot = _booking_snapshot()
+    codes = {_ma(item["ma"]) for item in runner.run("doixe_get_dieu_do", [], actor, read_only=True)["nha_xe"] if item["dang_dung"]}
+    cont = _cont(body["container"])
+    if cont is None or not any(_ma(row.get("nha_xe")) in codes and row.get("event_date") == body["ngay_dong"] and _cont(row.get("container")) == cont
+                               for row in snapshot["rows"]):
+        raise ApiError(409, *NOT_ON_BOOKING)
+
+
+def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -> dict:
+    """`GET /api/v7/doixe/chang`: việc của đội xe trong khoảng (từ bản chụp booking) cùng chặng đã nối và trạng thái.
+    Hai lượt DB chỉ đọc: lượt đầu (mảng việc rỗng) lấy danh mục mã nhà xe để lọc bản chụp; lượt hai lấy chặng của đúng các việc đó."""
+    window = parse_chang_query(query, now)
+    snapshot = _booking_snapshot()
+    base = runner.run("doixe_get_dieu_do", [], actor, read_only=True)
     codes = {_ma(item["ma"]) for item in base["nha_xe"] if item["dang_dung"]}
-    mine, skipped = _booking_viec(snapshot, codes, window) if codes else ([], {"khong_nha_xe": 0, "khong_ngay": 0, "trung": 0})
+    mine, skipped = _booking_viec(snapshot, codes, window)
     asked = [{"container": m["cont"], "ngay_dong": m["day"]} for m in mine if m["cont"]]
     if len(asked) > MAX_VIEC:
         bad("QUA_NHIEU_VIEC", "Khoảng ngày có quá nhiều việc. Chọn khoảng ngắn hơn.")
-    dd = runner.run("doixe_get_dieu_do", asked, actor) if asked else base
+    dd = runner.run("doixe_get_dieu_do", asked, actor, read_only=True) if asked else base
     found = {(v["container"], v["ngay_dong"]): v for v in dd["viec"]}
     days: dict[str, list[str]] = {}
     for item in asked:
@@ -593,13 +632,16 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
     viec = []
     for m in mine:
         cont, day, row = m["cont"], m["day"], m["row"]
-        if not window["lui"] <= day <= window["den"]:
-            continue   # chỉ vào hàm nối để chọn đúng việc, không hiện
         got = found.get((cont, day)) or {"chang": [], "hang_id": None}
         chang = [_chang_out(c) for c in got["chang"]]
+        # Việc ngoài khoảng chỉ hiện khi giữ một chặng có ngày đóng trong khoảng: booking dời ngày đóng qua mép thì chặng phải còn thấy,
+        # kèm nhãn "booking đã đổi", không biến thành chặng mồ côi.
+        held = any(c["ngay_dong"] is not None and window["tu"] <= c["ngay_dong"] <= window["den"] for c in chang)
+        if not (window["lui"] <= day <= window["den"] or held):
+            continue
         state = _state(cont, next((c for c in chang if c["id"] == got["hang_id"]), None))
         cu = day < window["tu"]
-        if cu and state != "cho_phan_xe":
+        if cu and state != "cho_phan_xe" and not held:
             continue   # việc cũ chỉ giữ khi còn chờ phân xe
         kho = str(row.get("origin") or "").strip() or None
         viec.append({
@@ -608,7 +650,7 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
             "booking": {name: (str(row.get(src) or "").strip() or None) for name, src in BOOKING_FIELDS},
             "hang_id": got["hang_id"], "chang": chang,
             "booking_doi": [x for c in chang for x in _booking_doi(c, day, kho)] or None,
-            "ngay_dong_khac": sorted(d for d in days.get(cont, []) if d != day)[:20],
+            "ngay_dong_khac": _nearest(days.get(cont, []), day),
         })
     orphans = []
     for c in dd["mo_coi"]:
@@ -620,11 +662,12 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
     try:
         stamp = datetime.fromisoformat(created)
         stale = stamp.tzinfo is None or (now or datetime.now(VN)) - stamp > STALE_AFTER
+        shown_at = stamp.astimezone(VN).isoformat(timespec="seconds") if stamp.tzinfo is not None else None
     except ValueError:
-        stale = True
+        stale, shown_at = True, None
     return {
         "hom_nay": dd["hom_nay"], "tu": window["tu"], "den": window["den"], "cu": window["cu"],
-        "nguon": {"tao_luc": created or None, "qua_han": stale, "so_dong": len(snapshot["rows"]), "bo_qua": skipped},
+        "nguon": {"tao_luc": shown_at, "qua_han": stale, "so_dong": len(snapshot["rows"]), "bo_qua": skipped},
         "viec": viec, "khong_con_tren_booking": orphans,
         "dem": {"viec": len(viec), **{state: sum(1 for v in viec if v["trang_thai"] == state) for state in STATES},
                 "booking_doi": sum(1 for v in viec if v["booking_doi"]),

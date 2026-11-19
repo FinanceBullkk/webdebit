@@ -4,7 +4,7 @@ tính) và bốn đường ghi phân công. Dữ liệu giả, mã nhà xe giả
 import json
 import sys
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest import mock
 
@@ -27,7 +27,8 @@ def src(cont, day, nha_xe=USED, line=None, **extra):
     return row
 
 
-def snapshot(rows, columns=("nha_xe", "seal", "nhiet_do", "ten_tau"), created="2026-11-19T09:50:00+07:00"):
+# Runner ghi `created_at` bằng giờ UTC (`now(UTC).isoformat()`); 02:50 UTC = 09:50 giờ VN.
+def snapshot(rows, columns=("nha_xe", "seal", "nhiet_do", "ten_tau"), created="2026-11-19T02:50:00+00:00"):
     return {"rows": rows, "row_count": len(rows), "columns": list(columns), "runner": {"created_at": created}}
 
 
@@ -38,22 +39,43 @@ def chang(id_, *, cont="MAUU1000001", ngay="2026-11-19", ngay_dong="2026-11-19",
 
 
 class FakeDb:
-    """Chỉ biết get_dieu_do: danh mục mã nhà xe, các chặng đã nối theo (container, ngày đóng), chặng mồ côi."""
+    """Chỉ biết get_dieu_do: danh mục mã nhà xe, các chặng đã nối theo (container, ngày đóng), chặng mồ côi. Có `pool` (danh sách chặng có
+    ngày đóng) thì tự nối như luật SQL: cùng container, lệch ngày đóng không quá 3 ngày, việc gần nhất; chặng không nối được và có ngày
+    đóng trong [sớm nhất, muộn nhất] của các việc được gửi là mồ côi (mảng việc rỗng thì không có mồ côi)."""
 
-    def __init__(self, joined=None, orphans=None, codes=((USED, True), (OLD, False))):
-        self.joined, self.orphans, self.calls = joined or {}, orphans or [], []
+    def __init__(self, joined=None, orphans=None, codes=((USED, True), (OLD, False)), pool=None):
+        self.joined, self.orphans, self.calls, self.pool, self.modes = joined or {}, orphans or [], [], pool, []
         self.codes = [{"ma": m, "dang_dung": on} for m, on in codes]
 
-    def run(self, function, payload, actor):
+    def asked(self):
+        return [call[1] for call in self.calls if call[0] == "doixe_get_dieu_do" and call[1]][-1]
+
+    def link(self, payload):
+        if self.pool is None:
+            return self.joined, self.orphans if payload else []
+        joined, orphans = {}, []
+        days = sorted(i["ngay_dong"] for i in payload)
+        for c in self.pool:
+            gap = lambda d, c=c: abs((date.fromisoformat(d) - date.fromisoformat(c["ngay_dong"])).days)  # noqa: E731
+            options = [i["ngay_dong"] for i in payload if i["container"] == c["container"] and gap(i["ngay_dong"]) <= 3]
+            if options:
+                joined.setdefault((c["container"], min(options, key=lambda d: (gap(d), d))), []).append(c)
+            elif days and days[0] <= c["ngay_dong"] <= days[-1]:
+                orphans.append(c)
+        return joined, orphans
+
+    def run(self, function, payload, actor, *, read_only=False):
         self.calls.append((function, payload, actor))
+        self.modes.append((function, read_only))
         if function != "doixe_get_dieu_do":
             return {"function": function}
+        joined, orphans = self.link(payload)
         viec = []
         for item in payload:
-            rows = self.joined.get((item["container"], item["ngay_dong"]), [])
+            rows = joined.get((item["container"], item["ngay_dong"]), [])
             hang = next((c["id"] for c in rows if c["loai"] == "hang"), None)
             viec.append({"container": item["container"], "ngay_dong": item["ngay_dong"], "hang_id": hang, "chang": rows})
-        return {"hom_nay": "2026-11-19", "viec": viec, "mo_coi": self.orphans if payload else [],
+        return {"hom_nay": "2026-11-19", "viec": viec, "mo_coi": orphans,
                 "xe": [{"id": 1, "bien_so": "99X-00001", "nhom": "A", "thue_ngoai": False, "tai_xe_id": 2}],
                 "tai_xe": [{"id": 2, "ten": "Tài xế giả"}], "nha_xe": self.codes}
 
@@ -71,20 +93,20 @@ class ReadChangTest(unittest.TestCase):
                 src("MAUU1000007", "2026-11-19", USED.lower(), 8), src("MAUU1000008", "2026-11-19", f"{USED} {USED}", 9)]
         db, out = self.read(rows)
         self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000001", "MAUU1000004"])
-        sent = db.calls[-1][1]
+        sent = db.asked()
         self.assertEqual([i["container"] for i in sent], ["MAUU1000001", "MAUU1000004"])
         self.assertEqual(out["nguon"]["bo_qua"]["khong_nha_xe"], 6)
 
     def test_job_without_container_is_upcoming_and_not_sent_to_db(self):
-        rows = [src("", "2026-11-20", line=5), src("chờ cont", "2026-11-20", line=6), src("MAUU1000001", "2026-11-20", line=7)]
+        rows = [src("", "2026-11-20", line=5), src("KHÁCH SẼ BÁO SỐ CONT SAU KHI ĐÓNG", "2026-11-20", line=6), src("MAUU1000001", "2026-11-20", line=7)]
         db, out = self.read(rows)
         by_id = {v["id"]: v for v in out["viec"]}
         self.assertEqual(set(by_id), {"#5|2026-11-20", "#6|2026-11-20", "MAUU1000001|2026-11-20"})
         self.assertEqual((by_id["#5|2026-11-20"]["trang_thai"], by_id["#5|2026-11-20"]["container"], by_id["#5|2026-11-20"]["chang"]),
                          ("sap_toi", None, []))
-        self.assertEqual(by_id["#6|2026-11-20"]["trang_thai"], "sap_toi")   # chữ không phải số container
+        self.assertEqual(by_id["#6|2026-11-20"]["trang_thai"], "sap_toi")   # chữ dài quá 20 ký tự (giới hạn của chang.container): chưa có số container
         self.assertEqual(by_id["MAUU1000001|2026-11-20"]["trang_thai"], "cho_phan_xe")
-        self.assertEqual(db.calls[-1][1], [{"container": "MAUU1000001", "ngay_dong": "2026-11-20"}])
+        self.assertEqual(db.asked(), [{"container": "MAUU1000001", "ngay_dong": "2026-11-20"}])
         self.assertEqual(out["dem"]["sap_toi"], 2)
         self.assertEqual(out["viec"][0]["booking"]["kho"], "Kho K1")
 
@@ -143,7 +165,7 @@ class ReadChangTest(unittest.TestCase):
     def test_old_waiting_jobs_only_with_cu_and_only_while_waiting(self):
         rows = [src("MAUU1000001", "2026-11-05", line=2), src("MAUU1000002", "2026-11-06", line=3), src("MAUU1000003", "2026-10-01", line=4),
                 src("MAUU1000004", "2026-11-19", line=5)]
-        joined = {("MAUU1000002", "2026-11-06"): [chang(12, cont="MAUU1000002")]}
+        joined = {("MAUU1000002", "2026-11-06"): [chang(12, cont="MAUU1000002", ngay="2026-11-06", ngay_dong="2026-11-06")]}
         _, out = self.read(rows, query="tu=2026-11-18&den=2026-11-20", db=FakeDb(joined))
         self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000004"])
         _, out = self.read(rows, query="tu=2026-11-18&den=2026-11-20&cu=30", db=FakeDb(joined))
@@ -155,7 +177,7 @@ class ReadChangTest(unittest.TestCase):
         rows = [src("MAUU1000001", "2026-12-01", line=2), src("MAUU1000001", "2026-11-30", line=3)]
         db, out = self.read(rows, query="thang=2026-11-01")
         self.assertEqual([(v["ngay_dong"], v["ngay_dong_khac"]) for v in out["viec"]], [("2026-11-30", ["2026-12-01"])])
-        self.assertEqual({i["ngay_dong"] for i in db.calls[-1][1]}, {"2026-11-30", "2026-12-01"})
+        self.assertEqual({i["ngay_dong"] for i in db.asked()}, {"2026-11-30", "2026-12-01"})
 
     def test_duplicate_booking_rows_are_one_job(self):
         _db, out = self.read([src("MAUU1000001", "2026-11-19", line=2), src("MAUU1000001", "2026-11-19", line=3)])
@@ -180,18 +202,83 @@ class ReadChangTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "NGUON_THIEU_NHA_XE")
         self.assertEqual(db.calls, [])   # chưa tốn lượt DB nào
 
+    def test_booking_moved_over_the_edge_is_a_booking_change_not_an_orphan(self):
+        # Xem tu=18..den=19. Mép trên: chặng ngày đóng 19, booking dời sang 20. Mép dưới: chặng ngày đóng 18, booking dời về 16.
+        # Cả hai việc nằm ngoài khoảng nhưng trong ±3 ngày: phải được gửi vào hàm nối, hiện kèm nhãn, không thành chặng mồ côi.
+        query = "tu=2026-11-18&den=2026-11-19"
+        up, down = chang(41, cont="MAUU1000041", ngay_dong="2026-11-19"), chang(42, cont="MAUU1000042", ngay_dong="2026-11-18")
+        rows = [src("MAUU1000041", "2026-11-20", line=2), src("MAUU1000042", "2026-11-16", line=3), src("MAUU1000043", "2026-11-19", line=4)]
+        db, out = self.read(rows, query=query, db=FakeDb(pool=[up, down]))
+        self.assertEqual({(i["container"], i["ngay_dong"]) for i in db.asked()},
+                         {("MAUU1000041", "2026-11-20"), ("MAUU1000042", "2026-11-16"), ("MAUU1000043", "2026-11-19")})
+        self.assertEqual(out["khong_con_tren_booking"], [])
+        by = {v["container"]: v for v in out["viec"]}
+        self.assertEqual(sorted(by), ["MAUU1000041", "MAUU1000042", "MAUU1000043"])
+        self.assertEqual(by["MAUU1000041"]["booking_doi"], [{"chang_id": 41, "truong": "ngay_dong", "truoc": "2026-11-19", "sau": "2026-11-20"}])
+        self.assertEqual(by["MAUU1000042"]["booking_doi"], [{"chang_id": 42, "truong": "ngay_dong", "truoc": "2026-11-18", "sau": "2026-11-16"}])
+        self.assertEqual([c["id"] for c in by["MAUU1000041"]["chang"]], [41])
+        self.assertEqual(by["MAUU1000043"]["trang_thai"], "cho_phan_xe")
+        # Cùng cách với `thang=`: chặng ngày đóng 30/11 mà booking dời sang 2/12, và ngày 1/11 dời về 29/10.
+        edge = [chang(51, cont="MAUU1000051", ngay_dong="2026-11-30"), chang(52, cont="MAUU1000052", ngay_dong="2026-11-01")]
+        rows = [src("MAUU1000051", "2026-12-02", line=2), src("MAUU1000052", "2026-10-29", line=3)]
+        _, out = self.read(rows, query="thang=2026-11-01", db=FakeDb(pool=edge))
+        self.assertEqual(out["khong_con_tren_booking"], [])
+        self.assertEqual(sorted((v["container"], v["booking_doi"][0]["truong"]) for v in out["viec"]),
+                         [("MAUU1000051", "ngay_dong"), ("MAUU1000052", "ngay_dong")])
+        # Dời xa hơn 3 ngày thì SQL không nối nữa: đúng là mồ côi (và việc mới không hiện vì ngoài khoảng, không giữ chặng nào).
+        far = [chang(61, cont="MAUU1000061", ngay_dong="2026-11-19")]
+        rows = [src("MAUU1000061", "2026-11-25", line=2), src("MAUU1000062", "2026-11-19", line=3)]
+        _, out = self.read(rows, query=query, db=FakeDb(pool=far))
+        self.assertEqual([c["id"] for c in out["khong_con_tren_booking"]], [61])
+        self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000062"])
+
+    def test_row_dated_before_2020_is_skipped_not_fatal(self):
+        # doixe._ngay từ chối ngày trước 2020-01-01: một dòng gõ nhầm năm không được làm cả lượt gọi trả 422.
+        rows = [src("MAUU1000001", "2019-11-19", line=2), src("MAUU1000002", "2000-11-19", line=3), src("MAUU1000003", "2020-01-01", line=4),
+                src("MAUU1000004", "2026-11-19", line=5)]
+        db, out = self.read(rows, query="thang=2026-11-01")
+        self.assertEqual(out["nguon"]["bo_qua"]["khong_ngay"], 2)
+        self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000004"])
+        self.assertTrue(all(i["ngay_dong"] >= doixe.MIN_DAY for i in db.asked()))
+
+    def test_snapshot_time_is_shown_in_vietnam_time(self):
+        _, out = self.read([], created="2026-11-19T02:50:00+00:00")
+        self.assertEqual((out["nguon"]["tao_luc"], out["nguon"]["qua_han"]), ("2026-11-19T09:50:00+07:00", False))
+        _, out = self.read([], created="2026-11-19T01:00:00+00:00")   # 08:00 giờ VN, quá 60 phút so với 10:00
+        self.assertEqual((out["nguon"]["tao_luc"], out["nguon"]["qua_han"]), ("2026-11-19T08:00:00+07:00", True))
+        _, out = self.read([], created="2026-11-19T09:50:00")   # không có múi giờ: không đoán
+        self.assertEqual((out["nguon"]["tao_luc"], out["nguon"]["qua_han"]), (None, True))
+
+    def test_container_rule_is_the_sheet_book_rule(self):
+        # Như bộ đọc sổ khách (normalize_container): viết hoa, bỏ khoảng trắng, không luật chặt hơn; chỉ chặn quá 20 ký tự và rỗng.
+        rows = [src("mauu 1000001", "2026-11-19", line=2), src("CHUA CO", "2026-11-19", line=3), src("X" * 21, "2026-11-19", line=4)]
+        db, out = self.read(rows)
+        self.assertEqual(sorted(v["container"] or "-" for v in out["viec"]), ["-", "CHUACO", "MAUU1000001"])
+        self.assertEqual({i["container"] for i in db.asked()}, {"MAUU1000001", "CHUACO"})
+
+    def test_empty_code_list_still_counts_skipped_rows(self):
+        _, out = self.read([src("MAUU1000001", "2026-11-19"), src("MAUU1000002", "2026-11-19", line=3)], db=FakeDb(codes=((OLD, False),)))
+        self.assertEqual(out["nguon"]["bo_qua"], {"khong_nha_xe": 2, "khong_ngay": 0, "trung": 0})
+
+    def test_other_days_are_the_nearest_twenty(self):
+        days = [f"2026-11-{n:02d}" for n in range(1, 31)]
+        rows = [src("MAUU1000001", d, line=n) for n, d in enumerate(days, 2)]
+        _, out = self.read(rows, query="tu=2026-11-15&den=2026-11-15")
+        got = out["viec"][0]["ngay_dong_khac"]
+        self.assertEqual((len(got), got[0], got[-1], "2026-11-15" in got), (20, "2026-11-05", "2026-11-25", False))
+
+    def test_reads_run_in_read_only_mode(self):
+        db, _ = self.read([src("MAUU1000001", "2026-11-19")])
+        self.assertEqual(db.modes, [("doixe_get_dieu_do", True)] * 2)
+
     def test_snapshot_unavailable_and_stale(self):
         with mock.patch.object(doixe.v7_api_sheet, "load_snapshot", side_effect=ValueError("x")), \
                 mock.patch.object(doixe.v7_api_sheet, "cached_load", side_effect=lambda loader, path: loader(path)), \
                 self.assertRaises(api.ApiError) as caught:
             doixe.load_booking()
         self.assertEqual((caught.exception.status, caught.exception.code), (503, "SHEET_SNAPSHOT_UNAVAILABLE"))
-        _, out = self.read([], created="2026-11-19T07:00:00+07:00")
-        self.assertTrue(out["nguon"]["qua_han"])
-        _, out = self.read([], created="2026-11-19T09:50:00+07:00")
-        self.assertFalse(out["nguon"]["qua_han"])
         _, out = self.read([], created="khong-phai-ngay")
-        self.assertTrue(out["nguon"]["qua_han"])
+        self.assertEqual((out["nguon"]["qua_han"], out["nguon"]["tao_luc"]), (True, None))
 
     def test_query_rules(self):
         window = doixe.parse_chang_query("", NOW)
@@ -242,6 +329,9 @@ class ChangRouteTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "INVALID_MONTH")
 
     def test_four_writes_pass_body_as_is_with_session_actor(self):
+        self.on_booking = mock.patch.object(doixe, "load_booking", return_value=snapshot([src("MAUU1000001", "2026-11-19")]))
+        self.on_booking.start()
+        self.addCleanup(self.on_booking.stop)
         cases = [
             ("/api/v7/doixe/chang/phan-xe", "doixe_phan_xe", {"container": "MAUU1000001", "ngay_dong": "2026-11-19", "xe_id": 1}),
             ("/api/v7/doixe/chang/phan-xe", "doixe_phan_xe", {"container": "MAUU1000001", "ngay_dong": "2026-11-19", "xe_id": 1, "tai_xe_id": 2,
@@ -263,24 +353,38 @@ class ChangRouteTest(unittest.TestCase):
                 self.assertEqual(db.calls[-1], (function, {"idempotency_key": "k1", **body}, "nv@gia"))
                 self.assertEqual(value, {"function": function})
 
-    def test_same_request_id_is_forwarded_unchanged_so_the_db_can_deduplicate(self):
+    def test_repeat_with_same_request_id_forwards_identical_bodies(self):
+        # Chống ghi trùng nằm ở SQL (`doixe.lenh`, harness test_pg_doixe_dieu_do). Ở API chỉ chứng minh được: gửi lại cùng mã yêu cầu thì
+        # lệnh ghi đi y nguyên (API không thêm, đổi hay sinh mã nào), nên SQL nhận đúng cùng khóa và cùng nội dung.
         body = {"idempotency_key": "abc", "container": "MAUU1000001", "ngay_dong": "2026-11-19", "xe_id": 1}
+        db = FakeDb()
+        with mock.patch.object(doixe, "load_booking", return_value=snapshot([src("MAUU1000001", "2026-11-19")])):
+            self.call("POST", "/api/v7/doixe/chang/phan-xe", body, runner=db)
+            self.call("POST", "/api/v7/doixe/chang/phan-xe", dict(body), runner=db)
+        writes = [call for call in db.calls if call[0] == "doixe_phan_xe"]
+        self.assertEqual(writes, [("doixe_phan_xe", body, "nv@gia")] * 2)
 
-        class Replaying(FakeDb):
-            def __init__(self):
-                super().__init__()
-                self.done = {}
-
-            def run(self, function, payload, actor):
-                self.calls.append((function, payload, actor))
-                return self.done.setdefault(payload["idempotency_key"], {"ok": True, "chang_id": len(self.done) + 1})
-
-        db = Replaying()
-        _, first = self.call("POST", "/api/v7/doixe/chang/phan-xe", body, runner=db)
-        _, again = self.call("POST", "/api/v7/doixe/chang/phan-xe", dict(body), runner=db)
-        self.assertEqual(first, again)
-        self.assertEqual(db.calls[0], db.calls[1])
-        self.assertEqual(len(db.done), 1)
+    def test_phan_xe_only_for_a_job_on_the_current_booking(self):
+        body = {"idempotency_key": "k", "container": "MAUU1000001", "ngay_dong": "2026-11-19", "xe_id": 1}
+        rows = [src("MAUU1000001", "2026-11-19", line=2), src("MAUU1000002", "2026-11-19", OLD, 3), src("MAUU1000003", "2026-11-19", TRAP_SHORTER, 4)]
+        for change, ok in (({}, True), ({"container": "mauu 1000001"}, True), ({"loai": "chuyen_cang"}, True),
+                           ({"ngay_dong": "2026-11-20"}, False), ({"container": "MAUU1000009"}, False), ({"container": "MAUU1000002"}, False),
+                           ({"container": "MAUU1000003"}, False)):
+            with self.subTest(change=change), mock.patch.object(doixe, "load_booking", return_value=snapshot(rows)):
+                db = FakeDb()
+                payload = {**body, **change}
+                if ok:
+                    self.call("POST", "/api/v7/doixe/chang/phan-xe", payload, runner=db)
+                    self.assertEqual(db.calls[-1], ("doixe_phan_xe", payload, "nv@gia"))
+                else:
+                    with self.assertRaises(api.ApiError) as caught:
+                        self.call("POST", "/api/v7/doixe/chang/phan-xe", payload, runner=db)
+                    self.assertEqual((caught.exception.status, caught.exception.code), (409, "VIEC_KHONG_CON"))
+                    self.assertNotIn("doixe_phan_xe", [call[0] for call in db.calls])   # không tạo chặng mồ côi
+                    self.assertIn("không còn trên booking", caught.exception.message)
+        with mock.patch.object(doixe, "load_booking", return_value=snapshot(rows, columns=())), self.assertRaises(api.ApiError) as caught:
+            self.call("POST", "/api/v7/doixe/chang/phan-xe", body)
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "NGUON_THIEU_NHA_XE"))
 
     def test_bad_writes_are_rejected_before_the_db(self):
         key = {"idempotency_key": "k"}
@@ -295,7 +399,7 @@ class ChangRouteTest(unittest.TestCase):
             ("phan-xe", {**key, **phan, "container": "  "}, "CONT_THIEU"),
             ("phan-xe", {**key, **phan, "container": None}, "CONT_THIEU"),
             ("phan-xe", {**key, **phan, "container": 5}, "INVALID_REQUEST"),
-            ("phan-xe", {**key, **phan, "container": "X" * 41}, "INVALID_REQUEST"),
+            ("phan-xe", {**key, **phan, "container": "X" * 21}, "INVALID_REQUEST"),   # chang.container tối đa 20 ký tự
             ("phan-xe", {**key, **phan, "ngay_dong": "2026-02-30"}, "INVALID_DATE"),
             ("phan-xe", {**key, **phan, "ngay_dong": None}, "INVALID_DATE"),
             ("phan-xe", {**key, **phan, "ngay": "19/11/2026"}, "INVALID_DATE"),
