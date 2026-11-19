@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
 import v7_sheet_fix as fix
 from v7_api_validate import ApiError
 from v7_inbox import AUTO_ACTOR
-from v7_receipt_queue import project_receipts
+from v7_receipt_queue import GONE_REASON, METHOD, project_receipts
 
 TODAY = dt.date(2026, 11, 4)
 
@@ -340,6 +340,15 @@ class ChooseTests(unittest.TestCase):
         zero, real = self.group(0), self.group(-9)
         self.assertEqual(fix.choose([zero, real], -9), ("FIX", [real]))
 
+    def test_all_groups_together_win_over_a_chance_subset(self):
+        """THAY-PHIEU-SHEET-01 (sổ thật 19/11/2026): Sheet đổi giá và đổi phiếu bù nhau, thêm một phiếu mới. Phiếu mới một mình cũng ra
+        đúng số lệch, nhưng ghi hết mới là web theo Sheet tới từng dòng."""
+        new, undated, prices, gone = (self.group(-45, "receipts"), self.group(-90, "receipts_no_date"), self.group(+24),
+                                      self.group(+66, "receipts_gone"))
+        self.assertEqual(fix.choose([new, undated, prices, gone], -45), ("FIX", [new, undated, prices, gone]))
+        self.assertEqual(fix.choose([undated, prices, gone], 0), ("FIX", [undated, prices, gone]))   # khách đang khớp tổng
+        self.assertEqual(fix.choose([undated, prices], 0), ("NO_EXACT_FIX", []))
+
     def test_too_many_groups_are_not_searched(self):
         self.assertEqual(fix.choose([self.group(i + 1) for i in range(fix.MAX_GROUPS + 1)], 3), ("TOO_MANY_GROUPS", []))
 
@@ -379,7 +388,7 @@ class ApplyTests(unittest.TestCase):
             ("edit_trip_price", 14),                                                     # tháng 11 đang mở: ghi thẳng
             ("adjust_month", 15)])
         self.assertTrue(all(c[2] == AUTO_ACTOR for c in db.calls))
-        self.assertEqual(done, {"receipts": 2, "prices": 1, "legacy_deleted": 1, "fee_rows": 1, "fee_undone": 0})
+        self.assertEqual(done, {"receipts": 2, "prices": 1, "legacy_deleted": 1, "fee_rows": 1, "fee_undone": 0, "receipts_voided": 0})
         adjust = db.writes()[-1][1]
         self.assertEqual((adjust["debt_month"], adjust["amount_vnd"], adjust["note"]), ("2026-11-01", "43", fix.FEE_NOTE + ", dòng 457"))
         records = [c[1] for c in db.writes() if c[0] == "record_receipt"]
@@ -403,6 +412,31 @@ class ApplyTests(unittest.TestCase):
         ledger["receipts"] = [{"date": written["date"], "amount_vnd": written["amount_vnd"], "reference": written["reference"]}]
         queue = project_receipts(snapshot, ledger, customers, TODAY)
         self.assertEqual((queue["ready"], queue["review"]), ([], []))
+
+    def test_receipt_the_sheet_replaced_is_voided_then_the_new_rows_written(self):
+        """THAY-PHIEU-SHEET-01: máy đã ghi một phiếu không ngày; Sheet thay dòng đó bằng hai dòng. Hủy phiếu cũ trước (không đụng ổ khóa
+        tháng), ghi hai phiếu mới, rồi hàng chờ không còn gì: phiếu máy hủy không giữ dòng Sheet nào lại."""
+        rows = [{"customer_tab": "KHACH A", "source_row": r, "debt_month": "2026-10", "amount_vnd": a, "note": ""} for r, a in ((41, 250), (42, 350))]
+        snapshot = {"rows": rows, "sha256": "e" * 64, "tabs": {"KHACH A": {"status": "ok", "findings": []}}}
+        customers = [{"id": 7, "name": "KHACH A"}]
+        old = {"pid": "PH-001", "date": "2026-10-31", "method": METHOD, "amount_vnd": "600", "reference": "Sheet #" + "b" * 64 + ": da tt"}
+        ledger = {"customer_id": 7, "version": 9, "today_month": "2026-11-01", "month_locks": [], "legacy_rows": [], "receipts": [old]}
+        groups = fix.receipt_groups(project_receipts(snapshot, ledger, customers, TODAY), ledger)
+        self.assertEqual([(g["kind"], g["delta_vnd"]) for g in groups], [("receipts_gone", 600), ("receipts_no_date", -600)])
+        verdict, chosen = fix.choose(groups, 0)
+        self.assertEqual(verdict, "FIX")
+        db = Db()
+        done = fix.apply_fix(db, 7, ledger, chosen, "d" * 64, TODAY, actor=AUTO_ACTOR)
+        self.assertEqual([c[0] for c in db.writes()], ["void_receipt", "record_receipt", "record_receipt"])
+        void = db.writes()[0][1]
+        self.assertEqual((void["pid"], void["reason"], void["expected_version"]), ("PH-001", GONE_REASON, 9))
+        self.assertEqual((done["receipts_voided"], done["receipts"]), (1, 2))
+        written = [c[1] for c in db.writes() if c[0] == "record_receipt"]
+        ledger["receipts"] = [old | {"voided_by_event": 50, "void_reason": GONE_REASON},
+                              *({"pid": f"PH-00{i + 2}", "date": w["date"], "method": METHOD, "amount_vnd": w["amount_vnd"],
+                                 "reference": w["reference"]} for i, w in enumerate(written))]
+        queue = project_receipts(snapshot, ledger, customers, TODAY)
+        self.assertEqual((queue["ready"], queue["review"], queue["gone"]), ([], [], []))
 
     def test_money_row_in_locked_month_opens_writes_relocks(self):
         db = Db()
