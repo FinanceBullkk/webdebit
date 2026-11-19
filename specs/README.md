@@ -30,7 +30,7 @@ Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng s
 - [Đội xe: mô hình dữ liệu mới](doi-xe-mo-hinh-01.md): danh mục khoản chung, người trả theo khoản, khoản thu dòng riêng, công nợ chung, chi theo xe (`DOI-XE-MO-HINH-01`, tám câu luật tiền ĐÃ CHỐT 19/11/2026, chưa code).
 - [Đội xe đợt 1](chi-phi-xe-01.md): chặng, chi phí, ứng, hoàn; [đợt 2](doi-xe-thu-01.md): bảng kê cước, công nợ cước; [điều độ](doi-xe-dieu-do-01.md): chặng sinh từ booking, điều xe phân công trên web (`DOI-XE-DIEU-DO-01`, nguyên tắc và luồng ĐÃ CHỐT 19/11/2026; schema, lệnh ghi và harness ĐÃ VIẾT, chưa triển khai).
 - [Đội xe: cấu trúc màn theo đối tượng](doi-xe-cau-truc-01.md): năm mục Chặng, Công nợ, Xe, Lãi lỗ, Thiết lập; gói việc và thứ tự (`DOI-XE-CAU-TRUC-01`, chốt 19/11/2026; chưa code).
-- [Đội xe: API mục Chặng](doi-xe-chang-01.md): hợp đồng đọc việc và chặng từ booking, bốn đường ghi phân công (`DOI-XE-CHANG-01`, gói B2; ĐỀ XUẤT). Thu, chi, lãi gộp của chặng thêm ở PR 2.
+- [Đội xe: API mục Chặng](doi-xe-chang-01.md): hợp đồng đọc việc và chặng từ booking, bốn đường ghi phân công, thu, chi, lãi gộp của chặng (`DOI-XE-CHANG-01`, gói B2; ĐỀ XUẤT).
 - [Chuẩn bị gộp V7](../docs/v7-merge-prep.md): nguồn commit, phân loại, phần loại, kiểm và giới hạn.
 - [Chính sách V7 còn mở](v7-chinh-sach-mo.md): phương án cho D04, D05/D06, D07, ai xem Lịch sử và case 7.11c, chờ chủ nghiệp vụ chọn (ĐỀ XUẤT).
 - [Dán chứng từ vào phiếu thu](v7-dan-chung-tu.md): dán ảnh chuyển khoản từ Zalo/WeChat vào phiếu thu, chỉ đính ảnh, chưa đọc số (`CHUNG-TU-01`, 29/10/2026; [bản xem HTML](../cong-no-web-handoff/preview/mockups/dan-chung-tu/index.html) đã duyệt; backend đã triển khai trên `hao`, giao diện đã code).
