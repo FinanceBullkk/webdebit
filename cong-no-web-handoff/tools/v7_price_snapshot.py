@@ -27,6 +27,7 @@ import pathlib
 import tempfile
 
 import sheet_sync_runner as runner
+import v7_fee_headers as fee_headers
 import v7_load_real_copy as loader
 import v7_price_match as match
 import v7_receipt_queue as receipt_queue  # web layer, on the path through v7_price_match
@@ -47,7 +48,19 @@ def snapshots(scan: dict, source: dict, tabs=None) -> tuple[dict, dict]:
     """(prices, receipts) from one scan of the customer tabs; both carry the tabs' health (`v7_tab_health`) from that same scan.
     `tabs`: the raw rows the scan came from, so a finding can name its cell; without them the health has no cell names."""
     health = tab_health.scan_health(scan, tabs)
-    return (snapshot(match.rows_from_scan(scan), source, health), snapshot(receipt_queue.rows_from_scan(scan), source, health))
+    rows = match.rows_from_scan(scan)
+    if tabs is not None:
+        # TACH-PHI-TIEU-DE-01: tiền theo loại khi cột phí của tab có tên rõ và các ô cộng đúng TOTAL − đơn giá; máy tự tách.
+        # Phần phụ: đọc tên cột lỗi thì chỉ mất `sheet_fees` (máy không tách), giá và phiếu thu vẫn ghi đủ.
+        try:
+            named = fee_headers.scan_fees(tabs, scan)
+        except Exception:  # noqa: BLE001
+            named = {}
+        for row in rows:
+            fees = named.get((row["customer_tab"], row["source_row"]))
+            if fees:
+                row["sheet_fees"] = fees
+    return (snapshot(rows, source, health), snapshot(receipt_queue.rows_from_scan(scan), source, health))
 
 
 def read_tabs(tabs) -> list:

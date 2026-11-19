@@ -17,7 +17,10 @@ TYPES = [{"id": 1, "name": "Khác", "system_key": "other", "active": True},
          {"id": 6, "name": "Ghép", "system_key": None, "active": True},
          {"id": 7, "name": "Bảo hiểm", "system_key": None, "active": True},
          {"id": 8, "name": "Health cert", "system_key": None, "active": True},
-         {"id": 10, "name": "Health + KĐ", "system_key": None, "active": True}]
+         {"id": 10, "name": "Health + KĐ", "system_key": None, "active": True},
+         {"id": 11, "name": "Cân hàng", "system_key": None, "active": True},
+         {"id": 12, "name": "Local charge", "system_key": None, "active": True},
+         {"id": 13, "name": "Phí hủy", "system_key": None, "active": True}]
 HEADER = {"A": "Marks & Nos", "B": "CONTAINER NO", "C": "DATE", "D": "FROM", "E": "TO", "F": "开发电器", "G": "卫生证",
           "H": "PHÍ NEO\n押车费", "I": "PHÍ GHÉP KHO\n拼柜", "J": "BAO HIEM", "K": "", "L": "UNIT PRICE", "M": "TOTAL(VND)",
           "N": "NGAY TT(STK)", "O": "SỐ ĐÃ ỨNG TRƯỚC/ĐÃ THU TRONG THÁNG", "P": "SỐ CÒN PHẢI THU CUỐI THÁNG"}
@@ -45,10 +48,11 @@ def trip(trip_id, container, day, lines, month="2026-10-01"):
 
 
 class Runner:
-    def __init__(self, trips, locked=()):
+    def __init__(self, trips, locked=(), columns=(10,)):
         self.version, self.calls = 3, []
         self.trips = trips
         self.locks = dict.fromkeys(locked, True)
+        self.columns = list(columns)
 
     def run(self, command, payload, actor):
         self.calls.append((command, payload))
@@ -59,7 +63,12 @@ class Runner:
         if command == "get_ledger":
             locks = [{"month": "2026-10-01", "locked": self.locks.get("2026-10", False)}]
             return {"customer_id": 7, "version": self.version, "today_month": "2026-10-01", "month_locks": locks,
-                    "trips": self.trips, "legacy_rows": []}
+                    "trips": self.trips, "legacy_rows": [],
+                    "fee_columns": [{"fee_type_id": t, "position": i + 1} for i, t in enumerate(self.columns)]}
+        if command == "set_book_fee_columns":
+            self.columns = list(payload["fee_type_ids"])
+            self.version += 1
+            return {"version": self.version}
         if command in ("rewrite_trip_fees", "set_month_lock"):
             self.version += 1
             return {"version": self.version}
@@ -78,8 +87,17 @@ class FieldOf(unittest.TestCase):
         self.assertEqual(tool.field_of("开发电器"), "dien")
         self.assertEqual(tool.field_of("OTHER FEE\n码头插电费"), "dien")
 
+    def test_headers_added_19_11(self):
+        self.assertEqual(tool.field_of("过磅"), "can_hang")
+        self.assertEqual(tool.field_of("CÂN HÀNG"), "can_hang")
+        self.assertEqual(tool.field_of("LOCAL CHARGE\n本地费用"), "local")
+        self.assertEqual(tool.field_of("CANCEL FEE 取消还空箱费"), "huy")
+        self.assertEqual(tool.field_of("STORAGE 早装产生费用"), "luu_bai")
+        self.assertEqual(tool.field_of("AMD FEE 改单费"), "sua_bill")
+
     def test_blank_unknown_or_mixed_header_is_khac(self):
-        for header in ("", "OTHER FEE", "Neo / Phi dien / Dong ghep"):
+        for header in ("", "OTHER FEE", "Neo / Phi dien / Dong ghep", "OTHER FEE 拖车", "DET FEE 滞箱费", "HUY",
+                       "OVERWEIGHT FEE"):
             self.assertEqual(tool.field_of(header), "khac", header)
 
 
@@ -99,6 +117,19 @@ class Plan(unittest.TestCase):
         got = sorted((x["fee_type_id"], int(x["amount_vnd"])) for x in payload["lines"])
         self.assertEqual(got, [(4, 2000000), (6, 4000000), (7, 3365691), (10, 3500000)])
         self.assertEqual(sum(v for _, v in got), 12865691)
+
+    def test_new_types_split_and_get_own_columns(self):
+        header = {**HEADER, "F": "过磅", "G": "LOCAL CHARGE\n本地费用", "H": "卫生证"}
+        row = trip_row(2, "FAKEU0000002", "09/10/2026", 103907280, F=5000000, G="8907280", H=5000000)
+        sheet = [("KHACH A", [(1, {"A": "THÁNG 10/2026"}), (2, header), (3, row)])]
+        web = [trip(11, "FAKEU0000002", "2026-10-09", [fee_line(50, 1, 13907280), fee_line(51, 10, 5000000)])]
+        result, runner = self.run_tool(web, sheet, apply=True)
+        self.assertEqual(result["status"], {"READY": 1})
+        payload = next(p for c, p in runner.calls if c == "rewrite_trip_fees")
+        got = sorted((x["fee_type_id"], int(x["amount_vnd"])) for x in payload["lines"])
+        self.assertEqual(got, [(10, 5000000), (11, 5000000), (12, 8907280)])
+        self.assertEqual(runner.columns, [10, 11, 12])   # cột đang có giữ nguyên thứ tự, loại mới thêm sau
+        self.assertEqual(result["columns"], 1)
 
     def test_count_only_writes_nothing(self):
         web = [trip(11, "FAKEU0000002", "2026-10-03", [fee_line(50, 1, 12865691)])]
@@ -147,6 +178,33 @@ class Plan(unittest.TestCase):
     def test_no_web_trip(self):
         result, _ = self.run_tool([], tab(ROW2))
         self.assertEqual(result["status"], {"NOT_FOUND": 1})
+
+
+class Snapshot(unittest.TestCase):
+    """Runner giá ghi `sheet_fees` vào prices.json; máy theo Sheet lập kế hoạch từ đó như công cụ."""
+
+    def test_price_snapshot_carries_named_fees_and_machine_plans_from_it(self):
+        import v7_header_fees
+        import v7_load_real_copy as loader
+        import v7_price_snapshot
+        other = trip_row(1, "FAKEU0000001", "03/10/2026", 89500000, K=4500000)   # chỉ cột không tên: không có `sheet_fees`
+        sheet = tab(ROW2, other)
+        prices, _ = v7_price_snapshot.snapshots(loader.scan_tabs(sheet), {"kind": "xlsx"}, sheet)
+        by_row = {row["source_row"]: row for row in prices["rows"]}
+        self.assertEqual(by_row[3]["sheet_fees"], {"neo": 2000000, "ghep": 4000000, "bao_hiem": 3365691, "combined": 3500000})
+        self.assertNotIn("sheet_fees", by_row[4])
+        ledger = {"customer_id": 7, "trips": [trip(11, "FAKEU0000002", "2026-10-03", [fee_line(50, 1, 12865691)])],
+                  "legacy_rows": [], "month_locks": [], "today_month": "2026-10-01"}
+        plans = v7_header_fees.project(prices, ledger, [{"id": 7, "name": "KHACH A"}], TYPES)
+        self.assertEqual([p["status"] for p in plans], ["READY"])
+        got = sorted((x["fee_type_id"], int(x["amount_vnd"])) for x in v7_header_fees.write_lines(plans[0]))
+        self.assertEqual(got, [(4, 2000000), (6, 4000000), (7, 3365691), (10, 3500000)])
+
+    def test_snapshot_without_raw_tabs_has_no_named_fees(self):
+        import v7_load_real_copy as loader
+        import v7_price_snapshot
+        prices, _ = v7_price_snapshot.snapshots(loader.scan_tabs(tab(ROW2)), {"kind": "xlsx"})
+        self.assertNotIn("sheet_fees", prices["rows"][0])
 
 
 if __name__ == "__main__":
