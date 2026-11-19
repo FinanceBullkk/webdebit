@@ -317,7 +317,7 @@ Revert PR. Không có dữ liệu.
 - DDL và thân hàm trong bốn migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-doi-xe*.sql`; `test_pg_doixe.py` (cấu trúc harness); bản nháp migration điều độ trong worktree riêng (chỉ đọc).
 - Số đếm trong spec (16 khoản chi, 14 khoản thu, 10 mối nối, 9 khoản chi được nối, 4 khoản thu không nối, 22 + 1 khoản mới (phương án X), 6 bảng và khoảng 19 hàm đụng tới tiền) đếm từ DDL, không từ dữ liệu.
 
-Chưa làm và phải làm trước khi chạy migration ghi: (1) đo trên bản thử số chặng có khoản `loi` trong ghi chú; (2) so `loai_phi.chi_ho` với `phat_sinh.chi_ho` của từng cặp trên `hao`; (3) xác nhận không chặng nào cần chia một khoản cho hai người; (4) chạy thật mọi harness. Không kiểm gì trên `hao`, không chạy harness (spec thuần tài liệu).
+Phiên viết spec không kiểm gì trên `hao` và không chạy harness (spec thuần tài liệu). Phiên điều phối đã đo sau đó: số đo của phiên điều phối ngày 19/11/2026 trên bản thử ở `hao`, chỉ đọc qua các đường `GET /api/v7/doixe`, `/bang-gia`, `/bang-ke`: tháng 10 có 206 chặng với 225 khoản phát sinh, 0 khoản lỗi, 1 khoản lạ; tháng 11 có 13 chặng, 0 khoản phát sinh; 10 cặp danh mục nối được, 0 cặp lệch cờ chi hộ. Đây là số của ngày đo; bản thử còn được nhập tiếp, nên vẫn phải đo lại ngay trước khi chạy migration. Còn phải làm trước khi chạy migration ghi: (1) đo lại hai việc trên ngay trước ngày chạy; (2) xác nhận không chặng nào cần chia một khoản cho hai người (câu 1 là giả định đã chốt, chưa kiểm dữ liệu); (3) chạy thật mọi harness.
 
 ## Cần người dùng chốt: ĐÃ CHỐT 19/11/2026
 

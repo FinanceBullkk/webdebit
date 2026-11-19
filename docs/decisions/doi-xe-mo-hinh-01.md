@@ -33,8 +33,10 @@ Mô hình, bảng đối chiếu hiện có → đề xuất, thứ tự migrati
 
 Phải làm trước khi chạy migration ghi:
 
-- đo trên bản thử số khoản ghi chú mà bộ đọc gắn lỗi (câu 6 chỉ định cách xử lý, chưa biết số lượng);
+- đo trên bản thử số khoản ghi chú mà bộ đọc gắn lỗi (câu 6 chỉ định cách xử lý);
 - kiểm hai cờ chi hộ của danh mục chi và danh mục thu có lệch nhau trên `hao` không (web có sửa được cờ phía thu); lệch thì dừng và người dùng chọn cờ đúng, không tự chọn.
+
+Đã đo một lần (số đo của phiên điều phối ngày 19/11/2026 trên bản thử ở `hao`, chỉ đọc qua các đường `GET /api/v7/doixe`, `/bang-gia`, `/bang-ke`: tháng 10 có 206 chặng với 225 khoản phát sinh, 0 khoản lỗi, 1 khoản lạ; tháng 11 có 13 chặng, 0 khoản phát sinh; 10 cặp danh mục nối được, 0 cặp lệch cờ chi hộ. Đây là số của ngày đo; bản thử còn được nhập tiếp, nên vẫn phải đo lại ngay trước khi chạy migration).
 
 Giả định nghiệp vụ người dùng chấp nhận theo đề xuất, chưa hỏi điều xe, hai nhân viên, kế toán: câu 1 (không chia một khoản cho hai người) và câu 4 (tài xế chưa ứng tiền trả dầu, sửa xe theo xe).
 
