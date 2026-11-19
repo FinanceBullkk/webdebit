@@ -4,11 +4,11 @@
 
 ## Quyết định
 
-Tổng quan gắn cờ **khách mới** để người dùng để ý thu sớm, trước khi luật quá hạn của [`DASH-03`](dash-03.md) bắt được. Người dùng chốt theo spec [`specs/v7-khach-moi.md`](../../specs/v7-khach-moi.md):
+Tổng quan gắn cờ **khách mới** để người dùng để ý thu sớm, trước khi luật quá hạn của [`DASH-03`](dash-03.md) bắt được. Người dùng chốt mốc và chỗ hiện theo spec [`specs/v7-khach-moi.md`](../../specs/v7-khach-moi.md):
 
-1. **Sổ mới:** chuyến đầu của sổ cách hôm nay (giờ VN) **≤ 90 ngày**, và không có lần trả nào sớm hơn chuyến đầu quá 7 ngày. Chuyến đầu và lần trả đọc cùng luật ngày với lần đi hàng, lần trả gần nhất của `DASH-03`.
+1. **Sổ mới:** chuyến đầu của sổ cách hôm nay (giờ VN) **≤ 90 ngày**, không có lần trả nào sớm hơn chuyến đầu quá 7 ngày, và không có nợ mốc ở tháng trước tháng của chuyến đầu. Chuyến đầu và lần trả đọc cùng luật ngày với lần đi hàng, lần trả gần nhất của `DASH-03`.
 2. **Chưa trả lần nào** (`no_pay`): sổ mới, đủ **30 ngày** từ chuyến đầu mà chưa có lần trả nào.
-3. **Chuyến chậm trả** (`slow`): sổ mới có chuyến cũ nhất còn chưa trả đủ đã quá **45 ngày**. Tiền trả xếp vào chuyến theo nợ cũ trước, theo ngày chuyến.
+3. **Chuyến chậm trả** (`slow`): sổ mới có chuyến cũ nhất còn chưa trả đủ đã quá **45 ngày**. Tiền trả xếp vào chuyến theo nợ cũ trước, theo ngày chuyến; tiền chuyến tính như số dư (chuyến đã xác nhận, cộng điều chỉnh của chuyến).
 4. **Chỗ hiện:** nhãn Mới ở bảng khách; ô lọc "Khách mới cần để ý" ở Tổng quan, là một chiều lọc theo [`DASH-08`](dash-08.md); một dòng dữ kiện ở thẻ Tình hình của trang khách.
 5. Cờ chỉ để tô màu và lọc. Không đổi nhóm hạn trả, mức rủi ro, tiền, phân bổ, khóa tháng hay quyền. Chưa làm nút "Không phải khách mới" cho sổ tách từ khách cũ; xem lại khi có sổ bị gắn nhầm.
 
@@ -16,7 +16,7 @@ Các mốc lấy từ phép đo chỉ đọc trên `hao` ngày 19/11/2026: gộp
 
 ## Ngày / nguồn
 
-19/11/2026, chat. Người dùng hỏi có cách cảnh báo để ý thu sớm khách mới không. Claude nêu vì sao luật hạn trả hiện tại không thấy khách mới trong gần 60 ngày đầu và đề nghị đo trước. Người dùng chọn "Đo rồi viết spec"; spec ĐỀ XUẤT ở PR FinanceBullkk/webdebit#502. Sau đó người dùng trả lời "Chốt, làm backend", tức chốt ba mốc 90 / 30 / 45 ngày và chỗ hiện như spec.
+19/11/2026, chat. Người dùng hỏi có cách cảnh báo để ý thu sớm khách mới không. Claude nêu vì sao luật hạn trả hiện tại không thấy khách mới trong gần 60 ngày đầu và đề nghị đo trước. Người dùng chọn "Đo rồi viết spec"; spec ĐỀ XUẤT ở PR FinanceBullkk/webdebit#502. Sau đó người dùng trả lời "Chốt, làm backend", tức chốt ba mốc 90 / 30 / 45 ngày và chỗ hiện như spec. Cùng ngày, sau review độc lập của PR backend, Claude thêm theo [`CLAUDE-ALL-01`](claude-all-01.md): loại sổ có nợ mốc trước tháng của chuyến đầu; tiền chuyến dùng để xếp tính như số dư (bỏ chuyến chờ duyệt, cộng điều chỉnh của chuyến).
 
 ## Hiệu lực và giới hạn
 

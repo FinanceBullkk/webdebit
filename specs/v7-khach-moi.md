@@ -57,14 +57,15 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
 
 ## Hành vi
 
-1. **Sổ mới:** sổ không lưu trữ, có chuyến đầu cách hôm nay (giờ VN) **≤ 90 ngày**, và không có lần trả nào sớm hơn chuyến đầu quá 7 ngày.
+1. **Sổ mới:** sổ không lưu trữ, có chuyến đầu cách hôm nay (giờ VN) **≤ 90 ngày**, không có lần trả nào sớm hơn chuyến đầu quá 7 ngày, và không có nợ mốc (khác 0) ở tháng trước tháng của chuyến đầu. Hai điều kiện sau loại sổ đã có lịch sử, như sổ tách từ khách cũ.
    - Chuyến đầu là ngày sớm nhất trong các chuyến web chưa xóa, không bị loại, và các dòng chuyến sổ gốc chưa xóa. Dòng không ngày lấy cuối tháng của dòng, theo cùng luật `trip_last` của `get_dashboard_debt`, chỉ đổi lấy muộn nhất thành lấy sớm nhất.
    - Mốc 90 ngày: S2 bắt đủ 12/12 sổ kẹt trước ngày 90, và tới 3–6 tháng khách vẫn trả nhanh như lúc mới.
 2. **Lần trả** giống `pay_last` của `get_dashboard_debt`: phiếu chưa hủy (kể cả cấn trừ) và dòng thu sổ gốc khác 0, chưa xóa.
 3. **S1 · Chưa trả lần nào:** sổ mới, đã đủ **30 ngày** từ chuyến đầu, chưa có lần trả nào từ 7 ngày trước chuyến đầu tới hôm nay.
 4. **S2 · Chuyến chậm trả:** sổ mới có chuyến cũ nhất còn chưa trả đủ đã quá **45 ngày**. Tiền trả xếp vào chuyến theo nợ cũ trước, theo ngày chuyến.
-   - Tiền chuyến sổ gốc lấy thành tiền sổ gốc. Ở đây chỉ dùng để xếp thứ tự, không cộng vào số nào: không phá quy tắc "`legacy_row` không tham gia công thức tiền".
+   - Tiền chuyến tính như số dư: chuyến đã xác nhận lấy giá mới nhất, dòng chuyến sổ gốc lấy thành tiền sổ gốc; cả hai cộng dòng điều chỉnh gắn với chuyến đó (sửa ở tháng khóa). Chuyến chờ duyệt nằm ngoài số dư nên không tính. Ở đây chỉ dùng để xếp thứ tự, không cộng vào số nào: không phá quy tắc "`legacy_row` không tham gia công thức tiền".
    - Chuyến chưa có giá không tính là chưa trả.
+   - Giới hạn đã biết: dòng chuyến sổ gốc không ngày lấy cuối tháng, nên một lần trả giữa tháng đó có thể làm sổ mất nhãn Mới (điều kiện 7 ngày).
 5. Sổ dính cả S1 và S2 thì câu hiện S1.
 6. Sau 90 ngày, nhãn **Mới** và S1, S2 tự hết. Sổ từ đó theo luật thường.
 7. Hai tín hiệu **không đổi** nhóm hạn trả, mức rủi ro hay nhóm tình trạng của `DASH-03`, `DASH-05`, `DASH-06`, và không đổi tiền, phân bổ, khóa tháng hay quyền.

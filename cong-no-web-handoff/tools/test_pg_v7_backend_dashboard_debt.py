@@ -247,16 +247,18 @@ def check_new_customer(pg: Pg, today: str) -> None:
     def ago(days: int) -> str:
         return (now - timedelta(days=days)).isoformat()
 
-    def trip(book: int, key: str, days: int, price: str | None = "100") -> None:
+    def trip(book: int, key: str, days: int, price: str | None = "100", booking: str | None = None) -> int:
         day = now - timedelta(days=days)
         month = day.replace(day=1).isoformat()
         fixture_open_month(pg, book, month)
         row = json.loads(trip_json(price, container=f"FAKE-NEW-{key}", month=month))
         row[0]["date"] = day.strftime("%d/%m/%Y")
-        call(pg, "paste_trips", book, version(pg, book), f"new-{key}", month, json.dumps(row))
+        if booking is not None:
+            row[0]["booking"] = booking
+        return call(pg, "paste_trips", book, version(pg, book), f"new-{key}", month, json.dumps(row))["trip_ids"][0]
 
-    def book(key: str, *days: int, price: str | None = "100") -> int:
-        created = new_book(pg, (now.replace(day=1).isoformat(), 0))
+    def book(key: str, *days: int, price: str | None = "100", opening: tuple[str, int] | None = None) -> int:
+        created = new_book(pg, opening or (now.replace(day=1).isoformat(), 0))
         for n, day in enumerate(days):
             trip(created, f"{key}{n}", day, price)
         return created
@@ -288,6 +290,23 @@ def check_new_customer(pg: Pg, today: str) -> None:
     legacy_pay(prepay, 28, 32)
     near = book("nr", 20)                    # trả trước 7 ngày vẫn là sổ mới
     legacy_pay(near, 27, 33)
+    # Chuyến chờ duyệt nằm ngoài số dư nên không dùng để xếp: chuyến 60 ngày vẫn là chuyến chưa trả.
+    pending = book("pd", 60)
+    legacy_pay(pending, 58, 35)
+    cutover = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={pending}")
+    held_day = now - timedelta(days=5)
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cutover},'FAKE-BKP','FAKE-NEW-PD1',{lit(held_day.isoformat())})")
+    trip(pending, "pd1", 5, booking="FAKE-BKP")
+    require(pg.value(f"SELECT count(*) FROM sokhach.v_trip_current WHERE customer_id={pending} AND status='pending_review'") == "1",
+            "pending fixture: trip was not held for review")
+    # Dòng điều chỉnh của chuyến tính vào chuyến đó: trả 100 đủ chuyến 60 ngày, chuyến 20 ngày tăng lên 150 còn nợ cả.
+    adjusted = book("aj", 60)
+    late = trip(adjusted, "aj1", 20)
+    pay(adjusted, "aj-r", 100)
+    call(pg, "adjust_trip", adjusted, version(pg, adjusted), "new-aj-adj", late, 150, "tăng giá")
+    require(pg.value(f"SELECT count(*) FROM sokhach.adjustment WHERE trip_id={late}") == "1", "adjustment fixture: no trip adjustment")
+    # Nợ mốc từ tháng trước tháng của chuyến đầu: sổ có lịch sử (tách từ khách cũ), không phải sổ mới.
+    old_debt = book("od", 20, opening=((now.replace(day=1) - timedelta(days=100)).replace(day=1).isoformat(), 500))
     legacy_only = new_book(pg, (now.replace(day=1).isoformat(), 500))   # dòng sổ gốc nằm trong mốc: nợ là số mốc
     _legacy(pg, legacy_only, now.replace(day=1).isoformat(), "trip", None, 34, amount=500)
 
@@ -312,3 +331,6 @@ def check_new_customer(pg: Pg, today: str) -> None:
     expect(prepay, "paid before first trip", ago(20), False, None, None)
     expect(near, "paid within 7 days before", ago(20), True, None, ago(20))
     expect(legacy_only, "undated legacy trip", today, True, None, today, exact=False)
+    expect(pending, "pending trip outside the balance", ago(60), True, "slow", ago(60))
+    expect(adjusted, "trip adjustment counts on its trip", ago(60), True, None, ago(20))
+    expect(old_debt, "opening debt before the first trip", ago(20), False, None, None)

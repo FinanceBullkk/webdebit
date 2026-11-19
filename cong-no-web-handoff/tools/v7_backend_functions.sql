@@ -2238,7 +2238,9 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- lọc thẻ Thu tháng theo mặt hàng / nhóm khách; cộng các sổ đúng bằng charges_vnd / received_vnd của this_month.
 -- KHACH-MOI-01 (19/11/2026): sổ mới = chuyến đầu (sớm nhất, cùng luật ngày với lần đi hàng) cách hôm nay ≤ 90 ngày và không có
 -- lần trả nào sớm hơn chuyến đầu quá 7 ngày. no_pay: đủ 30 ngày từ chuyến đầu mà chưa trả lần nào; slow: chuyến cũ nhất còn chưa
--- trả đủ quá 45 ngày. Chuyến chưa trả đủ = các chuyến mới nhất cộng lại vừa phủ số còn nợ của sổ (nợ cũ trả trước); tiền chuyến
+-- trả đủ quá 45 ngày. Sổ có nợ mốc từ tháng trước tháng của chuyến đầu cũng không phải sổ mới (sổ tách từ khách cũ).
+-- Chuyến chưa trả đủ = các chuyến mới nhất cộng lại vừa phủ số còn nợ của sổ (nợ cũ trả trước). Tiền chuyến tính như số dư:
+-- chuyến đã xác nhận (giá mới nhất) và dòng chuyến sổ gốc (thành tiền sổ gốc), cộng dòng điều chỉnh gắn với chuyến đó;
 -- chỉ để xếp, không cộng vào số nào; chuyến chưa có giá không tính. Chỉ là cờ đọc: không đổi nhóm hạn trả, mức rủi ro hay tiền.
 DECLARE d date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date; m date := date_trunc('month', d)::date;
 BEGIN
@@ -2268,9 +2270,9 @@ BEGIN
         FROM om JOIN debtor b ON b.id=om.customer_id GROUP BY om.customer_id),
     leg_trip AS (SELECT l.id,l.customer_id,coalesce(r.debt_month,l.debt_month) AS mon,
         CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS dt,
-        coalesce(r.counted_vnd,l.source_total_vnd) AS amt
+        l.source_total_vnd AS amt
         FROM sokhach.legacy_row l JOIN debtor b ON (b.id,b.cutover_id)=(l.customer_id,l.cutover_id)
-        LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.deleted,x.counted_vnd FROM sokhach.legacy_trip_rev x
+        LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.deleted FROM sokhach.legacy_trip_rev x
             WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
        WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)),
     leg_pay AS (SELECT l.customer_id,l.debt_month AS mon,
@@ -2294,18 +2296,24 @@ BEGIN
           FROM leg_trip),
     trip_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM trip_day ORDER BY customer_id,dt DESC,exact DESC),
     trip_first AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM trip_day ORDER BY customer_id,dt,exact DESC),
-    newb AS (SELECT f.customer_id,f.dt FROM trip_first f WHERE f.dt>=d-90
-        AND NOT EXISTS (SELECT 1 FROM pay_day p WHERE p.customer_id=f.customer_id AND p.dt<f.dt-7)),
+    newb AS (SELECT f.customer_id,f.dt FROM trip_first f JOIN debtor b ON b.id=f.customer_id WHERE f.dt>=d-90
+        AND NOT EXISTS (SELECT 1 FROM pay_day p WHERE p.customer_id=f.customer_id AND p.dt<f.dt-7)
+        AND NOT EXISTS (SELECT 1 FROM sokhach.opening_balance o WHERE o.customer_id=b.id AND o.cutover_id=b.cutover_id
+            AND o.amount_vnd<>0 AND o.debt_month<date_trunc('month',f.dt)::date)),
+    new_adj AS (SELECT a.trip_id,a.legacy_row_id,sum(a.amount_vnd) AS amt
+          FROM sokhach.v_adjustment_current a JOIN newb n ON n.customer_id=a.customer_id
+         WHERE a.trip_id IS NOT NULL OR a.legacy_row_id IS NOT NULL GROUP BY a.trip_id,a.legacy_row_id),
     new_trip AS (SELECT t.customer_id,coalesce(t.event_date,least((t.debt_month+interval '1 month')::date-1,d)) AS dt,t.id AS k,
                CASE WHEN p.unit_price_vnd IS NOT NULL THEN p.unit_price_vnd+coalesce(p.other_fee_vnd,0)
-                    WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd END AS amt
+                    WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd END+coalesce(j.amt,0) AS amt
           FROM sokhach.v_trip_current t JOIN newb n ON n.customer_id=t.customer_id
           LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
               WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
-         WHERE NOT t.deleted AND t.status<>'rejected'
+          LEFT JOIN new_adj j ON j.trip_id=t.id
+         WHERE NOT t.deleted AND t.status='confirmed'
         UNION ALL
-        SELECT l.customer_id,coalesce(l.dt,least((l.mon+interval '1 month')::date-1,d)),-l.id,l.amt
-          FROM leg_trip l JOIN newb n ON n.customer_id=l.customer_id),
+        SELECT l.customer_id,coalesce(l.dt,least((l.mon+interval '1 month')::date-1,d)),-l.id,l.amt+coalesce(j.amt,0)
+          FROM leg_trip l JOIN newb n ON n.customer_id=l.customer_id LEFT JOIN new_adj j ON j.legacy_row_id=l.id),
     -- Đi từ chuyến mới nhất về cũ: chuyến đầu tiên làm tổng vừa phủ số còn nợ là chuyến cũ nhất chưa trả đủ;
     -- không phủ nổi (còn nợ từ mốc hay điều chỉnh) thì là chuyến cũ nhất.
     new_unpaid AS (SELECT DISTINCT ON (customer_id) customer_id,dt FROM (
