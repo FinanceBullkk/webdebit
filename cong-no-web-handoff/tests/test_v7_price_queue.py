@@ -214,6 +214,42 @@ class ApproveTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):   # failure on the very first write is a plain error
             self.approve(Runner(fail_at=1))
 
+    def test_legacy_fee_failure_after_unit_price_resumes_through_batch(self):
+        # Audit 19/11/2026 (A06), ca của probe: đơn giá dòng sổ gốc đã lưu, lệnh phụ phí lỗi. Phản hồi phải nói đúng điều đó
+        # (khóa hoàn tác, ô đã lưu) và lượt sau phải ghi tiếp được qua READY, như câu báo "bấm ghi tiếp".
+        book = ledger(legacy=[legacy_row()])
+        snap = SNAPSHOT | {"rows": [row(container="FAKEU0000002", date="2026-10-04", price=100, fee=20, total=120)], "row_count": 1}
+        first = project_prices(snap, book, CUSTOMERS)
+        self.assertEqual(first["ready_count"], 1)
+
+        class Partial(Runner):
+            def run(self, function, payload, actor):
+                if payload.get("field") == "other_fee_vnd":
+                    raise api.ApiError(503, "DB_UNAVAILABLE", "lệnh thứ hai lỗi")
+                return super().run(function, payload, actor)
+        status, result = v7_api_sheet.write_price_items(first["ready"], 7, 3, snap["sha256"], "k1", Partial(), "fake")
+        self.assertEqual((status, result["written"], result["remaining"], result["complete"]), (200, 0, 1, False))
+        self.assertEqual(len(result["undo_keys"]), 1, "the committed unit-price command must be undoable")
+        self.assertEqual(result["partial"], [{"target_kind": "legacy", "target_id": 21, "saved_fields": ["unit_price_vnd"]}])
+        # Sổ sau lần ghi dở: đơn giá Sheet, phụ phí trống (counted = đơn giá, như _change_legacy).
+        book["legacy_rows"][0]["current"] |= {"unit_price_vnd": "100", "counted_vnd": "100"}
+        after = project_prices(snap, book, CUSTOMERS)
+        self.assertEqual((after["ready_count"], after["ready"][0]["status"]), (1, "READY"))
+        runner = Runner()
+        status, result = v7_api_sheet.write_price_items(after["ready"], 7, 4, snap["sha256"], "k2", runner, "fake")
+        self.assertTrue(result["complete"])
+        self.assertEqual([(f, p["field"], p["value"]) for f, p, _ in runner.calls if f != "get_ledger"],
+                         [("edit_legacy_trip", "other_fee_vnd", "20")])
+
+    def test_legacy_row_with_a_different_web_fee_stays_conflict(self):
+        # Đối chứng: phụ phí web đã có số khác Sheet là lệch thật, không phải ghi dở; dòng chuyến (một lệnh) cũng không đổi luật.
+        current = legacy_row()
+        current["current"] |= {"unit_price_vnd": "100", "other_fee_vnd": "5", "counted_vnd": "105"}
+        snap = SNAPSHOT | {"rows": [row(container="FAKEU0000002", date="2026-10-04", price=100, fee=20, total=120)], "row_count": 1}
+        self.assertEqual(project_prices(snap, ledger(legacy=[current]), CUSTOMERS)["review"][0]["status"], "CONFLICT")
+        trip_row = SNAPSHOT | {"rows": [row(price=100, fee=20)], "row_count": 1}
+        self.assertEqual(project_prices(trip_row, ledger(trips=[trip(price="100")]), CUSTOMERS)["review"][0]["status"], "CONFLICT")
+
     def test_ledger_read_falls_back_when_price_snapshot_is_missing(self):
         with patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(ROOT / "missing-prices.json")), \
                 patch.object(v7_api_sheet, "sheet_projection", return_value={"items": []}):

@@ -925,6 +925,86 @@ class MachineAfterRestartTests(unittest.TestCase):
                 wait_idle(inbox)
                 self.assertEqual(inbox.view(self.runner(ledger, calls))["auto"]["today_trips"], 2)
 
+    def test_pending_relock_runs_without_sheet_change(self):
+        # Audit 19/11/2026 (A03), ca của probe: biết tháng máy bỏ ngỏ, bản chụp Sheet không đổi nên tick không chạy lượt nền.
+        ledger = self.history()
+        ledger["month_locks"] = [{"month": "2026-10-01", "locked": False}]
+        ledger["events"] = [self.lock_event("2026-10", False, self.MACHINE, 30)] + ledger["events"]
+        inbox = v7_inbox.Inbox(lambda *args: projection(), lambda: (), clock=lambda: self.NOW)
+        inbox.computed_at, inbox.key = self.NOW - 60, ()
+        inbox.machine_open = {1: ["2026-10"]}
+        calls = []
+        with patch("sys.stderr"):
+            self.assertFalse(inbox.tick(self.runner(ledger, calls)))
+            self.assertTrue(inbox.relock_if_due(self.runner(ledger, calls)))
+        self.assertEqual([(c[1]["month"], c[1]["locked"]) for c in calls if c[0] == "set_month_lock"], [("2026-10-01", True)])
+        self.assertEqual(inbox.machine_open, {})
+        self.assertFalse(inbox.relock_if_due(self.runner(ledger, calls)), "nothing left: no further reads")
+
+    def test_restart_before_relock_deadline_relocks_after_it_without_sheet_change(self):
+        # API khởi động lại 3 phút sau khi máy mở tháng 10: lượt đầu chưa giành (người có thể đang làm), nhớ hạn; 8 phút sau,
+        # Sheet đứng yên (tick không chạy), nhịp nền vẫn khóa lại.
+        ledger = self.history()
+        ledger["month_locks"] = [{"month": "2026-10-01", "locked": False}]
+        ledger["events"] = [self.lock_event("2026-10", False, self.MACHINE, 3)] + ledger["events"]
+        now = [self.NOW]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "s.json"
+            path.write_text("{}", encoding="utf-8")
+            inbox = v7_inbox.Inbox(lambda *args: projection(), lambda: (str(path),), clock=lambda: now[0])
+            calls = []
+            with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": ""}), patch("sys.stderr"):
+                inbox.start(self.runner(ledger, calls))
+                wait_idle(inbox)
+                self.assertEqual([c for c in calls if c[0] == "set_month_lock"], [])
+                self.assertFalse(inbox.relock_if_due(self.runner(ledger, calls)), "before the deadline: leave it")
+                now[0] += 8 * 60
+                self.assertFalse(inbox.tick(self.runner(ledger, calls)), "snapshot unchanged: no full pass")
+                self.assertTrue(inbox.relock_if_due(self.runner(ledger, calls)))
+        self.assertEqual([(c[1]["month"], c[1]["locked"], c[2]) for c in calls if c[0] == "set_month_lock"],
+                         [("2026-10-01", True, self.MACHINE)])
+
+    def test_person_reopened_month_is_not_relocked(self):
+        # Đối chứng: người mở lại tháng sau máy thì tháng đó là của người, nhịp khóa lại không đụng.
+        ledger = self.history()
+        ledger["month_locks"] = [{"month": "2026-10-01", "locked": False}]
+        ledger["events"] = [self.lock_event("2026-10", False, "nguoi@vi.du", 20),
+                            self.lock_event("2026-10", False, self.MACHINE, 30)] + ledger["events"]
+        inbox = v7_inbox.Inbox(lambda *args: projection(), lambda: (), clock=lambda: self.NOW)
+        inbox.relock_due = {1: self.NOW - 1}
+        calls = []
+        with patch("sys.stderr"):
+            self.assertTrue(inbox.relock_if_due(self.runner(ledger, calls)))
+        self.assertEqual([c for c in calls if c[0] == "set_month_lock"], [])
+        self.assertEqual(inbox.relock_due, {})
+
+    def test_in_month_relocks_even_when_reading_the_ledger_fails(self):
+        # Audit A03: bước dọn đọc sổ lỗi thì vẫn khóa bằng phiên bản biết gần nhất; lệnh chính lỗi thì ném lỗi của nó.
+        ledger = {"today_month": "2026-11-01", "month_locks": [], "version": 3}
+        for action_fails in (False, True):
+            with self.subTest(action_fails=action_fails):
+                locks = []
+
+                class Runner:
+                    def run(self, function, payload, actor, locks=locks):
+                        if function == "get_ledger":
+                            raise ApiError(503, "DB_UNAVAILABLE", "x")
+                        locks.append((payload["locked"], payload["expected_version"]))
+                        return {"version": payload["expected_version"] + 1}
+
+                def action(version, action_fails=action_fails):
+                    if action_fails:
+                        raise ApiError(409, "STALE_LEDGER", "lệnh chính")
+                    return version + 1
+                if action_fails:
+                    with self.assertRaises(ApiError) as caught:
+                        v7_inbox.in_month(Runner(), 1, 3, ledger, "2026-10", "k", action)
+                    self.assertEqual(caught.exception.code, "STALE_LEDGER")
+                    self.assertEqual(locks, [(False, 3), (True, 4)])
+                else:
+                    self.assertEqual(v7_inbox.in_month(Runner(), 1, 3, ledger, "2026-10", "k", action), 6)
+                    self.assertEqual(locks, [(False, 3), (True, 5)])
+
     def test_error_counts_and_writes_one_journal_line(self):
         inbox = v7_inbox.Inbox(lambda runner, ledger, actor: projection(), lambda: ())
         with patch("sys.stderr") as stderr:

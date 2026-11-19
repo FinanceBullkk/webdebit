@@ -121,11 +121,25 @@ def in_month(runner, customer_id: int, version: int, ledger: dict[str, Any], mon
                                              "month": month + "-01", "locked": locked}, AUTO_ACTOR).get("version", at + 1)
 
     version = lock(False, version)
+    failed = False
     try:
         version = action(version)
+    except BaseException:
+        failed = True
+        raise
     finally:
-        current = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
-        version = lock(True, current)
+        # Audit 19/11/2026 (A03): đọc sổ lỗi không được bỏ qua bước khóa lại; thử bằng phiên bản biết gần nhất. Khóa lại vẫn
+        # lỗi thì tháng còn mở do máy: Inbox.relock_if_due khóa lại khi quá RELOCK_AFTER_SECONDS, kể cả khi Sheet không đổi.
+        # Lệnh chính đã lỗi thì ném lỗi của lệnh chính, không để lỗi dọn dẹp che mất.
+        try:
+            try:
+                current = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            except ApiError:
+                current = version
+            version = lock(True, current)
+        except ApiError:
+            if not failed:
+                raise
     return version
 
 
@@ -155,6 +169,12 @@ def _epoch(at: Any) -> float | None:
 def machine_left_open(ledger: dict[str, Any], now: float) -> list[str]:
     """Tháng (yyyy-mm) máy đã mở mà chưa khóa lại: cờ đang mở, không phải tháng hiện tại, và lần đổi khóa gần nhất của
     tháng đó là máy mở, cũ hơn RELOCK_AFTER_SECONDS. Tháng người mở (lần đổi gần nhất là người) giữ nguyên."""
+    return sorted(month for month, at in machine_unlocks(ledger).items() if now - at >= RELOCK_AFTER_SECONDS)
+
+
+def machine_unlocks(ledger: dict[str, Any]) -> dict[str, float]:
+    """Như machine_left_open nhưng mọi tuổi: tháng (yyyy-mm) → lúc máy mở. Tháng mới mở, chưa tới hạn khóa lại vẫn có mặt,
+    để biết lúc nào phải quay lại khóa (audit 19/11/2026, A03)."""
     today = str(ledger.get("today_month") or "")[:7]
     open_months = {str(row.get("month") or "")[:7] for row in ledger.get("month_locks") or [] if row.get("locked") is False}
     latest: dict[str, dict] = {}
@@ -162,13 +182,13 @@ def machine_left_open(ledger: dict[str, Any], now: float) -> list[str]:
         month = str((event.get("after") or {}).get("month") or "")[:7]
         if event.get("kind") == "month_lock" and month in open_months:
             latest.setdefault(month, event)
-    left = []
+    unlocks = {}
     for month, event in sorted(latest.items()):
         at = _epoch(event.get("at"))
         if (month != today and event.get("actor") == AUTO_ACTOR and (event.get("after") or {}).get("locked") is False
-                and at is not None and now - at >= RELOCK_AFTER_SECONDS):
-            left.append(month)
-    return left
+                and at is not None):
+            unlocks[month] = at
+    return unlocks
 
 
 def machine_entries(customer_id: int, ledger: dict[str, Any], day: str) -> list[dict[str, Any]]:
@@ -340,6 +360,8 @@ class Inbox:
         self.auto_errors = 0
         self.auto_run_at: float | None = None
         self.machine_open: dict[int, list[str]] = {}    # tháng máy đã mở mà chưa khóa, theo sổ (lượt nền vừa đọc)
+        self.relock_due: dict[int, float] = {}          # sổ có tháng máy mới mở, chưa tới hạn khóa lại → lúc tới hạn
+        self.relocking = False
         self.machine_seen: dict[int, list[dict]] = {}   # việc máy làm hôm nay theo Lịch sử, chờ nạp vào auto_log
         self.seeded_day: str | None = None
         self.stopped = threading.Event()   # đặt để dừng nhịp nền (test)
@@ -372,8 +394,38 @@ class Inbox:
                 self.machine_open[customer_id] = left
             else:
                 self.machine_open.pop(customer_id, None)
+            self._note_due(customer_id, ledger, now)
             if seen:
                 self.machine_seen[customer_id] = seen
+
+    def _note_due(self, customer_id: int, ledger: dict[str, Any], now: float) -> None:
+        """Gọi khi giữ self.lock. Tháng máy mới mở (API tắt giữa chừng, hoặc khóa lại lỗi) chưa tới hạn: nhớ lúc tới hạn."""
+        young = [at for at in machine_unlocks(ledger).values() if now - at < RELOCK_AFTER_SECONDS]
+        if young:
+            self.relock_due[customer_id] = min(young) + RELOCK_AFTER_SECONDS
+        else:
+            self.relock_due.pop(customer_id, None)
+
+    def relock_if_due(self, runner) -> bool:
+        """Nhịp nền (audit 19/11/2026, A03): khóa lại tháng máy bỏ ngỏ khi tới hạn, không chờ bản chụp Sheet đổi. Trước đây
+        việc khóa lại chỉ chạy trong lượt nền đầy đủ, mà lượt đó chỉ chạy khi Sheet đổi: API khởi động lại trước hạn rồi Sheet
+        đứng yên thì tháng mở mãi. Lượt nền đầy đủ đang chạy thì để nó khóa."""
+        now = self.clock()
+        with self.lock:
+            if self.running or self.relocking:
+                return False
+            due = sorted(c for c, at in self.relock_due.items() if at <= now)
+            for customer_id in due:
+                self.relock_due.pop(customer_id)
+            if not due and not any(self.machine_open.values()):
+                return False
+            self.relocking = True
+        try:
+            self._relock(runner, due)
+        finally:
+            with self.lock:
+                self.relocking = False
+        return True
 
     def _error(self, step: str, customer_id: int, error: Any) -> None:
         """Một lỗi của máy: đếm cho Việc cần làm và ghi một dòng journal, để còn thấy sau khi API khởi động lại."""
@@ -381,23 +433,32 @@ class Inbox:
         code = getattr(error, "code", None) or (error if isinstance(error, str) else type(error).__name__)
         print(f"V7 máy (theo Sheet): {step} sổ {customer_id} lỗi {code}", file=sys.stderr, flush=True)
 
-    def _relock(self, runner) -> None:
-        """Khóa lại tháng máy đã mở mà chưa khóa (API tắt giữa lúc mở–ghi–khóa, hoặc lệnh khóa lại lỗi)."""
+    def _relock(self, runner, customers=()) -> None:
+        """Khóa lại tháng máy đã mở mà chưa khóa (API tắt giữa lúc mở–ghi–khóa, hoặc lệnh khóa lại lỗi). Mỗi sổ đọc lại
+        Lịch sử ngay lúc khóa: tháng người đã mở sau máy thì giữ nguyên. Sổ xong thì bỏ khỏi danh sách chờ; lỗi thì giữ để
+        nhịp sau thử lại."""
         with self.lock:
-            todo = sorted((customer_id, months) for customer_id, months in self.machine_open.items() if months)
-        for customer_id, months in todo:
-            for month in months:
-                try:
-                    ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
-                    if month not in machine_left_open(ledger, self.clock()):
-                        continue
-                    key = hashlib.sha256(f"{AUTO_ACTOR}:khoa-lai:{customer_id}:{month}:{ledger['version']}".encode()).hexdigest()
-                    runner.run("set_month_lock", {"customer_id": customer_id, "expected_version": ledger["version"],
-                                                  "idempotency_key": key, "month": month + "-01", "locked": True}, AUTO_ACTOR)
+            todo = sorted({c for c, months in self.machine_open.items() if months} | set(customers))
+        for customer_id in todo:
+            try:
+                ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+                now = self.clock()
+                version = ledger["version"]
+                for month in machine_left_open(ledger, now):
+                    key = hashlib.sha256(f"{AUTO_ACTOR}:khoa-lai:{customer_id}:{month}:{version}".encode()).hexdigest()
+                    result = runner.run("set_month_lock", {"customer_id": customer_id, "expected_version": version,
+                                                           "idempotency_key": key, "month": month + "-01", "locked": True},
+                                        AUTO_ACTOR)
+                    version = result["version"] if type(result.get("version")) is int else version + 1
                     print(f"V7 máy (theo Sheet): khóa lại tháng {month} sổ {customer_id} (máy đã mở mà chưa khóa)",
                           file=sys.stderr, flush=True)
-                except ApiError as exc:
-                    self._error("khóa lại tháng", customer_id, exc)
+                with self.lock:
+                    self.machine_open.pop(customer_id, None)
+                    self._note_due(customer_id, ledger, now)
+            except ApiError as exc:
+                with self.lock:   # thử lại ở nhịp sau
+                    self.relock_due.setdefault(customer_id, self.clock())
+                self._error("khóa lại tháng", customer_id, exc)
 
     def _seed_log(self) -> None:
         """Lượt đầu mỗi ngày, gồm lượt đầu sau khi API khởi động: RAM chưa có việc nào của hôm nay thì nạp từ Lịch sử."""
@@ -771,6 +832,8 @@ class Inbox:
             while not self.stopped.wait(every):
                 with contextlib.suppress(Exception):   # nhịp sau thử lại
                     self.tick(runner)
+                with contextlib.suppress(Exception):
+                    self.relock_if_due(runner)
         threading.Thread(target=loop, daemon=True, name="hop-viec-nhip").start()
 
     def view(self, runner) -> dict:
