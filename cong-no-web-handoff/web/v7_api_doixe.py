@@ -466,6 +466,7 @@ VN = ZoneInfo("Asia/Ho_Chi_Minh")
 MAX_VIEC = 1500        # 1500 việc ≈ 84 KB trong tham số psql, dưới trần 128 KB của một đối số dòng lệnh Linux
 MAX_SPAN_DAYS = 93
 MAX_CU = 92
+CONTAINER = re.compile(r"[A-Z]{4}[0-9]{7}")
 NEAR_DAYS = 3          # luật nối chặng ↔ việc (NGUON-CHUYEN-01): lệch ngày đóng không quá 3 ngày
 MIN_DAY = "2020-01-01"  # doixe._ngay từ chối ngày trước mốc này (INVALID_DATE cho cả lượt gọi), nên dòng booking cũ hơn bị bỏ ở đây
 STALE_AFTER = timedelta(hours=1)
@@ -494,11 +495,11 @@ def _plain(value: object) -> str:
 
 
 def _cont(value: object) -> str | None:
-    """Số container của một dòng booking: viết hoa, bỏ khoảng trắng, như bộ đọc sổ khách (`normalize_container`: repo không có luật chặt
-    hơn cho cột này). Rỗng, hoặc dài quá 20 ký tự (giới hạn cột `chang.container`, và một giá trị dài làm hàm nối từ chối cả lượt) thì
-    coi là chưa có số cont."""
+    """Số container của một dòng booking, chỉ khi đúng dạng chuẩn sau khi viết hoa và bỏ khoảng trắng: bốn chữ cái rồi bảy chữ số
+    (người dùng ĐÃ CHỐT ở DOI-XE-DIEU-DO-01: chưa có số container thì chưa phân xe được). Ô trống hoặc chữ giữ chỗ ("chờ cont", "CHUA CO")
+    trả None: việc "sắp tới". Luật này chỉ cho đường đọc việc từ booking; chặng ngoài booking (`POST /chang`) giữ luật container của luu_chang."""
     text = re.sub(r"\s+", "", str(value or "")).upper()
-    return text if 1 <= len(text) <= 20 else None
+    return text if CONTAINER.fullmatch(text) else None
 
 
 def _month_end(first: date) -> date:
@@ -544,7 +545,8 @@ def _booking_viec(snapshot: dict, codes: set[str], window: dict) -> tuple[list[d
         if not valid_date(day) or day < MIN_DAY:
             skipped["khong_ngay"] += 1
             continue
-        mine.append({"cont": _cont(row.get("container")), "day": day, "row": row})
+        mine.append({"cont": _cont(row.get("container")), "day": day, "row": row,
+                     "raw": " ".join(str(row.get("container") or "").split()) or None})
     lo = (date.fromisoformat(window["lui"]) - timedelta(days=NEAR_DAYS)).isoformat()
     hi = (date.fromisoformat(window["den"]) + timedelta(days=NEAR_DAYS)).isoformat()
     near = {m["cont"] for m in mine if m["cont"] and lo <= m["day"] <= hi}
@@ -640,13 +642,16 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
         if not (window["lui"] <= day <= window["den"] or held):
             continue
         state = _state(cont, next((c for c in chang if c["id"] == got["hang_id"]), None))
-        cu = day < window["tu"]
-        if cu and state != "cho_phan_xe" and not held:
+        if day < window["tu"] and state != "cho_phan_xe" and not held:
             continue   # việc cũ chỉ giữ khi còn chờ phân xe
+        cu = day < window["tu"] and state == "cho_phan_xe"   # việc cũ còn chờ phân xe
+        off_window = held and not window["tu"] <= day <= window["den"]   # hiện vì giữ chặng, không phải vì ngày đóng trong khoảng
+        odd = cont is None and m["raw"] is not None
         kho = str(row.get("origin") or "").strip() or None
         viec.append({
             "id": f"{cont}|{day}" if cont else f"#{row.get('source_row')}|{day}",
-            "ngay_dong": day, "container": cont, "trang_thai": state, "cu": cu,
+            "ngay_dong": day, "container": cont, "so_cont_la": odd, "so_cont_goc": m["raw"] if odd else None,
+            "trang_thai": state, "cu": cu, "ngoai_khoang": off_window,
             "booking": {name: (str(row.get(src) or "").strip() or None) for name, src in BOOKING_FIELDS},
             "hang_id": got["hang_id"], "chang": chang,
             "booking_doi": [x for c in chang for x in _booking_doi(c, day, kho)] or None,
@@ -658,6 +663,7 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
             out = _chang_out(c)
             out["cho_phep"] = {**out["cho_phep"], "chuyen_container": out["khoa"] is None, "giu_ngoai": True}
             orphans.append({**out, "trang_thai": "khong_con_tren_booking"})
+    counted = [v for v in viec if not v["ngoai_khoang"]]
     created = str((snapshot.get("runner") or {}).get("created_at") or "")
     try:
         stamp = datetime.fromisoformat(created)
@@ -669,9 +675,12 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
         "hom_nay": dd["hom_nay"], "tu": window["tu"], "den": window["den"], "cu": window["cu"],
         "nguon": {"tao_luc": shown_at, "qua_han": stale, "so_dong": len(snapshot["rows"]), "bo_qua": skipped},
         "viec": viec, "khong_con_tren_booking": orphans,
-        "dem": {"viec": len(viec), **{state: sum(1 for v in viec if v["trang_thai"] == state) for state in STATES},
-                "booking_doi": sum(1 for v in viec if v["booking_doi"]),
-                "chua_co_phi": sum(1 for v in viec for c in v["chang"] if not c["co_phi"]),
+        # Bộ đếm hàng chờ chỉ đếm việc trong khoảng đang xem (kể cả việc cũ còn chờ, `cu`); việc `ngoai_khoang` hiện trong `viec` nhưng
+        # không cộng vào, vì bấm bộ đếm là lọc trong khoảng đang xem.
+        "dem": {"viec": len(counted), **{state: sum(1 for v in counted if v["trang_thai"] == state) for state in STATES},
+                "booking_doi": sum(1 for v in counted if v["booking_doi"]),
+                "chua_co_phi": sum(1 for v in counted for c in v["chang"] if not c["co_phi"]),
+                "ngoai_khoang": len(viec) - len(counted),
                 "khong_con_tren_booking": len(orphans)},
         "xe": dd["xe"], "tai_xe": dd["tai_xe"],
     }

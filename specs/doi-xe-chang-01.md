@@ -70,7 +70,7 @@ JSON trả về (`200`):
   "viec": [ <việc>, ... ],
   "khong_con_tren_booking": [ <chặng>, ... ],
   "dem": {"viec": 41, "sap_toi": 3, "cho_phan_xe": 9, "da_phan_xe": 12, "da_co_phi": 10, "da_len_bang_ke": 7,
-          "booking_doi": 2, "chua_co_phi": 14, "khong_con_tren_booking": 1},
+          "booking_doi": 2, "chua_co_phi": 14, "ngoai_khoang": 1, "khong_con_tren_booking": 1},
   "xe":    [{"id": 1, "bien_so": "…", "nhom": "…", "thue_ngoai": false, "tai_xe_id": 2}, ...],
   "tai_xe": [{"id": 2, "ten": "…"}, ...]
 }
@@ -78,7 +78,7 @@ JSON trả về (`200`):
 
 - `nguon.tao_luc`: giờ tạo bản chụp, **đã đổi sang giờ VN** (runner ghi UTC); `null` nếu không đọc được hoặc thiếu múi giờ. `nguon.qua_han`: bản chụp cũ hơn 60 phút (hoặc không đọc được giờ tạo): giao diện báo "Booking cập nhật lúc …". `bo_qua` là số đếm dòng bản chụp không vào danh sách, luôn tính kể cả khi bảng mã nhà xe rỗng (khi đó mọi dòng vào `khong_nha_xe`): `khong_nha_xe` (không có mã nhà xe đang dùng), `khong_ngay` (không có ngày đóng hợp lệ, hoặc trước 2020-01-01: `doixe._ngay` từ chối ngày đó nên một dòng gõ nhầm năm không được làm hỏng cả lượt gọi), `trung` (lặp cùng container và ngày).
 - `xe`, `tai_xe`: chỉ xe và người đang dùng. Mảng `viec` sắp theo ngày đóng, container (tăng dần).
-- `dem` đếm trên mảng `viec` trả về: `sap_toi`, `cho_phan_xe`, `da_phan_xe`, `da_co_phi`, `da_len_bang_ke` là số việc theo trạng thái; `booking_doi` số việc có nhãn đổi; `chua_co_phi` số CHẶNG (mọi loại) chưa có phí; `khong_con_tren_booking` số chặng mồ côi. Hàng chờ ở đầu màn bấm là lọc phía giao diện trên các mảng này.
+- `dem` đếm trên mảng `viec` trả về, **trừ việc `ngoai_khoang`** (chúng hiện trong `viec` nhưng không cộng vào bộ đếm nào, vì bấm bộ đếm là lọc trong khoảng đang xem; số của chúng ở `dem.ngoai_khoang`); việc cũ còn chờ (`cu`) có đếm: `sap_toi`, `cho_phan_xe`, `da_phan_xe`, `da_co_phi`, `da_len_bang_ke` là số việc theo trạng thái; `booking_doi` số việc có nhãn đổi; `chua_co_phi` số CHẶNG (mọi loại) chưa có phí; `khong_con_tren_booking` số chặng mồ côi; `ngoai_khoang` số việc không cộng vào. Hàng chờ ở đầu màn bấm là lọc phía giao diện trên các mảng này.
 
 **`<việc>`:**
 
@@ -87,8 +87,11 @@ JSON trả về (`200`):
   "id": "MAUU1000001|2026-11-19",
   "ngay_dong": "2026-11-19",
   "container": "MAUU1000001",
+  "so_cont_la": false,
+  "so_cont_goc": null,
   "trang_thai": "cho_phan_xe",
   "cu": false,
+  "ngoai_khoang": false,
   "booking": {"kho": "…", "hang": "…", "cang": "…", "hang_tau": "…", "so_booking": "…", "khach": "…",
               "seal": "…", "nhiet_do": "…", "ten_tau": "…"},
   "hang_id": 12,
@@ -99,7 +102,9 @@ JSON trả về (`200`):
 ```
 
 - `id`: `"<container>|<ngày đóng>"`; dòng chưa có số container: `"#<số dòng CONT_NGUON>|<ngày đóng>"`. Dùng làm khóa của dòng trên màn; không gửi lên máy chủ.
-- `container`: số container viết hoa, bỏ khoảng trắng (cùng luật `normalize_container` của bộ đọc sổ khách; repo không có luật chặt hơn cho cột này), 1–20 ký tự (giới hạn cột `chang.container`), hoặc `null` khi ô trống hoặc chữ dài quá 20 ký tự (ví dụ ghi chú giữ chỗ). `null` thì chưa phân xe được. Chữ giữ chỗ ngắn không dấu (kiểu `CHUA CO`) sẽ được coi là số container, giống sổ khách: xem Câu hỏi mở 8.
+- `container`: số container chuẩn, viết hoa và bỏ khoảng trắng: bốn chữ cái rồi bảy chữ số (ĐÃ CHỐT ở `DOI-XE-DIEU-DO-01`: chưa có số container thì chưa phân xe được); hoặc `null` khi ô trống hoặc không đúng dạng đó. `null` thì chưa phân xe được, trạng thái `sap_toi`. Luật này chỉ cho đường đọc việc từ booking; chặng ngoài booking (`POST /chang`) giữ luật container của `luu_chang`.
+- `so_cont_la`, `so_cont_goc`: ô Số cont không trống mà không đúng dạng chuẩn (chữ giữ chỗ như "chờ cont", "CHUA CO", số thiếu hoặc thừa ký tự) thì `so_cont_la` là `true` và `so_cont_goc` là chữ nguyên văn (khoảng trắng gọn lại) để màn hiện cho điều xe thấy; việc vẫn `sap_toi`, không vào hàm nối, không phân xe được. Hai dòng cùng chữ giữ chỗ cùng ngày là hai việc riêng (`id` theo số dòng), không gộp. Ô trống: `so_cont_la` `false`, `so_cont_goc` `null`. Ý nghĩa dùng chung: cả hai ghi `ĐỀ XUẤT` tới khi người dùng xác nhận (Câu hỏi mở 8).
+- `cu`: `true` khi việc có ngày đóng trước `tu` và còn chờ phân xe (chỉ có khi gọi với `cu` lớn hơn 0). `ngoai_khoang`: `true` khi việc nằm ngoài `tu`–`den` mà vẫn hiện vì giữ một chặng có ngày đóng trong khoảng (booking dời ngày đóng qua mép, kèm `booking_doi`); khác `cu` (việc `ngoai_khoang` có thể đã phân xe và có thể ở sau `den`).
 - `booking.*`: chỉ xem, từ bản chụp, mỗi trường chuỗi hoặc `null`. Không có trường nào để ghi lại booking.
 - `hang_id`: id chặng hàng gần nhất của việc; `null` khi chưa có.
 - `chang`: các chặng đã nối, chặng hàng đứng đầu, rồi chặng phụ theo ngày chạy.
@@ -145,11 +150,11 @@ Lỗi riêng của đường đọc: `NGUON_THIEU_NHA_XE` (503: bản chụp ch�
 
 Cả bốn: `POST`, thân JSON, bắt buộc `idempotency_key`, kết quả `200` + JSON dưới đây (có thêm `lap_lai` khi gửi lại cùng mã). Sau khi ghi thành công giao diện tải lại `GET /chang` (kết quả ghi không đủ để dựng lại dòng).
 
-**`POST /api/v7/doixe/chang/phan-xe`** — tạo chặng cho một việc (`nguon = dieu_do`). API kiểm trước khi ghi rằng cặp (`container`, `ngay_dong`) là một việc của đội xe trên bản chụp booking hiện tại (mã nhà xe đang dùng); không thì `VIEC_KHONG_CON` (409), không ghi gì, để gõ sai không tạo chặng mồ côi. Lượt kiểm tốn thêm một lượt đọc danh mục mã nhà xe. Chặng ngoài booking (container nhà xe khác kéo, chuyển cảng...) không đi đường này mà đi `POST /api/v7/doixe/chang` (`luu_chang`) như hôm nay, với ngày đóng để trống.
+**`POST /api/v7/doixe/chang/phan-xe`** — tạo chặng cho một việc (`nguon = dieu_do`). API kiểm trước khi ghi rằng cặp (`container`, `ngay_dong`) là một việc của đội xe trên bản chụp booking hiện tại (mã nhà xe đang dùng); không thì `VIEC_KHONG_CON` (409), không ghi gì, để gõ sai không tạo chặng mồ côi. Gửi lại cùng mã yêu cầu sau khi bản chụp đã đổi (ngày đóng hoặc số container khác) nhận `VIEC_KHONG_CON`: lần gửi đầu đã tạo đúng một chặng, lần sau không ghi gì; tải lại danh sách là thấy chặng đó (có thể kèm nhãn `booking_doi` hoặc nằm ở mồ côi). Lượt kiểm tốn thêm một lượt đọc danh mục mã nhà xe. Chặng ngoài booking (container nhà xe khác kéo, chuyển cảng...) không đi đường này mà đi `POST /api/v7/doixe/chang` (`luu_chang`) như hôm nay, với ngày đóng để trống.
 
 | Trường | Bắt buộc | Kiểu và luật |
 | --- | --- | --- |
-| `container` | có | Chuỗi, ≤ 20 ký tự (như `chang.container`); rỗng hoặc `null` là `CONT_THIEU`. So với booking bằng số container đã chuẩn hóa (viết hoa, bỏ khoảng trắng) |
+| `container` | có | Chuỗi, ≤ 20 ký tự (như `chang.container`); rỗng hoặc `null` là `CONT_THIEU`. API so với booking bằng số container chuẩn (viết hoa, bỏ khoảng trắng, bốn chữ cái rồi bảy chữ số): chữ giữ chỗ không bao giờ khớp một việc nên bị `VIEC_KHONG_CON` |
 | `ngay_dong` | có | Ngày đóng của việc (`viec.ngay_dong`) |
 | `xe_id` | có | Id xe; `null` thì `XE_KHONG_RO` |
 | `ngay` | không | Ngày chạy; mặc định ngày đóng |
@@ -265,4 +270,4 @@ PR 1, ngày 19/11/2026, ở máy dev, dữ liệu giả: `unittest` của `tests
 5. **Hai lượt psql** cho một lần đọc (lượt đầu chỉ lấy danh mục mã). Nếu chậm hơn đo, PR 2 có thể nhận luôn việc trong hàm đọc mới hoặc API giữ danh mục vài chục giây.
 6. **Việc cũ còn chờ** lấy bằng tham số `cu` (tối đa 92 ngày) thay vì "mọi việc cũ": việc chờ quá 92 ngày không hiện. Phù hợp thực tế (việc được giao trước một ngày) nhưng chưa đo trên dữ liệu thật.
 7. Giao diện gửi `kho` và `ten_hang` từ booking lên `phan-xe` và để trống `noi_lay`, `noi_ha` (SQL lấy tuyến chuyến khách); là cách API hiểu "lấy từ booking" của `DOI-XE-DIEU-DO-01`. Đúng ý chưa?
-8. **Số container giữ chỗ:** ô Số cont ghi chữ ngắn không dấu (kiểu `CHUA CO`) thành `CHUACO`, được coi là số container và phân xe được, đúng như bộ đọc sổ khách hiện nhận (không có luật chặt hơn trong repo). Muốn chặn thì cần luật mới (ví dụ dạng ISO 6346 `[A-Z]{4}[0-9]{7}`, đang dùng để tách số cont trong ô chữ ở `v7_normalize`), nhưng sẽ làm rơi các số cont gõ sai nhẹ; chờ người dùng quyết, chưa đo trên bản chụp thật.
+8. **Số container giữ chỗ (ĐỀ XUẤT, quyết định của phiên điều phối 19/11/2026; chờ người dùng xác nhận):** ô Số cont chỉ được coi là có số khi đúng dạng chuẩn (bốn chữ cái rồi bảy chữ số sau khi bỏ khoảng trắng và viết hoa); ô không trống mà sai dạng thì việc `sap_toi` kèm `so_cont_la` và chữ nguyên văn, để điều xe thấy. Đổi lại, một số container gõ sai nhẹ (thiếu hoặc thừa một chữ số) cũng không phân xe được cho tới khi Sheet sửa. Bộ đọc sổ khách vẫn nhận mọi chuỗi không trống làm số container (luật riêng của sổ khách, không đổi ở đây); chưa đo trên bản chụp thật có bao nhiêu dòng sai dạng.
