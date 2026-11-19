@@ -186,6 +186,14 @@ ERRORS.update({
     "DONG_THIEU": (422, "Chọn ít nhất một dòng."),
     "DONG_DA_DOI": (409, "Các dòng vừa đổi ở máy khác. Tải lại rồi chọn lại."),
 })
+# DOI-XE-CHANG-01: phân công trên mục Chặng (mã lỗi của migration 2026-11-19-v7-doi-xe-dieu-do).
+ERRORS.update({
+    "CHANG_HANG_DA_CO": (409, "Việc này đã có chặng hàng. Tải lại để thấy xe đã phân."),
+    "XE_NGUNG": (422, "Xe này đã ngừng dùng. Chọn xe khác."),
+    "THANG_KHOA": (409, "Tháng này đã khóa: không phân thêm hay đổi chặng ở tháng khóa."),
+    "CHANG_CO_PHI": (409, "Chặng đã ghi phí: sửa xe hoặc tài xế bằng điều chỉnh ở phiếu chặng, không đổi ở phân công."),
+    "CHANG_DA_HOAN": (409, "Chặng đã được hoàn tiền cho tài xế: không đổi hay bỏ ở phân công."),
+})
 # DOI-XE-THU-01: đội xe đợt 2 (bảng kê HTH, bảng giá, tiền về).
 ERRORS.update({
     "BANG_KE_DA_GUI": (409, "Bảng kê tháng này đã gửi. Tải lại."),
@@ -339,6 +347,9 @@ SQL["doixe_get_so"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
 SQL["doixe_get_lich_su"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
                             "SELECT doixe.get_lich_su((j->>'nguoi')::bigint, (j->>'xe')::bigint) FROM b;")
 # DOI-XE-THU-01: đội xe đợt 2. Một bên nhận bảng kê (HTH) nên mã bên cố định ở đây, không nhận từ client.
+for _name in ("phan_xe", "doi_phan_cong", "bo_phan_cong", "nhan_booking"):   # DOI-XE-CHANG-01
+    SQL["doixe_" + _name] = f"SELECT doixe.{_name}(:'payload'::jsonb);"
+SQL["doixe_get_dieu_do"] = "SELECT doixe.get_dieu_do(:'payload'::jsonb);"
 for _name in ("gui_bang_ke", "doi_chieu_xong", "ghi_dieu_chinh_bk", "ghi_tien_ve", "huy_tien_ve", "sua_cuoc", "gan_tuyen", "luu_gia",
               "luu_tuyen", "luu_phat_sinh"):
     SQL["doixe_" + _name] = f"SELECT doixe.{_name}(:'payload'::jsonb);"

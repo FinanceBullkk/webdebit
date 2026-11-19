@@ -14,6 +14,7 @@ import v7_ledger_api as api  # noqa: E402
 
 MIGRATION = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe.sql"
 MIGRATION_THU = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe-thu.sql"
+MIGRATION_DIEU_DO = ROOT / "tools" / "migrations" / "2026-11-19-v7-doi-xe-dieu-do.sql"
 
 
 class FakePsql:
@@ -188,12 +189,12 @@ class DoiXeApiTest(unittest.TestCase):
         self.assertIn("actor_name", value["chang"][0]["dong"][0])
 
     def test_sql_matches_migration_functions(self):
-        source = MIGRATION.read_text(encoding="utf-8") + MIGRATION_THU.read_text(encoding="utf-8")
+        source = "".join(m.read_text(encoding="utf-8") for m in (MIGRATION, MIGRATION_THU, MIGRATION_DIEU_DO))
         names = {name for granted in re.findall(r"GRANT EXECUTE ON FUNCTION (.*?) TO sokhach_app;", source, re.S)
                  for name in re.findall(r"doixe\.(\w+)\(", granted)}
         used = {re.search(r"doixe\.(\w+)\(", tables.SQL[key]).group(1) for key in tables.SQL if key.startswith("doixe_")}
         self.assertEqual(used, names, "SQL của API phải gọi đúng các hàm migration cấp cho app")
-        self.assertEqual(len(doixe.POST_HANDLERS), 18)
+        self.assertEqual(len(doixe.POST_HANDLERS), 22)
         for code in ("NGAY_TUONG_LAI", "CHANGED", "TRUNG_CHANG", "DONG_DA_DOI", "LY_DO_THIEU", "KHONG_DOI_NGUOI_TRA", "THANG_KHOA_CHUYEN"):
             self.assertIn(code, tables.ERRORS)
             self.assertIn(f"'{code}'", source)
