@@ -322,6 +322,10 @@ INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES
 UPDATE sokhach.fee_type f SET default_position=d.n
   FROM (VALUES('lưu bãi',1),('ghép',2),('điện',3),('neo',4),('health + kđ',5),('phí hủy',6),('sửa bill',7)) d(k,n)
  WHERE f.name_key=d.k AND f.active AND f.system_key IS NULL;
+-- TACH-PHI-TIEU-DE-01 (bổ sung 19/11/2026): loại cho cột tab `过磅` và `LOCAL CHARGE 本地费用`; không phải cột mặc định.
+INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES
+ ('Cân hàng','service','positive',NULL,11),('Local charge','service','positive',NULL,12)
+ ON CONFLICT(name_key) DO NOTHING;
 
 CREATE TABLE sokhach.receipt (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

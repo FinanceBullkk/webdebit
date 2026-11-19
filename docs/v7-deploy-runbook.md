@@ -1987,6 +1987,17 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
+## Thêm loại Cân hàng, Local charge và máy tách theo tên cột (TACH-PHI-TIEU-DE-01 bổ sung) — nâng DB, release, bật máy
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-tach-phi-loai-moi.sql` ([`TACH-PHI-TIEU-DE-01`](decisions/tach-phi-tieu-de-01.md)) thêm hai dòng `fee_type` (Cân hàng, Local charge), không phải cột mặc định. Không đổi bảng, hàm, quyền, dòng phụ phí hay số dư. Chạy lại được; tên đã có thì giữ. Không cần cửa sổ dừng ghi.
+
+1. **Bản sao trước:** dump, restore vào DB tạm, áp migration hai lượt với `ON_ERROR_STOP`; số dư từng khách, `trip_fee_line`, `book_fee_column` không đổi, `fee_type` tăng đúng hai dòng (hoặc ít hơn nếu tên đã có); checker 9/9. Xóa DB tạm.
+2. **DB thật:** backup, áp một lần dưới `sokhach_owner` với `ON_ERROR_STOP`, đo lại như bước 1, `v7_post_deploy_check.sql`. Release mới tự lên qua `Deploy hao` (runner giá từ lượt kế tiếp ghi `sheet_fees` vào `prices.json`).
+3. **Công cụ một lần (hỏi người dùng trước khi ghi):** `v7_split_fee_by_header.py` chỉ đếm, gửi số; người dùng đồng ý thì thêm `--apply`. Ghi bằng `rewrite_trip_fees` (không đổi tiền), thêm cột riêng cho loại vừa tách. Đo trước/sau như [nhật ký 19/11](deploys/2026-11-19-tach-phi-tieu-de.md).
+4. **Bật máy (hỏi người dùng trước):** drop-in `auto-sheet.conf` thêm `headers` vào `WEBDEBIT_AUTO_SHEET`, `daemon-reload`, restart. Đo: số event `rewrite_trip_fees` (nguồn `sheet_header`) và `set_book_fee_columns` của `may-theo-sheet`; số dư mọi khách không đổi. Tắt: bỏ `headers`, restart.
+
+Rollback DB: loại chưa dùng thì tắt bằng `set_fee_type_active`; loại đã có khoản thì giữ (đổi lại loại trong khung chi tiết phụ phí nếu cần). Release cũ chạy được với DB mới và với `prices.json` có `sheet_fees`.
+
 ## Mốc sổ mới 60 ngày (KHACH-MOI-01) — nâng DB (ĐÃ CHẠY trên hao 19/11/2026)
 
 Đã chạy 19/11/2026, xem [nhật ký](deploys/2026-11-19-khach-moi-60-ngay.md).
