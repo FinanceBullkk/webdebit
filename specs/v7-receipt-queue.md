@@ -53,21 +53,22 @@ Theo từng khách (tab ↔ sổ như đường giá: tên hoặc tên phụ, b�
 1. Bỏ tab có lỗi cấu trúc (`issues` của `scan_tabs` khác rỗng): tiền thu không chắc thì không đưa lên.
 2. **Ngày thu**: ô ngày (số sê-ri) hoặc `dd/mm/yyyy` ở đầu ô chữ (`.`/`-` cũng được), hoặc `yyyy-mm-dd`; không có thì `dd/mm/yyyy` đầu tiên nằm giữa ô chữ, không dính chữ số phía trước (từ 3/11/2026, kiểm Sheet thấy "DA TT 30/10/2026"; "22210/2026" vẫn là không ngày). Khác thì không có ngày. Người vẫn bấm xác nhận từng phiếu, khung xác nhận hiện ngày thu.
 3. Ghép **dòng thu sổ gốc** chưa xóa: cùng tháng khối, cùng số tiền, cùng chữ ngày thu (gộp khoảng trắng, không phân biệt hoa thường). Trùng dòng sổ gốc đã xóa thì `WEB_DELETED`.
-4. Ghép **phiếu web** chưa hủy: cùng số tiền, cùng ngày; rồi cùng số tiền lệch ngày ≤ 3 ngày (người nhập gõ ngày khác chút). Mỗi phiếu web chỉ ghép một lần.
+4. Ghép **phiếu web** chưa hủy: cùng số tiền, cùng ngày; rồi cùng số tiền lệch ngày ≤ 3 ngày (người nhập gõ ngày khác chút). Mỗi phiếu web chỉ ghép một lần. Sau mọi phép ghép có ngày, dòng **không ngày** còn lại ghép với phiếu web còn lại cùng số tiền, ngày từ ngày đầu tháng khối trở đi, phiếu sớm nhất trước (từ 19/11/2026, [`THAY-PHIEU-SHEET-01`](../docs/decisions/thay-phieu-sheet-01.md): người nhập tay phiếu cho dòng không ngày với ngày tự chọn và không chứng từ Sheet; trước đó dòng nằm chờ mãi).
 5. Còn lại, xét **phiếu web đã hủy** (từ 10/11/2026, [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md)): cùng số tiền và mang chứng từ do đường ghi từ Sheet đặt cho đúng dòng này ("Sheet: " + chữ ngày thu và cùng ngày; dòng không ngày thì tiền tố `Sheet #<dấu dòng>: `) → `WEB_VOIDED`. Mỗi phiếu hủy chỉ giữ một dòng. Phiếu nhập tay rồi hủy có chứng từ khác nên không giữ dòng nào; Sheet sửa số tiền, ngày hoặc ghi chú thì dòng thành việc mới.
 6. Còn lại: không ngày → `NO_DATE`; ngày sau hôm nay (giờ VN) → `FUTURE_DATE`; tháng khối có dòng thu sổ gốc chưa ghép ở bước 3 → `SHEET_EDITED`; còn lại `READY`.
+7. **Phiếu Sheet không còn** (`gone`, từ 19/11/2026, [`THAY-PHIEU-SHEET-01`](../docs/decisions/thay-phieu-sheet-01.md)): phiếu web chưa hủy, hình thức `THU TIỀN`, không phải cấn trừ hai sổ, chứng từ do đường ghi từ Sheet đặt (`Sheet`, `Sheet: …`, `Sheet #…`), mà không dòng Sheet nào ghép ở bước 4. Tức Sheet đã sửa số tiền, sửa ngày quá 3 ngày, hoặc xóa dòng đó. Chỉ nêu khi bản chụp có kết luận tab của sổ và không tab nào `broken`: tab bị bỏ khỏi lượt quét thì không có dòng nào, mọi phiếu sẽ trông như mất. Phiếu nhập tay, hoặc người đã sửa chứng từ, không bao giờ là `gone`. Ở bước 5, phiếu máy hủy với lý do `GONE_REASON` không giữ dòng Sheet: Sheet trả lại dòng cũ thì dòng lại sẵn sàng.
 
 Hình thức phiếu: `THU TIỀN`. Chứng từ: "Sheet: " + chữ ngày thu trên Sheet (tối đa 500 ký tự).
 
 ## Giao tiếp frontend–backend
 
 - Runner giá (`v7_price_snapshot.py`) ghi thêm bản chụp phiếu thu `receipts.json` cạnh `prices.json` (hoặc `WEBDEBIT_RECEIPT_SNAPSHOT_PATH`), cùng lượt đọc, không thêm yêu cầu API. Hash tính trên các dòng.
-- `get_ledger` trả thêm `sheet_receipts: {snapshot_sha256, ready, review, ready_count, review_count}`. Thiếu bản chụp thì `unavailable: true`, sổ vẫn đọc được. Mỗi dòng: `customer_tab`, `source_row`, `debt_month`, `amount_vnd` (chuỗi), `note`, `date` (hoặc null), `status`, và với `SHEET_EDITED` thêm `web_legacy` (id, số tiền các dòng sổ gốc mồ côi cùng tháng).
+- `get_ledger` trả thêm `sheet_receipts: {snapshot_sha256, ready, review, ready_count, review_count, gone}` (`gone`: `pid`, `date`, `amount_vnd`, `note` là chứng từ; từ 19/11/2026). Thiếu bản chụp thì `unavailable: true`, sổ vẫn đọc được. Mỗi dòng: `customer_tab`, `source_row`, `debt_month`, `amount_vnd` (chuỗi), `note`, `date` (hoặc null), `status`, và với `SHEET_EDITED` thêm `web_legacy` (id, số tiền các dòng sổ gốc mồ côi cùng tháng).
 - `POST /api/v7/sheet/receipts {customer_id, expected_version, snapshot_sha256, idempotency_key}`: server tính lại `READY` từ bản chụp đúng hash; lệch hash thì `STALE_SHEET`. Ghi từng phiếu bằng `record_receipt`, khóa con suy từ khóa lô + hash + tab + dòng + số tiền + ngày. Hỏng giữa lô thì `complete: false` với số đã ghi; lần sau phiếu đã ghi thành `MATCHED_WEB`. Trả `{written, remaining, complete, version}`.
 
 ## Hành vi và bất biến
 
-- Chỉ thêm phiếu thu; không sửa, không hủy phiếu có sẵn, không đụng chuyến.
+- Nút ghi lô chỉ thêm phiếu thu; không sửa, không hủy phiếu có sẵn, không đụng chuyến. Hủy phiếu `gone` là việc của máy đối soát và bảng đối chiếu, chỉ khi tổ hợp khớp tổng ([spec máy đối soát](v7-may-doi-soat.md)).
 - Không ghi khi không chắc: không ngày, ngày tương lai, Sheet đã sửa phiếu cũ, web đã xóa, phiếu ghi từ dòng đó đã bị hủy, tab lỗi.
 - Người hủy một phiếu ghi từ Sheet thì nút ghi lô lẫn máy đối soát đều không ghi lại dòng đó; ghi lại là việc của người (nhập tay), hoặc Sheet sửa dòng.
 - Một phiếu Sheet ghi tối đa một lần: lần đọc sau nó ghép với phiếu web vừa ghi.

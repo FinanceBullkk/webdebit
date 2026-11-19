@@ -57,6 +57,25 @@ class Db:
         return {"version": self.version}
 
 
+class GoneReceiptDb(Db):
+    """Sổ khớp tổng mà có một phiếu ghi từ Sheet (ngày 30/9) Sheet không còn; hủy phiếu thì tổng tăng lại."""
+
+    def __init__(self, amount):
+        super().__init__(total=FAKE_AMOUNT - PAID)
+        self.receipts = [{"pid": "PH-001", "date": "2026-09-30", "method": "THU TIỀN", "amount_vnd": str(amount),
+                          "reference": "Sheet: 30/09/2026 tt", "voided_by_event": None}]
+
+    def run(self, function, payload, actor):
+        if function == "void_receipt":
+            self.writes.append((function, payload, actor))
+            self.version += 1
+            gone = next(r for r in self.receipts if r.get("pid") == payload["pid"])
+            gone.update(voided_by_event=99, void_reason=payload["reason"])
+            self.total += int(gone["amount_vnd"])
+            return {"version": self.version}
+        return super().run(function, payload, actor)
+
+
 class NewBookDb(Db):
     """Web chưa có sổ của tab; lệnh tạo sổ thêm sổ đó với số dư đầu đúng như gửi. `other` là một sổ khác đã có sẵn chuyến FAKE-CONT-XY."""
 
@@ -192,8 +211,45 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(result["counts"], {"KHOP": 1})
         row = result["customers"][0]
         self.assertEqual((row["reason"], row["status"], row["web_total_vnd"], row["difference_vnd"], row["written"]),
-                         ("FIXED", "KHOP", str(FAKE_AMOUNT - PAID), "0", {"receipts": 1, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0}))
+                         ("FIXED", "KHOP", str(FAKE_AMOUNT - PAID), "0", {"receipts": 1, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0, "receipts_voided": 0}))
         self.assertEqual(result["matched"], {"1": str(FAKE_AMOUNT - PAID)})
+
+    def test_matched_book_whose_sheet_replaced_a_receipt_follows_the_sheet(self):
+        """THAY-PHIEU-SHEET-01: tổng khớp vì hai thay đổi trên Sheet bù nhau. Máy vẫn xét: mọi việc chờ cộng lại bằng 0 thì ghi hết."""
+        self.undated_receipt_book()
+        db = GoneReceiptDb(PAID)
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual([(w[0], w[1].get("pid"), w[1]["amount_vnd"] if w[0] == "record_receipt" else None) for w in db.writes],
+                         [("void_receipt", "PH-001", None), ("record_receipt", None, str(PAID))])
+        result = self.result()
+        row = result["customers"][0]
+        self.assertEqual((result["counts"], row["status"], row["reason"], row["difference_vnd"]), ({"KHOP": 1}, "KHOP", "FIXED", "0"))
+        self.assertEqual(row["written"]["receipts_voided"], 1)
+        self.assertEqual(result["details"], {"checked": 1, "fixed": 1})
+
+    def test_matched_book_write_error_half_way_is_no_longer_counted_as_matched(self):
+        self.undated_receipt_book()
+        db = GoneReceiptDb(PAID)
+        db.fail = "record_receipt"   # hủy xong, ghi phiếu mới bị từ chối: tổng đã đổi
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        row = self.result()["customers"][0]
+        self.assertEqual((row["status"], row["reason"], row["difference_vnd"]), ("LECH_TONG", "WRITE_ERROR", str(PAID)))
+        self.assertEqual(self.result()["matched"], {})
+
+    def test_matched_book_with_waiting_work_that_does_not_cancel_out_is_listed(self):
+        self.undated_receipt_book()
+        db = GoneReceiptDb(PAID + 300)
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(db.writes, [])
+        result = self.result()
+        row = result["customers"][0]
+        self.assertEqual((result["counts"], row["status"], row["reason"], row["difference_vnd"]), ({"KHOP": 1}, "KHOP", "DETAIL_DIFFERS", "0"))
+        self.assertEqual([(g["kind"], g["delta_vnd"], g["chosen"]) for g in row["groups"]],
+                         [("receipts_gone", str(PAID + 300), False), ("receipts_no_date", str(-PAID), False)])
+        self.assertEqual(result["details"], {"checked": 1, "detail_differs": 1})
+        self.assertEqual(result["matched"], {})   # việc chờ của sổ không bị ẩn ở Việc cần làm
+        self.run_job(GoneReceiptDb(PAID + 300))   # chế độ chỉ kiểm cũng báo như vậy
+        self.assertEqual(self.result()["customers"][0]["reason"], "DETAIL_DIFFERS")
 
     def test_fix_stays_listed_for_the_rest_of_the_day(self):
         self.undated_receipt_book()
@@ -387,7 +443,7 @@ class ReconcileAutoTest(unittest.TestCase):
         tong = self.result()["tong"]
         self.assertEqual((tong["matched"], tong["unknown_names"], tong["blank_on_tong"]), (1, [], []))
 
-    def test_unreadable_tong_is_skipped_without_building_snapshots(self):
+    def test_unreadable_tong_is_skipped(self):
         layouts = {"không có tab TONG": None,
                    "không có cột cuối tháng": {6: {"D": "LOAI HANG", "E": "TÊN KHÁCH HÀNG", "F": "CÔNG NỢ PHÁT SINH TRONG THÁNG 10.2026"},
                                                7: {"E": FAKE_NAME, "F": "5"}}}
@@ -400,7 +456,7 @@ class ReconcileAutoTest(unittest.TestCase):
                 result = self.result()
                 self.assertEqual((result["tong"], result["counts"]), ({"month": None, "skipped": "TONG_KHONG_DOC_DUOC"}, {"KHOP": 1}))
                 self.assertEqual(json.loads(printed)["tong"], {"skipped": "TONG_KHONG_DOC_DUOC"})
-                build.assert_not_called()
+                build.assert_called_once()   # chỉ cho phần xét chi tiết khách khớp (THAY-PHIEU-SHEET-01); TONG vẫn bỏ qua
 
     def test_tong_failure_is_only_a_code_and_the_run_keeps_its_work(self):
         self.undated_receipt_book()

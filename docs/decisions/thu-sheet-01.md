@@ -16,4 +16,6 @@ Phiếu thu trên Sheet lên web bằng hàng chờ, như giá: runner đọc ta
 
 **Cập nhật 4/11/2026:** [`MAY-DOI-SOAT-01`](may-doi-soat-01.md) cho máy tự ghi cả phiếu sẵn sàng, phiếu không ngày (ngày cuối tháng của khối Sheet) và phiếu Sheet đã sửa, khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet. Luật ghép phiếu không đổi.
 
+**Cập nhật 19/11/2026:** Sheet sửa hoặc xóa phiếu web đã ghi từ Sheet thì máy hủy phiếu cũ và ghi phiếu mới khi tổ hợp khớp tổng; dòng không ngày ghép với phiếu nhập tay cùng số tiền ([`THAY-PHIEU-SHEET-01`](thay-phieu-sheet-01.md)). Nút ghi lô vẫn chỉ thêm phiếu.
+
 **Cập nhật 10/11/2026:** phiếu đã ghi từ một dòng Sheet rồi bị hủy trên web thì dòng đó không còn "sẵn sàng": nút ghi lô và máy đều không ghi lại, dòng nằm ở "Phiếu thu Sheet cần xem". Người dùng chốt trong chat, xem [`MAY-DOI-SOAT-01`](may-doi-soat-01.md).

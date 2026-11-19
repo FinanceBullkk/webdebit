@@ -19,6 +19,7 @@ const MayChayModel = (() => {
     TOO_MANY_GROUPS: { tag: 'Không ghi', tone: 'warn', why: 'Quá nhiều nhóm việc để máy xét. Cần người xem.' },
     TOO_MANY_DIFFERENT: { tag: 'Không ghi', tone: 'warn', why: 'Quá nhiều khách lệch cùng lúc, cả lượt không ghi.' },
     SHEET_SHUFFLED: { tag: 'Không ghi', tone: 'warn', why: 'Giá trên Sheet đổi chỗ trong tháng, khớp tổng không phân biệt được. Cần người xem.' },
+    DETAIL_DIFFERS: { tag: 'Không ghi', tone: 'warn', why: 'Tổng khớp Sheet nhưng Sheet còn khoản web chưa theo, cộng lại không bù đủ. Cần người xem.' },
     HELD: { tag: 'Bị giữ', tone: 'warn', why: 'Tab đọc không được, khách này không đưa vào so. Cần người xem.' },
     WEB_AHEAD: { tag: 'Web đi trước', tone: 'info', why: 'Web có việc Sheet chưa có. Chênh đúng bằng phần đó, không cần ghi.' },
     CHI_CO_WEB: { tag: 'Chỉ báo', tone: 'warn', why: 'Có sổ trên web mà không thấy trên Sheet. Máy không tự xóa.' },
@@ -146,7 +147,7 @@ const MayChayModel = (() => {
     return { state, text, f };
   }
 
-  const HELD = new Set(['NO_EXACT_FIX', 'AMBIGUOUS_FIX', 'NOTHING_TO_WRITE', 'TOO_MANY_GROUPS', 'SHEET_SHUFFLED']);
+  const HELD = new Set(['NO_EXACT_FIX', 'AMBIGUOUS_FIX', 'NOTHING_TO_WRITE', 'TOO_MANY_GROUPS', 'SHEET_SHUFFLED', 'DETAIL_DIFFERS']);
   function gateMarks(run, t) {
     const decided = run.customers.filter(c => t >= c.decided);
     const held = decided.some(c => HELD.has(c.reason)), wrote = decided.some(c => c.wrote);

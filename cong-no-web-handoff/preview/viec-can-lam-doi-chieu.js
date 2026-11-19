@@ -12,6 +12,7 @@ globalThis.DoiChieuView = (() => {
     NO_EXACT_FIX: 'Không có cách nào khớp đúng tới từng đồng, nên máy chưa ghi.',
     SHEET_SHUFFLED: 'Đơn giá của vài chuyến đổi chỗ trên Sheet, có thể do xếp lệch cột, nên máy không ghi.',
     AMBIGUOUS_FIX: 'Có nhiều cách khớp, máy không tự chọn.',
+    DETAIL_DIFFERS: 'Tổng khớp Sheet, nhưng Sheet đã đổi vài khoản mà web chưa theo, và các khoản đó cộng lại không bù đủ nên máy chưa ghi.',
     NOTHING_TO_WRITE: 'Trên Sheet không có việc nào giải thích được số lệch.',
     TOO_MANY_GROUPS: 'Quá nhiều loại việc, máy không dò.',
     TOO_MANY_DIFFERENT: 'Quá nhiều khách lệch cùng lúc, máy chỉ báo, không ghi.',
@@ -127,7 +128,7 @@ globalThis.DoiChieuView = (() => {
     return `<div class="viec-tabs" role="tablist" aria-label="Khu việc">${tabs.map(([key, text, n]) => `<button type="button" role="tab" data-tab="${key}" aria-selected="${current === key}">${text} <span>${n}</span></button>`).join('')}</div>`;
   }
 
-  const GROUP_NOTE = { receipts: 'có ngày trên Sheet', receipts_no_date: 'ngày lấy cuối tháng', fee_rows: 'ghi thành dòng điều chỉnh', fee_undo: 'Sheet không còn dòng này' };
+  const GROUP_NOTE = { receipts: 'có ngày trên Sheet', receipts_no_date: 'ngày lấy cuối tháng', fee_rows: 'ghi thành dòng điều chỉnh', fee_undo: 'Sheet không còn dòng này', receipts_gone: 'Sheet đã sửa hoặc xóa dòng thu' };
   function groupTitle(group) {
     const month = group.month ? ` ${monthWord(group.month)}` : '';
     if (group.kind === 'prices') return `${M.isFeeOnly(group) ? 'Phụ phí' : 'Giá'} ${group.count} chuyến${month}`;
@@ -136,6 +137,7 @@ globalThis.DoiChieuView = (() => {
     if (group.kind === 'receipts_edited') return `Thay ${group.replaces} khoản thu cũ bằng ${group.count} phiếu Sheet${month}`;
     if (group.kind === 'fee_rows') return `${group.count} dòng tiền không container${month}`;
     if (group.kind === 'fee_undo') return `Hủy ${group.count} dòng điều chỉnh của máy${month}`;
+    if (group.kind === 'receipts_gone') return `Hủy ${group.count} phiếu thu Sheet không còn`;
     return group.kind;
   }
   function groupNote(group, delta) {
@@ -152,7 +154,7 @@ globalThis.DoiChieuView = (() => {
         return `<tr><td><input type="checkbox" data-dc-row="${esc(row.key)}" data-group="${esc(group.id)}" aria-label="Chọn ${esc(row.container ?? row.key)}"${off.has(row.key) ? '' : ' checked'}${locked ? ' disabled' : ''}></td><th scope="row">${esc(row.container ?? '—')}</th><td>${esc(dayShort(row.date))}</td><td class="num">${same ? cell(row.sheet_unit_price_vnd) : `${cell(row.web_unit_price_vnd)} → <strong>${cell(row.sheet_unit_price_vnd)}</strong>`}</td><td class="num" title="${esc(`${row.web_other_fee_vnd === null ? 'trống' : F.full(row.web_other_fee_vnd)} → ${row.sheet_other_fee_vnd === null ? 'trống' : F.full(row.sheet_other_fee_vnd)}`)}">${cell(row.web_other_fee_vnd)} → <strong>${cell(row.sheet_other_fee_vnd)}</strong></td><td class="num" title="${esc(F.full(row.delta_vnd))}"><b>${money(row.delta_vnd, F, true)}</b></td><td class="num">${row.source_row ?? '—'}</td><td class="num">${row.status === 'CONFLICT' && row.source_fingerprint ? `<button type="button" class="dc-link" data-dc-giu-row="${esc(row.key)}"${locked ? ' disabled' : ''}>Giữ số web</button>` : ''}</td></tr>`;
       }).join('')}</tbody></table></div>`;
     }
-    return `<div class="dc-rows"><table><thead><tr><th scope="col">Dòng Sheet</th><th scope="col">Ghi chú</th><th scope="col" class="num">Số tiền</th></tr></thead><tbody>${group.rows.map(row => `<tr><th scope="row">${row.source_row ?? row.id ?? '—'}</th><td>${esc(row.note ?? '')}</td><td class="num" title="${row.amount_vnd ? esc(F.full(row.amount_vnd)) : ''}">${money(row.amount_vnd, F)}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="dc-rows"><table><thead><tr><th scope="col">Dòng Sheet</th><th scope="col">Ghi chú</th><th scope="col" class="num">Số tiền</th></tr></thead><tbody>${group.rows.map(row => `<tr><th scope="row">${esc(row.source_row ?? row.id ?? row.pid ?? '—')}</th><td>${esc(row.note ?? '')}</td><td class="num" title="${row.amount_vnd ? esc(F.full(row.amount_vnd)) : ''}">${money(row.amount_vnd, F)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   // Bảng đối chiếu của một khách: số web ± từng khoản = số Sheet, phần chưa giải thích hiện riêng.

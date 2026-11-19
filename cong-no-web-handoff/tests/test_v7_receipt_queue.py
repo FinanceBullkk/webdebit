@@ -17,6 +17,9 @@ import v7_ledger_api as api  # noqa: E402
 import v7_price_snapshot as snapshot_tool  # noqa: E402
 from test_v7_load_real_copy import fixture  # noqa: E402
 from v7_receipt_queue import (  # noqa: E402
+    GONE_REASON,
+    METHOD,
+    _classify,
     classify,
     load_receipt_snapshot,
     pay_date,
@@ -138,6 +141,62 @@ class ClassifyTest(unittest.TestCase):
         result = classify(rows, ledger([legacy(row_id=31, amount=48000000, note="14/10/2026 tt")]), TODAY)
         self.assertEqual([r["status"] for r in result], ["SHEET_EDITED", "READY"])
         self.assertEqual(result[0]["web_legacy"], [{"id": 31, "amount_vnd": "48000000"}])
+
+
+class GoneTest(unittest.TestCase):
+    """THAY-PHIEU-SHEET-01: phiếu web ghi từ Sheet mà Sheet đã sửa hoặc xóa dòng đó."""
+
+    def sheet_receipt(self, pid="PH-001", date="2026-10-23", amount=50000000, note="23/10/2026 tt", **extra):
+        return receipt(date=date, amount=amount) | {"pid": pid, "method": METHOD, "reference": reference(note), **extra}
+
+    def test_sheet_changed_the_amount_old_receipt_is_gone_new_row_ready(self):
+        results, gone = _classify([row(amount=60000000)], ledger(receipts=[self.sheet_receipt()]), TODAY)
+        self.assertEqual([r["status"] for r in results], ["READY"])
+        self.assertEqual(gone, [{"pid": "PH-001", "date": "2026-10-23", "amount_vnd": 50000000, "note": "Sheet: 23/10/2026 tt"}])
+
+    def test_only_receipts_the_sheet_path_wrote_can_be_gone(self):
+        kept = [receipt() | {"pid": "PH-002", "method": METHOD, "reference": None},             # nhập tay
+                receipt() | {"pid": "PH-003", "method": METHOD, "reference": "UNC 123"},        # người sửa chứng từ
+                self.sheet_receipt(pid="PH-004", method="CẤN TRỪ"),                              # không phải thu tiền
+                self.sheet_receipt(pid="PH-005", offset_pair_id=4),                              # cấn trừ hai sổ
+                self.sheet_receipt(pid="PH-006", voided_by_event=9)]                             # đã hủy
+        self.assertEqual(_classify([], ledger(receipts=kept), TODAY)[1], [])
+        undated = receipt(date="2026-09-30") | {"pid": "PH-007", "method": METHOD, "reference": review_reference("f" * 64) + "da tt"}
+        self.assertEqual([g["pid"] for g in _classify([], ledger(receipts=[undated, self.sheet_receipt(note="")]), TODAY)[1]],
+                         ["PH-007", "PH-001"])
+
+    def test_machine_void_does_not_hold_the_row_back(self):
+        """Máy hủy vì Sheet đổi, rồi Sheet trả lại dòng cũ: dòng sẵn sàng, không phải "người đã gỡ"."""
+        voided = self.sheet_receipt(voided_by_event=9, void_reason=GONE_REASON)
+        self.assertEqual(statuses([row()], ledger(receipts=[voided])), ["READY"])
+        self.assertEqual(statuses([row()], ledger(receipts=[voided | {"void_reason": "nhập trùng"}])), ["WEB_VOIDED"])
+
+    def test_undated_row_matches_a_receipt_typed_by_hand(self):
+        """Người nhập tay phiếu cho dòng không ngày (ngày tự chọn, không chứng từ Sheet): đã có trên web, không còn chờ."""
+        typed = receipt(date="2026-11-19", amount=44500000) | {"pid": "PH-004", "method": METHOD, "reference": None}
+        undated = row(month="2026-10", amount=44500000, note="")
+        self.assertEqual(statuses([undated], ledger(receipts=[typed])), ["MATCHED_WEB"])
+        self.assertEqual(statuses([undated], ledger(receipts=[typed | {"date": "2026-09-30"}])), ["NO_DATE"])   # trước tháng khối
+        self.assertEqual(statuses([undated], ledger(receipts=[typed | {"amount_vnd": "44500001"}])), ["NO_DATE"])
+        # Phiếu có ngày của dòng khác được ghép trước, dòng không ngày không lấy mất.
+        dated = row(month="2026-11", source_row=60, amount=44500000, note="19/11/2026 tt")
+        self.assertEqual(statuses([undated, dated], ledger(receipts=[typed])), ["NO_DATE", "MATCHED_WEB"])
+        # Sheet bỏ ngày của một dòng đã ghi: phiếu cũ ghép với dòng đó, không thành phiếu mất.
+        written = self.sheet_receipt(date="2026-10-23", amount=44500000)
+        results, gone = _classify([undated], ledger(receipts=[written]), TODAY)
+        self.assertEqual(([r["status"] for r in results], gone), (["MATCHED_WEB"], []))
+
+    def test_projection_lists_gone_only_when_the_tab_was_read_whole(self):
+        led = ledger(receipts=[self.sheet_receipt()])
+        snapshot = {"sha256": "a" * 64, "rows": [row(amount=60000000)], "row_count": 1}
+        self.assertEqual(project_receipts(snapshot, led, CUSTOMERS, TODAY)["gone"], [])   # bản chụp cũ chưa có `tabs`
+        ok = snapshot | {"tabs": {"KHACH A": {"status": "ok", "findings": []}}}
+        self.assertEqual(project_receipts(ok, led, CUSTOMERS, TODAY)["gone"],
+                         [{"pid": "PH-001", "date": "2026-10-23", "amount_vnd": "50000000", "note": "Sheet: 23/10/2026 tt"}])
+        broken = snapshot | {"tabs": {"KHACH A": {"status": "broken", "findings": [{"kind": "x", "level": "error"}]}}}
+        self.assertEqual(project_receipts(broken, led, CUSTOMERS, TODAY)["gone"], [])
+        other = snapshot | {"tabs": {"KHACH B": {"status": "ok", "findings": []}}}   # tab của sổ không có trong lượt quét
+        self.assertEqual(project_receipts(other, led, CUSTOMERS, TODAY)["gone"], [])
 
 
 SNAPSHOT = {"sha256": "a" * 64, "rows": [row(), row(tab="KHACH B", source_row=7), row(note="da tt", source_row=50)], "row_count": 3}

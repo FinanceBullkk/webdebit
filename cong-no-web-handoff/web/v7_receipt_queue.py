@@ -9,6 +9,10 @@ is not in the future, and its month has no original-book receipt the Sheet no lo
 (the Sheet edited an old receipt: writing the new one would count both). A row whose own
 receipt was written from the Sheet and then voided on the web is WEB_VOIDED: a person undid
 it, so neither the batch button nor the machine writes it again (MAY-DOI-SOAT-01, 10/11/2026).
+
+A web receipt written from the Sheet (reference "Sheet", "Sheet: …" or "Sheet #…") that no Sheet row claims any more is GONE:
+the Sheet edited or removed that payment, so the machine voids it and writes what the Sheet shows now (THAY-PHIEU-SHEET-01,
+19/11/2026). A row without a date also matches a receipt typed by hand: same amount, dated in or after the row's block month.
 """
 
 from __future__ import annotations
@@ -25,6 +29,9 @@ from v7_sheet_task_keep import fingerprint
 DATE_WINDOW_DAYS = 3
 REVIEW = ("NO_DATE", "FUTURE_DATE", "SHEET_EDITED", "WEB_DELETED", "WEB_VOIDED")
 METHOD = "THU TIỀN"
+# Lý do máy ghi khi hủy phiếu Sheet không còn (THAY-PHIEU-SHEET-01). Phiếu hủy với đúng lý do này là máy hủy, không phải người gỡ,
+# nên dòng Sheet có lại thì vẫn được ghi lại.
+GONE_REASON = "Sheet không còn dòng thu này (máy theo Sheet)"
 SERIAL = re.compile(r"[0-9]{5}(?:\.0+)?")
 DAY_FIRST = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)")
 # Ngày nằm giữa ghi chú ("DA TT 30/10/2026", kiểm Sheet 3/11/2026); không nhận khi dính chữ số phía trước ("22210/2026").
@@ -104,8 +111,19 @@ def _written_from(row: dict, receipt: dict) -> bool:
     return receipt["date"] == row["date"] and receipt["reference"].strip() == reference(row["note"]).strip()
 
 
+def from_sheet(reference: Any) -> bool:
+    """Chứng từ do đường ghi từ Sheet đặt (`reference`, `review_reference`); người sửa chứng từ thì phiếu thành của người."""
+    text = str(reference or "")
+    return text == "Sheet" or text.startswith(("Sheet: ", "Sheet #"))
+
+
 def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
     """Status for each Sheet receipt row of one customer, in Sheet order."""
+    return _classify(rows, ledger, today)[0]
+
+
+def _classify(rows: list[dict], ledger: dict, today: dt.date) -> tuple[list[dict], list[dict]]:
+    """(trạng thái từng dòng Sheet, phiếu web ghi từ Sheet mà không dòng nào nhận)."""
     rows = sorted(rows, key=lambda r: (str(r.get("debt_month")), r.get("source_row") or 0))
     results = [{**row, "date": pay_date(row.get("note")), "status": None} for row in rows]
     occurrences = {}
@@ -141,7 +159,8 @@ def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
     for (month, amount, _), ids in legacy.items():
         for legacy_id in ids:
             orphans.setdefault(month, []).append({"id": legacy_id, "amount_vnd": str(amount)})
-    web = [{"date": dt.date.fromisoformat(str(r["date"])[:10]), "amount": _int(r.get("amount_vnd")), "reference": r.get("reference") or ""}
+    web = [{"date": dt.date.fromisoformat(str(r["date"])[:10]), "amount": _int(r.get("amount_vnd")), "reference": r.get("reference") or "",
+            "pid": r.get("pid"), "method": r.get("method"), "offset": r.get("offset_pair_id") is not None}
            for r in ledger.get("receipts", []) if not r.get("voided_by_event") and r.get("date")]
     for result in results:
         if result["status"] or result["date"] is not None:
@@ -161,9 +180,19 @@ def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
             if found:
                 web.remove(min(found, key=lambda w: abs((w["date"] - result["date"]).days)))
                 result["status"] = "MATCHED_WEB"
+    # Dòng không ngày mà người đã nhập tay phiếu (ngày người chọn, chứng từ tùy ý): cùng số tiền, ngày từ tháng của khối trở đi.
+    # Chạy sau mọi phép ghép có ngày nên không lấy phiếu của dòng khác; gần đầu tháng khối nhất trước.
+    for result in results:
+        if result["status"] or result["date"] is not None:
+            continue
+        start = iso_day(str(result["debt_month"])[:7] + "-01")
+        found = [w for w in web if w["amount"] == result["amount_vnd"] and not w["offset"] and start and w["date"] >= start]
+        if found:
+            web.remove(min(found, key=lambda w: (w["date"], w["pid"] or "")))
+            result["status"] = "MATCHED_WEB"
     # Phiếu ghi từ Sheet rồi bị hủy trên web: người đã gỡ, không ghi lại. Mỗi phiếu hủy chỉ giữ một dòng Sheet.
     voided = [{"date": iso_day(r.get("date")), "amount": _int(r.get("amount_vnd")), "reference": r.get("reference") or ""}
-              for r in ledger.get("receipts", []) if r.get("voided_by_event")]
+              for r in ledger.get("receipts", []) if r.get("voided_by_event") and r.get("void_reason") != GONE_REASON]
     for result in results:
         if result["status"]:
             continue
@@ -182,11 +211,16 @@ def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
             result |= {"status": "SHEET_EDITED", "web_legacy": orphans[month]}
         else:
             result["status"] = "READY"
-    return results
+    gone = [{"pid": w["pid"], "date": w["date"].isoformat(), "amount_vnd": w["amount"], "note": w["reference"]}
+            for w in web if from_sheet(w["reference"]) and w["method"] == METHOD and not w["offset"] and w["pid"] and w["amount"]]
+    return results, gone
 
 
 def project_receipts(snapshot: dict, ledger: dict, customers: list[dict], today: dt.date) -> dict:
-    """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem"."""
+    """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem", GONE for the machine to void.
+
+    GONE only when the snapshot names this customer's tabs and none is broken: a tab left out of the scan has no rows, and its
+    receipts would all look gone."""
     owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
     customer = ledger.get("customer_id")
     rows = [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == customer]
@@ -199,11 +233,15 @@ def project_receipts(snapshot: dict, ledger: dict, customers: list[dict], today:
         if result["status"] == "NO_DATE":
             out["source_fingerprint"] = result["source_fingerprint"]
         return out | ({"web_legacy": result["web_legacy"]} if "web_legacy" in result else {})
-    results = classify(rows, ledger, today)
+    results, gone = _classify(rows, ledger, today)
+    tabs = [health for tab, health in (snapshot.get("tabs") or {}).items() if owned.get(name_key(tab), (None,))[0] == customer]
+    if not tabs or any(health.get("status") == "broken" for health in tabs):
+        gone = []
     ready = sorted((public(r) for r in results if r["status"] == "READY"), key=lambda r: (r["date"], r["source_row"]))
     review = [public(r) for r in results if r["status"] in REVIEW]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
-            "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}
+            "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review),
+            "gone": [row | {"amount_vnd": str(row["amount_vnd"])} for row in gone]}
 
 
 def reference(note: str) -> str:
