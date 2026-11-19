@@ -350,6 +350,7 @@ SQL["doixe_get_lich_su"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
 for _name in ("phan_xe", "doi_phan_cong", "bo_phan_cong", "nhan_booking"):   # DOI-XE-CHANG-01
     SQL["doixe_" + _name] = f"SELECT doixe.{_name}(:'payload'::jsonb);"
 SQL["doixe_get_dieu_do"] = "SELECT doixe.get_dieu_do(:'payload'::jsonb);"
+SQL["doixe_get_chang_tai_chinh"] = "SELECT doixe.get_chang_tai_chinh(:'payload'::jsonb);"
 for _name in ("gui_bang_ke", "doi_chieu_xong", "ghi_dieu_chinh_bk", "ghi_tien_ve", "huy_tien_ve", "sua_cuoc", "gan_tuyen", "luu_gia",
               "luu_tuyen", "luu_phat_sinh"):
     SQL["doixe_" + _name] = f"SELECT doixe.{_name}(:'payload'::jsonb);"

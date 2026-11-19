@@ -387,10 +387,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == v7_api_doixe.PREFIX or parts.path.startswith(v7_api_doixe.PREFIX + "/"):
         # CHI-PHI-XE-01: đọc đội xe (schema doixe), thẳng runner như mọi đọc không nằm trong bộ nhớ đọc; tên ngắn cho người làm.
         names = PRESENCE.names()
-        if parts.path == v7_api_doixe.CHANG_PATH:
-            # DOI-XE-CHANG-01: việc từ bản chụp booking (ngoài DB) cộng chặng từ get_dieu_do.
-            result = v7_api_doixe.read_chang(parts.query, runner, actor)
-        else:
+        # DOI-XE-CHANG-01: mục Chặng gộp bản chụp booking (ngoài DB) với get_dieu_do và get_chang_tai_chinh.
+        result = v7_api_doixe.read_route(parts.path, parts.query, runner, actor)
+        if result is None:
             function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
             result = runner.run(function, payload, actor)
         return 200, v7_api_doixe.with_names(result, lambda login: v7_presence.display_name(login, names))

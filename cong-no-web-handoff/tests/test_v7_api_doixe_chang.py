@@ -37,15 +37,47 @@ def chang(id_, *, cont="MAUU1000001", ngay="2026-11-19", ngay_dong="2026-11-19",
             "sau_khoa": False, "actor": "nv@gia", "luc": "2026-11-19T08:00:00+07:00", "co_phi": phi, "da_hoan": hoan, "da_gui": gui}
 
 
-class FakeDb:
-    """Chỉ biết get_dieu_do: danh mục mã nhà xe, các chặng đã nối theo (container, ngày đóng), chặng mồ côi."""
+def money_fin(**over):
+    """Phần tài chính mặc định của một chặng giả: một khoản chi nâng 450.000 người trả, cước 1.000.000, lãi gộp 550.000."""
+    base = {"thang_khoa": False, "bang_ke_thang": "2026-11-01",
+            "chi": {"dong": [{"khoan": "nang", "ten": "Nâng", "so_tien_vnd": "450000", "nguoi_tra": "nguoi", "nguoi_tra_id": 2,
+                              "chi_ho": False, "da_hoan": False}],
+                    "tong_vnd": "450000", "chi_ho_vnd": "0", "ngoai_chi_ho_vnd": "450000"},
+            "thu": {"cuoc": {"vnd": "1000000", "gia_bang_vnd": "1000000", "tay": False, "tuyen_id": 3, "tuyen": "Tuyến giả"},
+                    "ghep_vnd": "0", "ps_vnd": "0", "chi_ho_vnd": "0", "dc_vnd": None, "doi_vnd": "1000000",
+                    "dong": [{"khoan": "xi_cont", "ten": "Xí cont", "so_luong": None, "muc_vnd": None, "so_tien_vnd": "0", "chi_ho": True,
+                              "cot": "ps", "la": False}],
+                    "loi": [{"goc": "x", "loi": "y"}], "chua_doc": 0},
+            "lai_gop": {"thu_vnd": "1000000", "chi_vnd": "450000", "lai_vnd": "550000", "thieu": []}}
+    return {**base, **over}
 
-    def __init__(self, joined=None, orphans=None, codes=((USED, True), (OLD, False))):
-        self.joined, self.orphans, self.calls = joined or {}, orphans or [], []
+
+class FakeDb:
+    """Biết get_dieu_do (danh mục mã nhà xe, chặng đã nối theo (container, ngày đóng), chặng mồ côi) và get_chang_tai_chinh
+    (phần tài chính mặc định cho mọi chặng đã biết, ghi đè theo id; `outside`: chặng ngoài booking trong khoảng)."""
+
+    def __init__(self, joined=None, orphans=None, codes=((USED, True), (OLD, False)), fin=None, outside=()):
+        self.joined, self.orphans, self.calls, self.fin, self.outside = joined or {}, orphans or [], [], fin or {}, list(outside)
         self.codes = [{"ma": m, "dang_dung": on} for m, on in codes]
+
+    def known(self):
+        return [c for rows in self.joined.values() for c in rows] + self.orphans + self.outside
+
+    def asked(self):
+        """Mảng việc của lượt get_dieu_do cuối có việc."""
+        return [call[1] for call in self.calls if call[0] == "doixe_get_dieu_do" and call[1]][-1]
+
+    def named(self, function):
+        return [call for call in self.calls if call[0] == function]
 
     def run(self, function, payload, actor):
         self.calls.append((function, payload, actor))
+        if function == "doixe_get_chang_tai_chinh":
+            ids, out = set(payload["ids"]), []
+            for c in self.known():
+                if c["id"] in ids or (payload["tu"] and payload["tu"] <= c["ngay"] <= payload["den"]):
+                    out.append({**c, **self.fin.get(c["id"], money_fin())})
+            return {"hom_nay": "2026-11-19", "chang": sorted(out, key=lambda c: (c["ngay"], c["id"]))}
         if function != "doixe_get_dieu_do":
             return {"function": function}
         viec = []
@@ -71,7 +103,7 @@ class ReadChangTest(unittest.TestCase):
                 src("MAUU1000007", "2026-11-19", USED.lower(), 8), src("MAUU1000008", "2026-11-19", f"{USED} {USED}", 9)]
         db, out = self.read(rows)
         self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000001", "MAUU1000004"])
-        sent = db.calls[-1][1]
+        sent = db.asked()
         self.assertEqual([i["container"] for i in sent], ["MAUU1000001", "MAUU1000004"])
         self.assertEqual(out["nguon"]["bo_qua"]["khong_nha_xe"], 6)
 
@@ -84,13 +116,13 @@ class ReadChangTest(unittest.TestCase):
                          ("sap_toi", None, []))
         self.assertEqual(by_id["#6|2026-11-20"]["trang_thai"], "sap_toi")   # chữ không phải số container
         self.assertEqual(by_id["MAUU1000001|2026-11-20"]["trang_thai"], "cho_phan_xe")
-        self.assertEqual(db.calls[-1][1], [{"container": "MAUU1000001", "ngay_dong": "2026-11-20"}])
+        self.assertEqual(db.asked(), [{"container": "MAUU1000001", "ngay_dong": "2026-11-20"}])
         self.assertEqual(out["dem"]["sap_toi"], 2)
         self.assertEqual(out["viec"][0]["booking"]["kho"], "Kho K1")
 
     def test_only_unnumbered_jobs_skip_the_second_db_call(self):
         db, out = self.read([src("", "2026-11-20")])
-        self.assertEqual(len(db.calls), 1)
+        self.assertEqual([call[0] for call in db.calls], ["doixe_get_dieu_do", "doixe_get_chang_tai_chinh"])   # không có lượt nối chặng
         self.assertEqual(out["viec"][0]["trang_thai"], "sap_toi")
 
     def test_states_flags_and_counts(self):
@@ -111,7 +143,7 @@ class ReadChangTest(unittest.TestCase):
         self.assertEqual(by["MAUU1000004"]["chang"][0]["khoa"], "CHANG_DA_HOAN")
         self.assertEqual(by["MAUU1000005"]["chang"][0]["khoa"], "CHANG_DA_GUI")
         self.assertEqual(out["dem"], {"viec": 5, "sap_toi": 0, "cho_phan_xe": 1, "da_phan_xe": 1, "da_co_phi": 2, "da_len_bang_ke": 1,
-                                      "booking_doi": 0, "chua_co_phi": 2, "khong_con_tren_booking": 0})
+                                      "booking_doi": 0, "chua_co_phi": 2, "chua_co_gia": 0, "khong_con_tren_booking": 0, "ngoai_booking": 0})
         self.assertEqual((out["xe"][0]["bien_so"], out["tai_xe"][0]["ten"], out["hom_nay"]), ("99X-00001", "Tài xế giả", "2026-11-19"))
 
     def test_booking_changed_shows_before_and_after_and_does_not_touch_the_chang(self):
@@ -155,7 +187,7 @@ class ReadChangTest(unittest.TestCase):
         rows = [src("MAUU1000001", "2026-12-01", line=2), src("MAUU1000001", "2026-11-30", line=3)]
         db, out = self.read(rows, query="thang=2026-11-01")
         self.assertEqual([(v["ngay_dong"], v["ngay_dong_khac"]) for v in out["viec"]], [("2026-11-30", ["2026-12-01"])])
-        self.assertEqual({i["ngay_dong"] for i in db.calls[-1][1]}, {"2026-11-30", "2026-12-01"})
+        self.assertEqual({i["ngay_dong"] for i in db.asked()}, {"2026-11-30", "2026-12-01"})
 
     def test_duplicate_booking_rows_are_one_job(self):
         _db, out = self.read([src("MAUU1000001", "2026-11-19", line=2), src("MAUU1000001", "2026-11-19", line=3)])
@@ -169,7 +201,7 @@ class ReadChangTest(unittest.TestCase):
 
     def test_no_active_code_or_old_snapshot(self):
         db, out = self.read([src("MAUU1000001", "2026-11-19")], db=FakeDb(codes=((OLD, False),)))
-        self.assertEqual((out["viec"], len(db.calls)), ([], 1))
+        self.assertEqual((out["viec"], len(db.calls)), ([], 2))   # danh mục mã, rồi chặng ngoài booking trong khoảng
         self.assertEqual(out["xe"][0]["id"], 1)   # danh mục xe, tài xế vẫn trả
         with self.assertRaises(api.ApiError) as caught:
             self.read([src("MAUU1000001", "2026-11-19")], columns=())
@@ -193,6 +225,64 @@ class ReadChangTest(unittest.TestCase):
         _, out = self.read([], created="khong-phai-ngay")
         self.assertTrue(out["nguon"]["qua_han"])
 
+    def test_finance_is_merged_in_short_form_and_ids_are_sent(self):
+        rows = [src("MAUU1000001", "2026-11-19", line=2), src("MAUU1000002", "2026-11-19", line=3)]
+        joined = {("MAUU1000001", "2026-11-19"): [chang(12), chang(14, loai="chuyen_cang", ngay="2026-12-02")]}
+        fin = {14: money_fin(thu={**money_fin()["thu"], "cuoc": {"vnd": None, "gia_bang_vnd": None, "tay": False, "tuyen_id": None, "tuyen": None}},
+                             lai_gop={"thu_vnd": None, "chi_vnd": "450000", "lai_vnd": None, "thieu": ["gia"]})}
+        db, out = self.read(rows, db=FakeDb(joined, fin=fin))
+        ask = db.named("doixe_get_chang_tai_chinh")[0][1]
+        self.assertEqual((ask["tu"], ask["den"], sorted(ask["ids"])), ("2026-11-01", "2026-11-30", [12, 14]))   # chặng lệch ngày vẫn có số
+        first, late = out["viec"][0]["chang"]
+        self.assertEqual((first["chi"], first["lai_gop"]["lai_vnd"], first["thu"]["doi_vnd"], first["bang_ke_thang"], first["thang_khoa"]),
+                         ({"tong_vnd": "450000", "chi_ho_vnd": "0", "ngoai_chi_ho_vnd": "450000"}, "550000", "1000000", "2026-11-01", False))
+        self.assertNotIn("dong", first["thu"])   # từng khoản và từng dòng chỉ có ở phiếu chặng
+        self.assertNotIn("loi", first["thu"])
+        self.assertEqual((late["lai_gop"]["lai_vnd"], late["lai_gop"]["thieu"], late["thu"]["cuoc"]["vnd"]), (None, ["gia"], None))   # NULL, không phải 0
+        self.assertEqual(out["dem"]["chua_co_gia"], 1)
+        self.assertEqual(out["viec"][1]["chang"], [])
+
+    def test_chang_without_finance_row_stays_without_finance_keys(self):
+        class Gone(FakeDb):
+            def run(self, function, payload, actor):
+                got = super().run(function, payload, actor)
+                if function == "doixe_get_chang_tai_chinh":
+                    got["chang"] = []   # chặng vừa bị bỏ giữa hai lượt
+                return got
+        _, out = self.read([src("MAUU1000001", "2026-11-19")], db=Gone({("MAUU1000001", "2026-11-19"): [chang(12)]}))
+        self.assertNotIn("lai_gop", out["viec"][0]["chang"][0])
+
+    def test_chang_outside_booking_are_listed_from_the_finance_call(self):
+        extra = [chang(31, cont="MAUU1000050", ngay="2026-11-10", ngay_dong=None, loai="chuyen_cang") | {"nguon": "nhap"},
+                 chang(32, cont="MAUU1000051", ngay="2026-11-11", ngay_dong="2026-11-11")]   # có ngày đóng mà không thuộc việc nào đang hiện
+        joined = {("MAUU1000001", "2026-11-19"): [chang(12)]}
+        _, out = self.read([src("MAUU1000001", "2026-11-19")], db=FakeDb(joined, outside=extra))
+        self.assertEqual([c["id"] for c in out["ngoai_booking"]], [31])
+        self.assertEqual((out["ngoai_booking"][0]["trang_thai"], out["ngoai_booking"][0]["khoa"], out["dem"]["ngoai_booking"]),
+                         ("ngoai_booking", None, 1))
+        self.assertEqual(out["ngoai_booking"][0]["lai_gop"]["lai_vnd"], "550000")
+        self.assertNotIn("dong", out["ngoai_booking"][0]["chi"])
+        self.assertNotIn(31, [c["id"] for v in out["viec"] for c in v["chang"]])
+
+    def test_orphans_carry_finance_too(self):
+        _, out = self.read([src("MAUU1000001", "2026-11-19")], db=FakeDb(orphans=[chang(21, cont="MAUU1000009", ngay_dong="2026-11-10")]))
+        self.assertEqual(out["khong_con_tren_booking"][0]["lai_gop"]["lai_vnd"], "550000")
+
+    def test_phieu_returns_full_detail_and_rejects_unknown_chang(self):
+        db = FakeDb({("MAUU1000001", "2026-11-19"): [chang(12, phi=True)]})
+        out = doixe.read_phieu("id=12", db, "nv@gia")
+        self.assertEqual(db.calls, [("doixe_get_chang_tai_chinh", {"tu": None, "den": None, "ids": [12]}, "nv@gia")])
+        got = out["chang"]
+        self.assertEqual((got["id"], got["khoa"], got["chi"]["dong"][0]["nguoi_tra"], got["thu"]["dong"][0]["khoan"], got["thu"]["loi"][0]["loi"]),
+                         (12, "CHANG_CO_PHI", "nguoi", "xi_cont", "y"))
+        with self.assertRaises(api.ApiError) as caught:
+            doixe.read_phieu("id=99", db, "nv@gia")
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "CHANG_NOT_FOUND"))
+        for query in ("", "id=0", "id=x", "id=1&id=2", "id=1&x=2", "id=99999999999999999999"):
+            with self.subTest(query=query), self.assertRaises(api.ApiError):
+                doixe.read_phieu(query, db, "nv@gia")
+        self.assertIsNone(doixe.read_route("/api/v7/doixe/so", "", db, "nv@gia"))
+
     def test_query_rules(self):
         window = doixe.parse_chang_query("", NOW)
         self.assertEqual((window["tu"], window["den"], window["cu"]), ("2026-11-01", "2026-11-30", 0))
@@ -211,7 +301,7 @@ class ReadChangTest(unittest.TestCase):
         with self.assertRaises(api.ApiError) as caught:
             self.read(rows, db=db)
         self.assertEqual(caught.exception.code, "QUA_NHIEU_VIEC")
-        self.assertEqual(len(db.calls), 1)
+        self.assertEqual([call[0] for call in db.calls], ["doixe_get_dieu_do"])
 
 
 class ChangRouteTest(unittest.TestCase):
@@ -240,6 +330,17 @@ class ChangRouteTest(unittest.TestCase):
         with mock.patch.object(doixe, "load_booking", return_value=snapshot(rows)), self.assertRaises(api.ApiError) as caught:
             self.call("GET", "/api/v7/doixe/chang?thang=2026-11-02")
         self.assertEqual(caught.exception.code, "INVALID_MONTH")
+
+    def test_phieu_route_and_missing_permission(self):
+        db, value = self.call("GET", "/api/v7/doixe/chang/phieu?id=12", runner=FakeDb({("MAUU1000001", "2026-11-19"): [chang(12)]}))
+        self.assertEqual(value["chang"]["actor_name"], "nv")
+        self.assertEqual(db.calls[0][2], "nv@gia")
+        runner = FakeDb()
+        headers = {**self.headers, "Tailscale-User-Login": "stranger@example.test"}
+        with self.assertRaises(identity.IdentityError) as caught:
+            api.handle("GET", "/api/v7/doixe/chang/phieu?id=12", headers, b"", runner, port=8780, host="127.0.0.1", source_ip="127.0.0.1",
+                       behind_tailscale_serve=True, allowed_logins=frozenset({"nv@gia"}))
+        self.assertEqual((caught.exception.code, runner.calls), ("LOGIN_NOT_ALLOWED", []))
 
     def test_four_writes_pass_body_as_is_with_session_actor(self):
         cases = [

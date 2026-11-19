@@ -1,6 +1,6 @@
 # Đội xe: API mục Chặng (DOI-XE-CHANG-01)
 
-Trạng thái: ĐỀ XUẤT (Claude, 19/11/2026), gói B2 của [spec điều phối](doi-xe-cau-truc-01.md). Căn cứ đã chốt: cấu trúc năm mục ([`DOI-XE-CAU-TRUC-01`](../docs/decisions/doi-xe-cau-truc-01.md)), chặng sinh từ booking và điều xe phân công trên web ([`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md)). Hợp đồng dưới đây là cái phiên frontend (gói F2) code theo; chỗ nào là lựa chọn của người viết ghi ở "Câu hỏi mở". Làm hai PR nối tiếp: **PR 1** (spec này, bộ đọc nguồn, đường đọc việc và chặng, bốn đường ghi phân công) và **PR 2** (hàm đọc thu, chi, lãi gộp của chặng, gộp vào đường đọc). Mục nào do PR 2 thêm được đánh dấu **[PR 2]**.
+Trạng thái: ĐỀ XUẤT (Claude, 19/11/2026; PR 1 và PR 2 đã viết, chưa triển khai), gói B2 của [spec điều phối](doi-xe-cau-truc-01.md). Căn cứ đã chốt: cấu trúc năm mục ([`DOI-XE-CAU-TRUC-01`](../docs/decisions/doi-xe-cau-truc-01.md)), chặng sinh từ booking và điều xe phân công trên web ([`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md)). Hợp đồng dưới đây là cái phiên frontend (gói F2) code theo; chỗ nào là lựa chọn của người viết ghi ở "Câu hỏi mở". Làm hai PR nối tiếp: **PR 1** (spec này, bộ đọc nguồn, đường đọc việc và chặng, bốn đường ghi phân công) và **PR 2** (hàm đọc thu, chi, lãi gộp của chặng, gộp vào đường đọc). PR 2 dựng trên PR 1 (cùng đường đọc, cùng spec). Mục nào do PR 2 thêm được đánh dấu **[PR 2]**.
 
 Chạy trên mô hình dữ liệu HIỆN TẠI (`chang.tra`, `chang.nguoi_tra_id`, `loai_phi.cong_ty_tra`, ghi chú chữ cho phát sinh), nhưng JSON trả về theo hình dạng của mô hình mới (`DOI-XE-MO-HINH-01`: chi từng khoản có người trả, thu từng dòng) để mục Chặng không phải viết lại sau gói B3.
 
@@ -21,7 +21,7 @@ Bị chặn: xem [bảng mã lỗi](#mã-lỗi-và-câu-thông-báo). CÒN MỞ:
 - Bộ đọc nguồn đọc thêm bốn cột Nhà xe, Số seal, Nhiệt độ, Tên tàu của `CONT_NGUON`.
 - `GET /api/v7/doixe/chang` trả việc của đội xe trong khoảng ngày, chặng đã nối, trạng thái, bộ đếm, danh mục xe và tài xế.
 - Bốn `POST` phân công: phân xe, đổi phân công, bỏ phân công, nhận thay đổi của booking.
-- **[PR 2]** Hàm đọc `doixe.get_chang_tai_chinh` và trường `thu`, `chi`, `lai_gop` trong từng chặng.
+- **[PR 2]** Hàm đọc `doixe.get_chang_tai_chinh` (migration `2026-11-19-v7-doi-xe-tai-chinh-chang.sql`, chỉ có hàm đọc); trường `chi`, `thu`, `lai_gop`, `thang_khoa`, `bang_ke_thang` trong từng chặng của `GET /chang`; mảng `ngoai_booking`; đường phiếu một chặng `GET /chang/phieu?id=`.
 
 ## Đối chiếu dữ liệu và code hiện có
 
@@ -29,11 +29,11 @@ Bị chặn: xem [bảng mã lỗi](#mã-lỗi-và-câu-thông-báo). CÒN MỞ:
 | --- | --- | --- |
 | Bản chụp booking | `snapshot.json` (CONT_NGUON, 15 phút một lần) do `tools/sheet_sync_runner.py`; web đọc qua `v7_api_sheet.cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)`; bộ đọc `parse_source_values` tìm cột theo TÊN tiêu đề | Bốn cột Nhà xe, Số seal, Nhiệt độ, Tên tàu chưa được đọc: thêm vào `tools/webdebit_export_connector.py` |
 | Việc của đội xe | Danh mục `doixe.ma_nha_xe` (`dang_dung`), rỗng trên `hao` tới khi người dùng đồng ý nạp | API lọc bản chụp theo NGUYÊN mã, không chuỗi con |
-| Chặng, cờ, xe, tài xế | `doixe.get_dieu_do(việc[])` (gói B1, đã triển khai 19/11/2026) | API tính trạng thái; không có chặng ngoài booking (**[PR 2]** bổ sung) |
+| Chặng, cờ, xe, tài xế | `doixe.get_dieu_do(việc[])` (gói B1, đã triển khai 19/11/2026) | API tính trạng thái; `get_dieu_do` không liệt kê chặng ngoài booking: **[PR 2]** lấy từ hàm mới |
 | Ghi phân công | `doixe.phan_xe`, `doi_phan_cong`, `bo_phan_cong`, `nhan_booking` đã cấp cho `sokhach_app` | Đường POST, kiểm đầu vào, câu cho năm mã lỗi mới |
-| Thu, chi, lãi gộp | `doixe._tinh_chang`, `get_bang_ke`, `get_so` | **[PR 2]** hàm đọc gộp theo chặng |
+| Thu, chi, lãi gộp | `doixe._tinh_chang`, `get_bang_ke`, `get_so` | **[PR 2]** `doixe.get_chang_tai_chinh`: gộp theo chặng, cộng lại bằng `get_bang_ke` và `get_so` |
 
-Dữ liệu hiện trên màn lấy từ ba nguồn: bản chụp booking (việc, kho, hàng, cảng, hãng tàu, số booking, khách, seal, nhiệt độ, tên tàu; chỉ xem), `doixe.chang` (phân công, chữ của chặng), và **[PR 2]** phép tính thu chi. Bản bấm thử `preview/mockups/doi-xe-huong-a/index.html` dùng dữ liệu giả cùng hình dạng.
+Dữ liệu hiện trên màn lấy từ ba nguồn: bản chụp booking (việc, kho, hàng, cảng, hãng tàu, số booking, khách, seal, nhiệt độ, tên tàu; chỉ xem), `doixe.chang` (phân công, chữ của chặng), và **[PR 2]** phép tính thu chi của `get_chang_tai_chinh`. Bản bấm thử `preview/mockups/doi-xe-huong-a/index.html` dùng dữ liệu giả cùng hình dạng.
 
 ## Giao tiếp frontend–backend
 
@@ -67,8 +67,9 @@ JSON trả về (`200`):
             "bo_qua": {"khong_nha_xe": 640, "khong_ngay": 2, "trung": 1}},
   "viec": [ <việc>, ... ],
   "khong_con_tren_booking": [ <chặng>, ... ],
+  "ngoai_booking": [ <chặng>, ... ],
   "dem": {"viec": 41, "sap_toi": 3, "cho_phan_xe": 9, "da_phan_xe": 12, "da_co_phi": 10, "da_len_bang_ke": 7,
-          "booking_doi": 2, "chua_co_phi": 14, "khong_con_tren_booking": 1},
+          "booking_doi": 2, "chua_co_phi": 14, "chua_co_gia": 5, "khong_con_tren_booking": 1, "ngoai_booking": 2},
   "xe":    [{"id": 1, "bien_so": "…", "nhom": "…", "thue_ngoai": false, "tai_xe_id": 2}, ...],
   "tai_xe": [{"id": 2, "ten": "…"}, ...]
 }
@@ -76,7 +77,7 @@ JSON trả về (`200`):
 
 - `nguon.qua_han`: bản chụp cũ hơn 60 phút (hoặc không đọc được giờ tạo): giao diện báo "Booking cập nhật lúc …". `bo_qua` là số đếm dòng bản chụp không vào danh sách (không có mã nhà xe đang dùng; không có ngày đóng hợp lệ; lặp cùng container và ngày).
 - `xe`, `tai_xe`: chỉ xe và người đang dùng. Mảng `viec` sắp theo ngày đóng, container (tăng dần).
-- `dem` đếm trên mảng `viec` trả về: `sap_toi`, `cho_phan_xe`, `da_phan_xe`, `da_co_phi`, `da_len_bang_ke` là số việc theo trạng thái; `booking_doi` số việc có nhãn đổi; `chua_co_phi` số CHẶNG (mọi loại) chưa có phí; `khong_con_tren_booking` số chặng mồ côi. Hàng chờ ở đầu màn bấm là lọc phía giao diện trên các mảng này.
+- `dem` đếm trên mảng `viec` trả về: `sap_toi`, `cho_phan_xe`, `da_phan_xe`, `da_co_phi`, `da_len_bang_ke` là số việc theo trạng thái; `booking_doi` số việc có nhãn đổi; `chua_co_phi` số CHẶNG (mọi loại) chưa có phí; `khong_con_tren_booking` số chặng mồ côi; **[PR 2]** `chua_co_gia` số chặng chưa có giá (`lai_gop.thieu` chứa `gia`), `ngoai_booking` số chặng ngoài booking. Hàng chờ ở đầu màn bấm là lọc phía giao diện trên các mảng này.
 
 **`<việc>`:**
 
@@ -114,7 +115,7 @@ JSON trả về (`200`):
 | `da_co_phi` | Chặng hàng có phí (`co_phi`) hoặc đã hoàn (`da_hoan`) | Đã có phí |
 | `da_phan_xe` | Chặng hàng có xe, chưa phí | Đã phân xe |
 
-"Booking đã đổi" là nhãn kèm (`booking_doi` khác `null`), không thay trạng thái. "Chặng không còn trên booking" là mảng riêng `khong_con_tren_booking`. "Chặng ngoài booking" (chặng nhập tay, ngày đóng `null`): **[PR 2]** thêm mảng `ngoai_booking`; PR 1 chưa trả được vì `get_dieu_do` không liệt kê chúng.
+"Booking đã đổi" là nhãn kèm (`booking_doi` khác `null`), không thay trạng thái. "Chặng không còn trên booking" là mảng riêng `khong_con_tren_booking`. "Chặng ngoài booking" (chặng nhập tay hoặc có từ trước, ngày đóng `null`, không thuộc việc nào đang hiện): **[PR 2]** mảng `ngoai_booking`, mỗi phần tử là một `<chặng>` kèm `"trang_thai": "ngoai_booking"`; gồm các chặng có ngày chạy trong khoảng đang xem (không áp `cu`). PR 1 chưa trả được vì `get_dieu_do` không liệt kê chúng.
 
 **`<chặng>`** (một chặng, dùng trong `chang[]` và `khong_con_tren_booking[]`):
 
@@ -133,9 +134,9 @@ JSON trả về (`200`):
 - `loai`: `hang`, `chuyen_cang`, `tra_rong`, `rut_mooc`, `tha_mooc`, `khac`. `nguon`: `dieu_do`, `nhap`, `nap` hoặc `null` (chặng có trước điều độ). `ngay_dong` `null`: chặng chưa gắn ngày đóng.
 - `khoa`: `null`, hoặc lý do điều độ không đổi, không bỏ được, theo thứ tự `CHANG_DA_GUI` → `CHANG_DA_HOAN` → `CHANG_CO_PHI` (cùng thứ tự máy chủ chặn). `cho_phep.doi_phan_cong` và `bo_phan_cong` đều bằng `khoa == null`. Chặng khóa thì giao diện hiện lý do bằng câu của mã đó và đổi theo luật điều chỉnh trong phiếu chặng.
 - Mọi chặng của `khong_con_tren_booking` có thêm `"trang_thai": "khong_con_tren_booking"` và `cho_phep.chuyen_container` (`khoa == null`) cùng `cho_phep.giu_ngoai` (luôn `true`: giữ thành chặng ngoài booking không đụng tiền). Ba lựa chọn của người: chuyển sang container mới (`nhan-booking` `cap_nhat` kèm `container`), giữ ngoài booking (`giu_ngoai`), bỏ chặng (`bo-phan-cong`).
-- **[PR 2]** thêm `thu`, `chi`, `lai_gop`, `thang_khoa`, xem [dưới](#pr-2-thu-chi-lãi-gộp-của-chặng).
+- **[PR 2]** thêm `thang_khoa`, `bang_ke_thang`, `chi`, `thu`, `lai_gop` (bản gọn), xem [dưới](#pr-2-thu-chi-lãi-gộp-của-chặng).
 
-Giới hạn đã biết của đường đọc: (1) `get_dieu_do` tìm chặng mồ côi trong khoảng ngày đóng của các việc được gửi; khoảng không có việc nào thì không có mảng này. (2) Tối đa 1.500 việc có số cont mỗi lượt (kể cả việc láng giềng cùng container), quá thì `QUA_NHIEU_VIEC` (422): tham số `psql` có trần 128 KB. (3) Đường đọc tốn hai lượt psql (lượt đầu lấy danh mục mã nhà xe), mỗi lượt khoảng 50 ms trên `hao`; không có bộ nhớ đọc.
+Giới hạn đã biết của đường đọc: (1) `get_dieu_do` tìm chặng mồ côi trong khoảng ngày đóng của các việc được gửi; khoảng không có việc nào thì không có mảng này. (2) Tối đa 1.500 việc có số cont mỗi lượt (kể cả việc láng giềng cùng container), quá thì `QUA_NHIEU_VIEC` (422): tham số `psql` có trần 128 KB. (3) Đường đọc tốn ba lượt psql (danh mục mã nhà xe; chặng nối việc; **[PR 2]** thu, chi, lãi gộp; lượt giữa bỏ khi không có việc nào có số cont), mỗi lượt khoảng 50 ms trên `hao` cộng thời gian tính; không có bộ nhớ đọc.
 
 Lỗi riêng của đường đọc: `NGUON_THIEU_NHA_XE` (503: bản chụp chưa có cột Nhà xe; chờ lượt đồng bộ kế tiếp), `SHEET_SNAPSHOT_UNAVAILABLE` (503: không đọc được bản chụp), `QUA_NHIEU_VIEC` (422), `INVALID_MONTH`, `INVALID_DATE`, `INVALID_REQUEST` (422). Hai mã đầu có câu ngay trong code API, không đi qua DB.
 
@@ -187,29 +188,44 @@ Năm mã mới của gói B1, cộng câu cho mã dùng lại. Câu nằm trong 
 
 ### Quyền
 
-Mọi đường đọc, ghi của mục Chặng cùng quyền với màn Đội xe hiện có: người dùng nằm trong danh sách cho phép (`ACCESS-01`); điều xe phải được thêm vào danh sách này trước khi dùng (việc cấu hình, ngoài gói này). `sokhach_app` chỉ gọi được năm hàm của gói B1 (`get_dieu_do`, `phan_xe`, `doi_phan_cong`, `bo_phan_cong`, `nhan_booking`); không có quyền trên bảng; `nap_nha_xe` không cấp cho app và không có đường nào.
+Mọi đường đọc, ghi của mục Chặng cùng quyền với màn Đội xe hiện có: người dùng nằm trong danh sách cho phép (`ACCESS-01`); điều xe phải được thêm vào danh sách này trước khi dùng (việc cấu hình, ngoài gói này). `sokhach_app` chỉ gọi được năm hàm của gói B1 (`get_dieu_do`, `phan_xe`, `doi_phan_cong`, `bo_phan_cong`, `nhan_booking`) và **[PR 2]** `get_chang_tai_chinh`; không có quyền trên bảng; `nap_nha_xe` không cấp cho app và không có đường nào.
 
 ### [PR 2] Thu, chi, lãi gộp của chặng
 
-Thêm vào mỗi `<chặng>` (PR 2 chốt chi tiết sau khi có hàm; bản dưới là hình dạng định làm). Hình dạng theo mô hình mới nhưng giá trị suy từ mô hình hiện tại.
+Hàm SQL `doixe.get_chang_tai_chinh({"tu", "den", "ids"})` (chỉ đọc, cấp cho `sokhach_app`): `tu`, `den` cùng có hoặc cùng vắng (tối đa 400 ngày), `ids` là mảng id (tối đa 3.000); phải có khoảng hoặc `ids`; khóa lạ là `INVALID_COMMAND`. Trả `{"hom_nay", "chang": [...]}` các chặng chưa xóa, chưa bỏ có ngày chạy hoặc ngày đóng trong khoảng, hoặc có id trong `ids`; mỗi chặng là các trường của `<chặng>` ở trên cộng phần dưới. `GET /chang` gọi hàm một lượt sau `get_dieu_do`: `ids` là mọi chặng đang hiện (để chặng lệch ngày vẫn có số), khoảng là `tu`–`den` (để tìm chặng ngoài booking).
+
+**Chọn đường đọc: bản gọn gộp vào `GET /chang`, bản đầy đủ ở `GET /chang/phieu?id=N`.** Cột Thu, Chi, Lãi gộp của mọi dòng cần có sẵn khi vẽ danh sách, nên bản gọn (mỗi chặng thêm khoảng 350 byte: tổng chi, cước, số đòi, lãi gộp) nằm trong `GET /chang`. Từng khoản chi và từng dòng thu (khoảng 150 byte mỗi khoản; một chặng có 3–8 khoản) chỉ cần khi mở phiếu, nên chỉ có ở `GET /chang/phieu?id=N`: danh sách một tháng (khoảng 200–400 chặng) không phình gấp đôi, và phiếu mở là một lượt đọc nhỏ cho đúng chặng đang xem nên số liệu phiếu luôn mới. Bản gọn bỏ `chi.dong`, `thu.dong`, `thu.loi`. (Kích thước là ước tính theo hình dạng JSON, chưa đo trên dữ liệu thật.)
+
+**`GET /api/v7/doixe/chang/phieu?id=N`**: đúng một tham số `id`, số nguyên dương. Trả `{"hom_nay", "chang": <chặng đầy đủ>}`. Không còn chặng (đã xóa, đã bỏ): `CHANG_NOT_FOUND` (409, "Không còn chặng này. Tải lại."). Cùng quyền với mọi đường khác.
+
+Phần tài chính của một chặng (trong `GET /chang` bỏ `dong` và `loi`):
 
 ```json
 {
   "thang_khoa": false,
-  "chi": [{"khoan": "nang", "ten": "Nâng", "so_tien_vnd": "450000", "nguoi_tra": "tai_xe", "chi_ho": false, "da_hoan": false}],
-  "thu": {
-    "cuoc": {"vnd": "24000000", "nguon": "bang|tay|null", "tuyen_id": 3},
-    "dong": [{"khoan": "xi_cont", "ten": "Xi cont", "so_luong": 1, "muc_vnd": "150000", "so_tien_vnd": "150000", "chi_ho": true}]
+  "bang_ke_thang": "2026-11-01",
+  "chi": {
+    "dong": [{"khoan": "nang", "ten": "Nâng", "so_tien_vnd": "450000", "nguoi_tra": "nguoi", "nguoi_tra_id": 2, "chi_ho": false, "da_hoan": false},
+             {"khoan": "vetc", "ten": "VETC", "so_tien_vnd": "80000", "nguoi_tra": "cong_ty", "nguoi_tra_id": null, "chi_ho": false, "da_hoan": null}],
+    "tong_vnd": "530000", "chi_ho_vnd": "0", "ngoai_chi_ho_vnd": "530000"
   },
-  "lai_gop": {"thu_vnd": "…", "chi_vnd": "…", "lai_vnd": "…"},
-  "da_hoan": false, "da_gui": false
+  "thu": {
+    "cuoc": {"vnd": "9850500", "gia_bang_vnd": "9850500", "tay": false, "tuyen_id": 3, "tuyen": "…"},
+    "ghep_vnd": "0", "ps_vnd": "1484000", "chi_ho_vnd": "1484000", "dc_vnd": null, "doi_vnd": "11334500",
+    "dong": [{"khoan": "xi_cont", "ten": "Xí cont", "so_luong": null, "muc_vnd": null, "so_tien_vnd": "250000", "chi_ho": true, "cot": "ps", "la": false}],
+    "loi": [{"goc": "_ Cân", "loi": "Thiếu số tiền (ví dụ 200k)"}],
+    "chua_doc": 1
+  },
+  "lai_gop": {"thu_vnd": "9850500", "chi_vnd": "530000", "lai_vnd": "9320500", "thieu": []}
 }
 ```
 
-- Chi: từng khoản của chặng; `nguoi_tra` suy từ `chang.tra`/`nguoi_tra_id` và `loai_phi.cong_ty_tra` (VETC: công ty).
-- Thu: `cuoc` (giá bảng, giá tay, tuyến) và từng dòng phát sinh lấy đúng từ `doixe._tinh_chang`, không viết lại cách tính tiền.
-- `lai_gop` = thu không chi hộ − chi không chi hộ; `null` (không phải 0) khi chặng chưa có giá hoặc chưa có phí.
-- Tiền là chuỗi số nguyên VND, như các đường đọc đội xe khác. Phần này, cờ `thang_khoa` và mảng `ngoai_booking` được chốt trong PR 2 cùng lựa chọn đường đọc (gộp vào `GET /chang` hay đường phiếu một chặng) kèm lý do về kích thước JSON.
+- **Chi** (`chi.dong`): từng khoản của chặng `{khoan, ten, so_tien_vnd, nguoi_tra, nguoi_tra_id, chi_ho, da_hoan}`; tiền là tổng mọi dòng của chặng (dòng gốc, điều chỉnh, trừ lại), nên cộng lại bằng `get_so`. `nguoi_tra`: `cong_ty` nếu loại phí do công ty trả (VETC) hoặc chặng do công ty trả, ngược lại `nguoi` kèm `nguoi_tra_id` của chặng. `chi_ho`: cờ chi hộ của loại phí. `da_hoan`: `true` khi mọi dòng chứa khoản đã nằm trong một đợt hoàn chưa hủy; `null` (không áp dụng) với khoản công ty trả. Sắp theo thứ tự danh mục. Chặng chưa có phí: `dong` rỗng và `tong_vnd`, `ngoai_chi_ho_vnd` là `null` (không phải `"0"`).
+- **Thu** (`thu`): `null` khi chặng không vào bảng kê (chưa có xe, hoặc xe thuê ngoài). Chặng chưa gửi lấy từ `doixe._tinh_chang` (đúng hàm bảng kê dùng); chặng đã gửi lấy dòng bảng kê đã chép lúc gửi, nên đổi giá hay sửa ghi chú sau đó không đổi số. `cuoc.vnd` là `null` khi chưa có giá (không phải 0); `cuoc.tay` là giá nhập tay. `doi_vnd` là số đòi HTH của chặng, **cộng đúng như `get_bang_ke`**: cước + đóng ghép + phát sinh + điều chỉnh bảng kê (`dc_vnd`, `null` khi chưa có); cước trống góp 0. `chi_ho_vnd` là phần phát sinh chi hộ. Mỗi dòng phát sinh `{khoan, ten, so_luong, muc_vnd, so_tien_vnd, chi_ho, cot, la}`: `khoan` là mã danh mục phát sinh (`null` với khoản lạ, `la: true`); `cot` là `ps` hoặc `ghep`. Mô hình hiện tại chỉ lưu số tiền của khoản ghi chú, nên `so_luong` chỉ có với khoản lấy từ ô số lượng của chặng chưa gửi (neo, nổ máy) và `muc_vnd` luôn `null` cho tới gói B3. `loi` là các khoản ghi chú đọc không được `{goc, loi}`; `chua_doc` là số khoản đó.
+- **Lãi gộp** (`lai_gop`): `thu_vnd` = số đòi − phát sinh chi hộ (cước + ghép + phát sinh không chi hộ + điều chỉnh), `chi_vnd` = tổng chi − chi hộ, `lai_vnd` = `thu_vnd − chi_vnd`. Mỗi số là `null` (không phải `"0"`) khi chưa tính được; `thieu` nói vì sao: `gia` (chưa có giá), `phi` (chưa có phí), `doc` (còn khoản ghi chú chưa đọc được, thu có thể thiếu), `khong_vao_bang_ke` (không có thu). `lai_vnd` chỉ có khi `thieu` rỗng.
+- `thang_khoa`: ngày chạy của chặng ở tháng đã khóa. `bang_ke_thang`: tháng của bảng kê chứa chặng (đã gửi: tháng bảng kê đó; chưa gửi: tháng gom, có thể là tháng sau tháng chạy khi bảng kê tháng chạy đã gửi); `null` khi không vào bảng kê. `da_hoan`, `da_gui`, `co_phi` như `<chặng>`.
+
+Bất biến cộng lại (kiểm ở harness PostgreSQL, dữ liệu giả): tổng `chi.dong[].so_tien_vnd` của khoản `nguoi_tra = nguoi` theo người và tháng chạy bằng đúng `get_so(...).the.chi_vnd`; tổng `thu.doi_vnd`, `thu.cuoc.vnd`, `thu.ghep_vnd`, `thu.ps_vnd`, `thu.chi_ho_vnd` của các chặng cùng `bang_ke_thang` bằng đúng `get_bang_ke(...).tong` (`doi_vnd`, `cuoc_vnd`, `ghep_vnd`, `ps_vnd`, `chi_ho_vnd`), cả lúc đang gom lẫn sau khi gửi. Ngoại lệ: dòng bảng kê đã gửi mà chặng sau đó bị xóa hoặc bỏ (`chang_con = false` ở `get_bang_ke`) còn trong tổng của bảng kê nhưng hàm này không liệt kê chặng đã bỏ.
 
 ## Nguồn quyết định
 
@@ -234,7 +250,7 @@ Thêm vào mỗi `<chặng>` (PR 2 chốt chi tiết sau khi có hàm; bản dư
 
 - [ ] `npm run check` xanh; test đơn vị API (dữ liệu giả, mã nhà xe giả): mã trùng một phần chữ không bị bắt nhầm; dòng booking chưa có số container; bấm lặp cùng mã yêu cầu; thiếu quyền; thiếu cột nhà xe; khoảng ngày sai; kiểm đầu vào từng đường ghi.
 - [ ] Test bộ đọc nguồn: bốn cột tìm theo tên; thiếu cột thì trống; `columns` đúng.
-- [ ] **[PR 2]** Harness PostgreSQL: tổng chi theo tháng từ hàm mới bằng đúng tổng `get_so`; tổng thu bằng đúng `get_bang_ke` (`doi_vnd`, `cuoc_vnd`, `ps_vnd`, `chi_ho_vnd`); `v7_app` gọi được hàm mới, không có quyền trên bảng.
+- [x] **[PR 2]** Harness PostgreSQL `tools/test_pg_doixe_chang.py` (19/11/2026, DB giả dùng một lần): tổng chi theo tháng từ hàm mới bằng đúng `get_so` từng người trả; tổng thu bằng đúng `get_bang_ke` (`doi_vnd`, `cuoc_vnd`, `ghep_vnd`, `ps_vnd`, `chi_ho_vnd`, số chặng) lúc đang gom và sau khi gửi; `v7_app` gọi được hàm mới, không có quyền trên bảng; chuỗi `--migration-test` có file mới.
 - [ ] Chưa kiểm trên `hao` thật: bản chụp booking có bốn cột, bảng `ma_nha_xe` đã nạp, API đọc đúng việc (việc của phiên điều phối khi triển khai).
 - [ ] Frontend (gói F2, không thuộc spec này): bàn phím, nhập sai, bấm lặp, tải chậm, mất mạng, thiếu quyền; điều xe tự đi hết luồng trên bản thử.
 
@@ -242,7 +258,7 @@ Thêm vào mỗi `<chặng>` (PR 2 chốt chi tiết sau khi có hàm; bản dư
 
 - Agent: claude (theo `CLAUDE-ALL-01`); phiên thực thi Sonnet 5.5, effort high.
 - Review: opus (đường ghi, nối với schema `doixe`).
-- Được sửa: `specs/doi-xe-chang-01.md`, `specs/README.md` (một dòng), `cong-no-web-handoff/web/v7_api_doixe.py`, `web/v7_api_tables.py`, `web/v7_ledger_api.py` (định tuyến), `tools/webdebit_export_connector.py`, `tests/test_v7_api_doixe*.py`, `tests/test_webdebit_export_connector.py`. PR 2 thêm: một migration chỉ có hàm đọc, `tools/test_pg_doixe*.py`, chuỗi migration-test, `.github/workflows/test.yml`, `schema/v7_schema_current.pgsql` (sinh tự động).
+- Được sửa: `specs/doi-xe-chang-01.md`, `specs/README.md` (một dòng), `cong-no-web-handoff/web/v7_api_doixe.py`, `web/v7_api_tables.py`, `web/v7_ledger_api.py` (định tuyến), `tools/webdebit_export_connector.py`, `tests/test_v7_api_doixe*.py`, `tests/test_webdebit_export_connector.py`. PR 2 thêm: migration `2026-11-19-v7-doi-xe-tai-chinh-chang.sql` (chỉ có hàm đọc), `tools/test_pg_doixe_chang.py`, chuỗi `check_migration` của `tools/test_pg_v7_backend.py`, `.github/workflows/test.yml`, `docs/development.md` (một dòng), `schema/v7_schema_current.pgsql` (sinh tự động; chỉ chụp `sokhach` nên không đổi).
 - Cấm: sửa `preview/`, migration cũ, `docs/decisions*`; chạy DDL, nạp dữ liệu hay ssh `hao`; ghi Google Sheet; chép tên khách, biển số, container, mã nhà xe, số tiền thật vào repo; merge.
 
 ## Hoàn tác
@@ -251,14 +267,17 @@ Revert PR. Không có dữ liệu mới. Bản chụp booking đã có thêm kh�
 
 ## Bằng chứng
 
-PR 1, ngày 19/11/2026, ở máy dev, dữ liệu giả: `unittest` của `tests/test_v7_api_doixe.py`, `tests/test_v7_api_doixe_chang.py`, `tests/test_webdebit_export_connector.py`; `npm run check` (xem mô tả PR). Chưa chạy trên bản sao hay `hao`; chưa có bản chụp thật có bốn cột.
+PR 1, ngày 19/11/2026, ở máy dev, dữ liệu giả: `unittest` của `tests/test_v7_api_doixe.py`, `tests/test_v7_api_doixe_chang.py`, `tests/test_webdebit_export_connector.py`; `npm run check` (xem mô tả PR). PR 2, cùng ngày: `tools/test_pg_doixe_chang.py` (11 nhóm kiểm, pass), `test_pg_doixe.py`, `test_pg_doixe_thu.py`, `test_pg_doixe_dieu_do.py` (pass, không hồi quy), `test_pg_v7_backend.py --migration-test` (pass), `v7_schema_snapshot.py` (không đổi file). Chưa chạy trên bản sao hay `hao`; chưa có bản chụp thật có bốn cột.
 
 ## Câu hỏi mở
 
-1. **Chặng ngoài booking** (ngày đóng `null`) không có trong `get_dieu_do`: PR 2 thêm qua hàm đọc mới. Phiên điều phối xác nhận đó là chỗ đúng, hay muốn sửa `get_dieu_do` (migration riêng)?
+1. **Chặng ngoài booking** (ngày đóng `null`) không có trong `get_dieu_do`: PR 2 lấy chúng từ hàm đọc mới (ngày chạy trong khoảng đang xem). Phiên điều phối xác nhận đó là chỗ đúng, hay muốn sửa `get_dieu_do` (migration riêng)?
 2. **Tên hàng:** bản chụp chỉ giữ `Mặt hàng` (`commodity`) và loại sầu riêng, không giữ cột `Tên hàng` gốc. `booking.hang` dùng `Mặt hàng`. Cần tên hàng gốc thì thêm một trường vào bộ đọc (một PR riêng, đổi hình dạng bản chụp).
 3. **Mã nhà xe phân biệt hoa thường** (chỉ cắt khoảng trắng hai đầu), theo "so nguyên mã". Nếu Sheet có thể gõ khác hoa thường cùng một mã thì phải đổi luật.
 4. **Cảng, hàng, hãng tàu đổi sau khi phân xe** không báo được `booking_doi` vì chặng không lưu các trường đó. Chỉ ngày đóng và kho. Có cần mở rộng không?
-5. **Hai lượt psql** cho một lần đọc (lượt đầu chỉ lấy danh mục mã). Nếu chậm hơn đo, PR 2 có thể nhận luôn việc trong hàm đọc mới hoặc API giữ danh mục vài chục giây.
+5. **Ba lượt psql** cho một lần đọc `GET /chang` (danh mục mã nhà xe; chặng nối việc; thu, chi, lãi gộp), mỗi lượt khoảng 50 ms trên `hao` cộng thời gian tính (`get_bang_ke` tính sống cả tháng cũng làm đúng việc này). Chưa đo trên dữ liệu thật; nếu chậm, giữ danh mục mã vài chục giây hoặc gộp ba lượt vào một hàm.
 6. **Việc cũ còn chờ** lấy bằng tham số `cu` (tối đa 92 ngày) thay vì "mọi việc cũ": việc chờ quá 92 ngày không hiện. Phù hợp thực tế (việc được giao trước một ngày) nhưng chưa đo trên dữ liệu thật.
 7. Giao diện gửi `kho` và `ten_hang` từ booking lên `phan-xe` và để trống `noi_lay`, `noi_ha` (SQL lấy tuyến chuyến khách); là cách API hiểu "lấy từ booking" của `DOI-XE-DIEU-DO-01`. Đúng ý chưa?
+8. **"Chưa nối chuyến khách"** (hàng chờ trong bản bấm thử) cần `doixe._chuyen` cho từng chặng hàng; hàm PR 2 chưa trả cờ này vì ngoài phần thu, chi, lãi gộp đã giao. Cần cho F2 thì thêm trường `chuyen_khach` vào hàm (migration chỉ-đọc nhỏ).
+9. **Tổng chi và công ty trả:** `chi.tong_vnd` tính cả khoản công ty trả (VETC) để lãi gộp đúng chi phí đội xe; chi của người trả khớp `get_so` chỉ gồm khoản `nguoi_tra = nguoi`. Giao diện cần hiện hai số này khác nhau ở đâu thì phiên F2 nói.
+10. **Lãi gộp `null` khi còn khoản ghi chú chưa đọc được** (`thieu` có `doc`): chọn thận trọng vì thu có thể thiếu; nếu muốn tính tạm thì đổi luật, không phải lỗi dữ liệu.

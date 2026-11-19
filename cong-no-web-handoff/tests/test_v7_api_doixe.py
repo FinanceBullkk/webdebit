@@ -15,6 +15,7 @@ import v7_ledger_api as api  # noqa: E402
 MIGRATION = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe.sql"
 MIGRATION_THU = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe-thu.sql"
 MIGRATION_DIEU_DO = ROOT / "tools" / "migrations" / "2026-11-19-v7-doi-xe-dieu-do.sql"
+MIGRATION_TAI_CHINH = ROOT / "tools" / "migrations" / "2026-11-19-v7-doi-xe-tai-chinh-chang.sql"
 
 
 class FakePsql:
@@ -189,7 +190,7 @@ class DoiXeApiTest(unittest.TestCase):
         self.assertIn("actor_name", value["chang"][0]["dong"][0])
 
     def test_sql_matches_migration_functions(self):
-        source = "".join(m.read_text(encoding="utf-8") for m in (MIGRATION, MIGRATION_THU, MIGRATION_DIEU_DO))
+        source = "".join(m.read_text(encoding="utf-8") for m in (MIGRATION, MIGRATION_THU, MIGRATION_DIEU_DO, MIGRATION_TAI_CHINH))
         names = {name for granted in re.findall(r"GRANT EXECUTE ON FUNCTION (.*?) TO sokhach_app;", source, re.S)
                  for name in re.findall(r"doixe\.(\w+)\(", granted)}
         used = {re.search(r"doixe\.(\w+)\(", tables.SQL[key]).group(1) for key in tables.SQL if key.startswith("doixe_")}
