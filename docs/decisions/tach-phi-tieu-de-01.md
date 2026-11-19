@@ -27,4 +27,4 @@ Ngoại lệ của [`PHU-PHI-01`](phu-phi-01.md) (8): **cột phí trên tab kh�
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Công cụ một lần [`tools/v7_split_fee_by_header.py`](../../cong-no-web-handoff/tools/v7_split_fee_by_header.py), mặc định chỉ đếm; `--apply` chỉ chạy sau khi người dùng xem số đếm. Máy đối soát chưa tự tách chuyến mới theo tên cột: CÒN MỞ, làm khi số đếm cho thấy đáng làm. Hết hiệu lực khi chuyển hẳn khỏi Sheet.
+ĐÃ CHỐT; ĐÃ CHẠY trên `hao` 19/11/2026: 1.372 dòng ở 80 sổ, số dư không đổi ([nhật ký](../deploys/2026-11-19-tach-phi-tieu-de.md)). Công cụ một lần [`tools/v7_split_fee_by_header.py`](../../cong-no-web-handoff/tools/v7_split_fee_by_header.py), mặc định chỉ đếm; dòng có ô phí âm để nguyên. Máy đối soát chưa tự tách chuyến mới theo tên cột: CÒN MỞ, làm khi số đếm cho thấy đáng làm. Hết hiệu lực khi chuyển hẳn khỏi Sheet.
