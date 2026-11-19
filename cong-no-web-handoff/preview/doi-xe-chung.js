@@ -47,10 +47,11 @@
    *   toastBox  phần tử hiện thông báo; esc  hàm thoát HTML
    *   tienTo    tiền tố mã yêu cầu dự phòng khi trình duyệt không có crypto.randomUUID
    *   matMang   câu báo khi gửi lệnh mà mất kết nối
+   *   chuaRo    câu báo khi máy chủ trả 2xx nhưng thân không đọc được (mặc định dùng matMang)
    *   toastMs   số ms câu báo tự tắt
    *   taiLai    mã lỗi của máy chủ mà màn phải đọc lại số liệu ngay sau khi báo */
   function tao(o) {
-    const { S, draw, load, toastBox, esc, tienTo, matMang, toastMs } = o;
+    const { S, draw, load, toastBox, esc, tienTo, matMang, chuaRo, toastMs } = o;
     const taiLai = new Set(o.taiLai);
     const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
 
@@ -71,11 +72,15 @@
       } catch {
         throw Object.assign(Error(matMang), { code: 'NETWORK' });
       }
-      const out = await r.json().catch(() => null);
+      let doc = true;
+      const out = await r.json().catch(() => { doc = false; return null; });
       if (!r.ok) {
         if (r.status !== 503) keys.delete(sig);
         throw Object.assign(Error(out?.message || `Lỗi ${r.status}`), { code: out?.error, status: r.status });
       }
+      // Trả lời 2xx mà thân không đọc được: chưa biết kết quả, nên giữ mã như khi mất mạng để bấm lại không ghi lần hai
+      // (máy chủ trả kết quả cũ). Bỏ mã ở đây thì lần bấm lại sinh mã mới và có thể ghi hai lần.
+      if (!doc) throw Object.assign(Error(chuaRo ?? matMang), { code: 'BAD_RESPONSE', status: r.status });
       keys.delete(sig);
       return out;
     }

@@ -18,6 +18,7 @@
   const { getJson, bao, ghi, drawToast } = DoiXeChung.tao({
     S, draw: () => draw(), load: () => load(), toastBox, esc, tienTo: 'dx', toastMs: 7000,
     matMang: 'Mất kết nối, chưa rõ đã lưu chưa. Bấm lại: máy chủ không ghi lần hai.',
+    chuaRo: 'Chưa đọc được trả lời của máy chủ, chưa rõ đã lưu chưa. Bấm lại: máy chủ không ghi lần hai.',
     taiLai: ['CHANGED', 'DONG_DA_DOI', 'CHANG_NOT_FOUND'],
   });
   const { withFocus } = DoiXeChung;

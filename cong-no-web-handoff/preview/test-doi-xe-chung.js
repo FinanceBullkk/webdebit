@@ -40,7 +40,7 @@ function dung(kichBan, opts = {}) {
   const log = [];
   const toastBox = { hidden: true, className: '', innerHTML: '' };
   const api = C.tao({ S, draw: () => log.push('draw'), load: async () => { log.push('load'); if (opts.load) await opts.load(); }, toastBox,
-    esc: t => String(t).replace(/</g, '&lt;'), tienTo: 'tx', matMang: 'MẤT MẠNG', toastMs: 7000, taiLai: ['CHANGED'] });
+    esc: t => String(t).replace(/</g, '&lt;'), tienTo: 'tx', matMang: 'MẤT MẠNG', chuaRo: 'CHƯA RÕ', toastMs: 7000, taiLai: ['CHANGED'] });
   return { api, S, log, calls, timers, toastBox, tra: () => Object.assign(globalThis, goc) };
 }
 
@@ -65,6 +65,29 @@ test('post: cùng nội dung dùng lại mã khi 503 hoặc mất mạng, bỏ m
     await t.api.post('/p', { a: 2 });
     assert.notEqual(key(4), key(5), 'nội dung khác thì mã khác');
     assert.equal(t.calls[0].body.a, 1);
+  } finally { t.tra(); }
+});
+
+test('post: máy chủ trả 2xx mà thân không đọc được là chưa rõ kết quả: giữ mã, báo "chưa rõ", bấm lại dùng lại mã cũ (không ghi lần hai)', async () => {
+  const t = dung(n => (n === 1 ? { status: 200 } : { status: 200, body: { ok: true, lap_lai: true } }));
+  try {
+    await assert.rejects(t.api.post('/p', { a: 1 }), e => e.code === 'BAD_RESPONSE' && e.status === 200 && e.message === 'CHƯA RÕ');
+    assert.deepEqual(await t.api.post('/p', { a: 1 }), { ok: true, lap_lai: true });
+    assert.equal(t.calls[0].body.idempotency_key, t.calls[1].body.idempotency_key, 'lần bấm lại dùng lại mã');
+    await t.api.post('/p', { a: 1 });
+    assert.notEqual(t.calls[1].body.idempotency_key, t.calls[2].body.idempotency_key, 'trả lời đọc được thì bỏ mã như cũ');
+  } finally { t.tra(); }
+});
+
+test('ghi: thân 2xx không đọc được thì báo lỗi "chưa rõ", không chạy callback ghi, không đọc lại', async () => {
+  const t = dung(() => ({ status: 200 }));
+  try {
+    let goi = false;
+    assert.equal(await t.api.ghi('/p', { a: 1 }, () => { goi = true; }), null);
+    assert.equal(goi, false, 'callback ghi đọc out.lap_lai nên không được chạy khi out hỏng');
+    assert.equal(t.S.toast.text, 'CHƯA RÕ');
+    assert.equal(t.S.toast.loai, 'err');
+    assert.equal(t.S.busy, false);
   } finally { t.tra(); }
 });
 
