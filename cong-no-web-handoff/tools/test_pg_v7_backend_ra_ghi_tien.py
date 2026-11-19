@@ -4,6 +4,7 @@ Run only through disposable test_pg_v7_backend.py harness."""
 import json
 
 from pg_v7_harness import (
+    AUDIT_KIEN_TRUC_MIGRATION,
     BANG_GIA_NOI_DEN_MIGRATION,
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
@@ -46,6 +47,7 @@ def check_ra_ghi_tien(pg) -> str:
     pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-04
     pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau KHOA-CHU-01
+    pg.sql(AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8"))  # audit 19/11: bản edit_trip_info/record_mark hiện hành
     after = pg.value(CATALOG)
     require(after == fresh, f"ra-ghi-tien migration rerun changed function catalog: {[k for k in json.loads(after).keys() | json.loads(fresh).keys() if json.loads(after).get(k) != json.loads(fresh).get(k)]}")
     pg.true("EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.trip'::regclass AND tgname='trip_sheet_cross_customer')",
