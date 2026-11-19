@@ -1987,6 +1987,12 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
+## Mốc sổ mới 60 ngày (KHACH-MOI-01) — nâng DB
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi-60-ngay.sql` thay thân `get_dashboard_debt`: điều kiện sổ mới từ 90 xuống 60 ngày kể từ chuyến đầu, `rule.new_days` thành 60. Mốc 30 / 45 ngày, các trường khác, bảng, view, hàm ghi, dữ liệu và quyền giữ nguyên; giữ `SET jit = off`. Chạy lại được. **Chạy sau `2026-11-19-v7-khach-moi.sql`.** Frontend đọc `rule.new_days` nên không cần release mới để đổi chữ; release vẫn đặt theo `main` như mọi đợt tay.
+
+Các bước như mục dưới (bản sao trước: so JSON `get_dashboard_debt` bỏ các trường khách mới, `get_dashboard`, `get_safety_net` phải trùng; đếm sổ mới và cờ trước/sau; DB thật: backup, áp với `ON_ERROR_STOP`, so lại, checker; release tay; lưới an toàn `--dry-run`). Không cần cửa sổ dừng ghi. Rollback: chạy lại `2026-11-19-v7-khach-moi.sql`.
+
 ## Cờ khách mới ở Tổng quan (KHACH-MOI-01) — nâng DB (ĐÃ CHẠY trên hao 19/11/2026)
 
 Đã chạy 19/11/2026, xem [nhật ký](deploys/2026-11-19-khach-moi.md). Spec [`v7-khach-moi`](../specs/v7-khach-moi.md), quyết định [`KHACH-MOI-01`](decisions/khach-moi-01.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi.sql` thay thân hàm đọc `get_dashboard_debt`: mỗi sổ đang nợ có thêm `first_trip_day`, `first_trip_exact`, `is_new`, `new_flag`, `oldest_unpaid_trip_day`, và `rule` có thêm `new_days`, `new_no_pay_days`, `new_unpaid_days`. Mọi trường cũ giữ nguyên giá trị. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu hay quyền. Khai báo hàm giữ `SET jit = off` (HIEU-NANG-02), nên không cần chạy lại `2026-11-18-v7-tong-quan-tat-jit.sql`. Chạy lại được. **Chạy sau `2026-11-18-v7-tong-quan-tat-jit.sql`. Chạy lại một migration cũ hơn có `CREATE OR REPLACE get_dashboard_debt` thì phải chạy lại file này.**

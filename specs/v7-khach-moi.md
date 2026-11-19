@@ -1,6 +1,6 @@
 # Khách mới: để ý thu sớm (KHACH-MOI-01)
 
-Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql` (ĐÃ TRIỂN KHAI trên `hao` 19/11/2026). Frontend: Tổng quan và thẻ Tình hình (ĐÃ CODE 19/11/2026, kiểm trên máy chủ giả).
+Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới, cùng ngày rút mốc sổ mới còn 60 ngày; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql` (ĐÃ TRIỂN KHAI trên `hao` 19/11/2026). Frontend: Tổng quan và thẻ Tình hình (ĐÃ CODE 19/11/2026, kiểm trên máy chủ giả).
 
 ## Vấn đề
 
@@ -52,14 +52,14 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
   2. Có ô bấm **"Khách mới · n"** kèm số sổ cần để ý ("3 cần để ý", nền xanh đậm). Bấm vào thì bảng khách chỉ còn các sổ mới đang nợ; sổ dính S1 hoặc S2 xếp lên đầu, rồi mới tới cột xếp đang chọn. Mỗi dòng có một câu dữ kiện trong chú thích (rê chuột hoặc focus, đọc màn hình đọc được): "Chưa trả lần nào · chuyến đầu 34 ngày trước", "Chuyến 02/10 chưa trả đủ · 48 ngày" hoặc "Khách mới · chuyến đầu 19 ngày trước". Nhãn "Mới" màu xanh dương (khác màu mức rủi ro), nền đặc khi sổ cần để ý. Lọc nằm trên địa chỉ trang: `?moi=1`. Bản đầu (19/11/2026) ô chỉ lọc sổ cần để ý; người dùng chọn "Thêm lọc" cùng ngày để xem đủ khách mới. Sổ mới đã trả hết nợ không có ở Tổng quan (chỉ liệt kê sổ đang nợ).
   3. Bấm tên khách mở trang khách, thẻ Tình hình (như hiện nay). Dải nợ có thêm một dữ kiện ở đầu phải hàng "Còn nợ chưa tính" (hàng đó không có việc chờ thì chỉ còn dữ kiện này): "Khách mới · chuyến đầu dd/mm/yyyy · chưa trả lần nào" hoặc "… · chuyến dd/mm chưa trả đủ · N ngày". Đặt trong hàng có sẵn để không thêm chiều cao: khung 1265×560 đã kín.
   4. Người dùng tự liên hệ khách. Web không gửi tin, không chặn ghi chuyến, không đổi số tiền.
-- **Kết quả:** trong 90 ngày đầu của một sổ, người dùng thấy khách đang chậm khoảng ba tuần sớm hơn luật quá hạn hiện tại.
+- **Kết quả:** trong 60 ngày đầu của một sổ, người dùng thấy khách đang chậm khoảng ba tuần sớm hơn luật quá hạn hiện tại.
 - **Không chặn gì:** như mức rủi ro của `DASH-03`, nhãn chỉ để tô màu và lọc.
 
 ## Hành vi
 
-1. **Sổ mới:** sổ không lưu trữ, có chuyến đầu cách hôm nay (giờ VN) **≤ 90 ngày**, không có lần trả nào sớm hơn chuyến đầu quá 7 ngày, và không có nợ mốc (khác 0) ở tháng trước tháng của chuyến đầu. Hai điều kiện sau loại sổ đã có lịch sử, như sổ tách từ khách cũ.
+1. **Sổ mới:** sổ không lưu trữ, có chuyến đầu cách hôm nay (giờ VN) **≤ 60 ngày**, không có lần trả nào sớm hơn chuyến đầu quá 7 ngày, và không có nợ mốc (khác 0) ở tháng trước tháng của chuyến đầu. Hai điều kiện sau loại sổ đã có lịch sử, như sổ tách từ khách cũ.
    - Chuyến đầu là ngày sớm nhất trong các chuyến web chưa xóa, không bị loại, và các dòng chuyến sổ gốc chưa xóa. Dòng không ngày lấy cuối tháng của dòng, theo cùng luật `trip_last` của `get_dashboard_debt`, chỉ đổi lấy muộn nhất thành lấy sớm nhất.
-   - Mốc 90 ngày: S2 bắt đủ 12/12 sổ kẹt trước ngày 90, và tới 3–6 tháng khách vẫn trả nhanh như lúc mới.
+   - Mốc 60 ngày (người dùng rút từ 90 xuống 60 ngày 19/11/2026): trong dữ liệu cũ S1 hoặc S2 bắt 11/12 sổ kẹt trước ngày 60 (mốc 90 bắt 12/12), gắn 74/165 sổ thay vì 86/165. Hôm 19/11/2026 trên `hao` còn 7 sổ mới đang nợ, 2 sổ cần để ý.
 2. **Lần trả** giống `pay_last` của `get_dashboard_debt`: phiếu chưa hủy (kể cả cấn trừ) và dòng thu sổ gốc khác 0, chưa xóa.
 3. **S1 · Chưa trả lần nào:** sổ mới, đã đủ **30 ngày** từ chuyến đầu, chưa có lần trả nào từ 7 ngày trước chuyến đầu tới hôm nay.
 4. **S2 · Chuyến chậm trả:** sổ mới có chuyến cũ nhất còn chưa trả đủ đã quá **45 ngày**. Tiền trả xếp vào chuyến theo nợ cũ trước, theo ngày chuyến.
@@ -67,7 +67,7 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
    - Chuyến chưa có giá không tính là chưa trả.
    - Giới hạn đã biết: dòng chuyến sổ gốc không ngày lấy cuối tháng, nên một lần trả giữa tháng đó có thể làm sổ mất nhãn Mới (điều kiện 7 ngày).
 5. Sổ dính cả S1 và S2 thì câu hiện S1.
-6. Sau 90 ngày, nhãn **Mới** và S1, S2 tự hết. Sổ từ đó theo luật thường.
+6. Sau 60 ngày, nhãn **Mới** và S1, S2 tự hết. Sổ từ đó theo luật thường.
 7. Hai tín hiệu **không đổi** nhóm hạn trả, mức rủi ro hay nhóm tình trạng của `DASH-03`, `DASH-05`, `DASH-06`, và không đổi tiền, phân bổ, khóa tháng hay quyền.
 8. Ô "Khách mới" (mọi sổ mới đang nợ) là một chiều lọc theo [`DASH-08`](../docs/decisions/dash-08.md): các khối khác tính lại theo lọc này, còn ô tự nó vẫn hiện đủ số. Không có sổ nào thì ô hiện "0" và không bấm được.
 
@@ -98,7 +98,7 @@ Thay đổi chỉ nằm trong hàm đọc (`CREATE OR REPLACE`, migration riêng
 - [`DASH-06`](../docs/decisions/dash-06.md): Tổng quan cho C-level, màn chỉ ghi dữ kiện. Câu ở mỗi dòng là dữ kiện, không gợi ý việc.
 - [`DASH-08`](../docs/decisions/dash-08.md): lọc chéo.
 - [`MAY-TAO-SO-01`](../docs/decisions/may-tao-so-01.md): khách mới vào web bằng sổ máy tự tạo.
-- [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md): người dùng chốt ba mốc 90 / 30 / 45 ngày và chỗ hiện (ô lọc ở Tổng quan, dòng ở Tình hình) ngày 19/11/2026. Chưa làm nút "Không phải khách mới" cho sổ tách từ khách cũ; xem lại khi có sổ bị gắn nhầm (nút này cần bảng ngoài đường tiền như `contact_mark`).
+- [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md): người dùng chốt ba mốc 90 / 30 / 45 ngày (sau rút mốc sổ mới còn 60 ngày) và chỗ hiện (ô lọc ở Tổng quan, dòng ở Tình hình) ngày 19/11/2026. Chưa làm nút "Không phải khách mới" cho sổ tách từ khách cũ; xem lại khi có sổ bị gắn nhầm (nút này cần bảng ngoài đường tiền như `contact_mark`).
 
 ## Tiêu chí nghiệm thu
 
