@@ -3551,6 +3551,10 @@ AS $function$
 -- Tổng cộng bằng numeric (không ép bigint) để không tràn số khi cộng nhiều sổ.
 -- DASH-08 (9/11/2026): this_month.customers là thu/phát sinh tháng này từng sổ có số khác 0 (cả sổ đã hết nợ), để Tổng quan
 -- lọc thẻ Thu tháng theo mặt hàng / nhóm khách; cộng các sổ đúng bằng charges_vnd / received_vnd của this_month.
+-- KHACH-MOI-01 (19/11/2026): sổ mới = chuyến đầu (sớm nhất, cùng luật ngày với lần đi hàng) cách hôm nay ≤ 90 ngày và không có
+-- lần trả nào sớm hơn chuyến đầu quá 7 ngày. no_pay: đủ 30 ngày từ chuyến đầu mà chưa trả lần nào; slow: chuyến cũ nhất còn chưa
+-- trả đủ quá 45 ngày. Chuyến chưa trả đủ = các chuyến mới nhất cộng lại vừa phủ số còn nợ của sổ (nợ cũ trả trước); tiền chuyến
+-- chỉ để xếp, không cộng vào số nào; chuyến chưa có giá không tính. Chỉ là cờ đọc: không đổi nhóm hạn trả, mức rủi ro hay tiền.
 DECLARE d date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date; m date := date_trunc('month', d)::date;
 BEGIN
   PERFORM sokhach._actor();
@@ -3577,10 +3581,11 @@ BEGIN
         coalesce(jsonb_agg(jsonb_build_object('month',om.debt_month,'outstanding_vnd',om.outstanding_vnd::text)
           ORDER BY om.debt_month) FILTER (WHERE om.outstanding_vnd<>0),'[]'::jsonb) AS months
         FROM om JOIN debtor b ON b.id=om.customer_id GROUP BY om.customer_id),
-    leg_trip AS (SELECT l.customer_id,coalesce(r.debt_month,l.debt_month) AS mon,
-        CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS dt
+    leg_trip AS (SELECT l.id,l.customer_id,coalesce(r.debt_month,l.debt_month) AS mon,
+        CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS dt,
+        coalesce(r.counted_vnd,l.source_total_vnd) AS amt
         FROM sokhach.legacy_row l JOIN debtor b ON (b.id,b.cutover_id)=(l.customer_id,l.cutover_id)
-        LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.deleted FROM sokhach.legacy_trip_rev x
+        LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.deleted,x.counted_vnd FROM sokhach.legacy_trip_rev x
             WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
        WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)),
     leg_pay AS (SELECT l.customer_id,l.debt_month AS mon,
@@ -3589,27 +3594,53 @@ BEGIN
         CROSS JOIN LATERAL (SELECT coalesce(sokhach._legacy_date(l.display->>'date'),sokhach._legacy_pay_date(l.display->>'raw_date')) AS dt) p
         LEFT JOIN LATERAL (SELECT x.deleted FROM sokhach.legacy_trip_rev x WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
        WHERE l.kind='receipt' AND l.source_total_vnd IS NOT NULL AND l.source_total_vnd<>0 AND NOT coalesce(r.deleted,false)),
-    pay_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM (
-        SELECT r.customer_id,r.date AS dt,
+    pay_day AS (SELECT r.customer_id,r.date AS dt,
                coalesce(r.reference !~ '( \(ngày tượng trưng\)| · ngày theo cuối tháng khối Sheet)$',true) AS exact
           FROM sokhach.receipt r JOIN debtor b ON b.id=r.customer_id WHERE r.voided_on IS NULL
         UNION ALL
-        SELECT customer_id,coalesce(dt,least((mon+interval '1 month')::date-1,d)),dt IS NOT NULL FROM leg_pay) p
-        ORDER BY customer_id,dt DESC,exact DESC),
-    trip_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM (
-        SELECT t.customer_id,coalesce(t.event_date,least((t.debt_month+interval '1 month')::date-1,d)) AS dt,
+        SELECT customer_id,coalesce(dt,least((mon+interval '1 month')::date-1,d)),dt IS NOT NULL FROM leg_pay),
+    pay_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM pay_day ORDER BY customer_id,dt DESC,exact DESC),
+    trip_day AS (SELECT t.customer_id,coalesce(t.event_date,least((t.debt_month+interval '1 month')::date-1,d)) AS dt,
                t.event_date IS NOT NULL AS exact
           FROM sokhach.v_trip_current t JOIN debtor b ON b.id=t.customer_id
          WHERE NOT t.deleted AND t.status<>'rejected'
         UNION ALL
         SELECT customer_id,coalesce(dt,least((mon+interval '1 month')::date-1,d)),dt IS NOT NULL
-          FROM leg_trip) p ORDER BY customer_id,dt DESC,exact DESC),
+          FROM leg_trip),
+    trip_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM trip_day ORDER BY customer_id,dt DESC,exact DESC),
+    trip_first AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM trip_day ORDER BY customer_id,dt,exact DESC),
+    newb AS (SELECT f.customer_id,f.dt FROM trip_first f WHERE f.dt>=d-90
+        AND NOT EXISTS (SELECT 1 FROM pay_day p WHERE p.customer_id=f.customer_id AND p.dt<f.dt-7)),
+    new_trip AS (SELECT t.customer_id,coalesce(t.event_date,least((t.debt_month+interval '1 month')::date-1,d)) AS dt,t.id AS k,
+               CASE WHEN p.unit_price_vnd IS NOT NULL THEN p.unit_price_vnd+coalesce(p.other_fee_vnd,0)
+                    WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd END AS amt
+          FROM sokhach.v_trip_current t JOIN newb n ON n.customer_id=t.customer_id
+          LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
+              WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
+         WHERE NOT t.deleted AND t.status<>'rejected'
+        UNION ALL
+        SELECT l.customer_id,coalesce(l.dt,least((l.mon+interval '1 month')::date-1,d)),-l.id,l.amt
+          FROM leg_trip l JOIN newb n ON n.customer_id=l.customer_id),
+    -- Đi từ chuyến mới nhất về cũ: chuyến đầu tiên làm tổng vừa phủ số còn nợ là chuyến cũ nhất chưa trả đủ;
+    -- không phủ nổi (còn nợ từ mốc hay điều chỉnh) thì là chuyến cũ nhất.
+    new_unpaid AS (SELECT DISTINCT ON (customer_id) customer_id,dt FROM (
+        SELECT n.customer_id,n.dt,b.total,
+               sum(n.amt) OVER (PARTITION BY n.customer_id ORDER BY n.dt DESC,n.k DESC ROWS UNBOUNDED PRECEDING) AS cum
+          FROM new_trip n JOIN debtor b ON b.id=n.customer_id WHERE n.amt>0) x
+        ORDER BY customer_id,(cum>=total) DESC,CASE WHEN cum>=total THEN cum ELSE -cum END),
     base AS (SELECT b.id,b.name,cm.name AS commodity,b.transport_mode,b.total,t.t0,t.t1,t.t2,t.t3,t.t4,
         t.t2+t.t3+t.t4 AS overdue,t.t3+t.t4 AS long_overdue,t.oldest,t.months,
         p.dt AS pay_day,p.exact AS pay_exact,CASE WHEN p.dt IS NOT NULL THEN greatest(d-p.dt,0) END AS pay_days,
-        tr.dt AS trip_day,tr.exact AS trip_exact,CASE WHEN tr.dt IS NOT NULL THEN greatest(d-tr.dt,0) END AS trip_days
+        tr.dt AS trip_day,tr.exact AS trip_exact,CASE WHEN tr.dt IS NOT NULL THEN greatest(d-tr.dt,0) END AS trip_days,
+        tf.dt AS first_trip_day,tf.exact AS first_trip_exact,n.customer_id IS NOT NULL AS is_new,
+        CASE WHEN n.customer_id IS NOT NULL THEN u.dt END AS unpaid_day,
+        CASE WHEN n.customer_id IS NULL THEN NULL
+             WHEN p.dt IS NULL AND d-n.dt>=30 THEN 'no_pay'
+             WHEN u.dt IS NOT NULL AND d-u.dt>45 THEN 'slow' END AS new_flag
         FROM debtor b JOIN tier t ON t.customer_id=b.id
         LEFT JOIN pay_last p ON p.customer_id=b.id LEFT JOIN trip_last tr ON tr.customer_id=b.id
+        LEFT JOIN trip_first tf ON tf.customer_id=b.id LEFT JOIN newb n ON n.customer_id=b.id
+        LEFT JOIN new_unpaid u ON u.customer_id=b.id
         LEFT JOIN sokhach.commodity cm ON cm.id=b.commodity_id),
     ranked AS (SELECT r.*,CASE WHEN r.overdue<=0 THEN 'ok'
         WHEN r.long_overdue>0 OR r.pay_days IS NULL OR r.pay_days>60 OR r.trip_days IS NULL OR r.trip_days>90 THEN 'high'
@@ -3646,7 +3677,8 @@ BEGIN
              AND mc.source_charge_vnd IS NOT NULL AND mc.source_receipt_vnd IS NOT NULL) s ON true),
     flow AS (SELECT coalesce(sum(charges),0) AS charges,coalesce(sum(received),0) AS received FROM flow_c)
   SELECT jsonb_build_object('as_of',d::text,'month',m::text,
-    'rule',jsonb_build_object('due_after_months',1,'long_overdue_months',3,'no_pay_days',60,'no_trip_days',90,'active_trip_days',30),
+    'rule',jsonb_build_object('due_after_months',1,'long_overdue_months',3,'no_pay_days',60,'no_trip_days',90,'active_trip_days',30,
+      'new_days',90,'new_no_pay_days',30,'new_unpaid_days',45),
     'receivable_vnd',(SELECT coalesce(sum(total),0)::text FROM ranked),
     'due_tiers',(SELECT jsonb_build_array(
         jsonb_build_object('tier','not_due','receivable_vnd',coalesce(sum(t0),0)::text),
@@ -3669,7 +3701,8 @@ BEGIN
         'overdue_vnd',overdue::text,'long_overdue_vnd',long_overdue::text,'oldest_open_month',oldest::text,
         'last_receipt_date',pay_day::text,'last_receipt_exact',pay_exact,'pay_days',pay_days,
         'last_trip_date',trip_day::text,'last_trip_exact',trip_exact,'trip_days',trip_days,
-        'risk',risk,'months',months) ORDER BY overdue DESC,total DESC,name COLLATE "C",id) FROM ranked),'[]'::jsonb)));
+        'risk',risk,'months',months,'first_trip_day',first_trip_day::text,'first_trip_exact',first_trip_exact,
+        'is_new',is_new,'new_flag',new_flag,'oldest_unpaid_trip_day',unpaid_day::text) ORDER BY overdue DESC,total DESC,name COLLATE "C",id) FROM ranked),'[]'::jsonb)));
 END $function$;
 ALTER FUNCTION sokhach.get_dashboard_debt() OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach.get_dashboard_debt() FROM PUBLIC;

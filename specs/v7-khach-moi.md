@@ -1,6 +1,6 @@
 # Khách mới: để ý thu sớm (KHACH-MOI-01)
 
-Trạng thái: ĐỀ XUẤT (Claude, 19/11/2026). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Chưa code, chưa có quyết định trong `docs/decisions.md`; khi người dùng chốt thì ghi `docs/decisions/khach-moi-01.md`.
+Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql`. Frontend chưa code.
 
 ## Vấn đề
 
@@ -97,7 +97,7 @@ Thay đổi chỉ nằm trong hàm đọc (`CREATE OR REPLACE`, migration riêng
 - [`DASH-06`](../docs/decisions/dash-06.md): Tổng quan cho C-level, màn chỉ ghi dữ kiện. Câu ở mỗi dòng là dữ kiện, không gợi ý việc.
 - [`DASH-08`](../docs/decisions/dash-08.md): lọc chéo.
 - [`MAY-TAO-SO-01`](../docs/decisions/may-tao-so-01.md): khách mới vào web bằng sổ máy tự tạo.
-- CÒN MỞ, cần người dùng chốt: (a) ba mốc 90 / 30 / 45 ngày; (b) chỗ hiện: ô lọc ở Tổng quan và dòng ở Tình hình, hay thêm nơi khác; (c) có cần nút "Không phải khách mới" cho sổ tách từ khách cũ không. Phương án đề xuất là chưa làm nút, chờ xem có sổ nào bị gắn nhầm. Nút này cần bảng ngoài đường tiền như `contact_mark`.
+- [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md): người dùng chốt ba mốc 90 / 30 / 45 ngày và chỗ hiện (ô lọc ở Tổng quan, dòng ở Tình hình) ngày 19/11/2026. Chưa làm nút "Không phải khách mới" cho sổ tách từ khách cũ; xem lại khi có sổ bị gắn nhầm (nút này cần bảng ngoài đường tiền như `contact_mark`).
 
 ## Tiêu chí nghiệm thu
 
