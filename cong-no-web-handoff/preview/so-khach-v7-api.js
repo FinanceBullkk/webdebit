@@ -191,11 +191,18 @@
     };
     // gentle (hàng đợi ghi nền): vẽ qua onPatched để không thay #app giữa lúc người dùng đang gõ ô kế tiếp.
     const read = options => track(readLedger(options));
+    // Audit 19/11/2026 (A05): lần đọc bắt đầu trước một lần đọc đã cài (thường là lần đọc lại ngay sau lệnh ghi) mà trả về sau
+    // thì không cài, kể cả cùng version — phần chiếu (giá Sheet…) đổi được khi version sổ không đổi. Bản có version nhỏ hơn bản
+    // đang giữ cũng không cài. Lần đọc bị bỏ vẫn trả về (bản sổ đang giữ) để người chờ không treo, và không vẽ lại.
+    let readStarted = 0, readInstalled = 0;
     async function readLedger({ gentle = false } = {}) {
+      const generation = ++readStarted;
       const response = await (prefetched() ?? fetcher(`/api/v7/ledger?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' }));
       if (!response.ok) throw Error('Không đọc được sổ khách.');
       const next = await response.json();
       if (!next || next.customer_id !== customerId || !Number.isSafeInteger(next.version)) throw Error('Dữ liệu sổ không hợp lệ.');
+      if (snapshot && (generation < readInstalled || (snapshot.customer_id === next.customer_id && next.version < snapshot.version))) return snapshot;
+      readInstalled = generation;
       const banner = typeof document !== 'undefined' && document.querySelector('#demo-banner');
       if (banner) {
         if (next.real_copy === true) banner.textContent = realCopyText;
@@ -259,6 +266,9 @@
         onNotice(unknown);
       }
     }
+    // Hợp đồng kết quả của submit (audit 19/11/2026, A02): giá trị trả về KHÔNG cho biết đã lưu — chỉ là thân lỗi khi máy chủ từ
+    // chối (để hiện result.message, xét result.error), còn lại undefined (đã lưu, sổ đổi, chưa rõ). Đã lưu hay chưa: đọc
+    // lastOutcome().status ('saved' | 'error' | 'stale' | 'unknown', null khi submit ném lỗi) ngay sau await, như mọi chỗ gọi.
     async function submit(action, fields) {
       outcome = null;   // trước mọi lần từ chối: kết quả của lệnh trước (hay chuỗi giá) không được đọc nhầm là của lệnh này
       if (queueRun) { await queueRun; outcome = null; }   // NHAP-NHANH-01: lệnh khác chờ hàng đợi ghi nền xong
@@ -311,6 +321,9 @@
       onSaving();
       return queueRun;
     };
+    // Audit 19/11/2026 (A07): hàng đợi dừng hẳn (lệnh bị từ chối, đã lưu mà không đọc lại được sổ) thì các lệnh đã ghi xong
+    // trước đó cũng trả kết quả ngay — người gọi chờ để báo CHỜ KIỂM — không treo tới lượt hàng đợi sau.
+    const settleSaved = run => { for (const item of run.items.slice(0, run.index)) item.resolve({ status: 'saved', result: item.result }); };
     async function loopQuick() {
       const run = queue;
       for (;;) {
@@ -335,6 +348,7 @@
             try { await read({ gentle: true }); } catch { /* câu báo dưới đây vẫn nói ô nào chưa lưu */ }
             const why = result?.error === 'STALE_LEDGER' ? stale : result?.message || 'Không lưu được thao tác.';
             onNotice(`Chưa lưu ${item.label || 'ô vừa sửa'}: ${why}${later.length ? ` ${later.length} ô sửa sau đó cũng chưa lưu, nhập lại các ô đó.` : ''}`);
+            settleSaved(run);
             item.resolve(outcome);
             for (const other of later) other.resolve({ status: 'dropped' });
             return;
@@ -347,7 +361,15 @@
           else if (response.ok) {
             // Lệnh không trả version: đọc lại sổ lấy version trước khi gửi lệnh sau.
             try { run.version = (await read({ gentle: true })).version; }
-            catch { queue = null; outcome = { status: 'unknown' }; onNotice('Đã lưu nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.'); return; }
+            catch {
+              const later = run.items.slice(run.index);
+              queue = null;
+              outcome = { status: 'unknown' };
+              onNotice(`Đã lưu nhưng không tải lại được sổ.${later.length ? ` ${later.length} ô sửa sau đó chưa lưu.` : ''} Tải lại trang rồi kiểm tra.`);
+              settleSaved(run);
+              for (const other of later) other.resolve({ status: 'dropped' });
+              return;
+            }
           }
         }
         let readBack = true;
