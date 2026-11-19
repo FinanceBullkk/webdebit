@@ -1,6 +1,6 @@
 # V7: đối chiếu phí Bảo hiểm với giấy chứng nhận trong group Zalo
 
-Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q4 ở cuối spec), **điều chỉnh sau P0** cùng ngày ([mục riêng](#điều-chỉnh-sau-p0-đã-chốt-19112026)); đang code, chưa đụng `hao`. Quyết định đi kèm: [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md).
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q4 ở cuối spec), **điều chỉnh sau P0** cùng ngày ([mục riêng](#điều-chỉnh-sau-p0-đã-chốt-19112026)); đường đẩy và phía đọc đã chạy trên `hao` từ 19/11/2026, giao diện chưa làm. Quyết định đi kèm: [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md).
 
 <!-- du-lieu-gia: MAUU1234567 -->
 
@@ -176,12 +176,13 @@ Người dùng chọn cả ba đề xuất của Claude sau khi xem P0 (chat 19/
 | --- | --- | --- | --- |
 | Spec | FinanceBullkk/webdebit#526 | 19/11/2026 | Đã merge |
 | P0 đo | không có PR (chỉ đọc) | 19/11/2026 | Xong, kết quả ở [Bằng chứng](#bằng-chứng) |
-| Điều chỉnh sau P0 | PR này | 19/11/2026 | Chờ merge |
-| PR-1 đọc | — | — | Đang làm |
-| PR-2 giao diện | — | — | Chờ PR-1 |
-| Phía máy Zalo | repo `zalo-audit-viewer` | — | Chưa bắt đầu |
+| Điều chỉnh sau P0 | FinanceBullkk/webdebit#530 | 19/11/2026 | Đã merge, `Deploy hao` xanh |
+| PR-1 đọc | FinanceBullkk/webdebit#531 (`ad35c6b`) | 19/11/2026 | Đã merge, `Deploy hao` xanh |
+| PR-2 giao diện | — | — | Chưa bắt đầu |
+| Phía máy Zalo | repo `zalo-audit-viewer`, nhánh `claude/bao-hiem-web` | 19/11/2026 | Đang chạy từ worktree, chưa gộp `main` của repo đó |
 | PR-3 máy đổi loại | — | — | Hoãn |
-| Cài đường đẩy trên `hao` | — | — | Chờ người dùng duyệt |
+| Cài đường đẩy trên `hao` (cổng B) | [nhật ký](../docs/deploys/2026-11-19-bao-hiem-zalo.md) | 19/11/2026 | ĐÃ TRIỂN KHAI, đã kiểm (hash, không tên/MST, PDF mở được, 16 giấy chia đủ) |
+| Người dùng đi hết luồng (cổng D) | — | — | Chờ PR-2 |
 
 ## Câu hỏi đã chốt
 

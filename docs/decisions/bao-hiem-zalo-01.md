@@ -25,7 +25,7 @@ Lý do không cộng tiền: [`SONG-SONG-01`](song-song-01.md) và [`CHUYEN-HAN-
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 19/11/2026; đang code, chưa triển khai. Chi tiết, trạng thái từng giấy, tiêu chí và thứ tự PR ở [spec](../../specs/v7-bao-hiem-zalo.md). Hết hiệu lực khi chuyển hẳn khỏi Sheet; khi đó xét Q4.
+ĐÃ CHỐT 19/11/2026. ĐÃ TRIỂN KHAI (hao, 19/11/2026): phía đọc (FinanceBullkk/webdebit#531) và đường đẩy giấy từ máy có Zalo ([nhật ký](../deploys/2026-11-19-bao-hiem-zalo.md)). ĐÃ KIỂM CHỨNG: hash bản gọn đúng, không tên hay mã số thuế trên `hao`, PDF mở được qua API, 16 giấy chia đủ vào sổ và Việc cần làm. Giao diện chưa làm; người dùng chưa đi luồng. Chi tiết, trạng thái từng giấy, tiêu chí và thứ tự PR ở [spec](../../specs/v7-bao-hiem-zalo.md). Hết hiệu lực khi chuyển hẳn khỏi Sheet; khi đó xét Q4.
 
 **Điều chỉnh sau P0 (người dùng chốt 19/11/2026, chat).** Bước đo chỉ đọc trên `hao` cho thấy dòng sổ gốc không có booking, 3/16 giấy bị chặn chỉ vì cảnh báo `info:`, và chưa có ca nào để máy đổi loại. Người dùng chọn ba đề xuất:
 
