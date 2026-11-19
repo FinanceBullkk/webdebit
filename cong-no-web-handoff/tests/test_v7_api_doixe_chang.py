@@ -38,14 +38,37 @@ def chang(id_, *, cont="MAUU1000001", ngay="2026-11-19", ngay_dong="2026-11-19",
             "sau_khoa": False, "actor": "nv@gia", "luc": "2026-11-19T08:00:00+07:00", "co_phi": phi, "da_hoan": hoan, "da_gui": gui}
 
 
+def money_fin(**over):
+    """Phần tài chính mặc định của một chặng giả: một khoản chi nâng 450.000 người trả, cước 1.000.000, lãi gộp 550.000."""
+    base = {"thang_khoa": False, "bang_ke_thang": "2026-11-01",
+            "chi": {"dong": [{"khoan": "nang", "ten": "Nâng", "so_tien_vnd": "450000", "nguoi_tra": "nguoi", "nguoi_tra_id": 2,
+                              "chi_ho": False, "da_hoan": False}],
+                    "tong_vnd": "450000", "chi_ho_vnd": "0", "ngoai_chi_ho_vnd": "450000"},
+            "thu": {"cuoc": {"vnd": "1000000", "gia_bang_vnd": "1000000", "tay": False, "tuyen_id": 3, "tuyen": "Tuyến giả"},
+                    "ghep_vnd": "0", "ps_vnd": "0", "chi_ho_vnd": "0", "dc_vnd": None, "doi_vnd": "1000000",
+                    "dong": [{"khoan": "xi_cont", "ten": "Xí cont", "so_luong": None, "muc_vnd": None, "so_tien_vnd": "0", "chi_ho": True,
+                              "cot": "ps", "la": False}],
+                    "loi": [{"goc": "x", "loi": "y"}], "chua_doc": 0},
+            "lai_gop": {"thu_vnd": "1000000", "chi_vnd": "450000", "lai_vnd": "550000", "thieu": []}}
+    return {**base, **over}
+
+
 class FakeDb:
     """Chỉ biết get_dieu_do: danh mục mã nhà xe, các chặng đã nối theo (container, ngày đóng), chặng mồ côi. Có `pool` (danh sách chặng có
     ngày đóng) thì tự nối như luật SQL: cùng container, lệch ngày đóng không quá 3 ngày, việc gần nhất; chặng không nối được và có ngày
     đóng trong [sớm nhất, muộn nhất] của các việc được gửi là mồ côi (mảng việc rỗng thì không có mồ côi)."""
 
-    def __init__(self, joined=None, orphans=None, codes=((USED, True), (OLD, False)), pool=None):
+    def __init__(self, joined=None, orphans=None, codes=((USED, True), (OLD, False)), pool=None, fin=None, outside=()):
         self.joined, self.orphans, self.calls, self.pool, self.modes = joined or {}, orphans or [], [], pool, []
+        self.fin, self.outside = fin or {}, list(outside)
         self.codes = [{"ma": m, "dang_dung": on} for m, on in codes]
+
+    def known(self):
+        pooled = list(self.pool) if self.pool is not None else []
+        return [c for rows in self.joined.values() for c in rows] + self.orphans + self.outside + pooled
+
+    def named(self, function):
+        return [call for call in self.calls if call[0] == function]
 
     def asked(self):
         return [call[1] for call in self.calls if call[0] == "doixe_get_dieu_do" and call[1]][-1]
@@ -56,17 +79,25 @@ class FakeDb:
         joined, orphans = {}, []
         days = sorted(i["ngay_dong"] for i in payload)
         for c in self.pool:
-            gap = lambda d, c=c: abs((date.fromisoformat(d) - date.fromisoformat(c["ngay_dong"])).days)  # noqa: E731
-            options = [i["ngay_dong"] for i in payload if i["container"] == c["container"] and gap(i["ngay_dong"]) <= 3]
+            # Luật doixe._cach_viec: có ngày đóng thì lệch ≤ 3 ngày; chưa có thì theo ngày chạy, lệch ≤ 10 ngày (và không bao giờ mồ côi).
+            anchor, limit = (c["ngay_dong"], 3) if c["ngay_dong"] is not None else (c["ngay"], 10)
+            gap = lambda d, anchor=anchor: abs((date.fromisoformat(d) - date.fromisoformat(anchor)).days)  # noqa: E731
+            options = [i["ngay_dong"] for i in payload if i["container"] == c["container"] and gap(i["ngay_dong"]) <= limit]
             if options:
                 joined.setdefault((c["container"], min(options, key=lambda d: (gap(d), d))), []).append(c)
-            elif days and days[0] <= c["ngay_dong"] <= days[-1]:
+            elif c["ngay_dong"] is not None and days and days[0] <= c["ngay_dong"] <= days[-1]:
                 orphans.append(c)
         return joined, orphans
 
     def run(self, function, payload, actor, *, read_only=False):
         self.calls.append((function, payload, actor))
         self.modes.append((function, read_only))
+        if function == "doixe_get_chang_tai_chinh":
+            ids, out = set(payload["ids"]), {}
+            for c in self.known():
+                if c["id"] in ids or (payload["tu"] and payload["tu"] <= c["ngay"] <= payload["den"]):
+                    out[c["id"]] = {**c, **self.fin.get(c["id"], money_fin())}
+            return {"hom_nay": "2026-11-19", "chang": sorted(out.values(), key=lambda c: (c["ngay"], c["id"]))}
         if function != "doixe_get_dieu_do":
             return {"function": function}
         joined, orphans = self.link(payload)
@@ -112,7 +143,7 @@ class ReadChangTest(unittest.TestCase):
 
     def test_only_unnumbered_jobs_skip_the_second_db_call(self):
         db, out = self.read([src("", "2026-11-20")])
-        self.assertEqual(len(db.calls), 1)
+        self.assertEqual([call[0] for call in db.calls], ["doixe_get_dieu_do", "doixe_get_chang_tai_chinh"])   # không có lượt nối chặng
         self.assertEqual(out["viec"][0]["trang_thai"], "sap_toi")
 
     def test_states_flags_and_counts(self):
@@ -133,7 +164,8 @@ class ReadChangTest(unittest.TestCase):
         self.assertEqual(by["MAUU1000004"]["chang"][0]["khoa"], "CHANG_DA_HOAN")
         self.assertEqual(by["MAUU1000005"]["chang"][0]["khoa"], "CHANG_DA_GUI")
         self.assertEqual(out["dem"], {"viec": 5, "sap_toi": 0, "cho_phan_xe": 1, "da_phan_xe": 1, "da_co_phi": 2, "da_len_bang_ke": 1,
-                                      "booking_doi": 0, "chua_co_phi": 2, "ngoai_khoang": 0, "khong_con_tren_booking": 0})
+                                      "booking_doi": 0, "chua_co_phi": 2, "chua_co_gia": 0, "ngoai_khoang": 0, "khong_con_tren_booking": 0,
+                                      "ngoai_booking": 0})
         self.assertEqual((out["xe"][0]["bien_so"], out["tai_xe"][0]["ten"], out["hom_nay"]), ("99X-00001", "Tài xế giả", "2026-11-19"))
 
     def test_booking_changed_shows_before_and_after_and_does_not_touch_the_chang(self):
@@ -191,7 +223,7 @@ class ReadChangTest(unittest.TestCase):
 
     def test_no_active_code_or_old_snapshot(self):
         db, out = self.read([src("MAUU1000001", "2026-11-19")], db=FakeDb(codes=((OLD, False),)))
-        self.assertEqual((out["viec"], len(db.calls)), ([], 1))
+        self.assertEqual((out["viec"], len(db.calls)), ([], 2))   # danh mục mã, rồi chặng ngoài booking trong khoảng
         self.assertEqual(out["xe"][0]["id"], 1)   # danh mục xe, tài xế vẫn trả
         with self.assertRaises(api.ApiError) as caught:
             self.read([src("MAUU1000001", "2026-11-19")], columns=())
@@ -236,6 +268,20 @@ class ReadChangTest(unittest.TestCase):
         _, out = self.read(rows, query=query, db=FakeDb(pool=far))
         self.assertEqual([c["id"] for c in out["khong_con_tren_booking"]], [61])
         self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000062"])
+
+    def test_chang_without_close_date_of_a_hidden_job_is_not_outside_booking(self):
+        # Xem tháng 11. Chặng nhập chi phí (ngày đóng trống) chạy 1/11; việc đóng 30/10 (2 ngày) hoặc 24/10 (8 ngày) nối được theo luật ±10 ngày
+        # của ngày chạy nhưng nằm ngoài khoảng nên ẩn: chặng KHÔNG được xếp ngoài booking. Việc đóng 20/10 (12 ngày) không nối: đúng là ngoài booking.
+        for day, outside in (("2026-10-30", False), ("2026-10-24", False), ("2026-10-20", True), ("2026-11-10", False)):
+            with self.subTest(job_day=day):
+                legacy = chang(71, cont="MAUU1000071", ngay="2026-11-01", ngay_dong=None, loai="chuyen_cang") | {"nguon": "nhap"}
+                db, out = self.read([src("MAUU1000071", day, line=2), src("MAUU1000072", "2026-11-19", line=3)], query="thang=2026-11-01",
+                                    db=FakeDb(pool=[legacy]))
+                self.assertEqual([c["id"] for c in out["ngoai_booking"]], [71] if outside else [])
+                self.assertEqual(out["dem"]["ngoai_booking"], 1 if outside else 0)
+                if day < "2026-11-01":
+                    self.assertNotIn("MAUU1000071", [v["container"] for v in out["viec"]])   # việc ngoài khoảng, không giữ chặng có ngày đóng: ẩn
+                self.assertEqual(("2026-10-20" in {i["ngay_dong"] for i in db.asked()}), False)   # xa hơn 10 ngày: không gửi
 
     def test_row_dated_before_2020_is_skipped_not_fatal(self):
         # doixe._ngay từ chối ngày trước 2020-01-01: một dòng gõ nhầm năm không được làm cả lượt gọi trả 422.
@@ -286,7 +332,10 @@ class ReadChangTest(unittest.TestCase):
 
     def test_reads_run_in_read_only_mode(self):
         db, _ = self.read([src("MAUU1000001", "2026-11-19")])
-        self.assertEqual(db.modes, [("doixe_get_dieu_do", True)] * 2)
+        self.assertEqual(db.modes, [("doixe_get_dieu_do", True)] * 2 + [("doixe_get_chang_tai_chinh", True)])
+        db = FakeDb({("MAUU1000001", "2026-11-19"): [chang(12)]})
+        doixe.read_phieu("id=12", db, "nv@gia")
+        self.assertEqual(db.modes, [("doixe_get_chang_tai_chinh", True)])
 
     def test_snapshot_unavailable_and_stale(self):
         with mock.patch.object(doixe.v7_api_sheet, "load_snapshot", side_effect=ValueError("x")), \
@@ -296,6 +345,64 @@ class ReadChangTest(unittest.TestCase):
         self.assertEqual((caught.exception.status, caught.exception.code), (503, "SHEET_SNAPSHOT_UNAVAILABLE"))
         _, out = self.read([], created="khong-phai-ngay")
         self.assertEqual((out["nguon"]["qua_han"], out["nguon"]["tao_luc"]), (True, None))
+
+    def test_finance_is_merged_in_short_form_and_ids_are_sent(self):
+        rows = [src("MAUU1000001", "2026-11-19", line=2), src("MAUU1000002", "2026-11-19", line=3)]
+        joined = {("MAUU1000001", "2026-11-19"): [chang(12), chang(14, loai="chuyen_cang", ngay="2026-12-02")]}
+        fin = {14: money_fin(thu={**money_fin()["thu"], "cuoc": {"vnd": None, "gia_bang_vnd": None, "tay": False, "tuyen_id": None, "tuyen": None}},
+                             lai_gop={"thu_vnd": None, "chi_vnd": "450000", "lai_vnd": None, "thieu": ["gia"]})}
+        db, out = self.read(rows, db=FakeDb(joined, fin=fin))
+        ask = db.named("doixe_get_chang_tai_chinh")[0][1]
+        self.assertEqual((ask["tu"], ask["den"], sorted(ask["ids"])), ("2026-11-01", "2026-11-30", [12, 14]))   # chặng lệch ngày vẫn có số
+        first, late = out["viec"][0]["chang"]
+        self.assertEqual((first["chi"], first["lai_gop"]["lai_vnd"], first["thu"]["doi_vnd"], first["bang_ke_thang"], first["thang_khoa"]),
+                         ({"tong_vnd": "450000", "chi_ho_vnd": "0", "ngoai_chi_ho_vnd": "450000"}, "550000", "1000000", "2026-11-01", False))
+        self.assertNotIn("dong", first["thu"])   # từng khoản và từng dòng chỉ có ở phiếu chặng
+        self.assertNotIn("loi", first["thu"])
+        self.assertEqual((late["lai_gop"]["lai_vnd"], late["lai_gop"]["thieu"], late["thu"]["cuoc"]["vnd"]), (None, ["gia"], None))   # NULL, không phải 0
+        self.assertEqual(out["dem"]["chua_co_gia"], 1)
+        self.assertEqual(out["viec"][1]["chang"], [])
+
+    def test_chang_without_finance_row_stays_without_finance_keys(self):
+        class Gone(FakeDb):
+            def run(self, function, payload, actor, *, read_only=False):
+                got = super().run(function, payload, actor, read_only=read_only)
+                if function == "doixe_get_chang_tai_chinh":
+                    got["chang"] = []   # chặng vừa bị bỏ giữa hai lượt
+                return got
+        _, out = self.read([src("MAUU1000001", "2026-11-19")], db=Gone({("MAUU1000001", "2026-11-19"): [chang(12)]}))
+        self.assertNotIn("lai_gop", out["viec"][0]["chang"][0])
+
+    def test_chang_outside_booking_are_listed_from_the_finance_call(self):
+        extra = [chang(31, cont="MAUU1000050", ngay="2026-11-10", ngay_dong=None, loai="chuyen_cang") | {"nguon": "nhap"},
+                 chang(32, cont="MAUU1000051", ngay="2026-11-11", ngay_dong="2026-11-11")]   # có ngày đóng mà không thuộc việc nào đang hiện
+        joined = {("MAUU1000001", "2026-11-19"): [chang(12)]}
+        _, out = self.read([src("MAUU1000001", "2026-11-19")], db=FakeDb(joined, outside=extra))
+        self.assertEqual([c["id"] for c in out["ngoai_booking"]], [31])
+        self.assertEqual((out["ngoai_booking"][0]["trang_thai"], out["ngoai_booking"][0]["khoa"], out["dem"]["ngoai_booking"]),
+                         ("ngoai_booking", None, 1))
+        self.assertEqual(out["ngoai_booking"][0]["lai_gop"]["lai_vnd"], "550000")
+        self.assertNotIn("dong", out["ngoai_booking"][0]["chi"])
+        self.assertNotIn(31, [c["id"] for v in out["viec"] for c in v["chang"]])
+
+    def test_orphans_carry_finance_too(self):
+        _, out = self.read([src("MAUU1000001", "2026-11-19")], db=FakeDb(orphans=[chang(21, cont="MAUU1000009", ngay_dong="2026-11-10")]))
+        self.assertEqual(out["khong_con_tren_booking"][0]["lai_gop"]["lai_vnd"], "550000")
+
+    def test_phieu_returns_full_detail_and_rejects_unknown_chang(self):
+        db = FakeDb({("MAUU1000001", "2026-11-19"): [chang(12, phi=True)]})
+        out = doixe.read_phieu("id=12", db, "nv@gia")
+        self.assertEqual(db.calls, [("doixe_get_chang_tai_chinh", {"tu": None, "den": None, "ids": [12]}, "nv@gia")])
+        got = out["chang"]
+        self.assertEqual((got["id"], got["khoa"], got["chi"]["dong"][0]["nguoi_tra"], got["thu"]["dong"][0]["khoan"], got["thu"]["loi"][0]["loi"]),
+                         (12, "CHANG_CO_PHI", "nguoi", "xi_cont", "y"))
+        with self.assertRaises(api.ApiError) as caught:
+            doixe.read_phieu("id=99", db, "nv@gia")
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "CHANG_NOT_FOUND"))
+        for query in ("", "id=0", "id=x", "id=1&id=2", "id=1&x=2", "id=99999999999999999999"):
+            with self.subTest(query=query), self.assertRaises(api.ApiError):
+                doixe.read_phieu(query, db, "nv@gia")
+        self.assertIsNone(doixe.read_route("/api/v7/doixe/so", "", db, "nv@gia"))
 
     def test_query_rules(self):
         window = doixe.parse_chang_query("", NOW)
@@ -315,7 +422,7 @@ class ReadChangTest(unittest.TestCase):
         with self.assertRaises(api.ApiError) as caught:
             self.read(rows, db=db)
         self.assertEqual(caught.exception.code, "QUA_NHIEU_VIEC")
-        self.assertEqual(len(db.calls), 1)
+        self.assertEqual([call[0] for call in db.calls], ["doixe_get_dieu_do"])
 
 
 class ChangRouteTest(unittest.TestCase):
@@ -344,6 +451,17 @@ class ChangRouteTest(unittest.TestCase):
         with mock.patch.object(doixe, "load_booking", return_value=snapshot(rows)), self.assertRaises(api.ApiError) as caught:
             self.call("GET", "/api/v7/doixe/chang?thang=2026-11-02")
         self.assertEqual(caught.exception.code, "INVALID_MONTH")
+
+    def test_phieu_route_and_missing_permission(self):
+        db, value = self.call("GET", "/api/v7/doixe/chang/phieu?id=12", runner=FakeDb({("MAUU1000001", "2026-11-19"): [chang(12)]}))
+        self.assertEqual(value["chang"]["actor_name"], "nv")
+        self.assertEqual(db.calls[0][2], "nv@gia")
+        runner = FakeDb()
+        headers = {**self.headers, "Tailscale-User-Login": "stranger@example.test"}
+        with self.assertRaises(identity.IdentityError) as caught:
+            api.handle("GET", "/api/v7/doixe/chang/phieu?id=12", headers, b"", runner, port=8780, host="127.0.0.1", source_ip="127.0.0.1",
+                       behind_tailscale_serve=True, allowed_logins=frozenset({"nv@gia"}))
+        self.assertEqual((caught.exception.code, runner.calls), ("LOGIN_NOT_ALLOWED", []))
 
     def test_four_writes_pass_body_as_is_with_session_actor(self):
         self.on_booking = mock.patch.object(doixe, "load_booking", return_value=snapshot([src("MAUU1000001", "2026-11-19")]))
