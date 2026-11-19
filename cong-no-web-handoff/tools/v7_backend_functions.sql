@@ -385,6 +385,9 @@ BEGIN
       THEN v_reason:='BASELINE_CODE_MATCH';
       ELSIF EXISTS(SELECT FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover AND r.container_norm=v_container AND abs(r.event_date-t.event_date)<=3)
       THEN v_reason:='BASELINE_DATE_WINDOW';
+      -- Audit 19/11/2026 (A12): cùng thứ tự kiểm như paste_trips; dòng sổ gốc không ngày cùng container, cùng tháng nợ thì vào chờ kiểm.
+      ELSIF sokhach._legacy_undated_match(v_container,t.event_date)
+      THEN v_reason:='BASELINE_UNDATED_MONTH';
       ELSIF EXISTS(SELECT FROM sokhach.v_trip_current v WHERE v.customer_id=edit_trip_info.customer_id AND v.id<>t.id AND NOT v.deleted
         AND sokhach._normalize_key(v.container)=v_container AND (sokhach._booking_key(v.booking,v.container,v.event_date)=v_booking OR abs(v.event_date-t.event_date)<=3))
       THEN v_reason:='WEB_DUPLICATE'; END IF;
@@ -3455,8 +3458,13 @@ BEGIN
  IF p->>'on_date' IS NOT NULL THEN v_on:=(p->>'on_date')::date; END IF;
  SELECT * INTO v_old FROM sokhach.contact_mark m WHERE m.idempotency_key=v_key;
  IF FOUND THEN
-   -- Bấm Lưu lặp (mất mạng rồi gửi lại): trả dấu đã ghi, không thêm dòng; khóa dùng cho dấu khác thì từ chối.
-   IF v_old.customer_id<>v_customer OR v_old.kind<>v_kind THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
+   -- Bấm Lưu lặp (mất mạng rồi gửi lại): trả dấu đã ghi, không thêm dòng. Khóa dùng cho nội dung khác (khách, loại, tiền,
+   -- ngày, ghi chú, tin gắn) thì từ chối, kể cả khi người dùng sửa ô sau lần gửi chưa rõ kết quả (audit 19/11/2026, A08).
+   IF v_old.customer_id<>v_customer OR v_old.kind<>v_kind
+      OR v_old.amount_vnd IS DISTINCT FROM v_amount OR v_old.on_date IS DISTINCT FROM v_on
+      OR v_old.note IS DISTINCT FROM nullif(btrim(p->>'note'),'')
+      OR v_old.conversation_id IS DISTINCT FROM p->>'conversation_id' OR v_old.message_id IS DISTINCT FROM p->>'message_id'
+   THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
    RETURN sokhach._mark_json(v_old,v_today)||jsonb_build_object('replayed',true);
  END IF;
  IF NOT EXISTS(SELECT 1 FROM sokhach.customer c WHERE c.id=v_customer) THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
