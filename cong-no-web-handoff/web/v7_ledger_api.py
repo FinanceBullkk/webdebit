@@ -390,10 +390,14 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             raise ApiError(exc.status, exc.code, exc.message) from exc
     elif parts.path == v7_api_doixe.PREFIX or parts.path.startswith(v7_api_doixe.PREFIX + "/"):
         # CHI-PHI-XE-01: đọc đội xe (schema doixe), thẳng runner như mọi đọc không nằm trong bộ nhớ đọc; tên ngắn cho người làm.
-        function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
         names = PRESENCE.names()
-        return 200, v7_api_doixe.with_names(runner.run(function, payload, actor),
-                                            lambda login: v7_presence.display_name(login, names))
+        if parts.path == v7_api_doixe.CHANG_PATH:
+            # DOI-XE-CHANG-01: việc từ bản chụp booking (ngoài DB) cộng chặng từ get_dieu_do.
+            result = v7_api_doixe.read_chang(parts.query, runner, actor)
+        else:
+            function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
+            result = runner.run(function, payload, actor)
+        return 200, v7_api_doixe.with_names(result, lambda login: v7_presence.display_name(login, names))
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
