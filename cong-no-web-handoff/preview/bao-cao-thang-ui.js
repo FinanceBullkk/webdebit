@@ -14,8 +14,11 @@
     month: M.MONTH.test(query.get('month') ?? '') ? query.get('month') : null,
     onlyIssues: query.get('lech') === '1',
     family: ['BIEN', 'BO'].includes(query.get('loai')) ? query.get('loai') : null,
+    showMissing: query.get('webchua') === '1',
     open: new Set(), body: null, painted: null,
+    missing: null,   // BAO-CAO-THANG-02: { month, rows } | { month, error } | { month, loading }, tải khi mở danh sách
   };
+  let missingTurn = 0;
   let turn = 0;
 
   const number = value => (value === null || value === undefined ? '—' : Number(value).toLocaleString('vi-VN'));
@@ -35,6 +38,7 @@
     if (state.month) next.set('month', state.month);
     if (state.onlyIssues) next.set('lech', '1');
     if (state.family) next.set('loai', state.family);
+    if (state.showMissing) next.set('webchua', '1');
     const text = next.toString();
     history.replaceState(null, '', `${location.pathname}${text ? `?${text}` : ''}`);
   }
@@ -62,6 +66,7 @@
   function summary(body) {
     const rows = M.summaryRows(body.totals, body.current);
     const cell = (value, flag) => `<td class="num${flag && value ? ' flag' : ''}">${number(value)}</td>`;
+    const label = row => (row.list && row.values[2] ? `<button type="button" class="sum-open" id="show-missing" aria-expanded="${state.showMissing}" aria-controls="missing"><span class="caret" aria-hidden="true"></span>${esc(row.label)}</button>` : esc(row.label));
     const at = timeText(body.checked_at);
     const notes = [
       at ? `Booking và Sheet theo lượt máy lúc ${esc(at)}; web theo lúc mở trang.` : 'Web theo lúc mở trang.',
@@ -70,8 +75,59 @@
       body.before_book ? `${number(body.before_book)} chuyến booking trước khi có sổ khách nằm trong số dư đầu kỳ, không tính.` : '',
     ].filter(Boolean);
     return `<section class="sum" aria-label="Tổng tháng"><table class="sum-table"><thead><tr><th scope="col">${esc(monthTitle(body.month))}</th><th scope="col">Biển</th><th scope="col">Bộ</th><th scope="col">Tổng</th></tr></thead>
-      <tbody>${rows.map(row => `<tr class="${row.flag ? 'gap' : ''}"><th scope="row">${esc(row.label)}</th>${row.values.map(value => cell(value, row.flag)).join('')}</tr>`).join('')}</tbody></table>
+      <tbody>${rows.map(row => `<tr class="${row.flag ? 'gap' : ''}${row.list && state.showMissing && row.values[2] ? ' open' : ''}"><th scope="row">${label(row)}</th>${row.values.map(value => cell(value, row.flag)).join('')}</tr>`).join('')}</tbody></table>
       <ul class="sum-notes">${notes.map(text => `<li>${text}</li>`).join('')}</ul></section>`;
+  }
+
+  // BAO-CAO-THANG-02: chuyến booking có mà web chưa có, kèm lý do máy chưa đưa vào sổ và ai phải làm. Lý do tải riêng khi mở
+  // (GET /api/v7/report/month/missing đọc hàng chờ từng sổ, vài giây), nên bảng tổng vẫn mở nhanh như cũ.
+  function missingSection(body) {
+    const count = body.totals?.ALL?.web_chua ?? 0;
+    if (!state.showMissing || !count) return '';
+    const data = state.missing?.month === body.month ? state.missing : null;
+    const open = '<section class="miss" id="missing" aria-label="Chuyến booking có, web chưa có">';
+    const head = `<h2>Chuyến booking có, web chưa có <span class="muted">(${number(count)})</span></h2>`;
+    if (!data || data.loading) return `${open}${head}<p class="loading">Đang xem máy giữ các chuyến này vì sao…</p></section>`;
+    if (data.error) return `${open}${head}<p class="note bad">${esc(F.loadError('lý do'))} <button type="button" class="btn" id="retry-missing">Thử lại</button></p></section>`;
+    const todo = '<a href="/viec-can-lam.html">Việc cần làm</a>';
+    const lines = data.rows.map(row => {
+      const why = M.reasonOf(row.reason);
+      const book = row.machine_book ?? null;
+      const where = why.who === 'person' && book ? ` · ${todo}`
+        : book && (why.who === 'book' || why.who === 'sheet') ? ` · <a href="${ledgerHref(book, body.month)}">Mở sổ</a>` : '';
+      // Chỉ nêu sổ khi máy đã chọn đúng sổ đó; sổ báo cáo đoán theo tên mà máy chưa gắn thì không nêu, tránh nói ngược lý do.
+      const named = book && book === row.book_id && row.name && row.name !== row.owner ? `<span class="muted"> · sổ ${esc(row.name)}</span>` : '';
+      return `<tr class="w-${why.who ?? 'none'}"><td class="day">${row.date ? esc(dateText(row.date)) : '—'}</td><td class="cont">${esc(row.cont)}</td>
+        <td>${esc(M.familyText([row.family]))}</td><td>${esc(row.owner || '—')}${named}</td><td>${esc(why.text)}</td><td class="act">${esc(why.whoText)}${where}</td></tr>`;
+    }).join('');
+    return `${open}${head}
+      <table class="trip-table miss-table"><thead><tr><th scope="col">Ngày</th><th scope="col">Container</th><th scope="col">Loại</th><th scope="col">Chủ hàng trên booking</th><th scope="col">Máy chưa đưa vào web vì</th><th scope="col">Xử lý</th></tr></thead>
+      <tbody>${lines || '<tr><td colspan="6" class="empty">Web đã có mọi chuyến booking của tháng.</td></tr>'}</tbody></table></section>`;
+  }
+
+  async function loadMissing(month, reveal = false) {
+    const mine = ++missingTurn;
+    state.missing = { month, loading: true };
+    paint();
+    try {
+      const response = await fetch(`/api/v7/report/month/missing?month=${encodeURIComponent(month)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error(String(response.status));
+      const data = await response.json();
+      if (mine !== missingTurn) return;
+      state.missing = { month, rows: data.rows ?? [] };
+      paint();
+      if (reveal) $('missing')?.scrollIntoView({ block: 'nearest' });   // vừa bấm mở: đưa danh sách vào khung 560px
+      return;
+    } catch {
+      if (mine !== missingTurn) return;
+      state.missing = { month, error: true };
+    }
+    paint();
+  }
+
+  function needMissing(reveal = false) {
+    const body = state.body;
+    if (state.showMissing && body?.totals?.ALL?.web_chua && state.missing?.month !== body.month) loadMissing(body.month, reveal);
   }
 
   function chipHtml(chip) {
@@ -120,11 +176,11 @@
   function paint() {
     const body = state.body;
     if (!body) return;
-    const signature = JSON.stringify([body, state.onlyIssues, state.family, [...state.open]]);
+    const signature = JSON.stringify([body, state.onlyIssues, state.family, [...state.open], state.showMissing, state.missing]);
     if (signature === state.painted) return;
     state.painted = signature;
     paintMonthNav(body);
-    root.innerHTML = `${notice(body)}${summary(body)}${customers(body)}`;
+    root.innerHTML = `${notice(body)}${summary(body)}${missingSection(body)}${customers(body)}`;
     document.body.dataset.loaded = '1';
   }
 
@@ -139,7 +195,9 @@
       state.month = state.month ?? body.month;
       $('as-of').textContent = `Cập nhật ${timeText(body.now)}`;
       $('error').hidden = true;
+      if (state.missing?.month === body.month && !state.missing.loading) state.missing = null;   // làm mới: đọc lại lý do
       paint();
+      needMissing();
     } catch {
       if (mine !== turn) return;
       const alert = $('error');
@@ -162,6 +220,15 @@
     const target = event.target.closest('button, a');
     if (!target) return;
     if (target.id === 'retry' || target.id === 'refresh-data') return load();
+    if (target.id === 'retry-missing') return loadMissing(state.body.month);
+    if (target.id === 'show-missing') {
+      state.showMissing = !state.showMissing;
+      syncAddress();
+      paint();
+      needMissing(state.showMissing);
+      if (state.showMissing && state.missing?.rows) $('missing')?.scrollIntoView({ block: 'nearest' });
+      return $('show-missing')?.focus({ preventScroll: true });
+    }
     if (target.dataset.month) return showMonth(target.dataset.month);
     if (target.classList.contains('seg')) {
       state.family = target.dataset.family || null;
