@@ -1,6 +1,6 @@
 # Đội xe: mô hình dữ liệu mới theo hướng A (DOI-XE-MO-HINH-01)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026), gói M1 của [spec điều phối](doi-xe-cau-truc-01.md). Hướng ĐÃ CHỐT (người dùng, 19/11/2026, "Chốt theo hướng A"; `DOI-XE-CAU-TRUC-01`): người trả theo từng khoản chi, khoản thu là dòng riêng, một cơ chế công nợ chung, chi gắn được vào xe. **Luật tiền chi tiết dưới đây chưa ai chốt**: người dùng chốt ở mục [Cần người dùng chốt](#cần-người-dùng-chốt) trước khi viết migration đầu tiên. Luật tiền hiện hành (công thức số dư, hoàn theo đợt, hủy bắt buộc lý do, khóa tháng, bảng kê gửi → đối chiếu → tiền về, chi hộ) **giữ nguyên** tới khi người dùng chốt khác; mọi bước chuyển dưới đây phải chứng minh được là không đổi số.
+Trạng thái: **tám câu luật tiền ĐÃ CHỐT** (người dùng, 19/11/2026, "Chốt theo đề xuất"; [`DOI-XE-MO-HINH-01`](../docs/decisions/doi-xe-mo-hinh-01.md)); chi tiết kỹ thuật (cột, tên hàm, thứ tự migration) vẫn là **ĐỀ XUẤT** (Claude, 19/11/2026) cho tới khi từng gói có review riêng. Gói M1 của [spec điều phối](doi-xe-cau-truc-01.md). Hướng ĐÃ CHỐT (người dùng, 19/11/2026, "Chốt theo hướng A"; `DOI-XE-CAU-TRUC-01`): người trả theo từng khoản chi, khoản thu là dòng riêng, một cơ chế công nợ chung, chi gắn được vào xe. Luật tiền hiện hành (công thức số dư, hoàn theo đợt, hủy bắt buộc lý do, khóa tháng, bảng kê gửi → đối chiếu → tiền về, chi hộ) **giữ nguyên**; mọi bước chuyển dưới đây phải chứng minh được là không đổi số. Các mục dưới còn viết "đề xuất" ở chỗ nào thì chỗ đó đã được chốt theo đúng đề xuất nếu thuộc một trong tám câu.
 
 Phiên viết spec chỉ đọc code và tài liệu: không chạy DDL, không mở `hao`, chưa đo trên bản thử. Điều gì phải đo trước khi chạy ghi ở [Bằng chứng](#bằng-chứng).
 
@@ -289,7 +289,7 @@ Mỗi bước có file hoàn tác ghi cạnh (`...-hoan-tac.sql`) và nói rõ �
 
 ## Tiêu chí nghiệm thu
 
-- [ ] Người dùng trả lời đủ các câu ở mục dưới; phiên điều phối ghi quyết định riêng (`docs/decisions/`) trước khi viết migration.
+- [x] Người dùng trả lời đủ tám câu; quyết định ghi ở [`DOI-XE-MO-HINH-01`](../docs/decisions/doi-xe-mo-hinh-01.md) (19/11/2026) trước khi viết migration.
 - [ ] Từng migration: harness chuyển (B-1 đến B-4) xanh với dữ liệu giả; `npm run check` xanh; harness PostgreSQL xanh ở máy và ở CI.
 - [ ] Bản thử tháng 10/2026 trên `hao`: số đo bảng trên bằng 0 lệch trước và sau từng bước (nhật ký trong `docs/deploys/`, chỉ ghi số đếm).
 - [ ] Sửa `ghi_chu` của chặng đang gom và chặng tháng khóa không đổi `doi_vnd`; `xoa_chang` chặng đã gửi trả `CHANG_DA_GUI`.
@@ -301,8 +301,8 @@ Mỗi bước có file hoàn tác ghi cạnh (`...-hoan-tac.sql`) và nói rõ �
 
 - Agent: claude (theo `CLAUDE-ALL-01`), phiên thực thi Sonnet 5.5 effort high.
 - Review: opus (đụng luật tiền và schema).
-- Được sửa: `specs/doi-xe-mo-hinh-01.md`, `specs/README.md` (một dòng).
-- Cấm: migration, code, chạy DDL, ghi cơ sở dữ liệu hoặc Sheet, `ssh hao`, đổi `specs/doi-xe-cau-truc-01.md` hay `docs/decisions*`, chép tên người, biển số, container, số tiền thật.
+- Được sửa: `specs/doi-xe-mo-hinh-01.md`, `specs/README.md` (một dòng), `docs/decisions/doi-xe-mo-hinh-01.md` (mới), `docs/decisions.md` (một dòng).
+- Cấm: migration, code, chạy DDL, ghi cơ sở dữ liệu hoặc Sheet, `ssh hao`, đổi `specs/doi-xe-cau-truc-01.md` hay quyết định khác trong `docs/decisions*`, chép tên người, biển số, container, số tiền thật.
 - Lệnh kiểm: `npm run lint` (tài liệu, liên kết, dữ liệu nhạy cảm), `node scripts/check-secrets.js`.
 
 ## Hoàn tác
@@ -319,20 +319,22 @@ Revert PR. Không có dữ liệu.
 
 Chưa làm và phải làm trước khi chạy migration ghi: (1) đo trên bản thử số chặng có khoản `loi` trong ghi chú; (2) so `loai_phi.chi_ho` với `phat_sinh.chi_ho` của từng cặp trên `hao`; (3) xác nhận không chặng nào cần chia một khoản cho hai người; (4) chạy thật mọi harness. Không kiểm gì trên `hao`, không chạy harness (spec thuần tài liệu).
 
-## Cần người dùng chốt
+## Cần người dùng chốt: ĐÃ CHỐT 19/11/2026
 
-Viết bằng từ nghiệp vụ; mỗi câu có **đề xuất** của Claude (chọn phương án đầu).
+Người dùng trả lời "Chốt theo đề xuất" cho cả tám câu (theo bảng tóm tắt của phiên điều phối; [`DOI-XE-MO-HINH-01`](../docs/decisions/doi-xe-mo-hinh-01.md)). Mỗi câu dưới đây giữ nguyên lập luận; phương án được chọn là phương án **đề xuất** (in nghiêng). Các bảng so sánh ở mục 1 (X/Y) và mục 4 ((a)/(b)/(c)) giữ làm lý do.
 
-1. **Một khoản chi có thể do hai người cùng trả không?** (ví dụ phí cầu đường của một chặng, tài xế trả một nửa, người đi lệnh một nửa.) *Đề xuất: không*, mỗi khoản một người trả; cần chia thì ghi thành hai khoản. Đơn giản và đúng với dữ liệu thấy tới nay. Nếu có: phải thêm một cấp nữa ở dòng khoản, và đợt hoàn phức tạp hơn.
-2. **Đổi người trả của một khoản khi tháng đã khóa hoặc khoản đã được hoàn?** *Đề xuất: vẫn chặn như hiện nay* (phải hủy đợt hoàn hoặc mở tháng, hoặc ghi điều chỉnh). Phương án hai: cho "chuyển khoản này từ người A sang người B" bằng một cặp dòng điều chỉnh có lý do; tiện hơn nhưng là luật mới về tiền.
-3. **Công nợ chung: (a) hay (b)?** (mục 4) *Đề xuất (a)*: đối tác mới (nơi bán dầu, gara, nhà xe thuê) dùng bảng chung ngay, người và HTH giữ bảng cũ và hợp nhất sau khi người dùng muốn. Phương án (b) chuyển hết một lần: gọn hơn về sau nhưng rủi ro cao nhất cho phần tiền đang chạy thử. Để cân: bản thử trên `hao` chưa có lần ứng, đợt hoàn hay tiền về thật, nên chi phí chuyển dữ liệu của (b) đang thấp nhất và sẽ tăng sau khi chạy thật; rủi ro viết lại khoảng 19 hàm thì không đổi. **Nếu định hợp nhất thì quyết trước ngày chạy thật.**
-4. **Tài xế hay người đi lệnh có ứng tiền trả dầu, sửa xe (khoản ghi theo xe, không theo chặng) không?** *Đề xuất: chưa*; giai đoạn đầu khoản theo xe do công ty hoặc nơi bán, gara trả; tiền tài xế tự trả dọc đường vẫn ghi như chi của chặng (khoản "Đổ dầu" hiện có). Nếu có: khoản theo xe phải vào số dư và phần hoàn của người, đụng đường hoàn.
-5. **Chặng đã gửi bảng kê: không cho sửa ngày, container, loại chặng, xe và không cho xóa?** *Đề xuất: chặn*; sai thật thì điều chỉnh dòng bảng kê (lý do bắt buộc) trước khi đối chiếu xong. Hiện web không chặn, nên chặng và bảng kê đã gửi có thể lệch nhau mà không báo. Cần nói rõ: chặng gửi nhầm cần bỏ thì làm theo đường nào (đề xuất: điều chỉnh dòng bảng kê về 0, rồi mới được bỏ chặng).
-6. **Khoản phát sinh viết trong ghi chú mà máy không đọc được, lúc chuyển sang dòng riêng thì ai xử lý?** *Đề xuất*: máy lập danh sách (chặng, chữ ghi chú, lý do lỗi); hai nhân viên sửa trên web thành dòng thu **trước** ngày chuyển; còn sót thì không chuyển và không tính tiền (đúng như hôm nay khoản lỗi không được tính). Số lượng khoản lỗi: chưa đo.
-7. **Phát sinh tính theo mức (neo theo ngày, nổ máy theo giờ): đổi mức có đổi tiền của chặng chưa gửi không?** *Đề xuất: có* (như hiện nay, đến lúc gửi bảng kê thì chốt số). Phương án hai: đóng băng mức vào lúc ghi, đổi mức không ảnh hưởng chặng cũ; nhất quán hơn nhưng đổi hành vi người dùng đã quen.
-8. **Hạ sớm và kiểm hoá: hai khoản thu hay một?** (mục 1) Phía chi chỉ có một khoản "Hạ sớm/KH"; phía thu hiện có hai khoản, mỗi khoản một mức cố định. *Đề xuất X: giữ hai khoản thu, nối với một khoản chi* (mức riêng, vẫn tách được hai loại thu, Excel bảng kê không đổi, danh mục 22 khoản). Phương án Y: gộp một khoản (20 khoản), chấp nhận một mức chung hoặc nhập tay; gọn hơn nhưng mất mức riêng và không đảo lại được.
+1. **[ĐÃ CHỐT] Một khoản chi có thể do hai người cùng trả không?** (ví dụ phí cầu đường của một chặng, tài xế trả một nửa, người đi lệnh một nửa.) *Đề xuất: không*, mỗi khoản một người trả; cần chia thì ghi thành hai khoản. Đơn giản và đúng với dữ liệu thấy tới nay. Nếu có: phải thêm một cấp nữa ở dòng khoản, và đợt hoàn phức tạp hơn.
+2. **[ĐÃ CHỐT] Đổi người trả của một khoản khi tháng đã khóa hoặc khoản đã được hoàn?** *Đề xuất: vẫn chặn như hiện nay* (phải hủy đợt hoàn hoặc mở tháng, hoặc ghi điều chỉnh). Phương án hai: cho "chuyển khoản này từ người A sang người B" bằng một cặp dòng điều chỉnh có lý do; tiện hơn nhưng là luật mới về tiền.
+3. **[ĐÃ CHỐT: (a)] Công nợ chung: (a) hay (b)?** (mục 4) *Đề xuất (a)*: đối tác mới (nơi bán dầu, gara, nhà xe thuê) dùng bảng chung ngay, người và HTH giữ bảng cũ và hợp nhất sau khi người dùng muốn. Phương án (b) chuyển hết một lần: gọn hơn về sau nhưng rủi ro cao nhất cho phần tiền đang chạy thử. Để cân: bản thử trên `hao` chưa có lần ứng, đợt hoàn hay tiền về thật, nên chi phí chuyển dữ liệu của (b) đang thấp nhất và sẽ tăng sau khi chạy thật; rủi ro viết lại khoảng 19 hàm thì không đổi. **Nếu định hợp nhất thì quyết trước ngày chạy thật.**
+4. **[ĐÃ CHỐT] Tài xế hay người đi lệnh có ứng tiền trả dầu, sửa xe (khoản ghi theo xe, không theo chặng) không?** *Đề xuất: chưa*; giai đoạn đầu khoản theo xe do công ty hoặc nơi bán, gara trả; tiền tài xế tự trả dọc đường vẫn ghi như chi của chặng (khoản "Đổ dầu" hiện có). Nếu có: khoản theo xe phải vào số dư và phần hoàn của người, đụng đường hoàn.
+5. **[ĐÃ CHỐT] Chặng đã gửi bảng kê: không cho sửa ngày, container, loại chặng, xe và không cho xóa?** *Đề xuất: chặn*; sai thật thì điều chỉnh dòng bảng kê (lý do bắt buộc) trước khi đối chiếu xong. Hiện web không chặn, nên chặng và bảng kê đã gửi có thể lệch nhau mà không báo. Cần nói rõ: chặng gửi nhầm cần bỏ thì làm theo đường nào (đề xuất: điều chỉnh dòng bảng kê về 0, rồi mới được bỏ chặng).
+6. **[ĐÃ CHỐT] Khoản phát sinh viết trong ghi chú mà máy không đọc được, lúc chuyển sang dòng riêng thì ai xử lý?** *Đề xuất*: máy lập danh sách (chặng, chữ ghi chú, lý do lỗi); hai nhân viên sửa trên web thành dòng thu **trước** ngày chuyển; còn sót thì không chuyển và không tính tiền (đúng như hôm nay khoản lỗi không được tính). Số lượng khoản lỗi: chưa đo.
+7. **[ĐÃ CHỐT] Phát sinh tính theo mức (neo theo ngày, nổ máy theo giờ): đổi mức có đổi tiền của chặng chưa gửi không?** *Đề xuất: có* (như hiện nay, đến lúc gửi bảng kê thì chốt số). Phương án hai: đóng băng mức vào lúc ghi, đổi mức không ảnh hưởng chặng cũ; nhất quán hơn nhưng đổi hành vi người dùng đã quen.
+8. **[ĐÃ CHỐT: X] Hạ sớm và kiểm hoá: hai khoản thu hay một?** (mục 1) Phía chi chỉ có một khoản "Hạ sớm/KH"; phía thu hiện có hai khoản, mỗi khoản một mức cố định. *Đề xuất X: giữ hai khoản thu, nối với một khoản chi* (mức riêng, vẫn tách được hai loại thu, Excel bảng kê không đổi, danh mục 22 khoản). Phương án Y: gộp một khoản (20 khoản), chấp nhận một mức chung hoặc nhập tay; gọn hơn nhưng mất mức riêng và không đảo lại được.
 
 Điều không hỏi vì giữ nguyên: danh sách khoản chi hộ (còn mở ở `DOI-XE-THU-01` câu 3 và `CHI-PHI-XE-01` câu 13; mô hình mới chỉ gom về một cờ, không đổi giá trị); tiền nổ máy phát (`CHI-PHI-XE-01` câu 6).
+
+Giả định nghiệp vụ chưa hỏi điều xe, nhân viên, kế toán: câu 1 và câu 4.
 
 ## Câu hỏi mở
 
