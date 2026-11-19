@@ -85,3 +85,14 @@ body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9
 .bc .trip-table tr.t-bad td{background:#fff7f6}
 .bc .open-book{display:inline-flex;align-items:center;gap:4px;margin-top:8px;color:var(--blue);font-weight:700}
 .bc .open-book:hover{text-decoration:underline}
+
+/* BAO-CAO-THANG-02: hàng "Booking có, web chưa có" bấm được để mở danh sách chuyến kèm lý do máy giữ. */
+.bc .sum-open{display:inline-flex;align-items:center;gap:8px;padding:2px 0;border:0;background:none;color:var(--blue);font:inherit;font-weight:700;text-align:left;cursor:pointer}
+.bc .sum-open:hover{text-decoration:underline}
+.bc .sum-table tr.open .caret{transform:rotate(90deg) translateX(1px)}
+.bc .miss{padding:10px 16px 12px;border:1px solid #cde2fb;border-radius:14px;background:#fff}
+.bc .miss h2{margin:0 0 6px;font-size:16px}
+.bc .miss .loading,.bc .miss .note{margin:4px 0}
+.bc .miss-table .act,.bc .miss-table .day{white-space:nowrap}
+.bc .miss-table a{color:var(--blue);font-weight:700}
+.bc .miss-table tr.w-person td.act{color:var(--critical);font-weight:600}

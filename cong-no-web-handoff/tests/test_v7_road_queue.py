@@ -66,6 +66,11 @@ class BuildRoadQueueTests(unittest.TestCase):
             tab_row("KHACH B", 5, "BADROW00001", "2026-10-05"), tab_row("KHACH B", 6, "SHARED00001", "2026-10-06")])
         self.assertEqual(queue["items"], [])
         self.assertEqual(queue["stats"], {"NO_TAB": 1, "AMBIGUOUS_TAB": 1, "NO_BOOK": 1, "AMBIGUOUS_SOURCE": 2})
+        # BAO-CAO-THANG-02: từng chuyến không xếp được ghi lý do, để Báo cáo tháng nói vì sao web chưa có
+        self.assertEqual(sorted((s["container"], s["event_date"], s["reason"]) for s in queue["skipped"]), [
+            ("DRAFT000001", "2026-10-05", "NO_BOOK"), ("NOTAB000001", "2026-10-05", "NO_TAB"),
+            ("SHARED00001", "2026-10-05", "AMBIGUOUS_SOURCE"), ("SHARED00001", "2026-10-07", "AMBIGUOUS_SOURCE"),
+            ("TWOTAB00001", "2026-10-05", "AMBIGUOUS_TAB")])
 
 
 class OwnerBookTests(unittest.TestCase):
