@@ -42,6 +42,7 @@ function serverFor(opts = {}) {
       });
       return;
     }
+    if (route === '/api/v7/sheet/refresh' && opts.sheetRefresh) return send(200, value(opts.sheetRefresh));
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? sample));
     if (route === '/api/v7/dashboard') return send(opts.dashboardStatus ?? 200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(opts.debtStatus ?? 200, { customers: value(opts.unsorted ?? []) });
@@ -640,6 +641,28 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       release();
       await backgroundDone(page);   // bản đọc cũ đã về và đã bị bỏ, không phải chưa kịp về
       assert.equal(await page.locator('[data-manual-price="1"]').count(), 0, 'bản đọc cũ về muộn không được đè lại');
+    });
+  });
+  test('Làm mới: đang lấy Sheet thì chữ hiện thay đồng hồ và biểu tượng quay, xong thì về đồng hồ mới', async () => {
+    const running = { state: 'running', sheet_at: '2026-11-02T09:15:00Z' };
+    const opts = { sheetRefresh: { state: 'idle', sheet_at: '2026-11-02T09:15:00Z' },
+      post: route => route === '/api/v7/sheet/refresh' ? { status: 200, json: running } : undefined };
+    await withPage(opts, async page => {
+      const shown = () => page.evaluate(() => {
+        const box = node => document.querySelector(node).getBoundingClientRect();
+        return { status: box('#updated-at').width > 1, clock: box('.sheet-clock').width > 0, text: document.querySelector('#updated-at').textContent,
+          spin: getComputedStyle(document.querySelector('#refresh-data svg')).animationName };
+      });
+      await page.waitForFunction(() => document.querySelector('#sheet-clock').textContent === '16:15');
+      assert.deepEqual(await shown(), { status: false, clock: true, text: 'Sheet lúc 16:15 · tự tải mỗi 60 giây', spin: 'none' });
+      opts.sheetRefresh = running;
+      await page.locator('#refresh-data').click();
+      await page.waitForFunction(() => document.querySelector('#refresh-data').getAttribute('aria-busy') === 'true');
+      assert.deepEqual(await shown(), { status: true, clock: false, text: 'Đang lấy từ Sheet… (khoảng 1 phút)', spin: 'refresh-spin' });
+      opts.sheetRefresh = { state: 'idle', sheet_at: '2026-11-02T09:40:00Z' };
+      opts.inbox = { ...sample, sheet_at: '2026-11-02T09:40:00Z' };
+      await page.waitForFunction(() => document.querySelector('#sheet-clock').textContent === '16:40', null, { timeout: 8000 });
+      assert.deepEqual(await shown(), { status: false, clock: true, text: 'Sheet vừa lấy lúc 16:40', spin: 'none' });
     });
   });
   // Việc máy đã ghi xem ở tab Đã làm, đọc từ Lịch sử DB (HOAT-DONG-01, test-viec-can-lam-doi-chieu-browser.js).
