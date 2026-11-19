@@ -16,6 +16,7 @@ Người dùng chốt ngày 19/11/2026, trả lời "Chốt theo hướng A" sau
 3. **Màn bị thay:** màn Điều độ riêng, bảng chi phí trong sổ người, sổ xe, bảng chặng của trang Bảng kê, tab Bảng giá. Gỡ từng màn sau khi mục thay nó được nghiệm thu, không gỡ trước.
 4. **Hướng đổi mô hình dữ liệu đi kèm:** người trả theo từng khoản chi; khoản thu phát sinh là dòng riêng, không đọc từ ghi chú chữ; một cơ chế công nợ chung trước khi thêm dầu, gara; chi phí gắn được vào xe, không chỉ vào chặng.
 5. **Cách làm:** phiên audit làm điều phối; các phiên thực thi chạy Sonnet 5.5, effort high.
+6. **Phiếu chặng của mục Chặng mở ngay dưới dòng** (phương án A của [bản bấm thử](../../cong-no-web-handoff/preview/mockups/doi-xe-huong-a/index.html); phương án B là khung bên phải giữ danh sách). Người dùng chốt ngày 19/11/2026, trả lời "A: mở dưới dòng" khi phiên điều phối hỏi "Phiếu chặng dùng phương án nào?".
 
 Cách chia gói việc, thứ tự và phạm vi file: [spec](../../specs/doi-xe-cau-truc-01.md).
 
@@ -43,7 +44,7 @@ Số đo làm căn cứ (bản thử tháng 10/2026 trên `hao`, chỉ đọc; c
 Chưa chốt:
 
 - luật tiền chi tiết của mô hình mới (người trả theo khoản, khoản thu dòng riêng, công nợ chung, chi theo xe): ĐỀ XUẤT sẽ viết ở spec riêng, người dùng chốt trước khi code;
-- bố cục từng mục: chốt sau khi người dùng thử bản bấm thử;
+- bố cục từng mục: đã chốt riêng cách mở phiếu chặng (A, điểm 6); các lựa chọn khác của bản bấm thử (liệt kê ở cuối trang bản thử) và bố cục các mục Công nợ, Xe, Lãi lỗ, Thiết lập vẫn là ĐỀ XUẤT, chốt sau khi người dùng thử bản bấm thử;
 - thứ tự làm Công nợ, Xe, Lãi lỗ, Thiết lập sau mục Chặng.
 
 Chưa hỏi điều xe, hai nhân viên và kế toán. Không cấp quyền nạp dữ liệu, ghi Google Sheet hay chạy DDL trên `hao`: mỗi việc theo [`DEPLOY-CLAUDE-01`](deploy-claude-01.md) hoặc cần người dùng đồng ý riêng.

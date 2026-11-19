@@ -1,6 +1,6 @@
 # Báo cáo tháng: khách, cont, đối chiếu booking ↔ Sheet ↔ web
 
-Trạng thái: ĐÃ CHỐT (người dùng, 16/11/2026, [`BAO-CAO-THANG-01`](../docs/decisions/bao-cao-thang-01.md)): bố cục, cột Web, tháng theo ngày chuyến, bản chép 0đ. Cách làm là ĐỀ XUẤT của Claude.
+Trạng thái: ĐÃ CHỐT (người dùng, 16/11/2026, [`BAO-CAO-THANG-01`](../docs/decisions/bao-cao-thang-01.md)): bố cục, cột Web, tháng theo ngày chuyến, bản chép 0đ. Thêm 19/11/2026 ([`BAO-CAO-THANG-02`](../docs/decisions/bao-cao-thang-02.md)): hàng "Booking có, web chưa có" và lý do máy giữ, chỗ hiện do người dùng chốt. Cách làm là ĐỀ XUẤT của Claude.
 
 ## Người dùng và luồng (bước 1, bắt buộc với frontend)
 
@@ -11,11 +11,13 @@ Câu hỏi mang tới, theo thứ tự:
 1. Tháng này booking có bao nhiêu cont, Sheet và web đã ghi bao nhiêu, thiếu mấy? (bảng tổng)
 2. Có những khách nào, mỗi khách loại gì, đi bao nhiêu cont? (bảng theo khách)
 3. Khách nào lệch, lệch cont nào, sửa ở đâu? (chip Cần xem, bung danh sách cont, link Mở sổ)
+4. Chuyến nào booking có mà web chưa có, máy giữ vì sao, ai phải làm? (hàng "Booking có, web chưa có", bấm mở danh sách; BAO-CAO-THANG-02)
 
 Luồng:
 
 1. Mở mục **Báo cáo tháng** ở menu trái. Mặc định là tháng hiện tại.
-2. Nhìn thứ nhất: bảng tổng Booking / Sheet sổ nợ / Web, theo Biển, Bộ, Tổng. Hai hàng lệch ("Booking có, Sheet chưa ghi", "Sheet có, web chưa có") tô đỏ khi khác 0.
+2. Nhìn thứ nhất: bảng tổng Booking / Sheet sổ nợ / Web, theo Biển, Bộ, Tổng. Ba hàng lệch ("Booking có, Sheet chưa ghi", "Booking có, web chưa có", "Sheet có, web chưa có") tô đỏ khi khác 0.
+   - Tên hàng "Booking có, web chưa có" là nút (khi khác 0): bấm thì mở ngay dưới bảng tổng danh sách chuyến, mỗi dòng: Ngày chuyến, Container, Loại, Chủ hàng trên booking (kèm sổ nếu khác tên), lý do máy chưa đưa vào web, Xử lý (Tự hết khi Sheet ghi / Cần người / Máy tự làm / Xem trong sổ, kèm link Mở sổ hoặc Việc cần làm). Bấm lại thì thu. Lý do chỉ tải khi mở; địa chỉ giữ `webchua=1`.
 3. Nhìn thứ hai: bảng theo khách. Cột: Khách (kèm mặt hàng), Loại, Booking, Sheet, Web, Cần xem, Tiền trên Sheet. Khách có lệch lên đầu. Có ô "Chỉ khách cần xem" và nút lọc Tất cả / Biển / Bộ.
 4. Bấm một khách: bung danh sách cont. Cột: Container, Ngày chuyến, Booking (ngày, số booking), Sheet (dòng, khối tháng nếu khác, tiền), Web (ngày), Tình trạng. Dưới danh sách có link "Mở sổ tháng …". Bấm lại thì thu.
 5. Đổi tháng bằng ‹ › hoặc ô chọn tháng. Tháng, ô lọc và biển/bộ giữ trên địa chỉ để gửi link.
@@ -41,7 +43,7 @@ Không có điều kiện bị chặn vì trang không ghi gì.
   - `khong_ngay`: Sheet không ngày.
   - `chep`: bản chép 0đ.
   - `ngoai`: hàng nhập, bán cước.
-  - `thieu`: booking có, Sheet chưa ghi.
+  - `thieu`: booking có, Sheet chưa ghi. Tab là sổ đoán theo tên chủ hàng, nên dòng này ghép chuyến web ở mọi sổ (cùng container, lệch không quá 3 ngày, gần nhất trước, sổ id nhỏ trước) và chuyển sang sổ có chuyến web; tab đoán giữ ở `guess_tab`. Các trạng thái khác chỉ ghép trong sổ của tab.
   - Chuyến trước tháng đầu của tab khách chỉ đếm ở `before_book`.
 - **Web:** hàm đọc mới `sokhach.get_trip_month(date)` trả:
   - `books` (id, tên, mặt hàng, biển/bộ của mọi sổ đang hoạt động);
@@ -65,10 +67,29 @@ Trả về:
 - `totals.{BIEN,BO,ALL}` có các trường:
   - `booking`, `sheet`: null khi chưa có số;
   - `web`, `thieu`, `khong_booking`, `lech_ngay`, `khong_ngay`, `chep`, `ngoai`, `chi_web`, `web_thieu`;
+  - `web_chua`: chuyến booking (`khop`, `lech_ngay`, `thieu`) không có chuyến web nào ghép; `thieu_web`: phần trong đó Sheet cũng chưa ghi (chưa nằm ở `web_thieu`);
   - `amount_vnd` (chuỗi), `issues`.
 - `customers[]`: các trường như trên, kèm `name` (tên tab, hoặc null), `owner` (chủ hàng khi chưa rõ sổ), `book_id`, `commodity`, `families`, `rows` (từng cont, thêm `web` {`date`, `source`} hoặc null).
 
 Lỗi tải thì trang hiện câu theo mẫu `loadError` và nút Thử lại.
+
+`GET /api/v7/report/month/missing[?month=YYYY-MM]` (BAO-CAO-THANG-02), cùng kiểm tháng như trên. Trả `month`, `state`, `checked_at`, `now`, `rows[]`: mỗi chuyến booking chưa có chuyến web, gồm `name` (sổ trong báo cáo), `owner` (chủ hàng trên booking), `book_id`, `cont`, `family`, `date`, `ref`, `status`, `reason` (mã), `machine_book` (sổ máy chọn, hoặc null). Mã lý do:
+
+| Mã | Nguồn | Ai làm |
+| --- | --- | --- |
+| `CONTAINER_REUSED_OR_CHANGED` | chiếu sổ (WAITING) | Tự hết khi Sheet ghi |
+| `NO_BOOK` | hàng chờ biển: tên chủ hàng không ra sổ | Cần người |
+| `COMMODITY_MISMATCH`, `COMMODITY_UNKNOWN`, `ROAD_BOOK` | hàng chờ biển (`book_match`) | Cần người |
+| `ROAD_NO_TAB`, `ROAD_TAB_FAR`, `ROAD_AMBIGUOUS_TAB`, `ROAD_EARLY` | hàng chờ bộ (`skipped`) | Tự hết khi Sheet ghi |
+| `ROAD_NO_BOOK`, `ROAD_AMBIGUOUS_SOURCE` | hàng chờ bộ (`skipped`) | Cần người |
+| `NEEDS_REVIEW` | chiếu sổ (CONFLICT hay đã đóng) | Cần người |
+| `MONTH_LOCKED` | chiếu sổ: tháng khóa trước 10/2026 | Cần người |
+| `NEXT_RUN` | chiếu sổ: NEW | Máy tự làm |
+| `IN_BOOK_OTHER_DATE` | chiếu sổ không hiện dòng: sổ đã có chuyến | Xem trong sổ |
+| `FUTURE`, `NOT_IN_SOURCE`, `SOURCE_INCOMPLETE` | ngày sau hôm nay; không còn trong bản chụp; dòng booking thiếu thông tin | Máy tự làm / Tự hết khi Sheet ghi |
+| `UNKNOWN`, `NOT_CHECKED` | không đọc được nguồn hay sổ; quá 40 sổ | — |
+
+Chiếu sổ dùng đúng `sheet_projection` / `road_projection` của tab Việc cần làm, mỗi sổ một lần.
 
 ## Hành vi và bất biến
 
@@ -85,7 +106,9 @@ Lỗi tải thì trang hiện câu theo mẫu `loadError` và nút Thử lại.
 - [x] `tests/test_v7_month_report.py`: đếm theo khách và biển/bộ, ghép web lệch 2 ngày, tên sổ khác khoảng trắng, chuyến chỉ trên web, tháng ngoài khoảng, file cũ, route và tháng sai.
 - [x] `tests/test_v7_fee_sql_sync.py`: hàm trong migration trùng file chuẩn. Hàm đọc nằm trong danh sách quyền (grants, schema, post-deploy check).
 - [x] `preview/test-bao-cao-thang-model.js`, `preview/test-bao-cao-thang-browser.js`: bảng tổng, chip, bung cont, link mở sổ, lọc, đổi tháng, lỗi và Thử lại, menu tám mục lọt 1265×560, không cuộn ngang.
+- [x] BAO-CAO-THANG-02: `tests/test_v7_month_report.py` (ghép mọi sổ cho chuyến Sheet chưa ghi, dòng Sheet đã ghi giữ sổ; lý do từng mã, nguồn hỏng ra `UNKNOWN`, mỗi sổ chiếu một lần; route), `tests/test_v7_road_queue.py` (`skipped`), test model và trình duyệt (hàng mới, bấm mới tải lý do, Thử lại, link sẵn trên địa chỉ).
 - [x] `npm run check` xanh.
 - [ ] Harness PostgreSQL (`tools/test_pg_v7_*.py`) trên CI.
 - [ ] Trên `hao`: tháng 10/2026 ra cùng số với lần đối chiếu tay; tháng 11 có "Chưa lên Sheet".
 - [ ] Người dùng tự đi hết trang trên `hao` và xác nhận.
+- [ ] Trên `hao` sau triển khai: tháng 11/2026 hàng "Booking có, web chưa có" khớp lần đối chiếu tay 19/11 (13 chuyến, cùng lý do), trừ chuyến máy đã đưa vào sau đó.
