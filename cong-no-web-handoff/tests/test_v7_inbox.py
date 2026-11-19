@@ -1052,6 +1052,23 @@ class MachineAfterRestartTests(unittest.TestCase):
         self.assertEqual(done, [2])
         self.assertEqual(inbox.relock_due, {1: self.NOW + v7_inbox.RELOCK_RETRY_SECONDS})
 
+    def test_relock_error_for_a_book_from_the_full_pass_backs_off_too(self):
+        # Review: sổ do lượt nền ghi vào machine_open mà khóa lại lỗi liên tục không được thử lại (và ghi journal) mỗi phút.
+        inbox = v7_inbox.Inbox(lambda *args: projection(), lambda: (), clock=lambda: self.NOW)
+        inbox.machine_open = {1: ["2026-10"]}
+        calls = []
+
+        class Stale:
+            def run(self, function, payload, actor):
+                calls.append(function)
+                raise ApiError(409, "STALE_LEDGER", "người đang ghi")
+        with patch("sys.stderr"):
+            self.assertTrue(inbox.relock_if_due(Stale()))
+            self.assertFalse(inbox.relock_if_due(Stale()), "next minute: still backing off")
+        self.assertEqual((calls, inbox.machine_open, inbox.relock_due),
+                         (["get_ledger"], {}, {1: self.NOW + v7_inbox.RELOCK_RETRY_SECONDS}))
+        self.assertEqual(inbox.auto_errors, 1)
+
     def test_error_counts_and_writes_one_journal_line(self):
         inbox = v7_inbox.Inbox(lambda runner, ledger, actor: projection(), lambda: ())
         with patch("sys.stderr") as stderr:

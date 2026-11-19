@@ -140,10 +140,10 @@ def in_month(runner, customer_id: int, version: int, ledger: dict[str, Any], mon
         try:
             try:
                 current = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
-            except ApiError:
+            except Exception:  # noqa: BLE001  đọc lỗi kiểu nào cũng thử khóa bằng phiên bản biết gần nhất
                 current = version
             version = lock(True, current)
-        except ApiError:
+        except Exception:
             with _RELOCK_FAILED_LOCK:
                 _RELOCK_FAILED.add(customer_id)
             if not failed:
@@ -468,7 +468,8 @@ class Inbox:
                     self.machine_open.pop(customer_id, None)
                     self._note_due(customer_id, ledger, now)
             except Exception as exc:  # noqa: BLE001  một sổ lỗi (kể cả lỗi lạ) không bỏ hẹn khóa lại của sổ đó hay sổ khác
-                with self.lock:
+                with self.lock:   # rời machine_open để nhịp nền không thử lại mỗi phút; hẹn lại sau RELOCK_RETRY_SECONDS
+                    self.machine_open.pop(customer_id, None)
                     self.relock_due[customer_id] = self.clock() + RELOCK_RETRY_SECONDS
                 self._error("khóa lại tháng", customer_id, exc)
 

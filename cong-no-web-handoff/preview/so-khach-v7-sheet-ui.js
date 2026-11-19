@@ -269,10 +269,14 @@
       // Audit 19/11/2026 (A06): dòng sổ gốc ghi giá bằng hai lệnh; lệnh phụ phí lỗi thì dòng đã có đơn giá nên sang "Giá cần xem"
       // (lệch giá), không còn trong lô. Nói đúng chỗ ghi tiếp: nút "Lấy Sheet" của dòng đó (đơn giá đã đúng thì chỉ ghi phụ phí).
       const half = result.partial?.length ?? 0;
+      const rest = result.remaining - half;
+      const finish = result.error === 'FEE_LINES_TYPED'
+        ? 'phụ phí đã phân loại nên sửa tay ở dòng đó.'
+        : 'ghi tiếp bằng "Lấy Sheet" ở dòng đó trong "Giá cần xem" (tháng đang khóa thì mở khóa trước).';
       showNotice(result.complete === false
         ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi.`
-          + (half ? ` ${half} dòng sổ gốc mới ghi đơn giá, chưa ghi phụ phí: ghi tiếp bằng "Lấy Sheet" ở dòng đó trong "Giá cần xem".` : '')
-          + ` Bấm "Ghi … giá từ Sheet" để ghi các giá còn lại.`
+          + (half ? ` ${half} dòng sổ gốc mới ghi đơn giá, chưa ghi phụ phí: ${finish}` : '')
+          + (rest > 0 ? ` Bấm "Ghi … giá từ Sheet" để ghi ${rest} giá còn lại.` : '')
         : `Đã ghi ${result.written} giá từ Sheet.`);
     }));
     // Duyệt một chuyến tại hàng: cùng lệnh /api/v7/sheet/approve, chỉ dòng đó (source_rows). Chưa rõ kết quả thì bấm lại
