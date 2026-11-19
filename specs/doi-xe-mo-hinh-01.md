@@ -9,7 +9,7 @@ Phiên viết spec chỉ đọc code và tài liệu: không chạy DDL, không 
 | ĐÃ BIẾT (đọc DDL tại `main` `3c8e4a0`, 19/11/2026) | Nguồn |
 | --- | --- |
 | `doixe.loai_phi` có 16 khoản chi: 15 từ đợt 1 (`nang`, `nangha`, `cau`, `neo`, `xi`, `dao`, `moi`, `doi`, `seal`, `bai`, `dieu`, `dau`, `ps`, `may`, `vetc`) và `hasom` từ migration phiếu chi. `cot_sheet` UNIQUE 0–28, `hasom` để NULL. `cong_ty_tra` chỉ `vetc` = true. `chi_ho` thêm ở đợt 2, mặc định true cho `xi`, `moi`, `hasom` | `2026-11-18-v7-doi-xe.sql`, `-phieu-chi.sql`, `-thu.sql` dòng 35–44 |
-| `doixe.phat_sinh` có 14 khoản thu; 10 có `loai_phi`, 4 không (`can`, `dong_an`, `lay_xa`, `dong_ghep`); hai khoản (`kiem_hoa`, `ha_som`) cùng trỏ `hasom`; 9 khoản chi khác nhau được nối | `-thu.sql` dòng 119–137 |
+| `doixe.phat_sinh` có 14 khoản thu; 10 có `loai_phi`, 4 không (`can`, `dong_an`, `lay_xa`, `dong_ghep`); hai khoản (`kiem_hoa`, `ha_som`) cùng trỏ `hasom`; 9 khoản chi khác nhau được nối. Hai khoản này đều `cach = 'co_dinh'`, **mỗi khoản một `muc_vnd`** (migration để trống; `luu_phat_sinh` ghi riêng từng khoản), nên có thể có hai mức khác nhau | `-thu.sql` dòng 119–137 |
 | Số dư người nhận ứng `_so_du` = số dư đầu + tiền các dòng của chặng có `nguoi_tra_id` = người đó (bỏ loại `cong_ty_tra`, bỏ chặng `da_xoa`) − đợt hoàn chưa hủy − ứng chưa hủy | `doi-xe.sql` dòng 326–338 |
 | Người trả là cột của **chặng** (`tra`, `nguoi_tra_id`, CHECK hai cột khớp nhau) cộng cờ của **loại phí** (`cong_ty_tra`); `ghi_hoan` chỉ nhận dòng của chặng có `nguoi_tra_id` = người nhận | `doi-xe.sql` dòng 97–110, 893–897 |
 | Đơn vị chờ hoàn là `dong` (một dòng gốc mỗi chặng: `dong_mot_goc`), `dot_hoan.dong_ids` là mảng id `dong` | `doi-xe.sql` dòng 73–88, 132 |
@@ -55,7 +55,8 @@ Spec mô hình dữ liệu và thứ tự migration đủ để người dùng c
 | `ten`, `ten_day_du` | nhãn | cả hai |
 | `huong` | `chi`, `thu` hoặc `ca_hai` | mới |
 | `cach`, `muc_vnd`, `muc_them_vnd` | cách tính phía thu (`co_dinh`, `theo_ngay`, `theo_don_vi`, `nhap_tay`) và mức; NULL ở khoản chỉ chi | `phat_sinh` |
-| `chi_ho` | **một** cờ chi hộ | `loai_phi.chi_ho`, `phat_sinh.chi_ho` |
+| `chi_ho` | **một** cờ chi hộ; NULL chỉ ở khoản thu có `chi_doi_ung` (đọc cờ của khoản chi đối ứng) | `loai_phi.chi_ho`, `phat_sinh.chi_ho` |
+| `chi_doi_ung` | khoản thu trỏ tới **khoản chi đối ứng** (nhiều khoản thu → một khoản chi, lãi lỗ ghép hai phía theo quan hệ này); NULL ở khoản không có | `phat_sinh.loai_phi` |
 | `cot_bang_ke` | `ps` hoặc `ghep` (khoản thu nằm cột nào của bảng kê) | `phat_sinh.cot` |
 | `tra_mac_dinh` | `theo_chang` hoặc `cong_ty` (thay `cong_ty_tra`) | `loai_phi.cong_ty_tra` |
 | `thu_tu_chi`, `thu_tu_thu` | thứ tự hiện trên từng màn (hai thứ tự khác nhau, VETC đứng cuối phía chi) | `thu_tu` của hai bảng |
@@ -63,7 +64,7 @@ Spec mô hình dữ liệu và thứ tự migration đủ để người dùng c
 
 `phat_sinh_ten` (tên đọc được trong ghi chú) đổi thành `khoan_ten(ten, khoan)`, chỉ đường dán còn dùng. `loai_phi.cot_sheet` **rời** danh mục: thành bảng `doixe.cot_sheet_dan(cot int PK CHECK 0..28, khoan text)` của đường dán chuyển dữ liệu cũ; `_chung()` vẫn trả `cot_sheet` (nối từ bảng này) nên web hiện tại không vỡ.
 
-**Bảng ánh xạ đủ 30 khoản** (16 chi + 14 thu → 20 khoản mới = 16 + 14 − 10 mối nối, trong đó `hasom` hấp thụ hai khoản thu):
+**Bảng ánh xạ đủ 30 khoản** (16 chi + 14 thu → 22 khoản mới: 8 cặp chi–thu nối 1:1 gộp thành một dòng; `hasom` và hai khoản thu `kiem_hoa`, `ha_som` nối bằng `chi_doi_ung`, xem phương án X ở dưới):
 
 | Khoản mới | `huong` | Từ `loai_phi` (chi) | Từ `phat_sinh` (thu) | `chi_ho` | Ghi chú |
 | --- | --- | --- | --- | --- | --- |
@@ -82,15 +83,31 @@ Spec mô hình dữ liệu và thứ tự migration đủ để người dùng c
 | `ps` | chi | `ps` | — | không | chi tổng hợp, giữ nguyên |
 | `may` | ca_hai | `may` | `no_may` | không | thu theo đơn vị (giờ); tiền chi nổ máy còn mở ở [`CHI-PHI-XE-01`](chi-phi-xe-01.md) câu 6 |
 | `vetc` | chi | `vetc` | — | không | `tra_mac_dinh` = `cong_ty` |
-| `hasom` | ca_hai | `hasom` | `kiem_hoa`, `ha_som` | có | hai khoản thu thành một khoản; chữ "Kiểm hoá"/"Hạ sớm" giữ ở `dong_thu.nhan` (mục 3); ba tên trong `khoan_ten` |
+| `hasom` | chi | `hasom` | — | có | phiếu chi của nhà xe chỉ có một dòng "Hạ sớm/KH" |
+| `kiem_hoa` | thu | — | `kiem_hoa` | theo `hasom` | `chi_doi_ung` = `hasom`; mức riêng |
+| `ha_som` | thu | — | `ha_som` | theo `hasom` | `chi_doi_ung` = `hasom`; mức riêng |
 | `can` | thu | — | `can` | có | chi hộ phía thu, không có khoản chi tương ứng (khớp hiện trạng) |
 | `dong_an` | thu | — | `dong_an` | không | |
 | `lay_xa` | thu | — | `lay_xa` | không | |
 | `dong_ghep` | thu | — | `dong_ghep` | không | `cot_bang_ke` = `ghep` |
 
-Thêm đúng một khoản `khac_thu` (thu, nhập tay, không chi hộ) cho "khoản lạ" mà bộ đọc ghi chú hiện vẫn tính; không có khoản này thì khoản lạ không có chỗ ở trong dòng thu. Danh mục thành 21 khoản.
+Thêm đúng một khoản `khac_thu` (thu, nhập tay, không chi hộ) cho "khoản lạ" mà bộ đọc ghi chú hiện vẫn tính; không có khoản này thì khoản lạ không có chỗ ở trong dòng thu. Danh mục thành 23 khoản (22 + `khac_thu`).
 
-**Cờ chi hộ còn một chỗ.** Migration kiểm từng cặp nối được: hai cờ cũ khác nhau thì **dừng và liệt kê** (không tự chọn), người dùng chốt cờ đúng. `luu_phat_sinh` đổi thành `luu_khoan` (cùng kiểm hình dạng, Lịch sử `luu_khoan`); `loai_phi` và `phat_sinh` còn lại là **view** cùng tên cột cũ trong các bước giữa để hàm cũ chưa viết lại vẫn chạy, view bỏ ở bước cuối.
+**Cờ chi hộ còn một chỗ.** Cột `khoan.chi_ho` có CHECK `(chi_doi_ung IS NULL) = (chi_ho IS NOT NULL)`: khoản thu có khoản chi đối ứng **không có cờ riêng**, cờ đọc từ khoản chi (`coalesce(k.chi_ho, d.chi_ho)`), nên cặp đối ứng không thể lệch. `chi_doi_ung` chỉ trỏ khoản có `huong = 'chi'` (kiểm trong `luu_khoan` và harness). Migration kiểm từng cặp nối được: hai cờ cũ khác nhau thì **dừng và liệt kê** (không tự chọn), người dùng chốt cờ đúng. `luu_phat_sinh` đổi thành `luu_khoan` (cùng kiểm hình dạng, Lịch sử `luu_khoan`); `loai_phi` và `phat_sinh` còn lại là **view** cùng tên cột cũ trong các bước giữa để hàm cũ chưa viết lại vẫn chạy, view bỏ ở bước cuối.
+
+**Hạ sớm và kiểm hoá: hai phương án (câu 8).** Phía chi chỉ có một khoản `hasom`; phía thu hiện có hai khoản `kiem_hoa`, `ha_som`, mỗi khoản một mức cố định.
+
+| | X: giữ hai khoản thu, nối bằng `chi_doi_ung` (**đề xuất**) | Y: gộp một khoản `hasom` |
+| --- | --- | --- |
+| Số khoản | 22 (23 với `khac_thu`) | 20 (21 với `khac_thu`) |
+| Mức thu | mỗi khoản một `muc_vnd`, như hiện nay | một `muc_vnd` chung, hoặc dòng thu luôn nhập tay; nếu hai mức cũ khác nhau và đều có giá trị, migration dừng để người dùng chọn |
+| `khoan_ma_cu` | `kiem_hoa`→`kiem_hoa`, `ha_som`→`ha_som` (không đổi mã nào ở phía thu) | hai mã cũ vào một mã mới; thống kê theo mã mất phân biệt, chỉ còn `nhan` (chữ tự do) |
+| Cờ chi hộ | một chỗ ở `hasom`; hai khoản thu đọc theo | một chỗ ở `hasom` |
+| Lãi lỗ ghép chi hộ hai phía | Σ thu của các khoản có `chi_doi_ung = 'hasom'` ghép Σ chi `hasom`; vẫn tách được thu kiểm hoá và thu hạ sớm | ghép 1:1, không tách được hai loại thu theo mã |
+| B-2 (số đòi) | không đổi: khoản và mức giữ nguyên, dòng chuyển từ ghi chú đóng băng đúng số | không đổi số của dữ liệu cũ (đóng băng), nhưng dòng thu `theo_muc` **mới** có thể ra số khác nếu mức chung khác một trong hai mức cũ: bất biến chỉ còn đúng cho dữ liệu cũ |
+| Cái giá | thêm một quan hệ (`chi_doi_ung`) và một CHECK | mất mức riêng; quyết định không đảo lại được vì dữ liệu cũ đã gộp mã |
+
+Đề xuất X: mức riêng là dữ kiện thật của DDL hiện tại, còn quan hệ nhiều thu → một chi cũng là cấu trúc cần cho Lãi lỗ; gộp (Y) chỉ đỡ một cột và mất cả hai.
 
 **Tác động tới dữ liệu cũ:** `dong_phi.loai_phi`, `dong.dc_phi` đổi khóa ngoại sang `khoan(ma)`, giá trị giữ nguyên (mã `loai_phi` là mã chuẩn) nên không sửa dòng nào. `bang_ke_dong.ps` (jsonb, bản chép, không sửa được) còn mã `phat_sinh` cũ: giữ bảng `khoan_ma_cu(ma_cu, khoan)` cho ai đọc bản chép (xuất Excel, đối soát).
 
@@ -160,6 +177,7 @@ Công nợ hiện là hai cơ chế: **người** (số dư = chi − hoàn − 
 
 | | (a) Giữ bảng hiện có, thêm lớp đọc chung; chỉ đối tác mới dùng bảng chung | (b) Chuyển hẳn mọi đối tác sang một bộ bảng | (c) Gộp nửa: một bảng tiền chuyển, nguồn nợ vẫn riêng |
 | --- | --- | --- | --- |
+| Chi phí chuyển dữ liệu hôm nay | không có | **thấp nhất**: bản thử trên `hao` chưa có lần ứng, đợt hoàn hay tiền về thật nào (theo audit 19/11/2026); sẽ tăng sau khi chạy thật | như (b) cho phần tiền chuyển |
 | Bảng mới | `doi_tac`, `tien_chuyen` (nợ của đối tác mới đọc từ `chi_xe.doi_tac_id`, mục 5) | `doi_tac`, `no` (khoản phải thu/trả), `tien_chuyen`, `phan_bo` | `tien_chuyen` |
 | Bảng cũ | giữ nguyên, thêm `doi_tac` nối ngược 1:1 (`doi_tac.nguoi_id`, `doi_tac.ben_ma`) | `ung`, `dot_hoan`, `tien_ve` thành bản chép rồi bỏ; bảng kê và dòng chi thành nguồn của `no` | `ung`, `dot_hoan`, `tien_ve` thành dòng `tien_chuyen`, nguồn nợ giữ |
 | Đường ghi tiền đang chạy | **không đụng** (ứng, hoàn, tiền về, bảng kê chạy như cũ) | viết lại cả 19 hàm và đường ghi; phân bổ hoàn theo `dong_ids` thành bảng `phan_bo` | đụng `ghi_ung`, `ghi_hoan`, `ghi_tien_ve` và hai hàm hủy |
@@ -242,7 +260,7 @@ Mỗi bước có file hoàn tác ghi cạnh (`...-hoan-tac.sql`) và nói rõ �
 
 1. `test_pg_doixe_chuyen.py`: dựng dữ liệu giả bằng các migration cũ và kịch bản có sẵn (chặng nhiều người, ứng, hoàn, hủy hoàn, tháng khóa, dòng điều chỉnh, trừ lại, bảng kê gom/gửi/đối chiếu/tiền về, ghi chú đủ loại gồm khoản lạ và khoản lỗi); chụp số dư, dòng chờ hoàn, tổng đợt, `_doc_bang_ke` mọi tháng, tổng chi theo (người, tháng) bằng **hàm cũ**; chạy migration mới hai lượt; so từng chỉ số (B-1 đến B-3).
 2. Kịch bản mới: chặng hai người trả (hoàn riêng từng người, hủy hoàn, bỏ chặng ở tháng khóa sinh hai dòng trừ lại); sửa `ghi_chu` không đổi `doi_vnd`; `xoa_chang` và sửa `ngay` của chặng đã gửi bị chặn; hai bên trả cước; `get_cong_no` cộng đúng người, bên, đối tác mới; quyền của `v7_app` (không quyền trên bảng, hàm phụ không cấp).
-3. Kiểm "một khoản một người trả" và "mỗi mối nối `khoan` có một cờ chi hộ" bằng truy vấn trong khối `DO` của migration và trong harness.
+3. Kiểm "một khoản một người trả" và "khoản thu có `chi_doi_ung` không mang cờ chi hộ riêng" bằng truy vấn trong khối `DO` của migration và trong harness.
 
 **Tiêu chí nghiệm thu số** (đo được trên dữ liệu giả của harness **và** trên bản thử tháng 10/2026 sau khi triển khai theo `DEPLOY-CLAUDE-01`: sao lưu trước, `ON_ERROR_STOP`, kiểm sau):
 
@@ -297,7 +315,7 @@ Revert PR. Không có dữ liệu.
 
 - `specs/chi-phi-xe-01.md`, `specs/doi-xe-thu-01.md`, `specs/doi-xe-dieu-do-01.md`, `docs/doi-xe-kien-truc-du-lieu.md`, `specs/doi-xe-cau-truc-01.md` và `docs/decisions/doi-xe-cau-truc-01.md` (đã vào `main` ở #497), ba quyết định Đội xe.
 - DDL và thân hàm trong bốn migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-doi-xe*.sql`; `test_pg_doixe.py` (cấu trúc harness); bản nháp migration điều độ trong worktree riêng (chỉ đọc).
-- Số đếm trong spec (16 khoản chi, 14 khoản thu, 10 mối nối, 9 khoản chi được nối, 4 khoản thu không nối, 20 + 1 khoản mới, 6 bảng và khoảng 19 hàm đụng tới tiền) đếm từ DDL, không từ dữ liệu.
+- Số đếm trong spec (16 khoản chi, 14 khoản thu, 10 mối nối, 9 khoản chi được nối, 4 khoản thu không nối, 22 + 1 khoản mới (phương án X), 6 bảng và khoảng 19 hàm đụng tới tiền) đếm từ DDL, không từ dữ liệu.
 
 Chưa làm và phải làm trước khi chạy migration ghi: (1) đo trên bản thử số chặng có khoản `loi` trong ghi chú; (2) so `loai_phi.chi_ho` với `phat_sinh.chi_ho` của từng cặp trên `hao`; (3) xác nhận không chặng nào cần chia một khoản cho hai người; (4) chạy thật mọi harness. Không kiểm gì trên `hao`, không chạy harness (spec thuần tài liệu).
 
@@ -307,12 +325,12 @@ Viết bằng từ nghiệp vụ; mỗi câu có **đề xuất** của Claude (
 
 1. **Một khoản chi có thể do hai người cùng trả không?** (ví dụ phí cầu đường của một chặng, tài xế trả một nửa, người đi lệnh một nửa.) *Đề xuất: không*, mỗi khoản một người trả; cần chia thì ghi thành hai khoản. Đơn giản và đúng với dữ liệu thấy tới nay. Nếu có: phải thêm một cấp nữa ở dòng khoản, và đợt hoàn phức tạp hơn.
 2. **Đổi người trả của một khoản khi tháng đã khóa hoặc khoản đã được hoàn?** *Đề xuất: vẫn chặn như hiện nay* (phải hủy đợt hoàn hoặc mở tháng, hoặc ghi điều chỉnh). Phương án hai: cho "chuyển khoản này từ người A sang người B" bằng một cặp dòng điều chỉnh có lý do; tiện hơn nhưng là luật mới về tiền.
-3. **Công nợ chung: (a) hay (b)?** (mục 4) *Đề xuất (a)*: đối tác mới (nơi bán dầu, gara, nhà xe thuê) dùng bảng chung ngay, người và HTH giữ bảng cũ và hợp nhất sau khi người dùng muốn. Phương án (b) chuyển hết một lần: gọn hơn về sau nhưng rủi ro cao nhất cho phần tiền đang chạy thử.
+3. **Công nợ chung: (a) hay (b)?** (mục 4) *Đề xuất (a)*: đối tác mới (nơi bán dầu, gara, nhà xe thuê) dùng bảng chung ngay, người và HTH giữ bảng cũ và hợp nhất sau khi người dùng muốn. Phương án (b) chuyển hết một lần: gọn hơn về sau nhưng rủi ro cao nhất cho phần tiền đang chạy thử. Để cân: bản thử trên `hao` chưa có lần ứng, đợt hoàn hay tiền về thật, nên chi phí chuyển dữ liệu của (b) đang thấp nhất và sẽ tăng sau khi chạy thật; rủi ro viết lại khoảng 19 hàm thì không đổi. **Nếu định hợp nhất thì quyết trước ngày chạy thật.**
 4. **Tài xế hay người đi lệnh có ứng tiền trả dầu, sửa xe (khoản ghi theo xe, không theo chặng) không?** *Đề xuất: chưa*; giai đoạn đầu khoản theo xe do công ty hoặc nơi bán, gara trả; tiền tài xế tự trả dọc đường vẫn ghi như chi của chặng (khoản "Đổ dầu" hiện có). Nếu có: khoản theo xe phải vào số dư và phần hoàn của người, đụng đường hoàn.
 5. **Chặng đã gửi bảng kê: không cho sửa ngày, container, loại chặng, xe và không cho xóa?** *Đề xuất: chặn*; sai thật thì điều chỉnh dòng bảng kê (lý do bắt buộc) trước khi đối chiếu xong. Hiện web không chặn, nên chặng và bảng kê đã gửi có thể lệch nhau mà không báo. Cần nói rõ: chặng gửi nhầm cần bỏ thì làm theo đường nào (đề xuất: điều chỉnh dòng bảng kê về 0, rồi mới được bỏ chặng).
 6. **Khoản phát sinh viết trong ghi chú mà máy không đọc được, lúc chuyển sang dòng riêng thì ai xử lý?** *Đề xuất*: máy lập danh sách (chặng, chữ ghi chú, lý do lỗi); hai nhân viên sửa trên web thành dòng thu **trước** ngày chuyển; còn sót thì không chuyển và không tính tiền (đúng như hôm nay khoản lỗi không được tính). Số lượng khoản lỗi: chưa đo.
 7. **Phát sinh tính theo mức (neo theo ngày, nổ máy theo giờ): đổi mức có đổi tiền của chặng chưa gửi không?** *Đề xuất: có* (như hiện nay, đến lúc gửi bảng kê thì chốt số). Phương án hai: đóng băng mức vào lúc ghi, đổi mức không ảnh hưởng chặng cũ; nhất quán hơn nhưng đổi hành vi người dùng đã quen.
-8. **Hạ sớm và kiểm hoá: một khoản hay hai?** *Đề xuất: một khoản* `hasom` (chi hộ), nhãn "Hạ sớm" hay "Kiểm hoá" giữ ở từng dòng thu; Excel bảng kê không đổi. Phía chi vốn đã gộp một khoản, không tách lại được dữ liệu cũ.
+8. **Hạ sớm và kiểm hoá: hai khoản thu hay một?** (mục 1) Phía chi chỉ có một khoản "Hạ sớm/KH"; phía thu hiện có hai khoản, mỗi khoản một mức cố định. *Đề xuất X: giữ hai khoản thu, nối với một khoản chi* (mức riêng, vẫn tách được hai loại thu, Excel bảng kê không đổi, danh mục 22 khoản). Phương án Y: gộp một khoản (20 khoản), chấp nhận một mức chung hoặc nhập tay; gọn hơn nhưng mất mức riêng và không đảo lại được.
 
 Điều không hỏi vì giữ nguyên: danh sách khoản chi hộ (còn mở ở `DOI-XE-THU-01` câu 3 và `CHI-PHI-XE-01` câu 13; mô hình mới chỉ gom về một cờ, không đổi giá trị); tiền nổ máy phát (`CHI-PHI-XE-01` câu 6).
 
