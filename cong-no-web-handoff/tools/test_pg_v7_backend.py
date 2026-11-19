@@ -61,6 +61,7 @@ from test_pg_v7_backend_bang_thu import check_bang_thu
 from test_pg_v7_backend_can_du import check_can_du
 from test_pg_v7_backend_chan_trung import check_chan_trung
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
+from test_pg_v7_backend_doc_nhat_quan import check_doc_nhat_quan
 from test_pg_v7_backend_doi_no import check_doi_no
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
 from test_pg_v7_backend_jit_off import (
@@ -266,6 +267,10 @@ CASES.append(case("KHOA-CHU.01", "BEHAVIOR", "Locked month: four text fields edi
 CASES.append(case("KIEM-TAB.01", "BEHAVIOR", "Empty string and NULL are one value for text fields in Sheet resolution and trip edit; money untouched",
                   check="kiem_tab", functions=("edit_trip_info", "resolve_sheet_conflict")))
 
+# Audit kiến trúc 19/11/2026 (A01): đầu giao dịch của GET (v7_psql.begin_sql) giữ get_ledger trong một ảnh dữ liệu.
+CASES.append(case("AUDIT-KT.02", "BEHAVIOR", "GET ledger read stays in one snapshot across a concurrent receipt; READ COMMITTED control mixes",
+                  check="doc_nhat_quan", functions=("get_ledger",)))
+
 # ZALO-GROUP-01 1/11/2026: gắn group ↔ sổ, dấu tin; trạng thái tính từ phiếu thu, không đổi số tiền.
 CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message marks: status from receipts, cancel with reason, no money change",
                   check="zalo_group", functions=("link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks")))
@@ -297,7 +302,7 @@ CASES.append(case("HOAT-DONG.01", "BEHAVIOR", "Activity of one VN day across boo
 CASES.append(case("HIEU-NANG.01", "BEHAVIOR", "Read stamp changes after every committed write to any sokhach table, not on reads, locks or rollbacks",
                   check="read_stamp", functions=("get_read_stamp",)))
 
-CHECKS = {"kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,

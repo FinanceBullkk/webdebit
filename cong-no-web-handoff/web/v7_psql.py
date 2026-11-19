@@ -30,6 +30,14 @@ SNAPSHOT_READS = frozenset({"get_dashboard", "get_dashboard_debt", "list_custome
 _UNAVAILABLE = "Sổ tạm thời không truy cập được."
 
 
+def begin_sql(*, read_only: bool = False, consistent: bool = False) -> str:
+    """Đầu giao dịch của một lần gọi hàm. Harness PostgreSQL dùng đúng chuỗi này để kiểm ảnh dữ liệu (audit 19/11, A01)."""
+    if read_only:
+        return ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n"
+                f"SET LOCAL statement_timeout = '{READ_ONLY_STATEMENT_TIMEOUT}';\n")
+    return "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n" if consistent else "BEGIN;\n"
+
+
 def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[str]:
     """Lệnh psql nhanh nhất mà vẫn chắc chắn tới đúng cluster.
 
@@ -68,21 +76,24 @@ def _feed(stream, text: str) -> None:
 
 
 class _PsqlRunner:
-    def run(self, function: str, payload: dict, actor: str, *, read_only: bool = False) -> dict:
+    def run(self, function: str, payload: dict, actor: str, *, read_only: bool = False, consistent: bool = False) -> dict:
         try:
-            return json.loads(self.run_text(function, payload, actor, read_only=read_only))
+            return json.loads(self.run_text(function, payload, actor, read_only=read_only, consistent=consistent))
         except ValueError as exc:
             raise ApiError(
                 503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
             ) from exc
 
-    def run_text(self, function: str, payload: dict, actor: str, *, read_only: bool = False) -> str:
+    def run_text(self, function: str, payload: dict, actor: str, *, read_only: bool = False, consistent: bool = False) -> str:
         """Chữ JSON hàm trả về, chưa phân tích (HIEU-NANG-01: bộ nhớ đọc giữ chữ, mỗi lượt `loads` một bản mới).
 
         `read_only=True` (LUOI-AN-TOAN-01): giao dịch REPEATABLE READ READ ONLY, mọi câu trong hàm cùng một ảnh dữ liệu và
-        không ghi được gì.
+        không ghi được gì; giới hạn thời gian của việc nền (60 giây mỗi câu).
+        `consistent=True` (audit 19/11/2026, A01): cùng giao dịch REPEATABLE READ READ ONLY cho lượt GET của người dùng, giữ
+        giới hạn thời gian thường. Hàm đọc nhiều câu (get_ledger) dưới READ COMMITTED có thể trả tổng nợ trước một phiếu thu
+        cùng danh sách phiếu sau phiếu đó. Đường ghi không dùng cờ này: lệnh ghi gọi get_ledger phải thấy chính phần mình ghi.
         """
-        return self._run_psql(self._argv(), function, payload, actor, read_only)
+        return self._run_psql(self._argv(), function, payload, actor, read_only, consistent)
 
     def run_snapshot(self, calls: list[tuple[str, dict]], actor: str, *,
                      timeout: float = SNAPSHOT_PROCESS_TIMEOUT) -> Iterator[dict]:
@@ -137,7 +148,8 @@ class _PsqlRunner:
         raise NotImplementedError
 
     def _run_psql(
-        self, argv: list[str], function: str, payload: dict, actor: str, read_only: bool = False
+        self, argv: list[str], function: str, payload: dict, actor: str, read_only: bool = False,
+        consistent: bool = False,
     ) -> str:
         statement = SQL[function]
         if function == "attach_receipt_image":
@@ -146,12 +158,8 @@ class _PsqlRunner:
             if not isinstance(image, str) or len(image) % 4 or not BASE64.fullmatch(image):
                 raise ApiError(422, "IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
             statement = statement.replace(IMAGE_MARK, image)
-        begin = "BEGIN;\n"
-        if read_only:
-            begin = ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n"
-                     f"SET LOCAL statement_timeout = '{READ_ONLY_STATEMENT_TIMEOUT}';\n")
         sql = (
-            begin
+            begin_sql(read_only=read_only, consistent=consistent)
             + "SET LOCAL sokhach.actor = :'actor';\n"
             + statement
             + "\nCOMMIT;\n"
