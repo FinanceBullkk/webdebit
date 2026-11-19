@@ -1,6 +1,6 @@
 # Zalo gần thời gian thực và thu chi đọc từ nhóm chat (ZALO-THU-CHI-01)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026). Chưa chốt, chưa code. Người dùng cần chốt các câu Q1–Q8 ở [cuối spec](#câu-hỏi-cần-chốt).
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q8 ở [cuối spec](#câu-hỏi-đã-chốt)). Chưa code; bước đầu là [P0](#p0-đo-trước-khi-code). Quyết định đi kèm: [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md).
 
 Nguồn: sếp hỏi trong chat 19/11/2026: cần "một cái WeChat hoặc Zalo" để gửi phiếu thanh toán, thu chi vào đó, "để biết được tình hình thu chi thực tế để con bot nó có thể đọc được". Sau đó sếp nói rõ thêm: muốn một con bot add vào các nhóm chat. Người dùng chọn "Spec real-time + thu chi".
 
@@ -22,7 +22,7 @@ Vì vậy spec này **đọc** nhóm bằng đường của [`ZALO-GROUP-01`](..
 2. **Khoản nào đã báo trong nhóm mà chưa vào sổ:** chưa có phiếu thu ở sổ khách, chưa có dòng chi hoặc ứng ở Đội xe? Đây là chỗ hay sót tiền nhất. Hôm nay muốn biết thì phải lục lại Zalo.
 3. **Khoản nào báo một số mà sổ ghi số khác?**
 
-Spec **không** trả lời "tiền đã thật sự về tài khoản chưa". Tin trong nhóm là lời người báo; ảnh chuyển khoản có thể gửi nhầm, gửi trùng hoặc chưa thành công. Sự thật về tiền nằm ở ngân hàng ([Q7](#câu-hỏi-cần-chốt)).
+Spec **không** trả lời "tiền đã thật sự về tài khoản chưa". Tin trong nhóm là lời người báo; ảnh chuyển khoản có thể gửi nhầm, gửi trùng hoặc chưa thành công. Sự thật về tiền nằm ở ngân hàng ([Q7](#câu-hỏi-đã-chốt)).
 
 ## Kiểm kê nguồn
 
@@ -51,7 +51,7 @@ Nguồn sống ở máy có Zalo (`live-sync`) cập nhật mỗi giây khi Zalo
    - `ứng 3tr tài xế B`
 2. Không theo mẫu cũng được. Tin vẫn lên web như chat thường; nếu có ảnh chuyển khoản thì máy đọc ảnh ([Luồng 4](#luồng-4-ảnh-chuyển-khoản-không-kèm-mẫu-đợt-sau)).
 
-**Mẫu tin** (đề xuất, chốt ở [Q2](#câu-hỏi-cần-chốt)):
+**Mẫu tin** (chốt ở [Q2](#câu-hỏi-đã-chốt)):
 
 - Từ đầu: `thu`, `chi` hoặc `ứng` (không phân biệt hoa thường, có dấu hay không).
 - Số tiền: `50tr`, `50 triệu`, `2tr5`, `2,5tr`, `800k`, `1.200.000`, `1200000`. Mọi cách đều đổi ra VND nguyên. Không đọc được thì số để trống (NULL), không phải 0.
@@ -109,7 +109,7 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
    - hai số bằng nhau thì khoản chắc chắn;
    - hai số khác nhau thì là `AMOUNT_DIFF` "mẫu X, ảnh Y".
 3. Cùng mã giao dịch xuất hiện hai lần (gửi lại ảnh, gửi hai nhóm) thì chỉ tính một khoản, kèm cảnh báo trùng.
-4. Ảnh không gửi ra dịch vụ ngoài `hao` và máy có Zalo ([`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md) mục 4). Đọc ảnh bằng AI ngoài là [Q4](#câu-hỏi-cần-chốt).
+4. Ảnh không gửi ra dịch vụ ngoài `hao` và máy có Zalo ([`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md) mục 4). Đọc ảnh bằng AI ngoài là [Q4](#câu-hỏi-đã-chốt).
 
 ### Bị chặn
 
@@ -230,7 +230,8 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 - [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md): mẫu đọc ở máy có Zalo, ghép trên `hao`, không cộng tiền.
 - [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), [`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md): sổ chi, ứng, tiền về của Đội xe.
 - [`CANH-BAO-01`](../docs/decisions/canh-bao-01.md): máy canh và email.
-- CÒN MỞ: mọi câu ở [Câu hỏi cần chốt](#câu-hỏi-cần-chốt).
+- Người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q8 ([Câu hỏi đã chốt](#câu-hỏi-đã-chốt)).
+- CÒN MỞ: engine OCR (B4), danh sách nhóm (sau P0), khoảng ngày cho chi Đội xe (Q6).
 
 ## Hành vi và bất biến
 
@@ -302,7 +303,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 - **Bot trả lời trong nhóm** (ví dụ @bot "thu chi hôm nay"). Xét khi Zalo Bot chính thức mở hẳn phần nhóm; đọc vẫn qua đường này, bot chỉ để trả lời.
 - **WeChat.** Tạm thời chuyển tiếp ảnh sang nhóm Zalo. Nếu đối tác Trung Quốc nhiều thì xét WeChat Work riêng.
-- **Sao kê hoặc biến động ngân hàng** ([Q7](#câu-hỏi-cần-chốt)).
+- **Sao kê hoặc biến động ngân hàng** ([Q7](#câu-hỏi-đã-chốt)).
 - **Sổ chi văn phòng, lương:** web chưa có sổ này. Phần B chỉ liệt kê các khoản đó (`NO_LEDGER`).
 
 ## Hoàn tác
@@ -316,18 +317,18 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 Chưa có. Số đo dẫn ở đây lấy từ spec và nhật ký của ZALO-GROUP-01 (1/11/2026). P0 chưa chạy.
 
-## Câu hỏi cần chốt
+## Câu hỏi đã chốt
 
-Mỗi câu có đề xuất của Claude; người dùng (và sếp) trả lời.
+Người dùng chốt cả tám câu theo đề xuất của Claude (chat 19/11/2026, "Chốt theo đề xuất").
 
-- **Q1 — Nhóm nào đưa lên web?** Đề xuất: lập **một nhóm Zalo nội bộ "Thu chi"** cho mọi khoản thu chi của công ty. Thêm các nhóm khách hay có ảnh chuyển khoản theo danh sách P0 đưa ra, mỗi nhóm người dùng tự `add`.
-- **Q2 — Có bắt gõ theo mẫu không?** Đề xuất: **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
-- **Q3 — Ai xem trang Thu chi?** Đề xuất: mọi người vào được web, như các trang khác (Tailscale). Nếu nhóm Thu chi có lương hay chi riêng của sếp thì cần tách quyền; đó là việc lớn hơn, chưa có trong spec.
-- **Q4 — Đọc ảnh bằng gì?** Đề xuất: OCR ngay trên máy có Zalo, không gửi ảnh ra ngoài, giữ `CHUNG-TU-01`. Nếu P0 cho thấy OCR đọc kém mà sếp muốn dùng AI ngoài (ví dụ Claude đọc ảnh) thì phải sửa `CHUNG-TU-01` mục 4.
-- **Q5 — Máy có Zalo có bật suốt giờ làm việc không?** Real-time chỉ đúng khi máy đó bật. Đề xuất: bật 7:00–20:00. Nếu không bảo đảm được thì cân nhắc một máy riêng luôn bật chỉ chạy Zalo PC.
-- **Q6 — Khoảng ngày đối chiếu.** Đề xuất: từ 1 ngày trước tới 3 ngày sau ngày báo, như dấu "Khách báo đã chuyển". Chi Đội xe có thể ghi muộn hơn (theo đợt hoàn), cần người nhập Đội xe xác nhận.
-- **Q7 — Có nối ngân hàng không?** Đây mới là nguồn "tiền thật". Đề xuất: **để sau**, spec riêng. Các dịch vụ báo biến động số dư như SePay, Casso cần cấp quyền đọc tài khoản ngân hàng, và chi phí chưa kiểm. Đây là quyết định của sếp.
-- **Q8 — Ứng tiền tài xế báo trong nhóm có tách loại riêng không?** Đề xuất: **có** (`ứng`), vì Đội xe tính số dư tài xế bằng chi − hoàn − ứng ([`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md)).
+- **Q1 — Nhóm nào đưa lên web?** **Chốt:** lập **một nhóm Zalo nội bộ "Thu chi"** cho mọi khoản thu chi của công ty. Thêm các nhóm khách hay có ảnh chuyển khoản theo danh sách P0 đưa ra, mỗi nhóm người dùng tự `add`.
+- **Q2 — Có bắt gõ theo mẫu không?** **Chốt:** **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
+- **Q3 — Ai xem trang Thu chi?** **Chốt:** mọi người vào được web, như các trang khác (Tailscale). Nếu nhóm Thu chi có lương hay chi riêng của sếp thì cần tách quyền; đó là việc lớn hơn, chưa có trong spec.
+- **Q4 — Đọc ảnh bằng gì?** **Chốt:** OCR ngay trên máy có Zalo, không gửi ảnh ra ngoài, giữ `CHUNG-TU-01`. Nếu P0 cho thấy OCR đọc kém mà sếp muốn dùng AI ngoài (ví dụ Claude đọc ảnh) thì phải sửa `CHUNG-TU-01` mục 4.
+- **Q5 — Máy có Zalo có bật suốt giờ làm việc không?** Real-time chỉ đúng khi máy đó bật. **Chốt:** bật 7:00–20:00. Nếu không bảo đảm được thì cân nhắc một máy riêng luôn bật chỉ chạy Zalo PC.
+- **Q6 — Khoảng ngày đối chiếu.** **Chốt:** từ 1 ngày trước tới 3 ngày sau ngày báo, như dấu "Khách báo đã chuyển". Chi Đội xe có thể ghi muộn hơn (theo đợt hoàn), cần người nhập Đội xe xác nhận.
+- **Q7 — Có nối ngân hàng không?** Đây mới là nguồn "tiền thật". **Chốt:** **để sau**, spec riêng. Các dịch vụ báo biến động số dư như SePay, Casso cần cấp quyền đọc tài khoản ngân hàng, và chi phí chưa kiểm. Nối ngân hàng cần sếp quyết trong spec riêng.
+- **Q8 — Ứng tiền tài xế báo trong nhóm có tách loại riêng không?** **Chốt:** **có** (`ứng`), vì Đội xe tính số dư tài xế bằng chi − hoàn − ứng ([`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md)).
 
 ## Câu hỏi mở
 
