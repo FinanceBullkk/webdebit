@@ -24,6 +24,9 @@ SOURCE_COLUMNS = {"container": "Số cont", "date": "Ngày đóng", "booking": "
                   "shipper": "Shipper", "carrier": "Hãng tàu", "origin": "Kho", "destination": "Cảng đến",
                   "product_name": "Tên hàng", "commodity": "Mặt hàng", "kind": "Loại", "source_tab": "Tab nguồn",
                   "source_line": "Dòng nguồn", "flag": "Cờ lỗi"}
+# DOI-XE-CHANG-01 (19/11/2026): bốn cột cuối của CONT_NGUON cho việc của đội xe. Tìm theo tên như các cột trên (không phân biệt
+# hoa thường); thiếu cột thì ô coi như trống và `read_source` ghi cột nào có trong bản chụp (`columns`), không làm hỏng sổ khách.
+OPTIONAL_SOURCE_COLUMNS = {"nha_xe": "Nhà xe", "seal": "Số seal", "nhiet_do": "Nhiệt độ", "ten_tau": "Tên tàu"}
 SOURCE_KIND_SEA = "BIỂN"
 # GĐ2 của NGUON-CHUYEN-01 (specs/v7-chuyen-theo-nguon.md): chuyến bộ ở tab CONT_BO, cũng tìm cột theo tên ở dòng 1.
 ROAD_RANGE = "CONT_BO!A1:Z20000"
@@ -118,6 +121,19 @@ def parse_booking_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _source_index(values: list[list[Any]]) -> tuple[dict[str, int], dict[str, int]]:
+    """Vị trí cột CONT_NGUON theo tên tiêu đề: (cột bắt buộc, cột tùy chọn có mặt). Thiếu cột bắt buộc là lỗi."""
+    if not values:
+        raise ValueError("CONT_NGUON empty")
+    header = [_SPACE_RE.sub(" ", unicodedata.normalize("NFC", str(cell or ""))).strip() for cell in values[0]]
+    missing = [name for name in SOURCE_COLUMNS.values() if name not in header]
+    if missing:
+        raise ValueError("CONT_NGUON header mismatch")
+    folded = [name.casefold() for name in header]
+    extra = {field: folded.index(name.casefold()) for field, name in OPTIONAL_SOURCE_COLUMNS.items() if name.casefold() in folded}
+    return {field: header.index(name) for field, name in SOURCE_COLUMNS.items()}, extra
+
+
 def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     """CONT_NGUON rows in the same shape as merge_booking_rows output (one read, no join).
 
@@ -127,18 +143,13 @@ def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     (`source_flag`); it never changes a status here. Rows whose "Loại" is not BIỂN are left
     out: road trips come from the CONT_BO tab (`parse_road_values`, NGUON-CHUYEN-01).
     """
-    if not values:
-        raise ValueError("CONT_NGUON empty")
-    header = [_SPACE_RE.sub(" ", unicodedata.normalize("NFC", str(cell or ""))).strip() for cell in values[0]]
-    missing = [name for name in SOURCE_COLUMNS.values() if name not in header]
-    if missing:
-        raise ValueError("CONT_NGUON header mismatch")
-    index = {field: header.index(name) for field, name in SOURCE_COLUMNS.items()}
+    index, extra = _source_index(values)
     rows: list[dict[str, Any]] = []
     for row_number, raw in enumerate(values[1:], start=2):
         cell = {field: raw[i] if i < len(raw) else "" for field, i in index.items()}
         if not any(str(value or "").strip() for value in cell.values()):
             continue
+        more = {field: str((raw[i] if i < len(raw) else "") or "").strip() for field, i in extra.items()}
         if normalize_customer_name(cell["kind"]) != SOURCE_KIND_SEA:
             continue
         item = {
@@ -158,6 +169,7 @@ def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
             "source_tab": str(cell["source_tab"] or "").strip(),
             "source_line": str(cell["source_line"] or "").strip(),
             "source_flag": str(cell["flag"] or "").strip(),
+            **{field: more.get(field, "") for field in OPTIONAL_SOURCE_COLUMNS},
         }
         item["status"] = _row_status(item)
         rows.append(item)
@@ -392,6 +404,8 @@ def read_source(spreadsheet_id: str, access_token: str, opener: Callable[..., An
     canonical = json.dumps(sources, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return {
         "source": {"spreadsheet_id": spreadsheet_id, "range": SOURCE_RANGE},
+        # Cột tùy chọn thật sự có ở tiêu đề (khác ô trống): web đội xe dựa vào đây để phân biệt "chưa có cột" với "chưa điền".
+        "columns": sorted(_source_index(values)[1]),
         "rows": rows,
         "row_count": len(rows),
         "sha256": hashlib.sha256(canonical).hexdigest(),
