@@ -24,6 +24,8 @@ import v7_sheet_refresh
 from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
 from v7_detail_queue import load_detail_snapshot, project_details
+from v7_header_fees import project as project_headers
+from v7_header_fees import write_lines as header_lines
 from v7_price_queue import book_rows, load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
@@ -619,6 +621,43 @@ def write_ps_items(items: list[dict], customer: int, version: int, digest: str, 
             # Every split keeps totals, so stopping half way leaves no money wrong; the rest stays READY.
             return 200, {"written": written, "remaining": len(items) - written,
                          "complete": False, "error": exc.code}
+        version = result["version"] if type(result.get("version")) is int else \
+            runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
+        written += 1
+    return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+
+
+def header_projection(runner: Psql, ledger: dict, actor: str) -> tuple[str, list[dict]]:
+    """(hash bản chụp giá, kế hoạch tách phụ phí theo tên cột của sổ) — TACH-PHI-TIEU-DE-01, chỉ máy theo Sheet dùng."""
+    snapshot = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+    return snapshot.get("sha256"), project_headers(snapshot, ledger, customers,
+                                                   runner.run("get_fee_types", {}, actor).get("fee_types", []))
+
+
+def write_header_items(items: list[dict], customer: int, version: int, digest: str, key: str,
+                       runner: Psql, actor: str) -> tuple[int, dict]:
+    """Một lệnh `rewrite_trip_fees` mỗi chuyến, giữ nguyên tổng phụ phí; như `write_ps_items`, nguồn là tên cột tab khách."""
+    written = 0
+    for item in items:
+        target, lines = item["target"], header_lines(item)
+        # Khóa theo bản chụp, đích, khoản cũ và bộ khoản mới: lượt sau với cùng Sheet trả lại kết quả đã lưu, không ghi lần
+        # hai; khoản trên web đã đổi (người sửa tay) thì là lệnh mới, không vướng khóa cũ.
+        before = [line["id"] for line in item["info"]["before"]]
+        command_key = hashlib.sha256(f"{key}:{digest}:{target['kind']}:{target['id']}:{before}:"
+                                     f"{json.dumps(lines, sort_keys=True)}".encode()).hexdigest()
+        try:
+            result = runner.run("rewrite_trip_fees", {
+                "customer_id": customer, "expected_version": version, "idempotency_key": command_key,
+                "target": {"trip_id" if target["kind"] == "trip" else "legacy_row_id": target["id"]},
+                "expected_line_ids": [line["id"] for line in item["info"]["before"]], "lines": lines,
+                "source": {"kind": "sheet_header", "reason": "named_columns", "row": item["row"]["source_row"],
+                           "snapshot_sha256": digest}}, actor)
+        except ApiError as exc:
+            if not written:
+                raise
+            return 200, {"written": written, "remaining": len(items) - written, "complete": False, "error": exc.code}
         version = result["version"] if type(result.get("version")) is int else \
             runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
         written += 1

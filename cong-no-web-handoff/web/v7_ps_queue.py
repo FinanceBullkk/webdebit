@@ -26,9 +26,11 @@ UNCLASSIFIED = ("other", "discount", "initial")
 # PHU-PHI-BU-01: công cụ bù ghi GAP_NOTE trên phần thiếu so với TOTAL; máy PS vẫn được tách các khoản này.
 GAP_NOTE = "Theo TOTAL Sheet: cột không tiêu đề"
 GENERATED_NOTES = {"migration: legacy fee", "migration: initial fee", GAP_NOTE}
-FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
+# Năm loại sau chỉ đến từ tên cột tab khách (TACH-PHI-TIEU-DE-01, bổ sung 19/11/2026); bảng PS không có cột cho chúng.
+FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ",
+             "can_hang": "Cân hàng", "local": "Local charge", "luu_bai": "Lưu bãi", "huy": "Phí hủy", "sua_bill": "Sửa bill"}
 FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
-LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
+LABELS = {"khac": "Khác", **FEE_NAMES}
 REVIEW = ("MONTH_LOCKED", "TOTAL_DIFF", "WEB_NO_FEE", "AMBIGUOUS", "PS_SOURCE_ERROR", "PS_TYPO", "PS_BAD_AMOUNT",
           "TYPED_CONFLICT", "FEE_TYPE_MISSING", "NEED_HEALTH", "NEED_KD")
 # Dòng người trả lời được "Không thu, hết báo" (PS-HOI-01): có chuyến đích và là câu hỏi về tiền, không phải việc máy

@@ -21,15 +21,18 @@ from typing import Any
 from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
     SharedReads,
     cached_load,
+    header_projection,
     paste_sheet_rows,
     price_projection,
     ps_projection,
     road_projection,
     sheet_projection,
+    write_header_items,
     write_price_items,
     write_ps_items,
 )
 from v7_api_validate import ApiError
+from v7_header_fees import added_columns, writable
 from v7_ps_queue import auto_ps, best_columns
 from v7_road_queue import NOTE as ROAD_NOTE
 
@@ -60,6 +63,8 @@ AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
 # chuyến biển, chưa có giá; tháng khóa thì mở, dán, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=road.
 # MAY-PS-01 (4/11/2026): máy tự tách phụ phí theo bảng PS và tự chọn cột, ở mọi tháng vì không đổi tiền; tháng khóa thì mở,
 # ghi, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=ps.
+# TACH-PHI-TIEU-DE-01 (bổ sung 19/11/2026): máy tự tách phụ phí theo tên cột tab khách (`sheet_fees` trong prices.json) bằng
+# đúng hàm `plan` của máy PS, mọi tháng vì không đổi tiền; tháng khóa thì mở, ghi, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=headers.
 # Rà máy tự ghi 4/11/2026: mở–ghi–khóa là ba lệnh riêng, API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở. Lượt sau
 # khóa lại tháng máy đã mở mà chưa khóa, khi lần mở cũ hơn chừng này (không giành tháng của một lượt máy khác đang ghi dở).
 RELOCK_AFTER_SECONDS = 600
@@ -97,6 +102,8 @@ def auto_enabled(kind: str) -> bool:
 def _vn_day(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp + 7 * 3600, UTC).date().isoformat()
 TEXT_FIELDS = {"origin", "destination", "shipper", "carrier", "shipper_unavailable"}
+# Sổ chỉ có việc máy tách theo tên cột (không có trong `books`).
+NO_WORK = {"text_diff": 0, "trips_new": 0, "road_new": 0, "prices_auto": 0, "ps_auto": 0}
 
 
 def _vnd(value: Any) -> int | None:
@@ -371,6 +378,7 @@ class Inbox:
         self.relock_due: dict[int, float] = {}          # sổ có tháng máy mới mở, chưa tới hạn khóa lại → lúc tới hạn
         self.relocking = False
         self.machine_seen: dict[int, list[dict]] = {}   # việc máy làm hôm nay theo Lịch sử, chờ nạp vào auto_log
+        self.header_todo: set[int] = set()   # sổ có chuyến tách được theo tên cột (lượt nền vừa đọc), khi bật `headers`
         self.seeded_day: str | None = None
         self.stopped = threading.Event()   # đặt để dừng nhịp nền (test)
 
@@ -388,9 +396,22 @@ class Inbox:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, ACTOR)
             with contextlib.suppress(Exception):   # đọc Lịch sử của máy hỏng không làm sổ thành `failed`
                 self._note_machine(customer_id, ledger)
+            self._note_headers(runner, customer_id, ledger)
             return customer_id, summarize(customer_id, self.project(runner, ledger, ACTOR)), True
         except Exception:  # noqa: BLE001  một sổ lỗi không chặn sổ khác; sổ đó vào `failed`
             return customer_id, None, False
+
+    def _note_headers(self, runner, customer_id: int, ledger: dict[str, Any]) -> None:
+        """Nhớ sổ có chuyến máy tách được theo tên cột; không cộng vào việc của sổ (máy tự làm, không ai phải bấm)."""
+        found = False
+        if auto_enabled("headers"):
+            with contextlib.suppress(Exception):   # prices.json hỏng: không có việc tách, sổ vẫn tính
+                found = bool(writable(header_projection(runner, ledger, ACTOR)[1]))
+        with self.lock:
+            if found:
+                self.header_todo.add(customer_id)
+            else:
+                self.header_todo.discard(customer_id)
 
     def _note_machine(self, customer_id: int, ledger: dict[str, Any]) -> None:
         now = self.clock()
@@ -519,15 +540,20 @@ class Inbox:
                     self.done += 1
         self._seed_log()   # trước các bước máy của lượt này, để RAM chưa có việc nào của lượt
         self._relock(shared)
-        text, trips, prices, road, ps = (auto_enabled(kind) for kind in ("text", "trips", "prices", "road", "ps"))
+        text, trips, prices, road, ps, headers = (auto_enabled(kind)
+                                                  for kind in ("text", "trips", "prices", "road", "ps", "headers"))
 
         def pasting(book: dict) -> bool:
             return bool((trips and book["trips_new"] - book["road_new"]) or (road and book["road_new"]))
-        todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or pasting(book)
-                      or (prices and book["prices_auto"]) or (ps and book["ps_auto"]))
+        with self.lock:
+            header_todo = set(self.header_todo) & set(customers) if headers else set()   # sổ thôi active thì bỏ
+            self.header_todo &= set(customers)
+        todo = sorted({cid for cid, book in books.items() if (text and book["text_diff"]) or pasting(book)
+                       or (prices and book["prices_auto"]) or (ps and book["ps_auto"])} | header_todo)
         if todo and key is not None:
             for customer_id in todo:
-                book = books[customer_id]
+                # Sổ chỉ có việc tách theo tên cột thì không có trong `books` (việc máy không cộng vào việc của sổ).
+                book = books.get(customer_id) or NO_WORK
                 if text and book["text_diff"]:
                     self._auto_text(shared, customer_id)
                 # Đọc lại chuyến web mọi sổ cho từng sổ: chuyến máy vừa thêm ở sổ trước phải chặn được ở sổ sau.
@@ -540,6 +566,9 @@ class Inbox:
                     self._auto_prices(shared, customer_id)
                 if ps and book["ps_auto"]:
                     self._auto_ps(shared, customer_id)
+                if headers:
+                    # Sau giá: chuyến máy vừa ghi giá (phụ phí một khoản Khác) được tách theo tên cột ngay trong lượt này.
+                    self._auto_headers(shared, customer_id)
                 result = self._one(shared, customer_id)
                 if result[2]:
                     books.pop(customer_id, None)
@@ -798,6 +827,68 @@ class Inbox:
         if total:
             self._auto_columns(runner, customer_id)
 
+    def _auto_headers(self, runner, customer_id: int) -> None:
+        """Tách phụ phí theo tên cột tab khách của một sổ (TACH-PHI-TIEU-DE-01), như `_auto_ps` nhưng nguồn là `prices.json`.
+
+        Chỉ dòng `READY`/`MONTH_LOCKED` của `v7_header_fees.plan_rows`: tổng ô phí bằng đúng TOTAL − đơn giá và bằng tổng phụ
+        phí trên web, nên không đổi tiền. Gom theo tháng, tháng khóa chỉ mở rồi khóa lại một lần. Loại vừa ghi mà sổ chưa có cột
+        riêng thì thêm cột. Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
+        """
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            digest, plans = header_projection(runner, ledger, AUTO_ACTOR)
+        except Exception as exc:  # noqa: BLE001  prices.json lạ không được làm lượt nền kẹt `running`
+            self._error("đọc tên cột phụ phí", customer_id, exc)
+            return
+        items = writable(plans)
+        if not items:
+            return
+        key = f"{AUTO_ACTOR}:headers:{customer_id}"
+        months: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            months.setdefault(str(item["target"]["month"])[:7], []).append(item)
+        version, types = ledger.get("version"), set()
+        locked_months = set(_locked_months(ledger, set(months)))
+        for month in sorted(months):
+            batch, out = months[month], {}
+
+            def write(at, batch=batch, out=out):
+                out.update(write_header_items(batch, customer_id, at, digest, key, runner, AUTO_ACTOR)[1])
+                return out["version"] if out.get("complete") else \
+                    runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            try:
+                version = in_month(runner, customer_id, version, ledger, month, key, write)
+            except ApiError as exc:
+                self._error("tách phụ phí theo tên cột", customer_id, exc)
+                break
+            done = batch[:out.get("written", 0)]
+            types.update(line["fee_type_id"] for item in done for line in item["info"]["after"])
+            with self.lock:
+                for item in done:
+                    self.auto_log.appendleft({"at": self.clock(), "kind": "ps", "source": "header", "customer_id": customer_id,
+                                              "container": item["row"].get("container"), "date": item["row"].get("date"),
+                                              "month": month, "locked": month in locked_months})
+            if not out.get("complete"):
+                self._error("tách phụ phí theo tên cột", customer_id, out.get("error") or "INCOMPLETE")
+                break
+        if types:
+            self._header_columns(runner, customer_id, types)
+
+    def _header_columns(self, runner, customer_id: int, types: set[int]) -> None:
+        """Thêm cột riêng cho loại máy vừa tách mà sổ chưa có (Cân hàng, Local charge...); không đổi cột đang có."""
+        try:
+            typed = {t["id"] for t in runner.run("get_fee_types", {}, AUTO_ACTOR).get("fee_types", [])
+                     if t.get("active") and not t.get("system_key")}
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            columns = added_columns(ledger, types & typed)
+            if columns is None:
+                return
+            digest = hashlib.sha256(f"{AUTO_ACTOR}:cot-ten:{customer_id}:{ledger['version']}:{columns}".encode()).hexdigest()
+            runner.run("set_book_fee_columns", {"customer_id": customer_id, "expected_version": ledger["version"],
+                                                "idempotency_key": digest, "fee_type_ids": columns}, AUTO_ACTOR)
+        except ApiError as exc:
+            self._error("chọn cột phụ phí", customer_id, exc)
+
     def auto_today(self) -> list[dict[str, Any]]:
         """Việc máy đã ghi hôm nay qua hộp chờ, mới trước, cho tab Máy chạy (MAY-CHAY-01). Chỉ đọc trong RAM, không chạm DB. Giờ theo VN."""
         today = _vn_day(self.clock())
@@ -891,6 +982,7 @@ class Inbox:
             ps_done = [entry for entry in done_today if entry.get("kind") == "ps"]
             auto = {"text_enabled": auto_enabled("text"), "trips_enabled": auto_enabled("trips"),
                     "prices_enabled": auto_enabled("prices"), "ps_enabled": auto_enabled("ps"),
+                    "headers_enabled": auto_enabled("headers"),
                     "last_run": iso(self.auto_run_at), "errors": self.auto_errors,
                     "today_count": len(text_done), "today_books": len({entry["customer_id"] for entry in text_done}),
                     "today_trips": len(trip_done), "today_trip_books": len({entry["customer_id"] for entry in trip_done}),

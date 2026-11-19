@@ -96,6 +96,8 @@ def _public_row(group: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
         return {"key": _key(row), "delta_vnd": str(price_delta(row)), **{name: row.get(name) for name in PRICE_FIELDS}}
     if group["kind"] in ("receipts", "receipts_no_date", "receipts_edited"):
         return {name: row.get(name) for name in RECEIPT_FIELDS}
+    if group["kind"] == "receipts_gone":   # phiếu web sẽ hủy: mã phiếu, ngày, số tiền, chứng từ
+        return {name: row.get(name) for name in ("pid", "date", "amount_vnd", "note")}
     return {name: row.get(name) for name in ("id", "source_row", "amount_vnd", "note")}
 
 

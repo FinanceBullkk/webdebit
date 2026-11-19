@@ -291,6 +291,78 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row.update(reason="FIXED", status="KHOP" if target == sheet else "LECH_TONG")
 
 
+def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[dict], prices: dict, receipts: dict, today: dt.date,
+                   *, write: bool) -> None:
+    """Khách đã khớp tổng mà Sheet còn việc chờ (THAY-PHIEU-SHEET-01, 19/11/2026): Sheet sửa hai chỗ bù nhau thì tổng không đổi, nên
+    `settle` không bao giờ xét. Mọi nhóm cộng lại bằng đúng số cần đổi thì ghi hết; không thì báo `DETAIL_DIFFERS` để người xem.
+    Không có việc chờ thì để nguyên `row`."""
+    ledger = db.run("get_ledger", {"customer_id": customer_id}, ACTOR)
+    sheet, total = row["sheet_total_vnd"], int(ledger["total_outstanding_vnd"])
+    if total != sheet:   # vừa có người ghi sau lúc đọc: lượt sau xét lại
+        return
+    health = fix.customer_health(prices, ledger, customers)
+    if health["status"] == "broken":
+        return
+    groups, ahead, shuffled = fix.plan(prices, receipts, ledger, customers, today)
+    active = [group for group in groups if group["delta_vnd"]]
+    if not active:
+        return
+    need = ahead   # đích là tổng Sheet cộng phần web đi trước, như `settle`
+    row["detail_check"] = True
+    complete = not shuffled and sum(group["delta_vnd"] for group in active) == need
+    row.update(groups=[brief(group, active if complete else []) for group in groups], web_ahead_vnd=ahead)
+    if shuffled:
+        row["shuffled_months"] = shuffled
+    if not complete:
+        row["reason"] = "DETAIL_DIFFERS"
+        return
+    if not write:
+        row["reason"] = "WOULD_FIX"
+        return
+    try:
+        row["written"] = fix.apply_fix(db, customer_id, ledger, active, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
+    except ApiError as exc:
+        print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
+        row.update(reason="WRITE_ERROR", error=exc.code)
+        return
+    finally:
+        row["web_total_vnd"] = int(db.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["total_outstanding_vnd"])
+        row["difference_vnd"] = row["web_total_vnd"] - sheet
+        if row["difference_vnd"]:   # ghi dở hay ghi xong mà lệch: không còn là khách khớp
+            row["status"] = "LECH_TONG"
+    if row["web_total_vnd"] != sheet + need:
+        print(f"V7 đối soát máy: sổ {customer_id} ghi xong mà không khớp", file=sys.stderr, flush=True)
+        row["reason"] = "VERIFY_FAILED"
+    else:
+        row["reason"] = "FIXED"
+
+
+def settle_all_matched(db, results: list[dict[str, Any]], ids: dict, held_names: dict, rows: list[dict],
+                       snapshots_of: Callable[[], tuple[dict, dict]], today: dt.date, *, write: bool) -> dict[str, Any]:
+    """`settle_matched` cho mọi khách khớp tổng chưa có kết luận; số đếm cho `reconcile.json`. Dựng bản chụp hỏng thì chỉ bỏ phần này."""
+    try:
+        prices, receipts = snapshots_of()
+        mapping = customer_name_mapping()
+    except Exception as exc:  # noqa: BLE001  thiếu phần xét chi tiết không phải lý do bỏ cả lượt
+        code = failure_code(exc)
+        print(f"V7 đối soát máy: chưa xét được chi tiết khách khớp ({code})", file=sys.stderr, flush=True)
+        return {"skipped": "ERROR", "error": code}
+    customers = [named_customer(row, mapping) for row in rows]
+    checked = 0
+    for row in results:   # khách đã có kết luận (vd. máy vừa sửa xong) thì không xét lại
+        if row["status"] != "KHOP" or row.get("reason") or row["customer"] not in ids or row["customer"] in held_names:
+            continue
+        checked += 1
+        try:
+            settle_matched(db, row, ids[row["customer"]], customers, prices, receipts, today, write=write)
+        except Exception as exc:  # noqa: BLE001  một sổ lỗi không chặn sổ khác; lượt sau tính lại
+            code = failure_code(exc)
+            print(f"V7 đối soát máy: sổ {ids[row['customer']]} lỗi {code} khi xét chi tiết", file=sys.stderr, flush=True)
+            row.update(reason="CHECK_ERROR", error=code)
+    reasons = Counter(row["reason"] for row in results if row.get("detail_check"))   # khách có việc chờ, theo kết luận
+    return {"checked": checked, **{key.lower(): count for key, count in sorted(reasons.items())}}
+
+
 def attach_hints(row: dict[str, Any], ledger: dict, prices: dict, receipts: dict, customers: list[dict], needed: int) -> None:
     """Máy đoán chỗ gây lệch để người sửa (CHAN-DOAN-LECH-01). Chỉ để giải thích: lỗi ở đây không đổi kết luận hay làm hỏng lượt."""
     try:
@@ -452,12 +524,14 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                     code = failure_code(exc)
                     print(f"V7 đối soát máy: sổ {ids[row['customer']]} lỗi {code} khi kiểm", file=sys.stderr, flush=True)
                     row.update(reason="CHECK_ERROR", error=code)
+        held_names = {item["name"]: item for item in held}
+        details = {"skipped": "TOO_MANY_DIFFERENT"}
         if not too_many:
+            details = settle_all_matched(db, results, ids, held_names, rows, sheet_snapshots, today, write=args.fix)
             create_new_books(db, [row for row in results if row["status"] == "CHI_CO_SHEET"], {rec.name(book["name"]): book for book in books},
                              seen, digest, ids, write=args.fix)
         # Sau khi máy sửa và tạo sổ, để tổng web là tổng lúc lưu. Hơn 40 khách lệch thì phần đi trước chưa tính, số so không có nghĩa.
         tong = {"month": None, "skipped": "TOO_MANY_DIFFERENT"} if too_many else check_tong(Path(xlsx), results, ids, rows, sheet_snapshots)
-        held_names = {item["name"]: item for item in held}
         for row in results:
             row["customer_id"] = ids.get(row["customer"])
             if row["status"] == "LECH_TONG" and too_many:
@@ -473,23 +547,26 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
     trace.stage("luu")
     edit_state = note_sheet_edits(args, results, downloaded_at)
     for row in results:
-        if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS:
+        if row["status"] != "KHOP" or row.get("reason") != "KHOP":
             trace.customer(row.get("customer_id"), done=row.get("reason") in DONE_REASONS, reason=row.get("reason") or row["status"], status=row["status"], difference_vnd=row.get("difference_vnd"))
     matched = [row for row in results if row["status"] == "KHOP"]
     checked_at = now_vn().isoformat(timespec="seconds")
     for row in results:
         if row.get("reason") in DONE_REASONS:
             row["fixed_at"] = checked_at
-    listed = [money_fields(row) for row in results if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS]
+    listed = [money_fields(row) for row in results if row["status"] != "KHOP" or row.get("reason") != "KHOP"]
     named = {row["customer"] for row in listed}
     return {
         "version": 1, "checked_at": checked_at, "mode": "fix" if args.fix else "report",
         "counts": dict(Counter(row["status"] for row in results)), "total": len(results),
         "matched_web_vnd": str(sum(row["web_total_vnd"] for row in matched)),
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
-        "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
+        # Khớp tổng mà Sheet còn khoản web chưa theo thì không ẩn việc chờ của sổ (THAY-PHIEU-SHEET-01).
+        "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched
+                    if row["customer_id"] and row.get("reason") != "DETAIL_DIFFERS"},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
         "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
+        "details": details,
     }
 
 

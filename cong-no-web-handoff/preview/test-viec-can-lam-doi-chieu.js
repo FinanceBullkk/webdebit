@@ -64,6 +64,15 @@ test('khách phải xem: bỏ máy đã sửa và web đi trước, máy ghi sai
   assert.deepEqual([...M.openIds({ customers: [{ customer_id: null, reason: 'CHI_CO_SHEET' }, { customer_id: 9, reason: 'HELD' }] })], [9]);
 });
 
+test('khớp tổng mà Sheet còn khoản web chưa theo thì vẫn là khách phải xem, xếp sau khách lệch tiền (THAY-PHIEU-SHEET-01)', () => {
+  const rows = M.openRows({ customers: [
+    { customer_id: 1, reason: 'DETAIL_DIFFERS', status: 'KHOP', difference_vnd: '0' },
+    { customer_id: 2, reason: 'NO_EXACT_FIX', status: 'LECH_TONG', difference_vnd: '-5' },
+    { customer_id: 3, reason: 'FIXED', status: 'KHOP', difference_vnd: '0' },
+  ] });
+  assert.deepEqual(rows.map(row => row.customer_id), [2, 1]);
+});
+
 test('web đi trước có chuyến cần xem thì thành khách phải xem, câu nói rõ chuyến nào (MAY-DOI-SOAT-01, 10/11/2026)', () => {
   const old = { kind: 'ahead_old', container: 'MAUU0000001', date: '2026-10-03', amount_vnd: '70000000', days: 38 };
   const moved = { kind: 'ahead_other_book', container: 'MAUU0000002', date: '2026-11-04', amount_vnd: '41000000', other: 'Mẫu Khác' };
