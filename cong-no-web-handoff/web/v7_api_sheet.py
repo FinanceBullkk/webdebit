@@ -465,6 +465,7 @@ def write_price_items(items: list[dict], customer: int, version: int, digest: st
             if (conflict and fee_changed) or (not conflict and fee is not None):
                 commands.append(("edit_legacy_trip", {"legacy_row_id": item["target_id"], "field": "other_fee_vnd",
                                                       "value": "" if fee is None else str(fee)}))
+        saved_fields = []
         for function, fields in commands:
             # One key per target and field: a repeated click replays the stored result, never a second write.
             command_key = hashlib.sha256(
@@ -473,17 +474,21 @@ def write_price_items(items: list[dict], customer: int, version: int, digest: st
                 result = runner.run(function, {"customer_id": customer, "expected_version": version,
                                                "idempotency_key": command_key, **fields}, actor)
             except ApiError as exc:
+                # Audit 19/11/2026 (A06): ghi dở vẫn trả mọi khóa lệnh đã lưu (hoàn tác được) và dòng nào chỉ mới lưu một ô.
+                partial = [{"target_kind": item["target_kind"], "target_id": item["target_id"],
+                            "saved_fields": saved_fields}] if saved_fields else []
                 if exc.code == "FEE_LINES_TYPED":
                     return 200, {"written": written, "remaining": len(items) - written,
-                                 "complete": False, "error": exc.code,
+                                 "complete": False, "error": exc.code, "undo_keys": undo_keys, "partial": partial,
                                  "review": [{**item, "status": "MANUAL"}]}
                 if not commands_done:
                     raise   # nothing written yet: a plain error, same as one price edit
                 return 200, {"written": written, "remaining": len(items) - written,
-                             "complete": False, "error": exc.code}
+                             "complete": False, "error": exc.code, "undo_keys": undo_keys, "partial": partial}
             version = result["version"] if type(result.get("version")) is int else                 runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
             commands_done += 1
             undo_keys.append(command_key)
+            saved_fields.append(fields.get("field", "price"))
         written += 1
     return 200, {"written": written, "remaining": 0, "complete": True, "version": version, "undo_keys": undo_keys}
 
