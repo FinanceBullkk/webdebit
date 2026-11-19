@@ -5,6 +5,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -222,6 +223,49 @@ class ClientDisconnectTest(unittest.TestCase):
             handler.request()
         handler.reply.assert_called_once()
         self.assertEqual(handler.reply.call_args.args[0], 503)
+
+
+class HeaderTimeoutTest(unittest.TestCase):
+    """Audit 19/11/2026 (A10): hạn socket có hiệu lực cả lúc đọc header, nên header dở dang không giữ luồng mãi."""
+
+    def serve(self):
+        class Short(api.Handler):
+            timeout = 0.5   # như hạn 5 giây thật, rút ngắn để test nhanh
+        Short.runner = FakeRunner()
+        server = api.ThreadingHTTPServer(("127.0.0.1", 0), Short)
+        Short.port = server.server_port
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+
+        def stop():
+            server.shutdown()
+            worker.join(timeout=3)
+            server.server_close()
+        self.addCleanup(stop)
+        return server
+
+    def test_handler_sets_socket_timeout_before_parsing(self):
+        self.assertEqual(api.Handler.timeout, 5)
+
+    def test_incomplete_headers_are_dropped(self):
+        server = self.serve()
+        client = socket.create_connection(server.server_address, timeout=3)
+        self.addCleanup(client.close)
+        client.sendall(b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\n")   # thiếu dòng trống kết thúc header
+        try:
+            closed = client.recv(1) == b""
+        except ConnectionResetError:
+            closed = True
+        except TimeoutError:
+            closed = False
+        self.assertTrue(closed, "server still holds a connection with incomplete headers after its timeout")
+
+    def test_complete_request_still_answered(self):
+        server = self.serve()
+        conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+        self.addCleanup(conn.close)
+        conn.request("GET", "/healthz", headers={"Host": f"127.0.0.1:{server.server_port}"})
+        self.assertEqual(conn.getresponse().status, 200)
 
 
 @unittest.skipIf(os.name == "nt" or not shutil.which("bash") or not shutil.which("flock"),

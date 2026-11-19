@@ -170,6 +170,25 @@
       renderSnapshot(ctx.snapshot);
       root.querySelector(`.price-conflict-select[data-key="${CSS.escape(checkbox.dataset.key)}"]`)?.focus();
     });
+    // "Lấy Sheet" cho dòng sổ gốc: chưa có lệnh ghi đơn giá và phụ phí một lần, nên phụ phí chỉ gửi khi đơn giá đã lưu (hoặc đã
+    // đúng sẵn — NO_CHANGE, như khi bấm lại sau Thử lại). Đã lưu hay chưa đọc ở api.lastOutcome(), không ở giá trị submit trả về
+    // (hợp đồng ở submit, so-khach-v7-api.js; audit 19/11/2026, A02). submit ném lỗi (đang bận…) thì chưa gửi gì, câu lỗi đã hiện.
+    async function useSheetLegacy(id, price, fee) {
+      const result = await submit('legacyEdit', { legacy_row_id: id, field: 'unit_price_vnd', value: price });
+      const outcome = api.lastOutcome();
+      if (!fee || !outcome) return;
+      if (outcome.status === 'saved' || (outcome.status === 'error' && outcome.result?.error === 'NO_CHANGE')) {
+        await submit('legacyEdit', { legacy_row_id: id, field: 'other_fee_vnd', value: fee });
+        return;
+      }
+      if (outcome.status === 'unknown' || api.hasPending()) {
+        showNotice('Chưa rõ đơn giá đã lưu chưa nên chưa ghi phụ phí Sheet. Bấm Thử lại ở đầu sổ, xong rồi bấm Lấy Sheet lần nữa để ghi phụ phí.');
+        return;
+      }
+      const why = outcome.status === 'stale' ? 'Sổ vừa thay đổi. Kiểm tra dữ liệu mới rồi thực hiện lại.'
+        : result?.message || outcome.result?.message || 'Không lưu được thao tác.';
+      showNotice(`Chưa lưu đơn giá nên chưa ghi phụ phí Sheet: ${why}`);
+    }
     root.addEventListener('click', api.tracked(async event => {
       const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet,.price-conflict-all,.price-conflict-confirm,.price-conflict-cancel,.price-conflict-write');
       if (!target || target.disabled || !ctx.snapshot) return;
@@ -238,8 +257,7 @@
         const { kind, id, price, fee } = target.dataset;
         target.disabled = true;
         if (kind === 'trip') await submit('price', { trip_id: Number(id), unit_price_vnd: price, other_fee_vnd: fee || null });
-        else if (await submit('legacyEdit', { legacy_row_id: Number(id), field: 'unit_price_vnd', value: price }) && fee)
-          await submit('legacyEdit', { legacy_row_id: Number(id), field: 'other_fee_vnd', value: fee });
+        else await useSheetLegacy(Number(id), price, fee);
         return;
       }
       // Ghi cả lô: giữ nguyên khóa khi chưa rõ kết quả để bấm lại không ghi trùng.
@@ -266,8 +284,17 @@
       }
       priceView = null;
       try { await api.read(); } catch { showNotice('Đã ghi giá; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+      // Audit 19/11/2026 (A06): dòng sổ gốc ghi giá bằng hai lệnh; lệnh phụ phí lỗi thì dòng đã có đơn giá nên sang "Giá cần xem"
+      // (lệch giá), không còn trong lô. Nói đúng chỗ ghi tiếp: nút "Lấy Sheet" của dòng đó (đơn giá đã đúng thì chỉ ghi phụ phí).
+      const half = result.partial?.length ?? 0;
+      const rest = result.remaining - half;
+      const finish = result.error === 'FEE_LINES_TYPED'
+        ? 'phụ phí đã phân loại nên sửa tay ở dòng đó.'
+        : 'ghi tiếp bằng "Lấy Sheet" ở dòng đó trong "Giá cần xem" (tháng đang khóa thì mở khóa trước).';
       showNotice(result.complete === false
-        ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi. Bấm "Ghi … giá từ Sheet" để ghi tiếp.`
+        ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi.`
+          + (half ? ` ${half} dòng sổ gốc mới ghi đơn giá, chưa ghi phụ phí: ${finish}` : '')
+          + (rest > 0 ? ` Bấm "Ghi … giá từ Sheet" để ghi ${rest} giá còn lại.` : '')
         : `Đã ghi ${result.written} giá từ Sheet.`);
     }));
     // Duyệt một chuyến tại hàng: cùng lệnh /api/v7/sheet/approve, chỉ dòng đó (source_rows). Chưa rõ kết quả thì bấm lại

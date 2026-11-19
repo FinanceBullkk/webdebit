@@ -781,3 +781,155 @@ test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm
     { id: 11, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
   ])], [['10', 'SHEET · Chuối · sổ 10'], ['11', 'SHEET · Chuối · sổ 11']]);
 });
+
+// ---- Audit 19/11/2026 (A05): GET trả chậm không ghi đè bản sổ mới hơn ----
+test('A05: lần đọc bắt đầu trước lần đọc lại sau lệnh ghi mà về sau thì bị bỏ; lần đọc mới nhất cùng version vẫn cài', async () => {
+  let get = 0, release;
+  const paints = [];
+  const page = (version, total) => ({ ...ledger(version), total_outstanding_vnd: total });
+  const api = create({ customerId: 7, key: () => 'a05-key', onSnapshot: row => paints.push([row.version, row.total_outstanding_vnd]),
+    fetcher: async (_url, options) => {
+      if (options?.method === 'POST') return reply(200, { version: 2 });
+      get += 1;
+      if (get === 2) return new Promise(resolve => { release = () => resolve(reply(200, page(1, '100'))); });
+      return reply(200, get === 1 ? page(1, '100') : get === 3 ? page(2, '80') : page(2, '70'));
+    } });
+  await api.read();
+  const older = api.read();   // tự cập nhật đang chạy thì người dùng ghi phiếu
+  await api.submit('receipt', receipt);
+  assert.equal(api.snapshot().version, 2);
+  release();
+  const late = await older;   // vẫn trả về (không treo), là bản đang giữ
+  assert.equal(late.version, 2);
+  assert.equal(api.snapshot().total_outstanding_vnd, '80');
+  assert.deepEqual(paints, [[1, '100'], [2, '80']]);
+  // Đối chứng: lần đọc mới nhất cùng version (phần chiếu đổi, version sổ không đổi) vẫn cài và vẽ.
+  assert.equal((await api.read()).total_outstanding_vnd, '70');
+  assert.deepEqual(paints.at(-1), [2, '70']);
+});
+
+test('A05: lần đọc mới nhất mà version nhỏ hơn bản đang giữ thì không cài; hai lần đọc về đúng thứ tự vẫn cài cả hai', async () => {
+  const versions = [3, 4, 2];
+  const paints = [];
+  const api = create({ customerId: 7, onSnapshot: row => paints.push(row.version),
+    fetcher: async () => reply(200, ledger(versions.shift())) });
+  await api.read();
+  await api.read();
+  assert.equal((await api.read()).version, 4);
+  assert.deepEqual(paints, [3, 4]);
+  assert.equal(api.snapshot().version, 4);
+});
+
+// ---- Audit 19/11/2026 (A02): "Lấy Sheet" cho dòng sổ gốc gửi phụ phí chỉ khi đơn giá đã lưu ----
+async function legacyUseSheet(firstPost, { kind = 'legacy', fee = '30' } = {}) {
+  const handlers = [], posts = [], notices = [];
+  const api = create({ customerId: 7, key: () => `a02-key-${posts.length}`, onNotice: text => notices.push(text),
+    fetcher: async (_url, options) => {
+      if (options?.method !== 'POST') return reply(200, ledger(posts.length ? 2 : 1));
+      posts.push(JSON.parse(options.body));
+      if (posts.length === 1 && firstPost === 'reject') return reply(422, { error: 'INVALID_COMMAND', message: 'Từ chối giả.' });
+      if (posts.length === 1 && firstPost === 'nochange') return reply(409, { error: 'NO_CHANGE', message: 'Không có thay đổi.' });
+      if (posts.length === 1 && firstPost === 'network') throw Error('offline');
+      return reply(200, { version: 2 });
+    } });
+  await api.read();
+  const context = { window: {}, Map, Set };
+  vm.runInNewContext(fs.readFileSync(require.resolve('./so-khach-v7-sheet-ui.js'), 'utf8'), context);
+  // Như submit của so-khach-v7-ui.js: lỗi ném ra thì hiện ở băng thông báo, trả undefined.
+  const submit = async (...args) => { try { return await api.submit(...args); } catch (error) { notices.push(error.message); } };
+  context.window.SoKhachV7LiveParts.sheet({ root: { addEventListener: (type, fn) => handlers.push({ type, fn }) },
+    api, customerId: 7, snapshot: ledger(1), submit, showNotice: text => notices.push(text) });
+  const button = { disabled: false, dataset: { kind, id: '4', price: '120', fee },
+    matches: selector => selector.split(',').includes('.price-use-sheet') };
+  const event = { target: { closest: selector => selector.split(',').includes('.price-use-sheet') ? button : null } };
+  for (const handler of handlers.filter(item => item.type === 'click')) await handler.fn(event);
+  return { posts, notices, api };
+}
+
+test('A02: đơn giá sổ gốc lưu xong thì gửi tiếp phụ phí, đúng thứ tự và version mới', async () => {
+  const { posts, api } = await legacyUseSheet('ok');
+  assert.deepEqual(posts.map(body => [body.legacy_row_id, body.field, body.value, body.expected_version]),
+    [[4, 'unit_price_vnd', '120', 1], [4, 'other_fee_vnd', '30', 2]]);
+  assert.equal(api.hasPending(), false);
+});
+
+test('A02: đơn giá sổ gốc bị từ chối thì không gửi phụ phí và báo lý do', async () => {
+  const { posts, notices } = await legacyUseSheet('reject');
+  assert.deepEqual(posts.map(body => body.field), ['unit_price_vnd']);
+  assert.equal(notices.at(-1), 'Chưa lưu đơn giá nên chưa ghi phụ phí Sheet: Từ chối giả.');
+});
+
+test('A02: đơn giá sổ gốc chưa rõ kết quả (mất mạng) thì không gửi phụ phí, giữ lệnh chờ Thử lại', async () => {
+  const { posts, notices, api } = await legacyUseSheet('network');
+  assert.deepEqual(posts.map(body => body.field), ['unit_price_vnd']);
+  assert.equal(api.hasPending(), true);
+  assert.match(notices.at(-1), /^Chưa rõ đơn giá đã lưu chưa nên chưa ghi phụ phí Sheet\./);
+  await api.retry();   // Thử lại chỉ gửi lại đúng lệnh đơn giá, cùng khóa
+  assert.deepEqual(posts.map(body => [body.field, body.idempotency_key]), [['unit_price_vnd', 'a02-key-0'], ['unit_price_vnd', 'a02-key-0']]);
+});
+
+test('A02: đơn giá đã đúng sẵn (NO_CHANGE, bấm lại sau Thử lại) thì vẫn ghi phụ phí; đối chứng chuyến và dòng không phụ phí', async () => {
+  assert.deepEqual((await legacyUseSheet('nochange')).posts.map(body => body.field), ['unit_price_vnd', 'other_fee_vnd']);
+  assert.deepEqual((await legacyUseSheet('ok', { fee: '' })).posts.map(body => body.field), ['unit_price_vnd']);
+  const trip = (await legacyUseSheet('ok', { kind: 'trip' })).posts;
+  assert.deepEqual(trip.map(body => [body.trip_id, body.unit_price_vnd, body.other_fee_vnd]), [[4, '120', '30']]);
+});
+
+// ---- Audit 19/11/2026 (A07): hàng đợi ghi nền trả kết quả mọi lệnh khi dừng ----
+function quickApi(answers, { failReadAfterFirst = false } = {}) {
+  const posts = [], notices = [];
+  let reads = 0;
+  const api = create({ customerId: 7, key: () => `a07-key-${posts.length}`, onNotice: text => notices.push(text),
+    fetcher: async (_url, options) => {
+      if (options?.method === 'POST') { posts.push(JSON.parse(options.body)); return answers.shift()(); }
+      reads += 1;
+      if (failReadAfterFirst && reads > 1) throw Error('offline');
+      return reply(200, ledger(posts.length ? 2 : 1));
+    } });
+  return { api, posts, notices };
+}
+// Trạng thái Promise sau khi mọi việc đã xong (idle): 'pending' nếu chưa ai resolve.
+const stateOf = async promise => {
+  let state = 'pending';
+  promise.then(value => { state = value; });
+  await new Promise(resolve => setImmediate(resolve));
+  return state;
+};
+const { idle } = require('./so-khach-v7-api.js');
+
+test('A07: lệnh sau bị từ chối thì lệnh trước đã lưu vẫn trả saved (kèm CHỜ KIỂM), lệnh sau nữa trả dropped', async () => {
+  const { api, posts, notices } = quickApi([() => reply(200, { version: 2, pending_review: true }),
+    () => reply(409, { error: 'STALE_LEDGER' }), () => reply(200, { version: 3 })]);
+  await api.read();
+  const first = api.quick('tripInfo', { trip_id: 1, field: 'container', value: 'FAKE-A' });
+  const second = api.quick('tripInfo', { trip_id: 2, field: 'carrier', value: 'FIXTURE' });
+  const third = api.quick('tripInfo', { trip_id: 3, field: 'carrier', value: 'FIXTURE' });
+  await idle();
+  assert.deepEqual(await stateOf(first), { status: 'saved', result: { version: 2, pending_review: true } });
+  assert.equal((await stateOf(second)).status, 'stale');
+  assert.deepEqual(await stateOf(third), { status: 'dropped' });
+  assert.equal(posts.length, 2);
+  assert.match(notices.at(-1), /1 ô sửa sau đó cũng chưa lưu/);
+});
+
+test('A07: lệnh không trả version mà đọc lại sổ lỗi thì lệnh đã lưu trả saved, lệnh chưa gửi trả dropped và được báo', async () => {
+  const { api, posts, notices } = quickApi([() => reply(200, {}), () => reply(200, { version: 3 })], { failReadAfterFirst: true });
+  await api.read();
+  const first = api.quick('tripInfo', { trip_id: 1, field: 'note', value: 'ghi chú giả' });
+  const second = api.quick('tripInfo', { trip_id: 2, field: 'note', value: 'ghi chú giả' });
+  await idle();
+  assert.deepEqual(await stateOf(first), { status: 'saved', result: {} });
+  assert.deepEqual(await stateOf(second), { status: 'dropped' });
+  assert.equal(posts.length, 1);
+  assert.equal(notices.at(-1), 'Đã lưu nhưng không tải lại được sổ. 1 ô sửa sau đó chưa lưu. Tải lại trang rồi kiểm tra.');
+});
+
+test('A07 đối chứng: hàng đợi ghi xong hết thì mọi lệnh trả saved với kết quả của chính nó', async () => {
+  const { api } = quickApi([() => reply(200, { version: 2, pending_review: true }), () => reply(200, { version: 3 })]);
+  await api.read();
+  const first = api.quick('tripInfo', { trip_id: 1, field: 'container', value: 'FAKE-A' });
+  const second = api.quick('tripInfo', { trip_id: 2, field: 'carrier', value: 'FIXTURE' });
+  assert.deepEqual(await first, { status: 'saved', result: { version: 2, pending_review: true } });
+  assert.deepEqual(await second, { status: 'saved', result: { version: 3 } });
+  assert.equal(api.hasPending(), false);
+});
