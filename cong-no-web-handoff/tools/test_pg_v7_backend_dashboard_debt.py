@@ -1,4 +1,4 @@
-"""DASH-03: get_dashboard_debt — nhóm hạn trả, mức rủi ro, lần trả/đi hàng gần nhất, thu/phát sinh tháng này."""
+"""DASH-03: get_dashboard_debt — nhóm hạn trả, mức rủi ro, lần trả/đi hàng gần nhất, thu/phát sinh tháng này; cờ khách mới (KHACH-MOI-01)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pg_v7_harness import (
     Pg,
     actor_sql,
     call,
+    fixture_open_month,
     lit,
     new_book,
     require,
@@ -211,7 +212,8 @@ def check_dashboard_debt(pg: Pg) -> None:
             and int(summary["high_overdue_vnd"]) == sum(int(x["overdue_vnd"]) for x in rows.values() if x["risk"] == "high"),
             "summary does not match customers")
     require(result["rule"] == {"due_after_months": 1, "long_overdue_months": 3, "no_pay_days": 60,
-                               "no_trip_days": 90, "active_trip_days": 30}, "rule constants")
+                               "no_trip_days": 90, "active_trip_days": 30,
+                               "new_days": 90, "new_no_pay_days": 30, "new_unpaid_days": 45}, "rule constants")
 
     month = result["this_month"]
     require(month["month"] == m0, "this_month is not the current VN month")
@@ -235,3 +237,100 @@ def check_dashboard_debt(pg: Pg) -> None:
                     f"commodity of book {book}: {x} vs {rows[book]}")
 
     check_pay_date_rule(pg, m0, m1, m2, _month(pg, 3), m8, today)
+    check_new_customer(pg, today)
+
+
+def check_new_customer(pg: Pg, today: str) -> None:
+    """KHACH-MOI-01: sổ mới trong 90 ngày đầu; no_pay sau 30 ngày chưa trả; slow khi chuyến cũ nhất chưa trả đủ quá 45 ngày."""
+    now = date.fromisoformat(today)
+
+    def ago(days: int) -> str:
+        return (now - timedelta(days=days)).isoformat()
+
+    def trip(book: int, key: str, days: int, price: str | None = "100", booking: str | None = None) -> int:
+        day = now - timedelta(days=days)
+        month = day.replace(day=1).isoformat()
+        fixture_open_month(pg, book, month)
+        row = json.loads(trip_json(price, container=f"FAKE-NEW-{key}", month=month))
+        row[0]["date"] = day.strftime("%d/%m/%Y")
+        if booking is not None:
+            row[0]["booking"] = booking
+        return call(pg, "paste_trips", book, version(pg, book), f"new-{key}", month, json.dumps(row))["trip_ids"][0]
+
+    def book(key: str, *days: int, price: str | None = "100", opening: tuple[str, int] | None = None) -> int:
+        created = new_book(pg, opening or (now.replace(day=1).isoformat(), 0))
+        for n, day in enumerate(days):
+            trip(created, f"{key}{n}", day, price)
+        return created
+
+    def pay(book_id: int, key: str, amount: int) -> dict:
+        return call(pg, "record_receipt", book_id, version(pg, book_id), f"new-{key}", today, "THU TIỀN", amount)
+
+    def legacy_pay(book_id: int, days: int, row: int) -> None:
+        day = now - timedelta(days=days)
+        _legacy(pg, book_id, day.replace(day=1).isoformat(), "receipt", day.strftime("%d/%m/%Y"), row, amount=1000)
+
+    edge90 = book("e90", 90)                 # đúng 90 ngày: còn là sổ mới, đủ 30 ngày chưa trả
+    edge91 = book("e91", 91)                 # 91 ngày: hết là sổ mới
+    nopay29 = book("n29", 29)
+    nopay30 = book("n30", 30)
+    voided = book("vd", 35)                  # phiếu đã hủy không tính là đã trả
+    pid = pay(voided, "vd-r", 10)["pid"]
+    call(pg, "void_receipt", voided, version(pg, voided), "new-vd-void", pid, "nhập nhầm")
+    slow46 = book("s46", 60, 46)             # trả đủ chuyến cũ: chuyến 46 ngày còn nợ
+    pay(slow46, "s46-r", 100)
+    ok45 = book("o45", 60, 45)
+    pay(ok45, "o45-r", 100)
+    partial = book("pt", 60, 46)             # trả một phần: chuyến 60 ngày còn nợ một nửa
+    pay(partial, "pt-r", 50)
+    no_price = book("np", 60)                # chuyến chưa giá không tính; dòng thu sổ gốc là đã trả
+    trip(no_price, "np1", 50, None)
+    legacy_pay(no_price, 58, 31)
+    prepay = book("pp", 20)                  # trả trước chuyến đầu quá 7 ngày: có lịch sử, không phải sổ mới
+    legacy_pay(prepay, 28, 32)
+    near = book("nr", 20)                    # trả trước 7 ngày vẫn là sổ mới
+    legacy_pay(near, 27, 33)
+    # Chuyến chờ duyệt nằm ngoài số dư nên không dùng để xếp: chuyến 60 ngày vẫn là chuyến chưa trả.
+    pending = book("pd", 60)
+    legacy_pay(pending, 58, 35)
+    cutover = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={pending}")
+    held_day = now - timedelta(days=5)
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cutover},'FAKE-BKP','FAKE-NEW-PD1',{lit(held_day.isoformat())})")
+    trip(pending, "pd1", 5, booking="FAKE-BKP")
+    require(pg.value(f"SELECT count(*) FROM sokhach.v_trip_current WHERE customer_id={pending} AND status='pending_review'") == "1",
+            "pending fixture: trip was not held for review")
+    # Dòng điều chỉnh của chuyến tính vào chuyến đó: trả 100 đủ chuyến 60 ngày, chuyến 20 ngày tăng lên 150 còn nợ cả.
+    adjusted = book("aj", 60)
+    late = trip(adjusted, "aj1", 20)
+    pay(adjusted, "aj-r", 100)
+    call(pg, "adjust_trip", adjusted, version(pg, adjusted), "new-aj-adj", late, 150, "tăng giá")
+    require(pg.value(f"SELECT count(*) FROM sokhach.adjustment WHERE trip_id={late}") == "1", "adjustment fixture: no trip adjustment")
+    # Nợ mốc từ tháng trước tháng của chuyến đầu: sổ có lịch sử (tách từ khách cũ), không phải sổ mới.
+    old_debt = book("od", 20, opening=((now.replace(day=1) - timedelta(days=100)).replace(day=1).isoformat(), 500))
+    legacy_only = new_book(pg, (now.replace(day=1).isoformat(), 500))   # dòng sổ gốc nằm trong mốc: nợ là số mốc
+    _legacy(pg, legacy_only, now.replace(day=1).isoformat(), "trip", None, 34, amount=500)
+
+    rows = {x["customer_id"]: x for x in call(pg, "get_dashboard_debt")["customers"]}
+
+    def expect(book_id: int, name: str, first: str, is_new: bool, flag: str | None, unpaid: str | None,
+               exact: bool = True) -> None:
+        row = rows.get(book_id)
+        require(row is not None, f"{name}: missing")
+        got = (row["first_trip_day"], row["first_trip_exact"], row["is_new"], row["new_flag"], row["oldest_unpaid_trip_day"])
+        require(got == (first, exact, is_new, flag, unpaid), f"{name}: {got}")
+
+    expect(edge90, "90 days is new", ago(90), True, "no_pay", ago(90))
+    expect(edge91, "91 days is not new", ago(91), False, None, None)
+    expect(nopay29, "29 days unpaid", ago(29), True, None, ago(29))
+    expect(nopay30, "30 days unpaid", ago(30), True, "no_pay", ago(30))
+    expect(voided, "voided receipt", ago(35), True, "no_pay", ago(35))
+    expect(slow46, "trip 46 days unpaid", ago(60), True, "slow", ago(46))
+    expect(ok45, "trip 45 days unpaid", ago(60), True, None, ago(45))
+    expect(partial, "partial payment", ago(60), True, "slow", ago(60))
+    expect(no_price, "missing price not counted", ago(60), True, "slow", ago(60))
+    expect(prepay, "paid before first trip", ago(20), False, None, None)
+    expect(near, "paid within 7 days before", ago(20), True, None, ago(20))
+    expect(legacy_only, "undated legacy trip", today, True, None, today, exact=False)
+    expect(pending, "pending trip outside the balance", ago(60), True, "slow", ago(60))
+    expect(adjusted, "trip adjustment counts on its trip", ago(60), True, None, ago(20))
+    expect(old_debt, "opening debt before the first trip", ago(20), False, None, None)
