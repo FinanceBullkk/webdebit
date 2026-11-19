@@ -15,6 +15,13 @@ svg{flex:none;vertical-align:middle}
 .btn:disabled{opacity:.55;cursor:wait}
 .btn.refresh-icon{width:40px;padding:0;color:#1c5cab}
 .refresh-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+/* Bấm Làm mới: lúc đang lấy Sheet hoặc lấy lỗi thì chữ trạng thái hiện thay đồng hồ, biểu tượng quay (bình thường chữ chỉ cho trình đọc màn hình). */
+#updated-at.sheet-busy,#updated-at.sheet-error{position:static;width:auto;height:auto;overflow:visible;clip:auto;font-size:13px;font-weight:600;white-space:nowrap}
+#updated-at.sheet-busy{color:#1c5cab}#updated-at.sheet-error{color:#b42318}
+#updated-at .sheet-spin{display:none}
+.live-controls:has(#updated-at.sheet-busy,#updated-at.sheet-error) .sheet-clock{display:none}
+.refresh-icon[aria-busy="true"] svg{animation:refresh-spin 1s linear infinite}@keyframes refresh-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.refresh-icon[aria-busy="true"] svg{animation:none}}
 #inbox-root,#todo-root,#error{margin:0 28px 14px;max-width:1144px}
 #todo-root:empty{display:none}
 .band-count{display:flex;align-items:baseline;gap:6px;margin:0 8px 0 0;font-size:15px;font-weight:600;color:#52514e}
