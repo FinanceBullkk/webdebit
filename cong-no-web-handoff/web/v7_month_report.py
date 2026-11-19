@@ -3,7 +3,9 @@
 Booking và Sheet: file `booking-report.json` do phép kiểm booking ghi mỗi giờ trong lượt đối soát máy (`tools/v7_booking_check.py`),
 mỗi chuyến đã có trạng thái theo tháng ngày chuyến. Web: hàm đọc `get_trip_month` (chuyến có container của mọi sổ đang hoạt động, rộng
 ra 3 ngày hai đầu tháng). File này ghép chuyến web với dòng Sheet theo tên tab = tên sổ, cùng container, lệch không quá 3 ngày, rồi
-đếm theo khách. Chỉ đọc; số tiền là chuỗi VND nguyên như mọi API, cộng bằng int.
+đếm theo khách. Chuyến booking Sheet chưa ghi thì tab chỉ là sổ đoán: lấy chuyến web cùng container, lệch không quá 3 ngày ở bất kỳ
+sổ nào và xếp dòng vào sổ đó, vì máy đặt chuyến theo mặt hàng hay chủ hàng (BAO-CAO-THANG-02). Chỉ đọc; số tiền là chuỗi VND
+nguyên như mọi API, cộng bằng int.
 """
 
 from __future__ import annotations
@@ -95,16 +97,32 @@ def build(month: str, report: dict[str, Any] | None, web: dict[str, Any], now: d
         if trip.get("date"):
             trips[(trip["customer_id"], container_key(trip["container"]))].append(trip)
 
+    by_cont = defaultdict(list)   # container -> các sổ có chuyến web chưa ghép, cho dòng booking Sheet chưa ghi
+    for book, cont in trips:
+        by_cont[cont].append(book)
+
+    def near(pool: list[dict[str, Any]], day: str | None) -> list[dict[str, Any]]:
+        return [t for t in pool if (_gap(t["date"], day) <= PAIR_DAYS if day else t["date"][:7] == month)]
+
     def take(book: int | None, row: dict[str, Any]) -> dict[str, Any] | None:
         pool, day = trips.get((book, row["cont"])), _row_day(row)
-        if not pool:
+        found = near(pool or [], day)
+        if not found:
             return None
-        near = [t for t in pool if (_gap(t["date"], day) <= PAIR_DAYS if day else t["date"][:7] == month)]
-        if not near:
-            return None
-        best = min(near, key=lambda t: (_gap(t["date"], day) if day else 0, t["date"]))
+        best = min(found, key=lambda t: (_gap(t["date"], day) if day else 0, t["date"]))
         pool.remove(best)
         return {"date": best["date"], "source": best["source"]}
+
+    def take_any(row: dict[str, Any]) -> int | None:
+        """Sổ có chuyến web gần ngày booking nhất (cùng khoảng cách thì sổ id nhỏ trước, để kết quả không đổi theo thứ tự)."""
+        day = _row_day(row)
+        found = [(t, book) for book in by_cont.get(row["cont"], ()) for t in near(trips[(book, row["cont"])], day)]
+        if not day or not found:
+            return None
+        best, book = min(found, key=lambda pair: (_gap(pair[0]["date"], day), pair[1], pair[0]["date"]))
+        trips[(book, row["cont"])].remove(best)
+        row["web"] = {"date": best["date"], "source": best["source"]}
+        return book
 
     for row in rows:
         row["book_id"] = by_name.get(name_key(row["tab"])) if row.get("tab") else None
@@ -114,6 +132,10 @@ def build(month: str, report: dict[str, Any] | None, web: dict[str, Any], now: d
         for row in rows:
             if row["status"] in status_group:
                 row["web"] = take(row["book_id"], row)
+    # Sau cùng, chuyến booking Sheet chưa ghi mà sổ đoán không có: lấy chuyến web ở sổ khác và xếp dòng vào sổ đó (máy đã chọn sổ).
+    for row in rows:
+        if row["status"] == "thieu" and not row.get("web") and (book := take_any(row)) is not None:
+            row["guess_tab"], row["book_id"], row["tab"] = row.get("tab"), book, (books.get(book) or {}).get("name")
     for (book, cont), pool in trips.items():
         for trip in pool:
             if trip["date"][:7] == month:
@@ -159,6 +181,9 @@ def summary(rows: list[dict[str, Any]], covered: bool, month: str) -> dict[str, 
         "thieu": count("thieu"), "khong_booking": count("khong_booking"), "lech_ngay": count("lech_ngay"),
         "khong_ngay": count("khong_ngay"), "chep": count("chep"), "ngoai": count("ngoai"), "chi_web": count("chi_web"),
         "web_thieu": sum(1 for row in rows if row["status"] in SHEET_TRIP and not row.get("web")),
+        # Chuyến booking không có chuyến web nào ghép (BAO-CAO-THANG-02); `thieu_web` là phần Sheet cũng chưa ghi, chưa nằm ở `web_thieu`.
+        "web_chua": sum(1 for row in rows if row["status"] in BOOKING_TRIP and not row.get("web")),
+        "thieu_web": sum(1 for row in rows if row["status"] == "thieu" and not row.get("web")),
         "amount_vnd": str(sum(int(row["amount_vnd"]) for row in rows
                               if row["status"] in (*SHEET_TRIP, "khong_ngay") and row.get("amount_vnd"))),
     }
