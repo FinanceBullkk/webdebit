@@ -10,11 +10,17 @@
   const root = $('dx-root'), head = $('dx-head'), layer = $('dx-layer'), toastBox = $('dx-toast');
 
   const S = {
-    view: 'tong', id: null, thang: null, data: null, loadError: '', loading: true, q: '', doiQ: '',
+    view: 'tong', id: null, thang: null, chon: null, data: null, loadError: '', loading: true, q: '', doiQ: '',
     cach: 'gon', loc: '', drafts: [], moi: null, danCau: '', hoan: null, hop: '', uf: null, huy: null,
     lichSu: null, busy: false, xoaHoi: null, toast: null, giuBao: null, seq: 0,
   };
-  const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
+  // Mạng, ghi và thông báo dùng chung hai màn Đội xe (doi-xe-chung.js).
+  const { getJson, bao, ghi, drawToast } = DoiXeChung.tao({
+    S, draw: () => draw(), load: () => load(), toastBox, esc, tienTo: 'dx', toastMs: 7000,
+    matMang: 'Mất kết nối, chưa rõ đã lưu chưa. Bấm lại: máy chủ không ghi lần hai.',
+    taiLai: ['CHANGED', 'DONG_DA_DOI', 'CHANG_NOT_FOUND'],
+  });
+  const { withFocus } = DoiXeChung;
 
   const moiTrong = () => ({ ngay: '', container: '', loai: 'hang', xe: '', noi_lay: '', noi_ha: '', kho: '', ghi_chu: '', neo_ngay: '', may_gio: '', km: '', phi: {} });
   S.moi = moiTrong();
@@ -24,6 +30,7 @@
     const q = new URLSearchParams(location.search);
     const thang = q.get('thang');
     S.thang = thang && /^\d{4}-\d{2}$/.test(thang) ? `${thang}-01` : null;
+    S.chon = S.thang;   // tháng người dùng đã chọn (địa chỉ hoặc bấm chip); tháng mặc định do máy chủ chọn thì không tính
     if (q.get('nguoi') && /^\d+$/.test(q.get('nguoi'))) { S.view = 'nguoi'; S.id = Number(q.get('nguoi')); }
     else if (q.get('xe') && /^\d+$/.test(q.get('xe'))) { S.view = 'xe'; S.id = Number(q.get('xe')); }
     else { S.view = 'tong'; S.id = null; }
@@ -45,29 +52,6 @@
   addEventListener('popstate', () => { readUrl(); Object.assign(S, { drafts: [], moi: moiTrong(), hoan: null, hop: '' }); load(); });
 
   // ---------- Mạng ----------
-  async function getJson(url) {
-    const r = await fetch(url, { cache: 'no-store' });
-    const body = await r.json().catch(() => null);
-    if (!r.ok) throw Object.assign(Error(body?.message || `Lỗi ${r.status}`), { code: body?.error, status: r.status });
-    return body;
-  }
-  async function post(path, body) {
-    const sig = `${path} ${JSON.stringify(body)}`;
-    if (!keys.has(sig)) keys.set(sig, globalThis.crypto?.randomUUID?.() ?? `dx-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    let r;
-    try {
-      r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idempotency_key: keys.get(sig), ...body }) });
-    } catch {
-      throw Object.assign(Error('Mất kết nối, chưa rõ đã lưu chưa. Bấm lại: máy chủ không ghi lần hai.'), { code: 'NETWORK' });
-    }
-    const out = await r.json().catch(() => null);
-    if (!r.ok) {
-      if (r.status !== 503) keys.delete(sig);
-      throw Object.assign(Error(out?.message || `Lỗi ${r.status}`), { code: out?.error, status: r.status });
-    }
-    keys.delete(sig);
-    return out;
-  }
   async function load() {
     const seq = ++S.seq;
     S.loading = true;
@@ -99,38 +83,6 @@
     if (S.hop === 'lichsu') drawLayer();
   }
 
-  function bao(text, loai = 'ok') {
-    if (S.giuBao) { S.giuBao.push([text, loai]); return; }
-    S.toast = { text, loai, n: (S.toast?.n ?? 0) + 1 };
-    const n = S.toast.n;
-    drawToast();
-    setTimeout(() => { if (S.toast?.n === n) { S.toast = null; drawToast(); } }, 7000);
-  }
-  async function ghi(path, body, ok) {
-    if (S.busy) return null;
-    S.busy = true;
-    draw();
-    try {
-      const out = await post(path, body);
-      // Thông báo kết quả chỉ hiện sau khi sổ đọc lại xong: người dùng thấy câu báo cùng lúc với số mới.
-      S.giuBao = [];
-      if (ok) ok(out);
-      await load();
-      const giu = S.giuBao;
-      S.giuBao = null;
-      for (const [text, loai] of giu) bao(text, loai);
-      return out;
-    } catch (e) {
-      S.giuBao = null;
-      bao(e.message, 'err');
-      if (e.code === 'CHANGED' || e.code === 'DONG_DA_DOI' || e.code === 'CHANG_NOT_FOUND') await load();
-      return null;
-    } finally {
-      S.busy = false;
-      draw();
-    }
-  }
-
   // ---------- Ngữ cảnh sổ ----------
   const dm = () => S.data.danh_muc;
   const loaiPhi = () => S.data.loai_phi;
@@ -147,22 +99,13 @@
   const khoa = thang => Boolean(S.data.khoa?.[thang] ?? (thang !== `${S.data.hom_nay.slice(0, 7)}-01`));
 
   // ---------- Vẽ ----------
-  function withFocus(fn) {
-    const el = document.activeElement;
-    const key = el?.dataset?.f;
-    const pos = key && typeof el.selectionStart === 'number' ? [el.selectionStart, el.selectionEnd] : null;
-    fn();
-    if (key) {
-      const again = document.querySelector(`[data-f="${CSS.escape(key)}"]`);
-      if (again) { again.focus(); if (pos && typeof again.setSelectionRange === 'function') again.setSelectionRange(...pos); }
-    }
-  }
   function draw() { withFocus(() => { drawHead(); drawBody(); drawLayer(); }); }
 
   function drawHead() {
     if (S.view === 'tong') {
-      head.innerHTML = '<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="/doi-xe.html" aria-current="page">Người và xe</a>'
-        + '<a class="dx-man-tab" href="/doi-xe-bang-ke.html">Bảng kê gửi HTH</a><a class="dx-man-tab" href="/doi-xe-bang-ke.html?man=gia">Bảng giá</a></nav>'
+      const muc = m => DoiXeChung.duongDanMuc(m, S.chon);   // ba mục mang theo tháng đã chọn
+      head.innerHTML = `<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="${muc('nguoi')}" aria-current="page">Người và xe</a>`
+        + `<a class="dx-man-tab" href="${muc('bangke')}">Bảng kê gửi HTH</a><a class="dx-man-tab" href="${muc('gia')}">Bảng giá</a></nav>`
         + `<label class="dx-find"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>`
         + `<input id="dx-q" data-f="q" value="${esc(S.q)}" placeholder="Tìm người hoặc biển số" aria-label="Tìm người hoặc biển số" autocomplete="off"></label>`;
       return;
@@ -755,12 +698,6 @@
     }
     return `<div class="dx-mask nhe" data-act="dong"></div><aside role="dialog" aria-modal="true" aria-labelledby="dx-ls-t" class="dx-ls"><div class="dx-ls-h"><h2 id="dx-ls-t">Lịch sử · ${esc(ten ?? '')}</h2><button type="button" class="dx-icon" data-act="dong" aria-label="Đóng lịch sử"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div><div class="dx-ls-b">${body}</div></aside>`;
   }
-  function drawToast() {
-    toastBox.hidden = !S.toast;
-    toastBox.className = `dx-toast ${S.toast?.loai ?? ''}`;
-    toastBox.innerHTML = S.toast ? `<span>${esc(S.toast.text)}</span><button type="button" data-act="dong-toast" aria-label="Đóng thông báo">✕</button>` : '';
-  }
-
   // ---------- Nhập ----------
   function nhapMoi(ctx) {
     const x = M.nhapTuGo(S.moi, ctx, loaiPhi(), dm().xe, S.data.hom_nay);
@@ -876,7 +813,7 @@
       case 'mo': go(el.dataset.loai, Number(el.dataset.id)); break;
       case 'doi': S.hop = S.hop === 'doi' ? '' : 'doi'; S.doiQ = ''; drawHead(); $('dx-doi-q')?.focus(); break;
       case 'thu-lai': load(); break;
-      case 'thang': go(S.view, S.id, el.dataset.thang); break;
+      case 'thang': S.chon = el.dataset.thang; go(S.view, S.id, el.dataset.thang); break;
       case 'loc': S.loc = S.loc === el.dataset.loc ? '' : el.dataset.loc; draw(); break;
       case 'cach': S.cach = el.dataset.cach; draw(); break;
       case 'lich-su': S.hop = 'lichsu'; S.lichSu = null; drawLayer(); loadLichSu(); layer.querySelector('[data-act="dong"].dx-icon')?.focus(); break;
@@ -893,7 +830,7 @@
         if (t.loi || !(t.v > 0) || !S.uf.ngay || S.uf.ngay > d.hom_nay) return;
         const ten = d.nguoi.ten;
         ghi('/api/v7/doixe/ung', { nguoi_id: d.nguoi.id, ngay: S.uf.ngay, so_tien_vnd: String(t.v), ...(S.uf.ghichu.trim() ? { ghi_chu: S.uf.ghichu.trim() } : {}) },
-          out => { S.hop = ''; S.thang = M.thangCua(S.uf.ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi ứng ${M.fmt(t.v)} cho ${ten}.${out.lap_lai ? ' (Lần bấm trước đã ghi, không ghi thêm.)' : ''}`); });
+          out => { S.hop = ''; S.thang = S.chon = M.thangCua(S.uf.ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi ứng ${M.fmt(t.v)} cho ${ten}.${out.lap_lai ? ' (Lần bấm trước đã ghi, không ghi thêm.)' : ''}`); });
         break;
       }
       case 'xem-huy': S.hop = 'huy'; S.huy = { loai: el.dataset.loai, id: Number(el.dataset.id), lydo: '' }; drawLayer(); $('dx-huy-lydo')?.focus(); break;
@@ -931,7 +868,7 @@
         if (!ids.length || t.loi || t.v === null || !S.hoan.ngay || S.hoan.ngay > d.hom_nay) return;
         const ngay = S.hoan.ngay;
         ghi('/api/v7/doixe/hoan', { nguoi_id: d.nguoi.id, ngay, so_tien_vnd: String(t.v), dong_ids: ids },
-          () => { S.hoan = null; S.thang = M.thangCua(ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi đợt hoàn ${M.fmt(t.v)}: ${ids.length} dòng đánh dấu Đã hoàn ${M.ddmm(ngay)}.`); });
+          () => { S.hoan = null; S.thang = S.chon = M.thangCua(ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi đợt hoàn ${M.fmt(t.v)}: ${ids.length} dòng đánh dấu Đã hoàn ${M.ddmm(ngay)}.`); });
         break;
       }
       case 'doi-khoa': {

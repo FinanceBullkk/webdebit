@@ -470,3 +470,29 @@ test('Bảng rộng ở 1280×560: tiêu đề cột dính đầu màn, thanh k�
     }
   },
 }));
+
+// DOI-XE-CAU-TRUC-01 (F1): ba mục trên đầu trang mang theo tháng người dùng đã chọn, để đổi mục không mất tháng.
+const hrefs = page => page.locator('.dx-man a').evaluateAll(els => els.map(a => a.getAttribute('href')));
+const MANG_T10 = ['/doi-xe.html?thang=2026-10', '/doi-xe-bang-ke.html?thang=2026-10', '/doi-xe-bang-ke.html?man=gia&thang=2026-10'];
+
+test('Đổi mục giữ tháng: mở thẳng thì địa chỉ như cũ; bấm chip tháng thì cả ba mục mang tháng đó', () => withPage(async (page, w) => {
+  assert.deepEqual(await hrefs(page), ['/doi-xe.html', '/doi-xe-bang-ke.html', '/doi-xe-bang-ke.html?man=gia'], 'tháng mặc định do máy chủ chọn thì không mang');
+  await page.locator('[data-act="thang"][data-thang="2026-10-01"]').click();
+  await page.locator('.dx-chip.on', { hasText: 'tháng 10' }).waitFor();
+  assert.ok(w.calls.some(call => call === 'GET /api/v7/doixe?thang=2026-10-01'), 'chip tháng đọc đúng tháng');
+  assert.deepEqual(await hrefs(page), MANG_T10);
+}));
+
+test('Đổi mục giữ tháng: mở bằng ?thang= thì ba mục mang tháng đó, vào sổ người rồi về vẫn mang', () => withPage(async (page, w) => {
+  assert.deepEqual(await hrefs(page), MANG_T10);
+  await page.locator('.dx-g-nguoi.dx-row').first().click();
+  await page.locator('.dx-the').waitFor();
+  await page.locator('[data-act="ve-tong"]').click();
+  await page.locator('.dx-card').first().waitFor();
+  assert.ok(w.calls.some(call => call.startsWith('GET /api/v7/doixe/so?loai=nguoi') && call.endsWith('thang=2026-10-01')), 'sổ người đọc đúng tháng đã chọn');
+  assert.deepEqual(await hrefs(page), MANG_T10);
+}, { query: '?thang=2026-10' }));
+
+test('Đổi mục giữ tháng: tháng sai khuôn trong địa chỉ không được mang sang mục khác', () => withPage(async page => {
+  assert.deepEqual(await hrefs(page), ['/doi-xe.html', '/doi-xe-bang-ke.html', '/doi-xe-bang-ke.html?man=gia']);
+}, { query: '?thang=2026-13' }));
