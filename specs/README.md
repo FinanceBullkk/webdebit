@@ -29,6 +29,7 @@ Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng s
   - [Tổng quan v3 ít chữ](v7-tong-quan-v3.md): dải đầu Còn phải thu + 5 ô hạn trả, thẻ Thu tháng, chip mức rủi ro lọc bảng khách ghi triệu, bấm tên mở Tình hình (`DASH-05`, ĐÃ CHỐT 2/11/2026; thay cách trình bày của `DASH-04`).
 - [Đội xe đợt 1](chi-phi-xe-01.md): chặng, chi phí, ứng, hoàn; [đợt 2](doi-xe-thu-01.md): bảng kê cước, công nợ cước; [điều độ](doi-xe-dieu-do-01.md): chặng sinh từ booking, điều xe phân công trên web (`DOI-XE-DIEU-DO-01`, nguyên tắc ĐÃ CHỐT 19/11/2026, cách làm ĐỀ XUẤT).
 - [Đội xe: mô hình dữ liệu mới](doi-xe-mo-hinh-01.md): danh mục khoản chung, người trả theo khoản, khoản thu dòng riêng, công nợ chung, chi theo xe (`DOI-XE-MO-HINH-01`, tám câu luật tiền ĐÃ CHỐT 19/11/2026, chưa code).
+- [Đội xe đợt 1](chi-phi-xe-01.md): chặng, chi phí, ứng, hoàn; [đợt 2](doi-xe-thu-01.md): bảng kê cước, công nợ cước; [điều độ](doi-xe-dieu-do-01.md): chặng sinh từ booking, điều xe phân công trên web (`DOI-XE-DIEU-DO-01`, nguyên tắc và luồng ĐÃ CHỐT 19/11/2026; schema, lệnh ghi và harness ĐÃ VIẾT, chưa triển khai).
 - [Đội xe: cấu trúc màn theo đối tượng](doi-xe-cau-truc-01.md): năm mục Chặng, Công nợ, Xe, Lãi lỗ, Thiết lập; gói việc và thứ tự (`DOI-XE-CAU-TRUC-01`, chốt 19/11/2026; chưa code).
 - [Chuẩn bị gộp V7](../docs/v7-merge-prep.md): nguồn commit, phân loại, phần loại, kiểm và giới hạn.
 - [Chính sách V7 còn mở](v7-chinh-sach-mo.md): phương án cho D04, D05/D06, D07, ai xem Lịch sử và case 7.11c, chờ chủ nghiệp vụ chọn (ĐỀ XUẤT).
