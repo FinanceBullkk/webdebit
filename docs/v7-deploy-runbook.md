@@ -1987,7 +1987,9 @@ Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backe
 
 Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
 
-## Mốc sổ mới 60 ngày (KHACH-MOI-01) — nâng DB
+## Mốc sổ mới 60 ngày (KHACH-MOI-01) — nâng DB (ĐÃ CHẠY trên hao 19/11/2026)
+
+Đã chạy 19/11/2026, xem [nhật ký](deploys/2026-11-19-khach-moi-60-ngay.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi-60-ngay.sql` thay thân `get_dashboard_debt`: điều kiện sổ mới từ 90 xuống 60 ngày kể từ chuyến đầu, `rule.new_days` thành 60. Mốc 30 / 45 ngày, các trường khác, bảng, view, hàm ghi, dữ liệu và quyền giữ nguyên; giữ `SET jit = off`. Chạy lại được. **Chạy sau `2026-11-19-v7-khach-moi.sql`.** Frontend đọc `rule.new_days` nên không cần release mới để đổi chữ; release vẫn đặt theo `main` như mọi đợt tay.
 
