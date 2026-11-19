@@ -14,8 +14,8 @@ LEDGER_EVENTS_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-0
 LEDGER_EVENTS_ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql"
 # MO-SO-NHANH-03 18/11/2026: get_ledger chuẩn = bản MO-SO-NHANH-02 cộng đúng một mệnh đề SET jit = off (migration ALTER FUNCTION).
 LEDGER_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql"
-# HIEU-NANG-02 18/11/2026: get_dashboard_debt chuẩn = bản DASH-08 (migration thu-thang-theo-so) cộng đúng một mệnh đề SET jit = off.
-DASHBOARD_DEBT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-09-v7-thu-thang-theo-so.sql"
+# KHACH-MOI-01 19/11/2026: get_dashboard_debt chuẩn = bản của migration khach-moi (đã gồm SET jit = off của HIEU-NANG-02).
+DASHBOARD_DEBT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi.sql"
 DASHBOARD_DEBT_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
@@ -158,11 +158,11 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertEqual(definition(ledger_events, "FUNCTION", name), expected)
         with self.subTest(name="get_ledger jit off"):
             self.assertEqual(statements(LEDGER_JIT_MIGRATION), jit_off_migration("get_ledger(bigint)"))
-        with self.subTest(name="get_dashboard_debt"):   # HIEU-NANG-02: thân giữ nguyên, chỉ thêm cấu hình hàm
+        with self.subTest(name="get_dashboard_debt"):   # KHACH-MOI-01: migration mới nhất mang cả SET jit = off
             expected = definition(canonical, "FUNCTION", "get_dashboard_debt")
             self.assertEqual(expected.count(jit_off), 1)
             self.assertEqual(definition(DASHBOARD_DEBT_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_dashboard_debt"),
-                             expected.replace(jit_off, " AS $$"))
+                             expected)
         with self.subTest(name="get_dashboard_debt jit off"):
             self.assertEqual(statements(DASHBOARD_DEBT_JIT_MIGRATION), jit_off_migration("get_dashboard_debt()"))
         with self.subTest(name="get_ledger rollback"):
