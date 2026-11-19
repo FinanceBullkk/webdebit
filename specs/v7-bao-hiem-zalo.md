@@ -1,6 +1,6 @@
 # V7: đối chiếu phí Bảo hiểm với giấy chứng nhận trong group Zalo
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026), chưa code, chưa đụng `hao`. Quyết định đi kèm: [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md); các câu Q1–Q4 ở cuối cần người dùng chọn trước khi code.
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q4 ở cuối spec); chưa code, chưa đụng `hao`. Quyết định đi kèm: [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md).
 
 <!-- du-lieu-gia: MAUU1234567 -->
 
@@ -18,7 +18,7 @@ Giấy chứng nhận vẫn có ích theo ba cách, không đổi tổng tiền:
 2. **Phân loại:** chuyến có đúng một khoản chưa phân loại bằng đúng số trên giấy thì đổi loại khoản đó thành Bảo hiểm, tổng giữ nguyên.
 3. **Chứng cứ:** khoản Bảo hiểm khớp giấy được gắn số giấy, bấm vào thì mở giấy.
 
-Khi chuyển hẳn khỏi Sheet, câu "web tự ghi tiền theo giấy" sẽ được xét lại trong một quyết định riêng ([Q4](#câu-hỏi-mở)).
+Khi chuyển hẳn khỏi Sheet, câu "web tự ghi tiền theo giấy" sẽ được xét lại trong một quyết định riêng ([Q4](#câu-hỏi-đã-chốt)).
 
 ## Người dùng và luồng (bước 1)
 
@@ -39,14 +39,14 @@ Khi chuyển hẳn khỏi Sheet, câu "web tự ghi tiền theo giấy" sẽ đ�
 | Mã | Khi nào | Hiện ở | Ai làm gì |
 | --- | --- | --- | --- |
 | `DONE` | Chuyến có khoản Bảo hiểm bằng đúng số giấy | Không hiện; khoản có số giấy và nút Mở giấy | — |
-| `CLASSIFY` | Chuyến có đúng một khoản Khác/Phụ phí ban đầu bằng đúng số giấy, chưa có khoản Bảo hiểm | Không hiện | Máy đổi loại ([Q2](#câu-hỏi-mở)); tổng không đổi |
+| `CLASSIFY` | Chuyến có đúng một khoản Khác/Phụ phí ban đầu bằng đúng số giấy, chưa có khoản Bảo hiểm | Không hiện | Máy đổi loại ([Q2](#câu-hỏi-đã-chốt)); tổng không đổi |
 | `SHEET_MISSING` | Chuyến tìm được, web không có khoản nào bằng số giấy | Bảo hiểm cần xem | Người nhập ghi số vào cột `BẢO HIỂM` của tab khách; máy đối soát đưa lên, lượt sau thành `CLASSIFY` hoặc `DONE` |
 | `AMOUNT_DIFF` | Chuyến đã có khoản Bảo hiểm khác số giấy | Bảo hiểm cần xem | Xem lại Sheet hoặc giấy; không tự sửa |
 | `NO_BOOKING` | Giấy không có booking trong tin Zalo | Việc cần làm | Người xem; container và ngày chỉ là gợi ý, không gắn tự động |
 | `AMBIGUOUS` | Booking + container khớp hơn một chuyến | Bảo hiểm cần xem của từng sổ | Người xem |
 | `NOT_FOUND` | Có booking + container mà chưa có chuyến web nào | Việc cần làm | Thường là chuyến chưa lên Sheet; lượt sau tự xét lại |
 | `CERT_REVIEW` | Giấy chưa qua kiểm phép cộng, có nhiều container (số NULL) hoặc có cảnh báo khi đọc | Việc cần làm | Người xem giấy; không dùng số |
-| `MONTH_LOCKED` | Như `CLASSIFY` nhưng tháng khóa | Như `CLASSIFY` | Máy mở, ghi, khóa lại như [`MAY-KHOA-01`](../docs/decisions/may-khoa-01.md) ([Q2](#câu-hỏi-mở)) |
+| `MONTH_LOCKED` | Như `CLASSIFY` nhưng tháng khóa | Như `CLASSIFY` | Máy mở, ghi, khóa lại như [`MAY-KHOA-01`](../docs/decisions/may-khoa-01.md) ([Q2](#câu-hỏi-đã-chốt)) |
 
 **Không bao giờ:** cộng hay trừ tiền, sửa đơn giá, gắn giấy vào chuyến chỉ theo container và ngày, ghi Sheet.
 
@@ -75,9 +75,9 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
 
 ## Nguồn và đường đẩy lên `hao`
 
-**Bản gọn.** Trên máy có Zalo, một bước mới sau `insurance_sync.py` ghi `insurance-web.json` chỉ gồm các trường ghép và kiểm cần: `cert_no`, `sha256`, `container`, `bookings` (từ `chat_bookings`), `amount_vnd`, `cert_premium_vnd`, `cert_vat_vnd`, `cert_total_vnd`, `containers_on_cert`, `depart_date`, `issue_date`, `status`, `warnings`. **Không** gửi tên, mã số thuế, số vận đơn hay tin nhắn ([Q1](#câu-hỏi-mở) có thể đổi điều này). File có `created_at`, `sha256` tính trên các dòng, `row_count`.
+**Bản gọn.** Trên máy có Zalo, một bước mới sau `insurance_sync.py` ghi `insurance-web.json` chỉ gồm các trường ghép và kiểm cần: `cert_no`, `sha256`, `container`, `bookings` (từ `chat_bookings`), `amount_vnd`, `cert_premium_vnd`, `cert_vat_vnd`, `cert_total_vnd`, `containers_on_cert`, `depart_date`, `issue_date`, `status`, `warnings`. **Không** gửi tên, mã số thuế, số vận đơn hay tin nhắn ([Q1](#câu-hỏi-đã-chốt): không so tên). File có `created_at`, `sha256` tính trên các dòng, `row_count`.
 
-**Đẩy.** Dùng lại kênh G5: Task Scheduler 15 phút, `pythonw`, một tar qua ssh tới `hao:/srv/v7/insurance/`, ghi file tạm rồi `mv` để server không đọc file dở. PDF (để Mở giấy) chỉ gửi giấy chưa có trên `hao`, tên file là `sha256`. **Mở đường ghi mới trên `hao` phải hỏi người dùng trước** ([Q3](#câu-hỏi-mở)).
+**Đẩy.** Dùng lại kênh G5: Task Scheduler 15 phút, `pythonw`, một tar qua ssh tới `hao:/srv/v7/insurance/`, ghi file tạm rồi `mv` để server không đọc file dở. PDF (để Mở giấy) chỉ gửi giấy chưa có trên `hao`, tên file là `sha256`. Người dùng đã đồng ý mở đường này ([Q3](#câu-hỏi-đã-chốt)); cài đặt vẫn theo runbook và ghi nhật ký triển khai như G5.
 
 **Đọc.** `WEBDEBIT_INSURANCE_SNAPSHOT_PATH` (mặc định `/srv/v7/insurance/insurance-web.json`). Đọc lỗi, sai `schema_version` hoặc sai hash → `{unavailable: true}`, sổ vẫn mở bình thường.
 
@@ -108,7 +108,7 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
 - [`MAY-PS-01`](../docs/decisions/may-ps-01.md), [`PHU-PHI-01`](../docs/decisions/phu-phi-01.md): nguồn phụ chỉ phân loại, không cộng tiền.
 - [`TACH-PHI-TIEU-DE-01`](../docs/decisions/tach-phi-tieu-de-01.md), [`COT-PHU-PHI-01`](../docs/decisions/cot-phu-phi-01.md): loại và cột Bảo hiểm.
 - [`MAY-KHOA-01`](../docs/decisions/may-khoa-01.md): máy mở, ghi, khóa lại tháng.
-- CÒN MỞ: Q1–Q4 dưới đây.
+- Người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q4 (mục [Câu hỏi đã chốt](#câu-hỏi-đã-chốt)).
 
 ## Hành vi và bất biến
 
@@ -127,7 +127,7 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
 - [ ] API: chỉ `CLASSIFY`/`MONTH_LOCKED` được ghi; hash đổi → tính lại, không ghi theo kế hoạch cũ; Mở giấy từ chối `sha256` không có trong bản chụp hoặc file băm sai.
 - [ ] Playwright 1280×720, máy chủ giả: "Bảo hiểm cần xem: K" đúng số; danh sách đủ trạng thái; Mở giấy mở tab mới; bàn phím; thiếu bản chụp thì sổ vẫn mở.
 - [ ] `npm run check` xanh.
-- [ ] Trên `hao` (sau Q2, Q3): số dư từng khách trước = sau một lượt máy đổi loại.
+- [ ] Trên `hao`: số dư từng khách trước = sau một lượt máy đổi loại.
 - [ ] Người dùng tự đi hết luồng trên bản thử và xác nhận.
 
 ## Phạm vi agent
@@ -137,11 +137,11 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
   - **PR-0 (P0, không code trong repo):** lệnh đọc một lần, kết quả báo trong chat; không lưu số thật vào repo.
   - **PR-1 (đọc):** `web/v7_insurance_queue.py`, trường `insurance` trong `get_ledger`, nhóm Việc cần làm, route Mở giấy, test. Không SQL.
   - **PR-2 (giao diện):** "Bảo hiểm cần xem" trong sổ khách, Mở giấy, test Playwright.
-  - **PR-3 (máy đổi loại, sau Q2):** bước `insurance` trong máy theo Sheet, gọi `rewrite_trip_fees` có sẵn; không SQL mới.
-  - Phía máy có Zalo (bản gọn + đẩy ssh) nằm ở repo `zalo-audit-viewer`, làm sau Q3.
+  - **PR-3 (máy đổi loại):** bước `insurance` trong máy theo Sheet, gọi `rewrite_trip_fees` có sẵn; không SQL mới.
+  - Phía máy có Zalo (bản gọn + đẩy ssh) nằm ở repo `zalo-audit-viewer`.
 - Ngân sách diff: mỗi PR ≤ 600 dòng logic.
 - Lệnh kiểm: `npm run check`.
-- Cấm: cộng hoặc đổi tiền theo giấy; gắn giấy theo container/ngày; đổi quy tắc khóa tháng, phân bổ, opening; ghi Sheet; mở đường ghi trên `hao` trước Q3; đưa số giấy, container, tên, mã số thuế hay PDF thật vào repo.
+- Cấm: cộng hoặc đổi tiền theo giấy; gắn giấy theo container/ngày; đổi quy tắc khóa tháng, phân bổ, opening; ghi Sheet; mở đường ghi trên `hao` ngoài runbook; đưa số giấy, container, tên, mã số thuế hay PDF thật vào repo.
 
 ## Hoàn tác
 
@@ -149,11 +149,17 @@ PR-1/PR-2: revert, không đụng dữ liệu. PR-3: tắt `insurance` trong `WE
 
 ## Bằng chứng
 
-Chưa có: spec ĐỀ XUẤT. Số đếm ở bước 2 đo trên `insurance-snapshot.json` ở máy có Zalo ngày 19/11/2026, không phải dữ liệu `hao`.
+Chưa có: spec đã chốt, chưa code. Số đếm ở bước 2 đo trên `insurance-snapshot.json` ở máy có Zalo ngày 19/11/2026, không phải dữ liệu `hao`.
+
+## Câu hỏi đã chốt
+
+Người dùng chốt cả bốn câu theo đề xuất (chat 19/11/2026, "Chốt theo đề xuất").
+
+- **Q1 — Khách trả là ai?** Giấy ghi người mua bảo hiểm và người được bảo hiểm (5/16 giấy hai tên trùng nhau). **Chốt:** chuyến thuộc sổ nào thì sổ đó trả, không so tên, nên `hao` không nhận tên.
+- **Q2 — Máy có được tự đổi loại Khác → Bảo hiểm khi bằng đúng số giấy, kể cả tháng khóa?** **Chốt:** có, như `MAY-PS-01`; tháng khóa thì máy mở, ghi, khóa lại. Số trên giấy là tổng có VAT, lẻ tới từng đồng, nên trùng ngẫu nhiên rất khó.
+- **Q3 — Mở đường đẩy bản gọn và PDF từ máy có Zalo lên `hao`?** **Chốt:** đồng ý, làm như G5 (ssh, Task Scheduler 15 phút), cài theo runbook.
+- **Q4 — Sau khi chuyển hẳn khỏi Sheet, web có tự ghi tiền theo giấy không?** **Chốt:** để sau; xét cùng `CHUYEN-HAN-01`, ngoài phạm vi spec này.
 
 ## Câu hỏi mở
 
-- **Q1 — Khách trả là ai?** Giấy ghi người mua bảo hiểm và người được bảo hiểm (5/16 giấy hai tên trùng nhau). Đề xuất: chuyến thuộc sổ nào thì sổ đó trả, không so tên, nên `hao` không cần nhận tên. Nếu cần kiểm tên với sổ khách thì phải gửi thêm tên và thêm bảng tên phụ.
-- **Q2 — Máy có được tự đổi loại Khác → Bảo hiểm khi bằng đúng số giấy, kể cả tháng khóa?** Đề xuất: có, như `MAY-PS-01`. Số trên giấy là tổng có VAT, lẻ tới từng đồng, nên trùng ngẫu nhiên rất khó.
-- **Q3 — Mở đường đẩy bản gọn và PDF từ máy có Zalo lên `hao`?** Cần người dùng đồng ý trước, như G5.
-- **Q4 — Sau khi chuyển hẳn khỏi Sheet, web có tự ghi tiền theo giấy không?** Ngoài phạm vi; ghi lại để xét cùng `CHUYEN-HAN-01`.
+- (Agent hoặc reviewer ghi vào đây.)
