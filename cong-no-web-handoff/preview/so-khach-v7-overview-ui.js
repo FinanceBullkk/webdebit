@@ -105,13 +105,21 @@
       + `<div class="ov-hero-split"><div class="ov-segments" id="ov-segments" aria-hidden="true"${hot}>${segments}</div>`
       + `<div class="ov-parts">${partHtml || (total < 0n ? '<span>Khách trả trước</span>' : debt.state === 'error' ? '' : '<span>Đang đọc cơ cấu nợ…</span>')}</div></div>`
       + `${debt.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('số quá hạn'))} ${button('retry:debt', 'Thử lại')}</p>` : ''}`
-      + `${pendingLine(data)}${detailPanel(months, parts)}</section>`;
+      + `${pendingLine(data, freshLine(row, asOf))}${detailPanel(months, parts)}</section>`;
+  }
+  // KHACH-MOI-01: sổ mới (chuyến đầu trong 90 ngày) có một dữ kiện ở đầu phải hàng "Còn nợ chưa tính" (không thêm chiều cao,
+  // khung 560px giữ nguyên), cùng chữ với nhãn "Mới" ở Tổng quan; không gợi ý việc.
+  function freshLine(row, asOf) {
+    const fresh = CongNoFormat.newCustomer(row, asOf);
+    if (!fresh) return '';
+    return `<span class="ov-new-line${fresh.flag ? ' warn' : ''}"><b>Khách mới</b> · chuyến đầu ${escape(fresh.first)}${fresh.brief ? ` · ${escape(fresh.brief)}` : ''}</span>`;
   }
   // Chuyến chưa vào số nợ: nói rõ loại và số lượng, bấm là tới đúng chỗ ở thẻ Sổ (cùng số với chấm cam trên chip tháng).
-  function pendingLine(data) {
+  function pendingLine(data, fresh = '') {
     const work = bookWork(data);
-    if (!work.length) return '';
-    return `<p class="ov-pending-line"><span>Còn nợ chưa tính:</span>${work.map(([count, what, kind]) => button(`loc:${kind}`, `${count} chuyến ${what}`, 'mở ở thẻ Sổ', 'ov-pending-go')).join('')}</p>`;
+    if (!work.length && !fresh) return '';
+    const pending = work.length ? `<span>Còn nợ chưa tính:</span>${work.map(([count, what, kind]) => button(`loc:${kind}`, `${count} chuyến ${what}`, 'mở ở thẻ Sổ', 'ov-pending-go')).join('')}` : '';
+    return `<p class="ov-pending-line">${pending}${fresh}</p>`;
   }
 
   // ---- Bốn dữ kiện: khách có đang trả không, còn đi hàng không, nợ cũ tới đâu ----
