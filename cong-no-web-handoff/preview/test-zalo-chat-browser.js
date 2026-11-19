@@ -77,6 +77,9 @@ function ledgerRoute(world, req, url, body, json) {
   }
   if (url.pathname === '/api/v7/marks') {
     const old = world.marks.find(row => row.idempotency_key === body.idempotency_key);
+    // Như record_mark: cùng khóa mà tiền/ngày/ghi chú khác thì từ chối, không trả dấu cũ như đã lưu nội dung mới.
+    if (old && ['amount_vnd', 'on_date', 'note'].some(key => (old[key] ?? null) !== (body[key] ?? null)))
+      return json(409, { error: 'IDEMPOTENCY_CONFLICT', message: 'Mã yêu cầu đã dùng cho nội dung khác.' });
     if (old) return json(200, { ...old, replayed: true });
     const book = world.links.find(row => row.customer_id === body.customer_id);
     // Tiền trả về dạng chuỗi như get_marks (ARCH-03).
@@ -423,6 +426,44 @@ test('Đánh dấu (G4): khách báo đã chuyển không cho ngày mai, ghi ch�
     await page.locator('.msg[data-id="g117"] .mark').waitFor();
     assert.equal(await page.locator('.msg[data-id="g117"] .mark span').innerText(), 'Ghi chú: Xin giãn tới cuối tháng');
     assert.equal(world.posts.filter(post => post.path === '/api/v7/marks').at(-1).body.amount_vnd, undefined);
+  });
+});
+
+test('Đánh dấu (audit A08): lần lưu đầu đã ghi nhưng mất phản hồi, sửa số tiền rồi bấm lại thì không báo đã lưu số mới', async () => {
+  const world = ledgerWorld();
+  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Kim Mẫu · Sầu riêng' });
+  await withPage({ bundled: true, world }, async page => {
+    // Máy chủ ghi xong nhưng trình duyệt không nhận được phản hồi (mất mạng giữa chừng): đúng một lần.
+    let lose = true;
+    await page.route('**/api/v7/marks', async route => {
+      if (route.request().method() !== 'POST' || !lose) return route.continue();
+      lose = false;
+      await route.fetch();
+      return route.abort('failed');
+    });
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g116"]').waitFor();
+    await page.locator('.msg[data-id="g116"]').hover();
+    await page.locator('.msg[data-id="g116"] .mark-btn').click();
+    await page.locator('#mark-amount').fill('2.000.000');
+    await page.locator('#mark-date').fill(todayVn(2));
+    await page.locator('#mark-save').click();
+    await page.locator('#mark-error').waitFor();
+    assert.match(await page.locator('#mark-error').innerText(), /Kiểm tra mạng rồi bấm lại/);
+    assert.equal(world.marks.length, 1, 'lần đầu đã ghi ở máy chủ');
+    await page.locator('#mark-amount').fill('3.000.000');
+    await page.locator('#mark-save').click();
+    await page.locator('#mark-dialog').waitFor({ state: 'hidden' });
+    // Câu báo hiện sau khi tải lại danh sách dấu (cùng thứ tự như lúc lưu được).
+    await page.locator('#subtitle', { hasText: 'Lần bấm trước đã lưu dấu với nội dung cũ' }).waitFor();
+    assert.doesNotMatch(await page.locator('#subtitle').innerText(), /Đã lưu dấu/);
+    assert.equal(world.marks.length, 1, 'không thêm dấu thứ hai');
+    assert.equal(world.marks[0].amount_vnd, '2000000', 'dấu đã lưu giữ số tiền cũ');
+    await page.locator('.msg[data-id="g116"] .mark').waitFor();
+    assert.match(await page.locator('.msg[data-id="g116"] .mark span').innerText(), /^Hứa trả 2\.000\.000 đ/);
+    // Đánh dấu lại sau đó dùng khóa mới: là dấu thứ hai do người dùng chủ động, không phải gửi lại.
+    const keys = world.posts.filter(post => post.path === '/api/v7/marks').map(post => post.body.idempotency_key);
+    assert.equal(new Set(keys).size, 1, 'hai lần bấm của cùng một lần đánh dấu dùng chung một khóa');
   });
 });
 
