@@ -51,7 +51,7 @@ Nguyên tắc: mỗi đối tượng một nhà. Màn khác muốn sửa đối 
 
 1. Một danh sách chặng của cả đội, lọc theo ngày, xe, tài xế, trạng thái. Hai cách xem: theo việc và theo xe.
 2. Hàng chờ ở đầu màn, bấm là lọc: chờ phân xe, chưa có phí, chưa có giá, chưa nối chuyến khách, booking đã đổi.
-3. Bấm một dòng mở phiếu chặng tại chỗ, ba phần: phân công (xe, tài xế, ngày chạy), chi (từng khoản, ai trả), thu (cước theo bảng giá, từng khoản phát sinh). Cuối phiếu là lãi gộp của chặng.
+3. Bấm một dòng mở phiếu chặng **ngay dưới dòng đó** (ĐÃ CHỐT 19/11/2026, phương án A: "A: mở dưới dòng"; xem [bản bấm thử](../cong-no-web-handoff/preview/mockups/doi-xe-huong-a/index.html); phương án B, khung bên phải giữ danh sách, không chọn), ba phần: phân công (xe, tài xế, ngày chạy), chi (từng khoản, ai trả), thu (cước theo bảng giá, từng khoản phát sinh). Cuối phiếu là lãi gộp của chặng.
 4. Mỗi vai có sẵn một bộ lọc mở đầu: điều xe thấy hôm nay và việc chờ phân xe; nhân viên thấy chặng chưa có phí; kế toán thấy chặng chưa có giá.
 5. Hành vi phân công theo luồng đã chốt ở [`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md). Chặng đã có phí, đã hoàn hoặc đã lên bảng kê đã gửi: sửa trong chính phiếu chặng theo luật điều chỉnh, không chỉ đường sang màn khác.
 6. Dán khối từ Sheet chỉ còn là đường chuyển dữ liệu cũ.
@@ -76,7 +76,7 @@ Menu Đội xe còn năm mục. Một chặng chỉ nhập và sửa ở mục C
 
 | Gói | Nội dung | File chính | Cần trước | Đụng luật tiền |
 | --- | --- | --- | --- | --- |
-| T1 | Bản bấm thử năm mục, dữ liệu giả, khung 1280×560 | Canvas thiết kế (ngoài Git) | — | Không |
+| T1 | Bản bấm thử năm mục, dữ liệu giả, khung 1280×560 | Canvas thiết kế (ngoài Git); bản thử đặt ở [`cong-no-web-handoff/preview/mockups/doi-xe-huong-a/index.html`](../cong-no-web-handoff/preview/mockups/doi-xe-huong-a/index.html) vì phiên T1 không có công cụ canvas | — | Không |
 | F1 | Vỏ chung: một module tải, ghi, thông báo dùng chung; đổi mục giữ tháng. Không đổi hành vi | `cong-no-web-handoff/preview/doi-xe*.js`, `doi-xe*.html`, `doi-xe*.css`, test trình duyệt | — | Không |
 | M1 | Spec mô hình dữ liệu mới và đường chuyển từ bảng hiện có | `specs/doi-xe-mo-hinh-01.md` | — | ĐỀ XUẤT, người dùng chốt trước khi code |
 | B1 | Điều độ: schema, lệnh phân xe, đổi, bỏ, nhận thay đổi booking | Migration điều độ, harness | — | Không đổi luật |

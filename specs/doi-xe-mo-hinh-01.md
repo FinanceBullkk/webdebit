@@ -301,8 +301,8 @@ Mỗi bước có file hoàn tác ghi cạnh (`...-hoan-tac.sql`) và nói rõ �
 
 - Agent: claude (theo `CLAUDE-ALL-01`), phiên thực thi Sonnet 5.5 effort high.
 - Review: opus (đụng luật tiền và schema).
-- Được sửa: `specs/doi-xe-mo-hinh-01.md`, `specs/README.md` (một dòng), `docs/decisions/doi-xe-mo-hinh-01.md` (mới), `docs/decisions.md` (một dòng).
-- Cấm: migration, code, chạy DDL, ghi cơ sở dữ liệu hoặc Sheet, `ssh hao`, đổi `specs/doi-xe-cau-truc-01.md` hay quyết định khác trong `docs/decisions*`, chép tên người, biển số, container, số tiền thật.
+- Được sửa: `specs/doi-xe-mo-hinh-01.md`, `specs/README.md` (một dòng), `docs/decisions/doi-xe-mo-hinh-01.md` (mới), `docs/decisions.md` (một dòng); theo yêu cầu phiên điều phối 19/11/2026, đúng hai chỗ ghi cách mở phiếu chặng trong `docs/decisions/doi-xe-cau-truc-01.md` và `specs/doi-xe-cau-truc-01.md`.
+- Cấm: migration, code, chạy DDL, ghi cơ sở dữ liệu hoặc Sheet, `ssh hao`, đổi gì khác trong hai file điều phối nói trên hay trong quyết định khác ở `docs/decisions*`, chép tên người, biển số, container, số tiền thật.
 - Lệnh kiểm: `npm run lint` (tài liệu, liên kết, dữ liệu nhạy cảm), `node scripts/check-secrets.js`.
 
 ## Hoàn tác
