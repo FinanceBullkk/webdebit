@@ -22,7 +22,7 @@ Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng duyệt trong 
 | --- | --- | --- |
 | Ghép đúng 1 chuyến, web chưa có giá, tháng mở (`READY`) | Tô vàng, có trong nút "Ghi N giá" | Ghi cả lô |
 | Như trên nhưng tháng khóa (`MONTH_LOCKED`) | Trong "Cần xem": "Tháng 9 đang khóa" | Nút "Mở khóa tháng 9" (dùng ổ khóa có sẵn), rồi dòng vào lô |
-| Dòng sổ gốc đã có đúng đơn giá Sheet, phụ phí web trống, Sheet có phụ phí (`READY`; audit 19/11/2026, A06: lần ghi trước lưu đơn giá rồi lệnh phụ phí lỗi) | Như `READY` | Lô chỉ ghi phụ phí; phụ phí web đã có số khác Sheet vẫn là `CONFLICT` |
+| Dòng sổ gốc ghi dở: đơn giá Sheet đã lưu, lệnh phụ phí lỗi (audit 19/11/2026, A06) | Phản hồi lô có `partial` và `undo_keys` của lệnh đã lưu; câu báo nói dòng nào chưa ghi phụ phí. Dòng sang `CONFLICT` | "Lấy Sheet" ở dòng đó: đơn giá đã đúng (`NO_CHANGE`) thì chỉ ghi phụ phí. Máy không tự ghi dòng này |
 | Web đã có giá khác Sheet (`CONFLICT`) | "Web 1.400.000 đ · Sheet 1.500.000 đ" | "Giữ web" (ghi nhận, không hỏi lại) hoặc "Lấy Sheet" (ghi giá Sheet, một chuyến) |
 | Khớp nhiều chuyến hoặc nhiều dòng Sheet cùng một chuyến (`AMBIGUOUS`) | "Dòng Sheet 214 khớp 2 chuyến" | Không ghi tự động. Người nhập điền giá tay tại ô như hiện nay |
 | Chuyến đang CHỜ KIỂM (`PENDING_REVIEW`) | Không hiện trong lô | Kết luận CHỜ KIỂM trước |

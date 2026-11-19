@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "web"))
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
 import v7_api_sheet  # noqa: E402
+import v7_inbox  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_price_snapshot as snapshot_tool  # noqa: E402
 from test_v7_load_real_copy import fixture  # noqa: E402
@@ -214,9 +215,10 @@ class ApproveTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):   # failure on the very first write is a plain error
             self.approve(Runner(fail_at=1))
 
-    def test_legacy_fee_failure_after_unit_price_resumes_through_batch(self):
+    def test_legacy_fee_failure_after_unit_price_reports_partial_row(self):
         # Audit 19/11/2026 (A06), ca của probe: đơn giá dòng sổ gốc đã lưu, lệnh phụ phí lỗi. Phản hồi phải nói đúng điều đó
-        # (khóa hoàn tác, ô đã lưu) và lượt sau phải ghi tiếp được qua READY, như câu báo "bấm ghi tiếp".
+        # (khóa hoàn tác, ô đã lưu). Dòng ghi dở sang lệch giá (CONFLICT): máy không tự ghi nốt (đoán ghi dở từ số là đổi luật
+        # tiền, xem specs/v7-price-queue.md), người ghi tiếp bằng "Lấy Sheet" ở dòng đó (test A02 trong test-so-khach-v7-api.js).
         book = ledger(legacy=[legacy_row()])
         snap = SNAPSHOT | {"rows": [row(container="FAKEU0000002", date="2026-10-04", price=100, fee=20, total=120)], "row_count": 1}
         first = project_prices(snap, book, CUSTOMERS)
@@ -234,15 +236,11 @@ class ApproveTest(unittest.TestCase):
         # Sổ sau lần ghi dở: đơn giá Sheet, phụ phí trống (counted = đơn giá, như _change_legacy).
         book["legacy_rows"][0]["current"] |= {"unit_price_vnd": "100", "counted_vnd": "100"}
         after = project_prices(snap, book, CUSTOMERS)
-        self.assertEqual((after["ready_count"], after["ready"][0]["status"]), (1, "READY"))
-        runner = Runner()
-        status, result = v7_api_sheet.write_price_items(after["ready"], 7, 4, snap["sha256"], "k2", runner, "fake")
-        self.assertTrue(result["complete"])
-        self.assertEqual([(f, p["field"], p["value"]) for f, p, _ in runner.calls if f != "get_ledger"],
-                         [("edit_legacy_trip", "other_fee_vnd", "20")])
+        self.assertEqual((after["ready_count"], after["review"][0]["status"]), (0, "CONFLICT"))
+        self.assertEqual(v7_inbox.auto_prices(after), [], "machine must not finish a half-written row on its own")
 
     def test_legacy_row_with_a_different_web_fee_stays_conflict(self):
-        # Đối chứng: phụ phí web đã có số khác Sheet là lệch thật, không phải ghi dở; dòng chuyến (một lệnh) cũng không đổi luật.
+        # Đối chứng: phụ phí web khác Sheet là lệch; dòng chuyến (một lệnh ghi cả hai ô) cũng vậy.
         current = legacy_row()
         current["current"] |= {"unit_price_vnd": "100", "other_fee_vnd": "5", "counted_vnd": "105"}
         snap = SNAPSHOT | {"rows": [row(container="FAKEU0000002", date="2026-10-04", price=100, fee=20, total=120)], "row_count": 1}

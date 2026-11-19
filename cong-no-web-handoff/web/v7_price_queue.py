@@ -173,14 +173,7 @@ def classify(row: dict, pool: list[dict] | None) -> dict:
         discount_update = (target["price"] == price and target["fee"] is not None
                            and target["fee"] < 0 and row["sheet_other_fee_vnd"] is not None
                            and row["sheet_other_fee_vnd"] < 0)
-        # Audit 19/11/2026 (A06): dòng sổ gốc ghi giá bằng hai lệnh (đơn giá trước, vì phụ phí cần có đơn giá); lệnh phụ phí
-        # lỗi thì dòng còn đúng đơn giá Sheet, phụ phí trống. Đó là việc ghi dở, không phải lệch: để READY cho nút "ghi tiếp"
-        # và máy ghi nốt phụ phí (write_price_items bỏ lệnh đơn giá vì đã đúng). Phụ phí web đã có số khác Sheet vẫn là CONFLICT.
-        # Tổng tính của dòng phải đúng bằng đơn giá (dấu vết _change_legacy để lại khi phụ phí trống): dòng sổ gốc giữ TỔNG
-        # Sheet có chiết khấu nằm sẵn trong tổng (phụ phí trống, tổng khác đơn giá) là lệch thật, vẫn CONFLICT.
-        fee_pending = (target["kind"] == "legacy" and target["price"] == price and target["fee"] is None
-                       and target["total"] == price and row["sheet_other_fee_vnd"] is not None)
-        status = ("MONTH_LOCKED" if target["locked"] else "READY") if discount_update or fee_pending else "CONFLICT"
+        status = ("MONTH_LOCKED" if target["locked"] else "READY") if discount_update else "CONFLICT"
     elif price < 0:
         status = "MANUAL"
     else:

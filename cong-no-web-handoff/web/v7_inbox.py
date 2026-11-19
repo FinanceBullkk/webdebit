@@ -63,6 +63,12 @@ AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
 # Rà máy tự ghi 4/11/2026: mở–ghi–khóa là ba lệnh riêng, API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở. Lượt sau
 # khóa lại tháng máy đã mở mà chưa khóa, khi lần mở cũ hơn chừng này (không giành tháng của một lượt máy khác đang ghi dở).
 RELOCK_AFTER_SECONDS = 600
+RELOCK_RETRY_SECONDS = 300   # khóa lại lỗi (ví dụ người đang sửa sổ): thử lại sau, không mỗi phút một dòng journal
+# Sổ có lần khóa lại lỗi trong in_month ở tiến trình API (lệnh người bấm, lượt máy): Inbox.relock_if_due xét lại, kể cả khi
+# Sheet đứng yên và chưa có lượt nền nào đọc sổ đó (audit 19/11/2026, A03). Công cụ dòng lệnh chạy tiến trình riêng thì không
+# tới được đây; tháng của chúng được khóa lại khi lượt nền sau đọc sổ.
+_RELOCK_FAILED: set[int] = set()
+_RELOCK_FAILED_LOCK = threading.Lock()
 # MAY-DOI-SOAT-01: kết quả lượt đối soát gần nhất của máy (tools/v7_reconcile_auto.py, timer mỗi giờ), API chỉ đọc.
 RECONCILE_PATH = os.getenv("WEBDEBIT_RECONCILE_PATH") or "/var/lib/webdebit-sheet-sync/reconcile.json"
 
@@ -138,6 +144,8 @@ def in_month(runner, customer_id: int, version: int, ledger: dict[str, Any], mon
                 current = version
             version = lock(True, current)
         except ApiError:
+            with _RELOCK_FAILED_LOCK:
+                _RELOCK_FAILED.add(customer_id)
             if not failed:
                 raise
     return version
@@ -414,6 +422,10 @@ class Inbox:
         with self.lock:
             if self.running or self.relocking:
                 return False
+            with _RELOCK_FAILED_LOCK:
+                for customer_id in _RELOCK_FAILED:
+                    self.relock_due.setdefault(customer_id, now)
+                _RELOCK_FAILED.clear()
             due = sorted(c for c, at in self.relock_due.items() if at <= now)
             for customer_id in due:
                 self.relock_due.pop(customer_id)
@@ -455,9 +467,9 @@ class Inbox:
                 with self.lock:
                     self.machine_open.pop(customer_id, None)
                     self._note_due(customer_id, ledger, now)
-            except ApiError as exc:
-                with self.lock:   # thử lại ở nhịp sau
-                    self.relock_due.setdefault(customer_id, self.clock())
+            except Exception as exc:  # noqa: BLE001  một sổ lỗi (kể cả lỗi lạ) không bỏ hẹn khóa lại của sổ đó hay sổ khác
+                with self.lock:
+                    self.relock_due[customer_id] = self.clock() + RELOCK_RETRY_SECONDS
                 self._error("khóa lại tháng", customer_id, exc)
 
     def _seed_log(self) -> None:
