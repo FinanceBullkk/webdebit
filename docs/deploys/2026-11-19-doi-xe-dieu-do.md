@@ -32,14 +32,20 @@
 - `Deploy hao` của `3555e3e` sẽ dừng ở gate vì diff có `tools/migrations/`; đó là chủ ý.
 - App chưa gọi hàm mới nào (API thuộc gói B2), nên release cũ và mới đều chạy được với DB mới.
 
-Bằng chứng gốc ngoài Git: `/srv/v7/backup-20261119-dieu-do/` trên `hao` (thư mục 700): `v7-truoc-thu.dump`, `v7-truoc-ap.dump`, dấu vân trước/sau, kịch bản `thu.sh`, `ap.sh`, `smoke.sql`.
+## Nạp mã nhà xe (10:18)
+
+- Người dùng đồng ý trong chat 19/11/2026: chọn "Dùng hai mã đã đo" (Claude đo lại, báo mã rồi mới nạp), rồi trả lời "Nạp hai mã" qua phiên điều phối Đội xe. Hai mã đo bằng chặng hàng tháng 10 trên `hao`; một mã khác chứa chữ của mã đội xe nhưng không có chặng nào, nên không nạp (so nguyên mã). Mã thật không ghi vào repo.
+- Không kết nối nào khác vào `webdebit_v7`. Backup toàn phần trước khi nạp (1008 mục, tăng so với 972 vì các đối tượng migration vừa thêm).
+- `doixe.nap_nha_xe` một lần trong giao dịch, `ON_ERROR_STOP`: `ma_nha_xe` từ 0 lên 2 dòng, cả hai đang dùng; Lịch sử thêm đúng một sự kiện `nap` (danh sách trước 0, sau 2).
+- Dấu vân tiền trùng trước/sau; chỉ dòng đếm Lịch sử `doixe` tăng 1. `get_dieu_do` dưới `v7_app` thấy 2 mã.
+
+Bằng chứng gốc ngoài Git: `/srv/v7/backup-20261119-dieu-do/` trên `hao` (thư mục 700): `v7-truoc-thu.dump`, `v7-truoc-ap.dump`, `v7-truoc-nap-nha-xe.dump`, dấu vân trước/sau, kịch bản `thu.sh`, `ap.sh`, `smoke.sql`, `nap-nha-xe.sh`.
 
 ## Rollback
 
-Code: revert #500 (app không gọi hàm mới). DB không cần gỡ: hai cột mới NULL, bảng mới rỗng. Muốn gỡ hẳn khi chưa có chặng nào `nguon = 'dieu_do'`: chạy lại định nghĩa `xoa_chang` và ràng buộc `su_kien_viec` của `2026-11-18-v7-doi-xe.sql`/`-thu.sql`, `DROP FUNCTION` các hàm mới, `DROP TABLE doixe.ma_nha_xe`, `ALTER TABLE doixe.chang DROP COLUMN ngay_dong, DROP COLUMN nguon`.
+Code: revert #500 (app không gọi hàm mới). DB không cần gỡ: hai cột mới NULL. Ngừng nhận một mã: `nap_nha_xe` với `dang_dung = false` (bảng không cho xóa dòng). Muốn gỡ hẳn khi chưa có chặng nào `nguon = 'dieu_do'`: chạy lại định nghĩa `xoa_chang` và ràng buộc `su_kien_viec` của `2026-11-18-v7-doi-xe.sql`/`-thu.sql`, `DROP FUNCTION` các hàm mới, `DROP TABLE doixe.ma_nha_xe`, `ALTER TABLE doixe.chang DROP COLUMN ngay_dong, DROP COLUMN nguon`.
 
 ## Còn mở
 
-- Danh mục mã nhà xe chưa nạp (`nap_nha_xe`): nạp mã thật là nạp dữ liệu, chờ gói B2 và người dùng đồng ý.
 - Tab `CONT_NGUON` đã có bốn cột Nhà xe, Số seal, Nhiệt độ, Tên tàu (19/11/2026); bộ đọc của web chưa đọc (gói B2).
 - `xoa_chang` của đợt 1 chưa kiểm bảng kê đã gửi; vá ở gói B3d theo `DOI-XE-MO-HINH-01`.
