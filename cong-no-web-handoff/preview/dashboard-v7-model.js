@@ -150,7 +150,7 @@ const DashboardModel = (() => {
         || compare(a.total, b.total) || a.key.localeCompare(b.key, 'vi'));
   }
 
-  /** Sổ mới (KHACH-MOI-01): chuyến đầu trong 90 ngày. Cờ cần để ý: 30 ngày chưa trả lần nào, hoặc chuyến chưa trả đủ quá 45 ngày. */
+  /** Sổ mới (KHACH-MOI-01): chuyến đầu trong `rule.new_days` ngày (60). Cờ cần để ý: 30 ngày chưa trả lần nào, hoặc chuyến chưa trả đủ quá 45 ngày. */
   const isNew = row => Boolean(row.fresh);
   const watchNew = row => Boolean(row.fresh?.flag);
 

@@ -1,6 +1,6 @@
 # Khách mới: để ý thu sớm (KHACH-MOI-01)
 
-Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới, cùng ngày rút mốc sổ mới còn 60 ngày; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql` (ĐÃ TRIỂN KHAI trên `hao` 19/11/2026). Frontend: Tổng quan và thẻ Tình hình (ĐÃ CODE 19/11/2026, kiểm trên máy chủ giả).
+Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới, cùng ngày rút mốc sổ mới còn 60 ngày; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql` (ĐÃ TRIỂN KHAI trên `hao` 19/11/2026), rồi `2026-11-19-v7-khach-moi-60-ngay.sql` rút mốc sổ mới còn 60 ngày. Frontend: Tổng quan và thẻ Tình hình (ĐÃ CODE 19/11/2026, kiểm trên máy chủ giả).
 
 ## Vấn đề
 
@@ -74,7 +74,7 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
 ## Đối chiếu dữ liệu và code hiện có
 
 - `get_dashboard_debt` đã có đủ nguyên liệu: lần trả, chuyến web, dòng sổ gốc, sổ đang nợ (`debtor`). Hàm chỉ trả về sổ đang nợ. Khách mới đã trả hết thì không cần cảnh báo, nên không thiếu gì.
-- Khối `rule` đã có các mốc (`no_pay_days`, `active_trip_days`…). Thêm `new_days: 90`, `new_no_pay_days: 30`, `new_unpaid_days: 45` vào đó để frontend không tự chép số.
+- Khối `rule` đã có các mốc (`no_pay_days`, `active_trip_days`…). Thêm `new_days: 60` (lúc đầu 90), `new_no_pay_days: 30`, `new_unpaid_days: 45` vào đó để frontend không tự chép số.
 - Bảng khách và chip ở `preview/dashboard-v7.js` và `dashboard-v7-model.js` đang dùng ba chip rủi ro của `DASH-05`; `DASH-06` (ô tình trạng) chưa code. Ô "Khách mới" nằm cạnh hàng chip, đi theo hàng ô khi `DASH-06` được code.
 - Thẻ Tình hình đã đọc `dashboard/debt` (`so-khach-v7-api.js`, [spec trang khách](v7-trang-khach.md)), nên dòng "Khách mới" dùng chính các trường mới dưới đây, không cần API mới. Sổ không còn nợ không có trong `dashboard/debt`, nên không hiện dòng; chấp nhận được vì đã trả hết.
 
