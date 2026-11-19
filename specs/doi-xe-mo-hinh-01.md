@@ -1,6 +1,6 @@
 # Đội xe: mô hình dữ liệu mới theo hướng A (DOI-XE-MO-HINH-01)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026), gói M1 của spec điều phối `doi-xe-cau-truc-01` (PR #497, chưa lên `main`). Hướng ĐÃ CHỐT (người dùng, 19/11/2026, "Chốt theo hướng A"; `DOI-XE-CAU-TRUC-01`): người trả theo từng khoản chi, khoản thu là dòng riêng, một cơ chế công nợ chung, chi gắn được vào xe. **Luật tiền chi tiết dưới đây chưa ai chốt**: người dùng chốt ở mục [Cần người dùng chốt](#cần-người-dùng-chốt) trước khi viết migration đầu tiên. Luật tiền hiện hành (công thức số dư, hoàn theo đợt, hủy bắt buộc lý do, khóa tháng, bảng kê gửi → đối chiếu → tiền về, chi hộ) **giữ nguyên** tới khi người dùng chốt khác; mọi bước chuyển dưới đây phải chứng minh được là không đổi số.
+Trạng thái: **ĐỀ XUẤT** (Claude, 19/11/2026), gói M1 của [spec điều phối](doi-xe-cau-truc-01.md). Hướng ĐÃ CHỐT (người dùng, 19/11/2026, "Chốt theo hướng A"; `DOI-XE-CAU-TRUC-01`): người trả theo từng khoản chi, khoản thu là dòng riêng, một cơ chế công nợ chung, chi gắn được vào xe. **Luật tiền chi tiết dưới đây chưa ai chốt**: người dùng chốt ở mục [Cần người dùng chốt](#cần-người-dùng-chốt) trước khi viết migration đầu tiên. Luật tiền hiện hành (công thức số dư, hoàn theo đợt, hủy bắt buộc lý do, khóa tháng, bảng kê gửi → đối chiếu → tiền về, chi hộ) **giữ nguyên** tới khi người dùng chốt khác; mọi bước chuyển dưới đây phải chứng minh được là không đổi số.
 
 Phiên viết spec chỉ đọc code và tài liệu: không chạy DDL, không mở `hao`, chưa đo trên bản thử. Điều gì phải đo trước khi chạy ghi ở [Bằng chứng](#bằng-chứng).
 
@@ -255,7 +255,7 @@ Mỗi bước có file hoàn tác ghi cạnh (`...-hoan-tac.sql`) và nói rõ �
 
 ## Nguồn quyết định
 
-- `DOI-XE-CAU-TRUC-01` (người dùng, 19/11/2026): hướng đổi mô hình; PR #497 đang chờ CI, chưa lên `main` (nên chưa liên kết được).
+- [`DOI-XE-CAU-TRUC-01`](../docs/decisions/doi-xe-cau-truc-01.md) (người dùng, 19/11/2026): hướng đổi mô hình.
 - [`CHI-PHI-XE-01`](../docs/decisions/chi-phi-xe-01.md), [`DOI-XE-THU-01`](../docs/decisions/doi-xe-thu-01.md): luật tiền giữ nguyên; [`DOI-XE-DIEU-DO-01`](../docs/decisions/doi-xe-dieu-do-01.md): chặng sinh từ booking, `chang.ngay_dong`, `chang.nguon`.
 - [Bản đồ dữ liệu](../docs/doi-xe-kien-truc-du-lieu.md); [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md) cho cách triển khai migration.
 - Bản nháp migration điều độ (chưa commit, đọc để mô hình khớp): `2026-11-19-v7-doi-xe-dieu-do.sql`.
@@ -293,9 +293,9 @@ Revert PR. Không có dữ liệu.
 
 ## Bằng chứng
 
-Đọc ngày 19/11/2026, chỉ đọc, `main` `3c8e4a0` và nhánh `origin/claude/doi-xe-cau-truc`:
+Đọc ngày 19/11/2026, chỉ đọc, `main` `3c8e4a0` và nhánh điều phối `origin/claude/doi-xe-cau-truc` (nay đã là `main` `62cbeaf`):
 
-- `specs/chi-phi-xe-01.md`, `specs/doi-xe-thu-01.md`, `specs/doi-xe-dieu-do-01.md`, `docs/doi-xe-kien-truc-du-lieu.md`, `specs/doi-xe-cau-truc-01.md` và `docs/decisions/doi-xe-cau-truc-01.md` (từ nhánh), ba quyết định Đội xe.
+- `specs/chi-phi-xe-01.md`, `specs/doi-xe-thu-01.md`, `specs/doi-xe-dieu-do-01.md`, `docs/doi-xe-kien-truc-du-lieu.md`, `specs/doi-xe-cau-truc-01.md` và `docs/decisions/doi-xe-cau-truc-01.md` (đã vào `main` ở #497), ba quyết định Đội xe.
 - DDL và thân hàm trong bốn migration `cong-no-web-handoff/tools/migrations/2026-11-18-v7-doi-xe*.sql`; `test_pg_doixe.py` (cấu trúc harness); bản nháp migration điều độ trong worktree riêng (chỉ đọc).
 - Số đếm trong spec (16 khoản chi, 14 khoản thu, 10 mối nối, 9 khoản chi được nối, 4 khoản thu không nối, 20 + 1 khoản mới, 6 bảng và khoảng 19 hàm đụng tới tiền) đếm từ DDL, không từ dữ liệu.
 
