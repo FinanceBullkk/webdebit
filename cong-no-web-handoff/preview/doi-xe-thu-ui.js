@@ -11,10 +11,17 @@
   const root = $('dx-root'), head = $('dx-head'), toastBox = $('dx-toast');
 
   const S = {
-    man: 'bangke', thang: null, data: null, gia: null, loading: true, loadError: '', loc: 'all', mo: null, panel: null,
+    man: 'bangke', thang: null, chon: null, data: null, gia: null, loading: true, loadError: '', loc: 'all', mo: null, panel: null,
     f: null, giaSua: null, psSua: null, tuyenMoi: null, busy: false, toast: null, giuBao: null, seq: 0, lichSu: null,
   };
-  const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
+  // Mạng, ghi và thông báo dùng chung hai màn Đội xe (doi-xe-chung.js).
+  const { getJson, bao, ghi, drawToast } = DoiXeChung.tao({
+    S, draw: () => draw(), load: () => load(), toastBox, esc, tienTo: 'dxt', toastMs: 8000,
+    matMang: 'Mất kết nối, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.',
+    chuaRo: 'Chưa đọc được trả lời của máy chủ, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.',
+    taiLai: ['CHANGED', 'BANG_KE_DOI', 'BANG_KE_DA_GUI', 'CHANG_DA_GUI', 'BANG_KE_DA_DOI_CHIEU'],
+  });
+  const { withFocus } = DoiXeChung;
 
   // ---------- Địa chỉ ----------
   function readUrl() {
@@ -22,45 +29,23 @@
     S.man = q.get('man') === 'gia' ? 'gia' : 'bangke';
     const t = q.get('thang');
     S.thang = t && /^\d{4}-\d{2}$/.test(t) ? `${t}-01` : null;
+    S.chon = S.thang;   // tháng người dùng đã chọn (địa chỉ hoặc bấm chip); tháng mặc định do máy chủ chọn thì không tính
   }
   function urlOf(man, thang) {
     const q = new URLSearchParams();
     if (man === 'gia') q.set('man', 'gia');
-    else if (thang) q.set('thang', thang.slice(0, 7));
+    if (thang) q.set('thang', thang.slice(0, 7));   // Bảng giá cũng giữ tháng để quay về hay sang mục khác không mất
     const s = q.toString();
     return location.pathname + (s ? `?${s}` : '');
   }
   function go(man, thang = S.thang) {
     Object.assign(S, { man, thang, mo: null, panel: null, f: null, loc: 'all', giaSua: null, psSua: null, tuyenMoi: null });
-    history.pushState(null, '', urlOf(man, thang));
+    history.pushState(null, '', urlOf(man, S.chon));   // địa chỉ chỉ ghi tháng đã chọn, không ghi tháng mặc định
     load();
   }
   addEventListener('popstate', () => { readUrl(); Object.assign(S, { mo: null, panel: null, f: null }); load(); });
 
   // ---------- Mạng ----------
-  async function getJson(url) {
-    const r = await fetch(url, { cache: 'no-store' });
-    const body = await r.json().catch(() => null);
-    if (!r.ok) throw Object.assign(Error(body?.message || `Lỗi ${r.status}`), { code: body?.error, status: r.status });
-    return body;
-  }
-  async function post(path, body) {
-    const sig = `${path} ${JSON.stringify(body)}`;
-    if (!keys.has(sig)) keys.set(sig, globalThis.crypto?.randomUUID?.() ?? `dxt-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-    let r;
-    try {
-      r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idempotency_key: keys.get(sig), ...body }) });
-    } catch {
-      throw Object.assign(Error('Mất kết nối, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.'), { code: 'NETWORK' });
-    }
-    const out = await r.json().catch(() => null);
-    if (!r.ok) {
-      if (r.status !== 503) keys.delete(sig);
-      throw Object.assign(Error(out?.message || `Lỗi ${r.status}`), { code: out?.error, status: r.status });
-    }
-    keys.delete(sig);
-    return out;
-  }
   async function load() {
     const seq = ++S.seq;
     S.loading = true;
@@ -111,58 +96,11 @@
     return name;
   }
 
-  function bao(text, loai = 'ok') {
-    if (S.giuBao) { S.giuBao.push([text, loai]); return; }
-    S.toast = { text, loai, n: (S.toast?.n ?? 0) + 1 };
-    const n = S.toast.n;
-    drawToast();
-    setTimeout(() => { if (S.toast?.n === n) { S.toast = null; drawToast(); } }, 8000);
-  }
-  async function ghi(path, body, ok) {
-    if (S.busy) return null;
-    S.busy = true;
-    draw();
-    try {
-      const out = await post(path, body);
-      // Câu báo hiện sau khi đọc lại xong: người dùng thấy câu báo cùng lúc với số mới.
-      S.giuBao = [];
-      if (ok) await ok(out);
-      await load();
-      const giu = S.giuBao;
-      S.giuBao = null;
-      for (const [text, loai] of giu) bao(text, loai);
-      return out;
-    } catch (e) {
-      S.giuBao = null;
-      bao(e.message, 'err');
-      if (['CHANGED', 'BANG_KE_DOI', 'BANG_KE_DA_GUI', 'CHANG_DA_GUI', 'BANG_KE_DA_DOI_CHIEU'].includes(e.code)) await load();
-      return null;
-    } finally {
-      S.busy = false;
-      draw();
-    }
-  }
-
   // ---------- Vẽ ----------
-  function withFocus(fn) {
-    const el = document.activeElement;
-    const key = el?.dataset?.f;
-    const pos = key && typeof el.selectionStart === 'number' ? [el.selectionStart, el.selectionEnd] : null;
-    fn();
-    if (key) {
-      const again = document.querySelector(`[data-f="${CSS.escape(key)}"]`);
-      if (again) { again.focus(); if (pos && typeof again.setSelectionRange === 'function') again.setSelectionRange(...pos); }
-    }
-  }
   function draw() { withFocus(() => { drawHead(); drawBody(); }); }
-  function drawToast() {
-    toastBox.hidden = !S.toast;
-    toastBox.className = `dx-toast ${S.toast?.loai ?? ''}`;
-    toastBox.innerHTML = S.toast ? `<span>${esc(S.toast.text)}</span><button type="button" data-act="dong-toast" aria-label="Đóng thông báo">✕</button>` : '';
-  }
   function drawHead() {
     const tab = (man, text) => `<button type="button" class="dx-man-tab" data-act="man" data-man="${man}" aria-pressed="${S.man === man}">${text}</button>`;
-    head.innerHTML = '<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="/doi-xe.html">Người và xe</a>'
+    head.innerHTML = `<h1>Đội xe</h1><nav class="dx-man" aria-label="Phần của đội xe"><a class="dx-man-tab" href="${DoiXeChung.duongDanMuc('nguoi', S.chon, (S.data ?? S.gia)?.hom_nay)}">Người và xe</a>`
       + `${tab('bangke', 'Bảng kê gửi HTH')}${tab('gia', 'Bảng giá')}</nav>`;
   }
   function drawBody() {
@@ -463,7 +401,7 @@
       case 'man': go(el.dataset.man); break;
       case 'thu-lai': load(); break;
       case 'dong-toast': S.toast = null; drawToast(); break;
-      case 'thang': go('bangke', el.dataset.thang); break;
+      case 'thang': S.chon = el.dataset.thang; go('bangke', el.dataset.thang); break;
       case 'loc': S.loc = S.loc === el.dataset.loc && el.dataset.loc !== 'all' ? 'all' : el.dataset.loc; S.mo = null; S.f = null; draw(); break;
       case 'excel': taiExcel(d.thang).then(name => bao(`Đã tải ${name}.`), e => bao(`Chưa tải được file: ${e.message}`, 'err')); break;
       case 'lich-su': S.panel = { k: 'ls' }; S.lichSu = null; draw(); loadLichSu(); break;

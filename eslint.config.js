@@ -57,6 +57,7 @@ module.exports = [
         TinhHinhModel: "readonly",
         CongNoFormat: "readonly",
         DashboardModel: "readonly",
+        DoiXeChung: "readonly",
         DoiXeModel: "readonly",
         DoiXeThuModel: "readonly",
         DebitNoteXlsx: "readonly",

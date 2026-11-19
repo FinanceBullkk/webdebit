@@ -55,7 +55,9 @@ Tham số (đúng một dạng, cộng `cu` tùy chọn; tham số lạ hoặc l
 | --- | --- |
 | `thang=YYYY-MM-01` | Cả tháng (ngày đóng trong tháng). Không có `thang`, `tu`, `den` thì lấy tháng hiện tại giờ VN |
 | `tu=YYYY-MM-DD&den=YYYY-MM-DD` | Khoảng ngày đóng, gồm hai đầu, tối đa 93 ngày. Phải đủ cả hai tham số |
-| `cu=N` (0–92, mặc định 0) | Lùi N ngày trước `tu`/đầu tháng để giữ thêm các việc cũ **còn chờ phân xe** (cờ `cu: true`). Điều xe gửi `cu=60` cùng khoảng hôm qua–hôm nay; việc cũ đã phân xe không hiện |
+| `cu=N` (0–92, mặc định 0) | Lùi N ngày trước `tu`/đầu tháng để giữ thêm các việc cũ **còn chờ phân xe** (cờ `cu: true`). Việc cũ đã phân xe không hiện |
+
+**Màn mặc định của điều xe** (hôm qua, hôm nay, việc cũ còn chờ, việc sắp tới): `tu=<hôm qua>&den=<hôm nay + 7>&cu=60`. Việc "sắp tới" (chưa có số cont, hoặc ngày đóng sau hôm nay) chỉ hiện khi ngày đóng của nó nằm trong `tu`–`den`, nên `den` phải lùi về sau hôm nay; frontend tự chọn số ngày (7 là đề xuất). Lấy `hom_nay` từ kết quả lần gọi trước, hoặc giờ VN của máy.
 
 JSON trả về (`200`):
 
@@ -75,7 +77,7 @@ JSON trả về (`200`):
 }
 ```
 
-- `nguon.qua_han`: bản chụp cũ hơn 60 phút (hoặc không đọc được giờ tạo): giao diện báo "Booking cập nhật lúc …". `bo_qua` là số đếm dòng bản chụp không vào danh sách (không có mã nhà xe đang dùng; không có ngày đóng hợp lệ; lặp cùng container và ngày).
+- `nguon.tao_luc`: giờ tạo bản chụp, **đã đổi sang giờ VN** (runner ghi UTC); `null` nếu không đọc được hoặc thiếu múi giờ. `nguon.qua_han`: bản chụp cũ hơn 60 phút (hoặc không đọc được giờ tạo): giao diện báo "Booking cập nhật lúc …". `bo_qua` là số đếm dòng bản chụp không vào danh sách, luôn tính kể cả khi bảng mã nhà xe rỗng (khi đó mọi dòng vào `khong_nha_xe`): `khong_nha_xe` (không có mã nhà xe đang dùng), `khong_ngay` (không có ngày đóng hợp lệ, hoặc trước 2020-01-01: `doixe._ngay` từ chối ngày đó nên một dòng gõ nhầm năm không được làm hỏng cả lượt gọi), `trung` (lặp cùng container và ngày).
 - `xe`, `tai_xe`: chỉ xe và người đang dùng. Mảng `viec` sắp theo ngày đóng, container (tăng dần).
 - `dem` đếm trên mảng `viec` trả về: `sap_toi`, `cho_phan_xe`, `da_phan_xe`, `da_co_phi`, `da_len_bang_ke` là số việc theo trạng thái; `booking_doi` số việc có nhãn đổi; `chua_co_phi` số CHẶNG (mọi loại) chưa có phí; `khong_con_tren_booking` số chặng mồ côi; **[PR 2]** `chua_co_gia` số chặng chưa có giá (`lai_gop.thieu` chứa `gia`), `ngoai_booking` số chặng ngoài booking. Hàng chờ ở đầu màn bấm là lọc phía giao diện trên các mảng này.
 
@@ -98,12 +100,12 @@ JSON trả về (`200`):
 ```
 
 - `id`: `"<container>|<ngày đóng>"`; dòng chưa có số container: `"#<số dòng CONT_NGUON>|<ngày đóng>"`. Dùng làm khóa của dòng trên màn; không gửi lên máy chủ.
-- `container`: chuỗi A–Z, 0–9 dài 6–20 ký tự, hoặc `null` khi dòng booking chưa có số cont (hoặc ô chứa chữ không phải số cont). `null` thì chưa phân xe được.
+- `container`: số container viết hoa, bỏ khoảng trắng (cùng luật `normalize_container` của bộ đọc sổ khách; repo không có luật chặt hơn cho cột này), 1–20 ký tự (giới hạn cột `chang.container`), hoặc `null` khi ô trống hoặc chữ dài quá 20 ký tự (ví dụ ghi chú giữ chỗ). `null` thì chưa phân xe được. Chữ giữ chỗ ngắn không dấu (kiểu `CHUA CO`) sẽ được coi là số container, giống sổ khách: xem Câu hỏi mở 8.
 - `booking.*`: chỉ xem, từ bản chụp, mỗi trường chuỗi hoặc `null`. Không có trường nào để ghi lại booking.
 - `hang_id`: id chặng hàng gần nhất của việc; `null` khi chưa có.
 - `chang`: các chặng đã nối, chặng hàng đứng đầu, rồi chặng phụ theo ngày chạy.
 - `booking_doi`: `null` khi booking khớp chặng. Ngược lại là danh sách thay đổi trước → sau; `truong` là `ngay_dong` hoặc `kho`; so kho không phân biệt hoa thường và khoảng trắng thừa. Chỉ so chặng đã có ngày đóng. Cảng, hàng, hãng tàu không so được (chặng không lưu).
-- `ngay_dong_khac`: ngày đóng của các việc khác CÙNG container trên booking (tối đa 20). **Giao diện gửi nguyên mảng này vào `ngay_dong_khac` của `phan-xe`** để luật nối chọn đúng việc.
+- `ngay_dong_khac`: ngày đóng của các việc khác CÙNG container trên booking (tối đa 20 ngày gần ngày đóng của việc nhất, xếp tăng dần). **Giao diện gửi nguyên mảng này vào `ngay_dong_khac` của `phan-xe`** để luật nối chọn đúng việc.
 
 **`trang_thai` của việc** do API tính, không ai gõ, không lưu. Theo thứ tự thử:
 
@@ -136,19 +138,19 @@ JSON trả về (`200`):
 - Mọi chặng của `khong_con_tren_booking` có thêm `"trang_thai": "khong_con_tren_booking"` và `cho_phep.chuyen_container` (`khoa == null`) cùng `cho_phep.giu_ngoai` (luôn `true`: giữ thành chặng ngoài booking không đụng tiền). Ba lựa chọn của người: chuyển sang container mới (`nhan-booking` `cap_nhat` kèm `container`), giữ ngoài booking (`giu_ngoai`), bỏ chặng (`bo-phan-cong`).
 - **[PR 2]** thêm `thang_khoa`, `bang_ke_thang`, `chi`, `thu`, `lai_gop` (bản gọn), xem [dưới](#pr-2-thu-chi-lãi-gộp-của-chặng).
 
-Giới hạn đã biết của đường đọc: (1) `get_dieu_do` tìm chặng mồ côi trong khoảng ngày đóng của các việc được gửi; khoảng không có việc nào thì không có mảng này. (2) Tối đa 1.500 việc có số cont mỗi lượt (kể cả việc láng giềng cùng container), quá thì `QUA_NHIEU_VIEC` (422): tham số `psql` có trần 128 KB. (3) Đường đọc tốn ba lượt psql (danh mục mã nhà xe; chặng nối việc; **[PR 2]** thu, chi, lãi gộp; lượt giữa bỏ khi không có việc nào có số cont), mỗi lượt khoảng 50 ms trên `hao` cộng thời gian tính; không có bộ nhớ đọc.
+Giới hạn đã biết của đường đọc: (1) `get_dieu_do` tìm chặng mồ côi trong khoảng ngày đóng của các việc được gửi; khoảng không có việc nào thì không có mảng này. (2) Tối đa 1.500 việc có số cont mỗi lượt (kể cả việc láng giềng cùng container), quá thì `QUA_NHIEU_VIEC` (422): tham số `psql` có trần 128 KB. (3) Đường đọc tốn ba lượt psql (danh mục mã nhà xe; chặng nối việc, bỏ khi không việc nào có số cont; **[PR 2]** thu, chi, lãi gộp), mỗi lượt khoảng 50 ms trên `hao` cộng thời gian tính, chạy ở chế độ chỉ đọc (giao dịch `READ ONLY`, quá hạn báo `DB_UNAVAILABLE` chứ không phải `RESULT_UNKNOWN`); không có bộ nhớ đọc. (4) Việc trong ±3 ngày quanh khoảng xem (luật nối `NGUON-CHUYEN-01`) cũng được gửi vào hàm nối nhưng chỉ hiện khi giữ một chặng có ngày đóng trong khoảng: booking dời ngày đóng qua mép khoảng (hoặc mép tháng) vẫn cho nhãn `booking_doi`, không biến chặng thành mồ côi; dời xa hơn 3 ngày thì SQL không nối nữa và chặng đúng là mồ côi. (5) Bản chụp chỉ giữ dòng `Loại = BIỂN` của `CONT_NGUON` (chuyến bộ ở `CONT_BO`, không phải việc của đội xe).
 
-Lỗi riêng của đường đọc: `NGUON_THIEU_NHA_XE` (503: bản chụp chưa có cột Nhà xe; chờ lượt đồng bộ kế tiếp), `SHEET_SNAPSHOT_UNAVAILABLE` (503: không đọc được bản chụp), `QUA_NHIEU_VIEC` (422), `INVALID_MONTH`, `INVALID_DATE`, `INVALID_REQUEST` (422). Hai mã đầu có câu ngay trong code API, không đi qua DB.
+Lỗi riêng của đường đọc: `NGUON_THIEU_NHA_XE` (503: bản chụp chưa có cột Nhà xe; chờ lượt đồng bộ kế tiếp), `SHEET_SNAPSHOT_UNAVAILABLE` (503: không đọc được bản chụp), `QUA_NHIEU_VIEC` (422), `INVALID_MONTH`, `INVALID_DATE`, `INVALID_REQUEST` (422). Hai mã đầu, `QUA_NHIEU_VIEC` và `VIEC_KHONG_CON` có câu ngay trong code API, không đi qua DB.
 
 ### Bốn đường ghi
 
 Cả bốn: `POST`, thân JSON, bắt buộc `idempotency_key`, kết quả `200` + JSON dưới đây (có thêm `lap_lai` khi gửi lại cùng mã). Sau khi ghi thành công giao diện tải lại `GET /chang` (kết quả ghi không đủ để dựng lại dòng).
 
-**`POST /api/v7/doixe/chang/phan-xe`** — tạo chặng cho một việc (`nguon = dieu_do`).
+**`POST /api/v7/doixe/chang/phan-xe`** — tạo chặng cho một việc (`nguon = dieu_do`). API kiểm trước khi ghi rằng cặp (`container`, `ngay_dong`) là một việc của đội xe trên bản chụp booking hiện tại (mã nhà xe đang dùng); không thì `VIEC_KHONG_CON` (409), không ghi gì, để gõ sai không tạo chặng mồ côi. Lượt kiểm tốn thêm một lượt đọc danh mục mã nhà xe. Chặng ngoài booking (container nhà xe khác kéo, chuyển cảng...) không đi đường này mà đi `POST /api/v7/doixe/chang` (`luu_chang`) như hôm nay, với ngày đóng để trống.
 
 | Trường | Bắt buộc | Kiểu và luật |
 | --- | --- | --- |
-| `container` | có | Chuỗi, ≤ 40 ký tự; rỗng hoặc `null` là `CONT_THIEU` |
+| `container` | có | Chuỗi, ≤ 20 ký tự (như `chang.container`); rỗng hoặc `null` là `CONT_THIEU`. So với booking bằng số container đã chuẩn hóa (viết hoa, bỏ khoảng trắng) |
 | `ngay_dong` | có | Ngày đóng của việc (`viec.ngay_dong`) |
 | `xe_id` | có | Id xe; `null` thì `XE_KHONG_RO` |
 | `ngay` | không | Ngày chạy; mặc định ngày đóng |
@@ -157,7 +159,7 @@ Cả bốn: `POST`, thân JSON, bắt buộc `idempotency_key`, kết quả `200
 | `kho`, `noi_lay`, `noi_ha`, `tinh`, `ten_hang`, `ghi_chu` | không | Chuỗi ≤ 200 ký tự, không xuống dòng. Giao diện gửi `kho` = `booking.kho`, `ten_hang` = `booking.hang`; để trống `noi_lay` và `noi_ha` thì chặng hàng lấy tuyến của chuyến khách đã nối |
 | `ngay_dong_khac` | không | Mảng ≤ 20 ngày: `viec.ngay_dong_khac` |
 
-Kết quả: `{"ok": true, "chang_id": 12, "nguon": "dieu_do", "tra": "nguoi", "nguoi_tra_id": 2}`. Lỗi: `CONT_THIEU`, `CHANG_HANG_DA_CO`, `XE_KHONG_RO`, `XE_NGUNG`, `NGUOI_NOT_FOUND`, `NGAY_TUONG_LAI`, `THANG_KHOA`, `TRUNG_CHANG`, `INVALID_DATE`.
+Kết quả: `{"ok": true, "chang_id": 12, "nguon": "dieu_do", "tra": "nguoi", "nguoi_tra_id": 2}`. Lỗi: `VIEC_KHONG_CON`, `CONT_THIEU`, `CHANG_HANG_DA_CO`, `XE_KHONG_RO`, `XE_NGUNG`, `NGUOI_NOT_FOUND`, `NGAY_TUONG_LAI`, `THANG_KHOA`, `TRUNG_CHANG`, `INVALID_DATE`.
 
 **`POST /api/v7/doixe/chang/doi-phan-cong`** — đổi xe, tài xế, ngày chạy.
 
@@ -183,6 +185,7 @@ Năm mã mới của gói B1, cộng câu cho mã dùng lại. Câu nằm trong 
 | `THANG_KHOA` | 409 | Tháng này đã khóa: không phân thêm hay đổi chặng ở tháng khóa. |
 | `CHANG_CO_PHI` | 409 | Chặng đã ghi phí: sửa xe hoặc tài xế bằng điều chỉnh ở phiếu chặng, không đổi ở phân công. |
 | `CHANG_DA_HOAN` | 409 | Chặng đã được hoàn tiền cho tài xế: không đổi hay bỏ ở phân công. |
+| `VIEC_KHONG_CON` (API, không qua DB) | 409 | Việc này không còn trên booking của đội xe (số container hoặc ngày đóng đã đổi). Tải lại danh sách. |
 | `CHANG_DA_GUI` (đã có) | 409 | Chặng đã vào bảng kê đã gửi HTH: sửa bằng điều chỉnh ở bảng kê. |
 | `CONT_THIEU`, `XE_KHONG_RO`, `XE_NOT_FOUND`, `NGUOI_NOT_FOUND`, `NGAY_TUONG_LAI`, `TRUNG_CHANG`, `THANG_KHOA_CHUYEN`, `CHANGED`, `CHANG_NOT_FOUND`, `CHANG_DA_BO`, `IDEMPOTENCY_CONFLICT` (đã có) | — | Câu hiện có |
 
@@ -278,6 +281,7 @@ PR 1, ngày 19/11/2026, ở máy dev, dữ liệu giả: `unittest` của `tests
 5. **Ba lượt psql** cho một lần đọc `GET /chang` (danh mục mã nhà xe; chặng nối việc; thu, chi, lãi gộp), mỗi lượt khoảng 50 ms trên `hao` cộng thời gian tính (`get_bang_ke` tính sống cả tháng cũng làm đúng việc này). Chưa đo trên dữ liệu thật; nếu chậm, giữ danh mục mã vài chục giây hoặc gộp ba lượt vào một hàm.
 6. **Việc cũ còn chờ** lấy bằng tham số `cu` (tối đa 92 ngày) thay vì "mọi việc cũ": việc chờ quá 92 ngày không hiện. Phù hợp thực tế (việc được giao trước một ngày) nhưng chưa đo trên dữ liệu thật.
 7. Giao diện gửi `kho` và `ten_hang` từ booking lên `phan-xe` và để trống `noi_lay`, `noi_ha` (SQL lấy tuyến chuyến khách); là cách API hiểu "lấy từ booking" của `DOI-XE-DIEU-DO-01`. Đúng ý chưa?
-8. **"Chưa nối chuyến khách"** (hàng chờ trong bản bấm thử) cần `doixe._chuyen` cho từng chặng hàng; hàm PR 2 chưa trả cờ này vì ngoài phần thu, chi, lãi gộp đã giao. Cần cho F2 thì thêm trường `chuyen_khach` vào hàm (migration chỉ-đọc nhỏ).
-9. **Tổng chi và công ty trả:** `chi.tong_vnd` tính cả khoản công ty trả (VETC) để lãi gộp đúng chi phí đội xe; chi của người trả khớp `get_so` chỉ gồm khoản `nguoi_tra = nguoi`. Giao diện cần hiện hai số này khác nhau ở đâu thì phiên F2 nói.
-10. **Lãi gộp `null` khi còn khoản ghi chú chưa đọc được** (`thieu` có `doc`): chọn thận trọng vì thu có thể thiếu; nếu muốn tính tạm thì đổi luật, không phải lỗi dữ liệu.
+8. **Số container giữ chỗ:** ô Số cont ghi chữ ngắn không dấu (kiểu `CHUA CO`) thành `CHUACO`, được coi là số container và phân xe được, đúng như bộ đọc sổ khách hiện nhận (không có luật chặt hơn trong repo). Muốn chặn thì cần luật mới (ví dụ dạng ISO 6346 `[A-Z]{4}[0-9]{7}`, đang dùng để tách số cont trong ô chữ ở `v7_normalize`), nhưng sẽ làm rơi các số cont gõ sai nhẹ; chờ người dùng quyết, chưa đo trên bản chụp thật.
+9. **"Chưa nối chuyến khách"** (hàng chờ trong bản bấm thử) cần `doixe._chuyen` cho từng chặng hàng; hàm PR 2 chưa trả cờ này vì ngoài phần thu, chi, lãi gộp đã giao. Cần cho F2 thì thêm trường `chuyen_khach` vào hàm (migration chỉ-đọc nhỏ).
+10. **Tổng chi và công ty trả:** `chi.tong_vnd` tính cả khoản công ty trả (VETC) để lãi gộp đúng chi phí đội xe; chi của người trả khớp `get_so` chỉ gồm khoản `nguoi_tra = nguoi`. Giao diện cần hiện hai số này khác nhau ở đâu thì phiên F2 nói.
+11. **Lãi gộp `null` khi còn khoản ghi chú chưa đọc được** (`thieu` có `doc`): chọn thận trọng vì thu có thể thiếu; nếu muốn tính tạm thì đổi luật, không phải lỗi dữ liệu.
