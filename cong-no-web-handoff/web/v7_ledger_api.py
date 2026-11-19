@@ -33,6 +33,7 @@ import v7_debit_note_config
 import v7_doixe_xlsx
 import v7_identity
 import v7_inbox
+import v7_insurance_queue
 import v7_machine
 import v7_month_missing
 import v7_month_report
@@ -107,7 +108,8 @@ INBOX = v7_inbox.Inbox(
     # road.json (chuyến bộ, NGUON-CHUYEN-01) chỉ có khi runner bật: thiếu file không được làm hộp thành "chưa đọc được".
     + tuple(path for path in (v7_api_sheet.ROAD_SNAPSHOT_PATH,) if os.path.exists(path)),
     lambda: v7_sheet_refresh.status(v7_api_sheet.SHEET_REFRESH_PATH,
-                                    (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH), time.time()))
+                                    (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH), time.time()),
+    insurance=v7_api_sheet.insurance_orphans) # BAO-HIEM-ZALO-01: không vào khóa làm mới của hộp (bản chụp riêng)
 STREAM_PING = 15.0
 STREAM_MAX_SECONDS = 600.0          # luồng SSE tự đóng, trình duyệt tự nối lại
 STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
@@ -652,6 +654,20 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 for name, field in (("Content-Type", kind), ("Content-Length", str(len(data))),
                                     ("Cache-Control", "private, max-age=86400"), ("X-Content-Type-Options", "nosniff")):
+                    self.send_header(name, field)
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            if self.command == "GET" and route.path.startswith(v7_insurance_queue.CERT_PREFIX):
+                # BAO-HIEM-ZALO-01: PDF giấy bảo hiểm, sau xác thực danh tính như mọi /api/v7/*; chỉ giấy trong bản chụp hiện tại.
+                if route.query:
+                    bad()
+                data = v7_api_sheet.insurance_cert(route.path.removeprefix(v7_insurance_queue.CERT_PREFIX))
+                self.send_response(200)
+                for name, field in (("Content-Type", "application/pdf"), ("Content-Length", str(len(data))),
+                                    ("Content-Disposition", 'inline; filename="giay-bao-hiem.pdf"'),
+                                    ("Cache-Control", "private, no-store"), ("X-Content-Type-Options", "nosniff"),
+                                    ("Referrer-Policy", "no-referrer")):
                     self.send_header(name, field)
                 self.end_headers()
                 self.wfile.write(data)
