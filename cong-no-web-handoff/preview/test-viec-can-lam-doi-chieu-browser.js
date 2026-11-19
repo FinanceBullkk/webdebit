@@ -304,6 +304,8 @@ if (process.argv.includes('--preview')) {
       assert.match(await page.locator('.action-description').innerText(), /Nợ không đổi, vẫn lệch Sheet; không ghi tiền/);
       await page.locator('[data-action-write]').click();
       await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      // Sau ghi màn đọc lại bản đối chiếu và tạm ẩn gợi ý chưa kiểm (hintsUnverified); chờ lượt đọc nền vẽ xong rồi mới đếm.
+      await page.evaluate(() => window.ViecCanLam.idle());
       assert.equal(posted.length, 1);
       assert.equal(posted[0].route, '/api/v7/sheet/tasks/keep');
       assert.deepEqual({ ...posted[0].body, idempotency_key: 'k' }, { customer_id: 7, expected_version: 12, idempotency_key: 'k', task_kind: 'source', scope: 'price', source_fingerprint: missing });

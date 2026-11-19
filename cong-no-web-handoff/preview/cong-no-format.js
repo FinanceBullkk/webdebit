@@ -136,6 +136,25 @@ const CongNoFormat = (() => {
     return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : text;
   }
 
+  /**
+   * KHACH-MOI-01: dữ kiện sổ mới từ một dòng của dashboard/debt (tên trường API) và ngày `asOf` (giờ VN); không phải sổ mới
+   * hoặc API cũ chưa có trường → null. `flag` 'no_pay' | 'slow' | null; `first` ngày chuyến đầu ("khoảng T10/2026" khi dòng
+   * không ngày); `text` câu cho Tổng quan; `brief` phần sau ngày chuyến đầu cho Tình hình (trống khi không có cờ).
+   */
+  function newCustomer(item, asOf) {
+    if (!item?.is_new || !item.first_trip_day || !asOf) return null;
+    const utc = iso => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
+    const days = iso => Math.round((utc(asOf) - utc(iso)) / 864e5);
+    const dm = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+    const flag = item.new_flag ?? null;
+    const unpaid = item.oldest_unpaid_trip_day ?? null;
+    const late = flag === 'slow' && unpaid ? `chuyến ${dm(unpaid)} chưa trả đủ · ${days(unpaid)} ngày` : '';
+    const text = flag === 'no_pay' ? `Chưa trả lần nào · chuyến đầu ${days(item.first_trip_day)} ngày trước`
+      : late ? `C${late.slice(1)}` : `Khách mới · chuyến đầu ${days(item.first_trip_day)} ngày trước`;
+    return { flag, text, brief: flag === 'no_pay' ? 'chưa trả lần nào' : late,
+      first: item.first_trip_exact === false ? `khoảng T${monthLabel(item.first_trip_day)}` : dateText(item.first_trip_day) };
+  }
+
   /** Ngày "YYYY-MM-DD" theo giờ Việt Nam của một mốc tính bằng ms (giờ tin Zalo trong bản xuất chat). */
   const vnDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
 
@@ -208,6 +227,6 @@ const CongNoFormat = (() => {
 
   return { toBig, full, short, billions, millions, percent, barWidth, sum, heatStep,
     UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
-    dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText };
+    dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText, newCustomer };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;
