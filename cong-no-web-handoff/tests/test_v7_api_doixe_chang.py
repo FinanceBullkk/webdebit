@@ -79,11 +79,13 @@ class FakeDb:
         joined, orphans = {}, []
         days = sorted(i["ngay_dong"] for i in payload)
         for c in self.pool:
-            gap = lambda d, c=c: abs((date.fromisoformat(d) - date.fromisoformat(c["ngay_dong"])).days)  # noqa: E731
-            options = [i["ngay_dong"] for i in payload if i["container"] == c["container"] and gap(i["ngay_dong"]) <= 3]
+            # Luật doixe._cach_viec: có ngày đóng thì lệch ≤ 3 ngày; chưa có thì theo ngày chạy, lệch ≤ 10 ngày (và không bao giờ mồ côi).
+            anchor, limit = (c["ngay_dong"], 3) if c["ngay_dong"] is not None else (c["ngay"], 10)
+            gap = lambda d, anchor=anchor: abs((date.fromisoformat(d) - date.fromisoformat(anchor)).days)  # noqa: E731
+            options = [i["ngay_dong"] for i in payload if i["container"] == c["container"] and gap(i["ngay_dong"]) <= limit]
             if options:
                 joined.setdefault((c["container"], min(options, key=lambda d: (gap(d), d))), []).append(c)
-            elif days and days[0] <= c["ngay_dong"] <= days[-1]:
+            elif c["ngay_dong"] is not None and days and days[0] <= c["ngay_dong"] <= days[-1]:
                 orphans.append(c)
         return joined, orphans
 
@@ -266,6 +268,20 @@ class ReadChangTest(unittest.TestCase):
         _, out = self.read(rows, query=query, db=FakeDb(pool=far))
         self.assertEqual([c["id"] for c in out["khong_con_tren_booking"]], [61])
         self.assertEqual([v["container"] for v in out["viec"]], ["MAUU1000062"])
+
+    def test_chang_without_close_date_of_a_hidden_job_is_not_outside_booking(self):
+        # Xem tháng 11. Chặng nhập chi phí (ngày đóng trống) chạy 1/11; việc đóng 30/10 (2 ngày) hoặc 24/10 (8 ngày) nối được theo luật ±10 ngày
+        # của ngày chạy nhưng nằm ngoài khoảng nên ẩn: chặng KHÔNG được xếp ngoài booking. Việc đóng 20/10 (12 ngày) không nối: đúng là ngoài booking.
+        for day, outside in (("2026-10-30", False), ("2026-10-24", False), ("2026-10-20", True), ("2026-11-10", False)):
+            with self.subTest(job_day=day):
+                legacy = chang(71, cont="MAUU1000071", ngay="2026-11-01", ngay_dong=None, loai="chuyen_cang") | {"nguon": "nhap"}
+                db, out = self.read([src("MAUU1000071", day, line=2), src("MAUU1000072", "2026-11-19", line=3)], query="thang=2026-11-01",
+                                    db=FakeDb(pool=[legacy]))
+                self.assertEqual([c["id"] for c in out["ngoai_booking"]], [71] if outside else [])
+                self.assertEqual(out["dem"]["ngoai_booking"], 1 if outside else 0)
+                if day < "2026-11-01":
+                    self.assertNotIn("MAUU1000071", [v["container"] for v in out["viec"]])   # việc ngoài khoảng, không giữ chặng có ngày đóng: ẩn
+                self.assertEqual(("2026-10-20" in {i["ngay_dong"] for i in db.asked()}), False)   # xa hơn 10 ngày: không gửi
 
     def test_row_dated_before_2020_is_skipped_not_fatal(self):
         # doixe._ngay từ chối ngày trước 2020-01-01: một dòng gõ nhầm năm không được làm cả lượt gọi trả 422.

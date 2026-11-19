@@ -468,7 +468,8 @@ MAX_VIEC = 1500        # 1500 việc ≈ 84 KB trong tham số psql, dưới tr�
 MAX_SPAN_DAYS = 93
 MAX_CU = 92
 CONTAINER = re.compile(r"[A-Z]{4}[0-9]{7}")
-NEAR_DAYS = 3          # luật nối chặng ↔ việc (NGUON-CHUYEN-01): lệch ngày đóng không quá 3 ngày
+MARGIN_DAYS = 10       # luật nối chặng ↔ việc (doixe._cach_viec): ngày đóng lệch ≤ 3 ngày (NGUON-CHUYEN-01); chặng chưa có ngày đóng nối theo
+                       # ngày chạy, lệch ≤ 10 ngày. Gửi kèm việc trong 10 ngày quanh khoảng xem để cả hai kiểu nối đều thấy việc của mình
 MIN_DAY = "2020-01-01"  # doixe._ngay từ chối ngày trước mốc này (INVALID_DATE cho cả lượt gọi), nên dòng booking cũ hơn bị bỏ ở đây
 STALE_AFTER = timedelta(hours=1)
 STATES = ("sap_toi", "cho_phan_xe", "da_phan_xe", "da_co_phi", "da_len_bang_ke")
@@ -548,8 +549,8 @@ def _booking_viec(snapshot: dict, codes: set[str], window: dict) -> tuple[list[d
             continue
         mine.append({"cont": _cont(row.get("container")), "day": day, "row": row,
                      "raw": " ".join(str(row.get("container") or "").split()) or None})
-    lo = (date.fromisoformat(window["lui"]) - timedelta(days=NEAR_DAYS)).isoformat()
-    hi = (date.fromisoformat(window["den"]) + timedelta(days=NEAR_DAYS)).isoformat()
+    lo = (date.fromisoformat(window["lui"]) - timedelta(days=MARGIN_DAYS)).isoformat()
+    hi = (date.fromisoformat(window["den"]) + timedelta(days=MARGIN_DAYS)).isoformat()
     near = {m["cont"] for m in mine if m["cont"] and lo <= m["day"] <= hi}
     seen, out = set(), []
     for m in mine:
@@ -701,7 +702,9 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
                                                                          read_only=True)["chang"]}
     for chang in shown:
         chang.update(_tai_chinh_gon(fin.get(chang["id"])))
-    seen = {c["id"] for c in shown}
+    # Chặng mà hàm nối đã nối với MỘT việc nào đó (kể cả việc ẩn vì ngoài khoảng) hoặc đã xếp mồ côi không phải chặng ngoài booking.
+    linked = {c["id"] for v in dd["viec"] for c in v["chang"]} | {c["id"] for c in dd["mo_coi"]}
+    seen = {c["id"] for c in shown} | linked
     outside = []
     for item in fin.values():
         if item["id"] not in seen and item["ngay_dong"] is None:

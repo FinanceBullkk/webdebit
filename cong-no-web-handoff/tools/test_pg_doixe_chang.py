@@ -73,8 +73,10 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     cols = pg.value("SELECT md5(string_agg(c.relname||'.'||a.attname||a.atttypid::text, ',' ORDER BY c.relname, a.attnum)) FROM pg_class c "
                     "JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
                     "WHERE c.relnamespace = 'doixe'::regnamespace AND c.relkind = 'r'")
-    funcs = pg.value("SELECT md5(string_agg(p.oid::regprocedure::text || md5(pg_get_functiondef(p.oid)), ',' ORDER BY p.oid::regprocedure::text)) "
-                     "FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace")
+    old_funcs = ("SELECT count(*) || ':' || md5(string_agg(p.oid::regprocedure::text || md5(pg_get_functiondef(p.oid)), ',' "
+                 "ORDER BY p.oid::regprocedure::text)) FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace "
+                 "AND p.proname NOT IN ('_tai_chinh_chang', 'get_chang_tai_chinh')")
+    funcs = pg.value(old_funcs)
     pg.sql(source)
     pg.sql(source)
     after_cols = pg.value("SELECT md5(string_agg(c.relname||'.'||a.attname||a.atttypid::text, ',' ORDER BY c.relname, a.attnum)) FROM pg_class c "
@@ -83,10 +85,9 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     require(cols == after_cols, "migration chỉ có hàm đọc: không đổi cột bảng nào")
     require(pg.value("SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace AND p.proname IN ('_tai_chinh_chang', "
                      "'get_chang_tai_chinh')") == "2", "hai hàm mới")
-    still = pg.value("SELECT count(*) FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace AND NOT (p.proname IN ('_tai_chinh_chang', "
-                     "'get_chang_tai_chinh'))")
-    require(int(still) > 0 and funcs and before_tables, "các hàm cũ còn nguyên")
-    cases.append("migration chỉ có hàm đọc lỗi thì quay lại, chạy lại được hai lượt; không đổi cột của bảng nào")
+    require(funcs.split(":")[0] != "0" and pg.value(old_funcs) == funcs and before_tables,
+            f"migration đụng hàm cũ của doixe: trước {funcs}, sau {pg.value(old_funcs)}")
+    cases.append("migration chỉ có hàm đọc lỗi thì quay lại, chạy lại được hai lượt; không đổi cột của bảng nào; định nghĩa mọi hàm doixe cũ (trừ hai hàm mới) giống hệt trước và sau")
 
     # --- Quyền -----------------------------------------------------------------------------------------------------------
     granted = json.loads(pg.value("SELECT coalesce(json_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ',',')||')' "
@@ -160,6 +161,8 @@ def scenario(pg: Pg, cases: list[str]) -> None:
             f"chưa có phí là NULL, không phải 0: {c['chi']}")
     require({k["nguoi_tra"] for k in khoan(f).values()} == {"cong_ty"} and {k["nguoi_tra"] for k in khoan(dd).values()} == {"cong_ty"},
             "chặng công ty trả: mọi khoản là công ty")
+    company = sum(int(k["so_tien_vnd"]) for x in got.values() for k in x["chi"]["dong"] if k["nguoi_tra"] == "cong_ty")
+    require(company == 80000 + 1000000 + 200000, f"tổng chi công ty trả (VETC của A, dầu của chặng xe thuê, nâng của F): {company}")
     cases.append("chi: từng khoản {khoản, tên, số tiền, người trả, chi hộ, đã hoàn}; VETC và chặng công ty trả là công ty (hoàn không áp "
                  "dụng); chưa có phí thì tổng NULL")
 
@@ -213,10 +216,18 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     # Hoàn và điều chỉnh ở tháng khóa: chi cộng đúng như get_so, từng khoản có cờ đã hoàn.
     chua = dx.so("nguoi", tx1, str(m2))["chua_hoan"]
     dong_ids = [x["id"] for leg_ in chua for x in leg_["dong"] if x["dot_hoan_id"] is None]
-    require(dong_ids and dx.cmd("ghi_hoan", {"nguoi_id": tx1, "ngay": str(today), "so_tien_vnd": "0", "dong_ids": dong_ids})["ok"], "hoàn các dòng của tx1")
+    refund = dx.cmd("ghi_hoan", {"nguoi_id": tx1, "ngay": str(today), "so_tien_vnd": "0", "dong_ids": dong_ids})
+    require(dong_ids and refund["ok"], "hoàn các dòng của tx1")
     a = month_fin(m2)[leg["A"]]
     ka = khoan(a)
     require(a["da_hoan"] is True and ka["nang"]["da_hoan"] is True and ka["xi"]["da_hoan"] is True and ka["vetc"]["da_hoan"] is None, f"đã hoàn: {ka}")
+    require(dx.cmd("huy_hoan", {"dot_id": refund["dot_id"], "ly_do": "chuyển nhầm số"})["ok"], "hủy đợt hoàn")
+    a = month_fin(m2)[leg["A"]]
+    require(a["da_hoan"] is False and all(k["da_hoan"] is False for k in khoan(a).values() if k["nguoi_tra"] == "nguoi"),
+            f"hủy đợt hoàn: các khoản chưa hoàn lại: {khoan(a)}")
+    check_chi(m2, "sau khi hủy đợt hoàn")
+    refund = dx.cmd("ghi_hoan", {"nguoi_id": tx1, "ngay": str(today), "so_tien_vnd": "0", "dong_ids": dong_ids})
+    require(refund["ok"], "hoàn lại")
     edit = dx.cmd("sua_chang", {"chang_id": leg["A"], "cot": "phi:nang", "truoc": "450000", "gia_tri": "500000"})
     require(edit["ok"], f"điều chỉnh nâng: {edit}")
     a = month_fin(m2)[leg["A"]]
@@ -225,7 +236,7 @@ def scenario(pg: Pg, cases: list[str]) -> None:
             and a["chi"]["tong_vnd"] == "730000" and a["lai_gop"]["chi_vnd"] == "580000" and a["lai_gop"]["lai_vnd"] == "9270500",
             f"dòng điều chỉnh cộng vào khoản; phần điều chỉnh chưa hoàn nên khoản chưa hoàn hết: {a['chi']} {a['lai_gop']}")
     check_chi(m2, "sau hoàn và điều chỉnh")
-    cases.append("hoàn: cờ đã hoàn từng khoản (khoản vừa điều chỉnh thêm chưa hoàn hết thì chưa); điều chỉnh ở tháng khóa cộng vào khoản; "
+    cases.append("hoàn: cờ đã hoàn từng khoản, hủy đợt hoàn thì về chưa hoàn (khoản vừa điều chỉnh thêm chưa hoàn hết thì chưa); điều chỉnh ở tháng khóa cộng vào khoản; "
                  "tổng chi vẫn bằng get_so")
 
     # Chặng bỏ ở tháng khóa và chặng xóa ở tháng mở không còn trong hàm; tổng chi vẫn khớp get_so.
@@ -260,15 +271,31 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     require(adj["lai_gop"]["thu_vnd"] == "9470500" and adj["lai_gop"]["lai_vnd"] == "8890500", f"lãi sau điều chỉnh bảng kê: {adj['lai_gop']}")
     check_thu(m2, "đã gửi và có điều chỉnh bảng kê")
     check_chi(m2, "đã gửi")
+    # Ngoại lệ đã ghi trong spec: chặng đã gửi rồi bị bỏ vẫn nằm trong bảng kê (chang_con = false) nhưng hàm này không liệt kê chặng bỏ.
+    before = dx.read(f"doixe.get_bang_ke('hth', {lit(m2)}::date)")["tong"]
+    gone = month_fin(m2)[leg["F"]]["thu"]["doi_vnd"]
+    require(dx.cmd("xoa_chang", {"chang_id": leg["F"]})["cach"] == "bo", "chặng đã gửi bị bỏ (tháng khóa: gạch ngang)")
+    after = dx.read(f"doixe.get_bang_ke('hth', {lit(m2)}::date)")["tong"]
+    require(after["doi_vnd"] == before["doi_vnd"] and after["chang_bo"] == 1 and leg["F"] not in month_fin(m2), "bảng kê đã gửi giữ nguyên số, đánh dấu chặng bỏ")
+    listed = [x["thu"]["doi_vnd"] for x in fin(str(m2), str(today)) if x["bang_ke_thang"] == str(m2)]
+    require(sum(int(v) for v in listed) == int(after["doi_vnd"]) - int(gone), "tổng thu của hàm = get_bang_ke trừ đúng phần chặng đã bỏ")
+    check_chi(m2, "sau khi bỏ chặng đã gửi")
+    cases.append("chặng đã gửi rồi bị bỏ: bảng kê giữ số và đánh dấu chặng bỏ, hàm không liệt kê chặng bỏ nên tổng thu thấp hơn đúng phần của nó")
     cases.append("đã gửi bảng kê: thu lấy số đã chép (đổi giá, sửa ghi chú sau đó không đổi), điều chỉnh bảng kê vào số đòi và lãi; tổng thu vẫn "
                  "bằng get_bang_ke")
 
     # Chặng ghi muộn sang bảng kê đang gom kế tiếp; chặng điều độ chọn theo ngày đóng và id.
     require(next(x for x in month_fin(m2).values() if x["id"] == leg["A"])["bang_ke_thang"] == str(m2), "tháng bảng kê của chặng đã gửi")
-    late = dx.cmd("luu_chang", {"rows": [row(d(9), "MAUU1000009", phi={"nang": "100000"})]})["chang_ids"][0]
+    late = dx.cmd("luu_chang", {"rows": [row(d(9), "MAUU1000009", ghi="_ Phí lạ 500k", phi={"nang": "100000"})]})["chang_ids"][0]
     require(month_fin(m2)[late]["bang_ke_thang"] == str(m1) and month_fin(m2)[late]["da_gui"] is False,
             "chặng ghi muộn vào tháng đã gửi sang bảng kê đang gom kế tiếp")
-    check_thu(m1, "bảng kê tháng kế (chặng ghi muộn)")
+    require(dx.cmd("sua_cuoc", {"chang_id": late, "truoc": None, "gia_tri": "9000000"})["cuoc_tay"] is True, "giá tay cho chặng ghi muộn")
+    mine_late = month_fin(m2)[late]
+    strange = mine_late["thu"]["dong"]
+    require(mine_late["thu"]["cuoc"]["tay"] is True and mine_late["thu"]["cuoc"]["vnd"] == "9000000" and mine_late["thu"]["cuoc"]["gia_bang_vnd"] == "12100000"
+            and len(strange) == 1 and strange[0]["khoan"] is None and strange[0]["la"] is True and strange[0]["so_tien_vnd"] == "500000"
+            and strange[0]["chi_ho"] is False and mine_late["lai_gop"]["lai_vnd"] == "9400000", f"giá tay và khoản lạ: {mine_late['thu']} {mine_late['lai_gop']}")
+    check_thu(m1, "bảng kê tháng kế (chặng ghi muộn, giá tay, khoản lạ)")
     placed = dx.cmd("phan_xe", {"container": "MAUU1000010", "ngay_dong": str(today - dt.timedelta(days=3)), "ngay": str(today), "loai": "chuyen_cang",
                                 "xe_id": x1})
     h = placed["chang_id"]
@@ -282,6 +309,30 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     require(only[0]["co_phi"] is False and only[0]["lai_gop"]["thieu"] == ["gia", "phi"], f"chặng mới phân xe: chưa giá, chưa phí: {only[0]['lai_gop']}")
     cases.append("khoảng chọn chặng theo ngày chạy hoặc ngày đóng, và theo id; chặng ghi muộn mang tháng bảng kê kế tiếp; chặng mới phân xe "
                  "chưa giá, chưa phí (lãi NULL)")
+
+    # Đo thời gian một tháng đầy (S3): thêm 240 chặng nữa vào tháng m1 (phiên psql mới cho mỗi lượt, cả thời gian docker exec).
+    for part in range(2):
+        batch = [row(m1 + dt.timedelta(days=n % 28), f"MAUU{2000000 + part * 120 + n:07d}", ghi="_ Xí cont 250k" if n % 2 else None,
+                     phi={"nang": "450000", "vetc": "80000"}) for n in range(120)]
+        require(dx.cmd("luu_chang", {"rows": batch})["ok"], "nạp 120 chặng")
+    month_end = (m1 + dt.timedelta(days=31)).replace(day=1) - dt.timedelta(days=1)
+    big = month_fin(m1)
+    require(len(big) >= 240, f"một tháng đầy: {len(big)} chặng")
+
+    def timed(statement: str) -> tuple[float, float]:
+        """(mili giây trong DB, mili giây cả lượt gọi psql) cho một câu đọc."""
+        started = time.monotonic()
+        out = pg.value(actor_sql("SELECT clock_timestamp() AS t0 \\gset\n" + statement + ";\nSELECT round(extract(epoch FROM clock_timestamp() - :'t0'::timestamptz) * 1000)",
+                                 "nhan-vien-gia")).splitlines()
+        return float(out[-1]), round((time.monotonic() - started) * 1000)
+
+    asked = [{"container": x["container"], "ngay_dong": x["ngay"]} for x in big.values()]
+    db_fin, wall_fin = timed("SELECT jsonb_array_length(doixe.get_chang_tai_chinh(" + lit(json.dumps({"tu": str(m1), "den": str(month_end), "ids": []})) + "::jsonb)->'chang')")
+    db_dd, wall_dd = timed("SELECT jsonb_array_length(doixe.get_dieu_do(" + lit(json.dumps(asked)) + "::jsonb)->'viec')")
+    check_chi(m1, "một tháng đầy")
+    require(db_fin < 8000 and db_dd < 8000, f"quá chậm: get_chang_tai_chinh {db_fin} ms, get_dieu_do {db_dd} ms")
+    cases.append(f"ĐO ({len(big)} chặng một tháng, DB giả dùng một lần, máy dev): get_chang_tai_chinh {db_fin:.0f} ms trong DB ({wall_fin} ms cả lượt psql); "
+                 f"get_dieu_do với {len(asked)} việc {db_dd:.0f} ms trong DB ({wall_dd} ms cả lượt); tổng chi vẫn bằng get_so")
 
     # Đầu vào sai, hàm chỉ đọc, app gọi được, sokhach không đổi.
     for bad, error in (({}, "INVALID_COMMAND"), ({"tu": "2026-01-01"}, "INVALID_COMMAND"), ({"den": "2026-01-01"}, "INVALID_COMMAND"),
