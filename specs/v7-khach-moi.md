@@ -1,6 +1,6 @@
 # Khách mới: để ý thu sớm (KHACH-MOI-01)
 
-Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql`. Frontend chưa code.
+Trạng thái: ĐÃ CHỐT (người dùng, 19/11/2026: ba mốc 90 / 30 / 45 ngày và chỗ hiện như dưới; quyết định [`KHACH-MOI-01`](../docs/decisions/khach-moi-01.md)). Mốc ngày lấy từ phép đo chỉ đọc trên `hao` ở mục Số đo. Backend: migration `2026-11-19-v7-khach-moi.sql` (ĐÃ TRIỂN KHAI trên `hao` 19/11/2026). Frontend: Tổng quan và thẻ Tình hình (ĐÃ CODE 19/11/2026, kiểm trên máy chủ giả).
 
 ## Vấn đề
 
@@ -49,8 +49,8 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
 - **Người dùng:** người theo dõi công nợ và sếp. Họ mở Tổng quan mỗi ngày, trên màn 1280×720 ở Windows 150% và trên iPhone ([`DIEN-THOAI-SEP-01`](../docs/decisions/dien-thoai-sep-01.md)).
 - **Luồng:**
   1. Mở Tổng quan. Khách mới có nhãn **Mới** cạnh tên ở bảng khách.
-  2. Có ô bấm **"Khách mới cần để ý · n"**. Bấm vào thì bảng khách chỉ còn các sổ mới dính S1 hoặc S2. Mỗi dòng có một câu dữ kiện: "Chưa trả lần nào · chuyến đầu 34 ngày trước" hoặc "Chuyến 02/10 chưa trả · 48 ngày".
-  3. Bấm tên khách mở trang khách, thẻ Tình hình (như hiện nay). Thẻ có thêm một dòng: "Khách mới: chuyến đầu dd/mm/yyyy, chưa trả lần nào" hoặc "…, lần trả đầu dd/mm".
+  2. Có ô bấm **"Khách mới cần để ý · n"**. Bấm vào thì bảng khách chỉ còn các sổ mới dính S1 hoặc S2. Mỗi dòng có một câu dữ kiện trong chú thích (rê chuột hoặc focus, đọc màn hình đọc được): "Chưa trả lần nào · chuyến đầu 34 ngày trước" hoặc "Chuyến 02/10 chưa trả đủ · 48 ngày". Nhãn "Mới" màu xanh dương (khác màu mức rủi ro), nền đặc khi sổ cần để ý. Lọc nằm trên địa chỉ trang: `?moi=1`.
+  3. Bấm tên khách mở trang khách, thẻ Tình hình (như hiện nay). Dải nợ có thêm một dữ kiện ở đầu phải hàng "Còn nợ chưa tính" (hàng đó không có việc chờ thì chỉ còn dữ kiện này): "Khách mới · chuyến đầu dd/mm/yyyy · chưa trả lần nào" hoặc "… · chuyến dd/mm chưa trả đủ · N ngày". Đặt trong hàng có sẵn để không thêm chiều cao: khung 1265×560 đã kín.
   4. Người dùng tự liên hệ khách. Web không gửi tin, không chặn ghi chuyến, không đổi số tiền.
 - **Kết quả:** trong 90 ngày đầu của một sổ, người dùng thấy khách đang chậm khoảng ba tuần sớm hơn luật quá hạn hiện tại.
 - **Không chặn gì:** như mức rủi ro của `DASH-03`, nhãn chỉ để tô màu và lọc.

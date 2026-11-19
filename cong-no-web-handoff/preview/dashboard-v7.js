@@ -45,8 +45,9 @@
   let loading = false;
   // Nút Làm mới đọc Sheet ngay (specs/v7-sheet-refresh.md); chữ trạng thái chỉ hiện khi đang lấy hoặc lỗi.
   let sheetRefresh = null;
-  // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; sort: cột xếp; all: đã mở hết danh sách.
-  const state = { tier: null, risk: null, com: null, sort: 'overdue', all: false, data: null, debt: null, rows: null, ready: false,
+  // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; fresh: chỉ khách mới cần để ý (KHACH-MOI-01);
+  // sort: cột xếp; all: đã mở hết danh sách.
+  const state = { tier: null, risk: null, com: null, fresh: false, sort: 'overdue', all: false, data: null, debt: null, rows: null, ready: false,
     tiers: [], rk: null, coms: [], names: new Map() };
   const nameOf = id => state.names.get(String(id)) ?? state.rows?.find(row => row.id === id)?.name ?? `Sổ ${id}`;
   const comOf = key => state.coms.find(item => item.key === key) ?? null;
@@ -66,8 +67,10 @@
   }
 
   // Lọc chéo (DASH-08): bộ lọc hiện tại và tên của nó cho nhãn "đang lọc" trên các khối.
-  const filter = () => ({ tier: state.tier, risk: state.risk, com: state.com });
-  const scopeName = skip => [skip !== 'com' && state.com, skip !== 'risk' && state.risk && M.RISK[state.risk],
+  const filter = () => ({ tier: state.tier, risk: state.risk, com: state.com, fresh: state.fresh });
+  const anyFilter = () => state.tier != null || state.risk != null || state.com != null || state.fresh;
+  const FRESH = 'Khách mới cần để ý';
+  const scopeName = skip => [skip !== 'com' && state.com, skip !== 'risk' && state.risk && M.RISK[state.risk], skip !== 'fresh' && state.fresh && FRESH,
     skip !== 'tier' && state.tier != null && state.tiers[state.tier].label].filter(Boolean).join(' · ');
   const scopeTag = (skip, tip) => {
     const name = state.ready ? scopeName(skip) : '';
@@ -77,7 +80,7 @@
   // 1. Dải đầu: Còn phải thu + nút đếm; ngoặc Trong hạn/Quá hạn, thanh 5 đoạn chỉ là hình, số ở 5 ô. Đang lọc mức rủi
   // ro hoặc mặt hàng thì mọi số tính lại cho phạm vi đó; lọc hạn trả chỉ tô ô đang chọn (chiều của chính khối).
   function owePart(data, debt) {
-    const scoped = state.ready && (state.risk != null || state.com != null);
+    const scoped = state.ready && (state.risk != null || state.com != null || state.fresh);
     const sc = scoped ? M.totals(M.scope(state.rows, filter(), 'tier')) : null;
     const total = scoped ? sc.total : data.receivable.total_vnd;
     const people = scoped ? sc.count : data.receivable.customers;
@@ -114,10 +117,10 @@
   function monthPart(data, debt) {
     // Lọc chéo (DASH-08): có số từng sổ (this_month.customers) thì thẻ tính theo cả ba lọc; API cũ chưa có thì thẻ giữ số cả
     // công ty và ghi rõ "cả công ty" khi đang lọc.
-    const filtered = state.ready && (state.tier != null || state.risk != null || state.com != null);
+    const filtered = state.ready && anyFilter();
     const flow = filtered ? M.monthFlow(debt?.this_month, state.rows, state.coms, filter()) : null;
     const p = M.monthProgress(debt?.as_of ?? data.as_of, flow ?? debt?.this_month);
-    const only = state.tier != null || state.risk != null ? 'Chỉ tính sổ đang nợ trong phạm vi; sổ đã hết nợ không có nhóm hạn trả hay mức rủi ro' : 'Gồm cả sổ đã hết nợ của mặt hàng này';
+    const only = state.tier != null || state.risk != null || state.fresh ? 'Chỉ tính sổ đang nợ trong phạm vi; sổ đã hết nợ không có nhóm hạn trả hay mức rủi ro' : 'Gồm cả sổ đã hết nợ của mặt hàng này';
     const whole = !filtered ? '' : flow ? scopeTag(null, only)
       : `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>`;
     const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${p.month}${whole}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
@@ -203,7 +206,14 @@
     // Đang lọc mặt hàng (bấm dòng ở khối Công nợ theo mặt hàng hoặc link ?mh=): chip bỏ lọc cùng hàng, như chip hạn trả.
     const com = state.com == null ? '' : `<button type="button" class="rchip tier-x com-x" data-clear="com" aria-label="Bỏ lọc mặt hàng ${esc(state.com)}"${tipAttr([`Đang lọc mặt hàng: ${state.com}`, 'Bấm để bỏ lọc'])}>
         ${esc(state.com)}${ICON.close}</button>`;
-    node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${groups.map(chip).join('')}${tier}${com}`;
+    // KHACH-MOI-01: ô "Khách mới cần để ý" là một chiều lọc như mức rủi ro; API cũ (chưa có mốc new_*) thì không hiện.
+    const rule = state.debt.rule;
+    const freshCount = state.ready ? M.scope(state.rows, filter(), 'fresh').filter(M.watchNew).length : state.rows.filter(M.watchNew).length;
+    const fresh = rule.new_days == null ? '' : `<button type="button" class="rchip r-new" data-fresh aria-pressed="${state.fresh}"${state.ready && (freshCount || state.fresh) ? '' : ' disabled'}${tipAttr([
+      `${FRESH}: ${freshCount} khách`, `Sổ có chuyến đầu trong ${rule.new_days} ngày, và: ${rule.new_no_pay_days} ngày chưa trả lần nào, hoặc có chuyến quá ${rule.new_unpaid_days} ngày chưa trả đủ`,
+      'Chỉ để ý thu sớm, không đổi mức rủi ro', 'Bấm để lọc bảng'])}>
+        <i class="rdot" aria-hidden="true"></i><span class="rl">${FRESH}</span><span class="n">${ICON.people}${freshCount}<span class="sr-only"> khách</span></span></button>`;
+    node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${groups.map(chip).join('')}${fresh}${tier}${com}`;
   }
 
   function paintList() {
@@ -222,21 +232,23 @@
     document.querySelectorAll('.dtable th[data-col]').forEach(cell => {
       if (cell.dataset.col === state.sort) cell.setAttribute('aria-sort', 'descending'); else cell.removeAttribute('aria-sort');
     });
-    const rows = M.filterRows(state.rows, { tier: state.tier, risk: state.risk, com: state.com, sort: state.sort });
+    const rows = M.filterRows(state.rows, { ...filter(), sort: state.sort });
     const shown = state.all ? rows : rows.slice(0, PAGE_ROWS);
     const max = shown.reduce((top, item) => (item.row.total > top ? item.row.total : top), 0n);
     const day = (days, limit) => { const cell = M.dayCell(days, limit, rule.active_trip_days); return `<span class="days${cell.tone ? ` ${cell.tone}` : ''}">${esc(cell.text)}</span>`; };
     const late = state.tier == null || state.tier >= 2;
+    // KHACH-MOI-01: nhãn "Mới" sau tên, xanh dương; nền đặc khi cần để ý. Câu dữ kiện nằm trong chú thích của dòng.
+    const freshTag = row => (row.fresh ? ` <span class="new-tag${row.fresh.flag ? ' warn' : ''}"><span class="sr-only">, khách mới: ${esc(row.fresh.text)}</span><span aria-hidden="true">Mới</span></span>` : '');
     $('list').innerHTML = shown.map(({ row, first }) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), `${M.RISK[row.risk] ?? ''} — ${row.why}`,
-        `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
-        <td class="who"><a href="${pageHref(row.id)}"><i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span><span class="nm">${esc(nameOf(row.id))}</span></a></td>
+        row.fresh ? `Mới: ${row.fresh.text}` : '', `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
+        <td class="who"><a href="${pageHref(row.id)}"><i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span><span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
         <td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>
         <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first === 0n ? '–' : esc(F.millions(first))}</td>
         <td class="num tot">${esc(F.millions(row.total))}</td>
         <td class="d">${day(row.payDays, rule.no_pay_days)}</td><td class="d">${day(row.tripDays, rule.no_trip_days)}</td>
         <td class="go" aria-hidden="true">${ICON.next}</td></tr>`).join('');
     empty.hidden = shown.length > 0;
-    empty.textContent = state.tier != null || state.risk != null || state.com != null ? 'Không có khách nào khớp bộ lọc.' : 'Không có khách đang nợ.';
+    empty.textContent = anyFilter() ? 'Không có khách nào khớp bộ lọc.' : 'Không có khách đang nợ.';
     $('list-more').innerHTML = rows.length > shown.length ? `<button type="button" class="btn" data-more>Hiện cả ${rows.length} khách</button>` : '';
   }
 
@@ -251,8 +263,8 @@
   // Lọc chéo (DASH-08): mỗi lần đổi lọc vẽ lại dải đầu, thẻ tháng và khối mặt hàng theo phạm vi mới; nút đang được focus
   // (ô hạn trả, dòng mặt hàng, chip) được focus lại sau khi vẽ để người dùng bàn phím không mất chỗ.
   function repaintBlocks() {
-    const focused = document.activeElement?.closest?.('#dashboard [data-tier], #dashboard [data-com], #dashboard [data-risk], #dashboard [data-clear]');
-    const key = focused ? ['data-tier', 'data-com', 'data-risk', 'data-clear'].map(name => [name, focused.getAttribute(name)]).find(([, value]) => value != null) : null;
+    const focused = document.activeElement?.closest?.('#dashboard [data-tier], #dashboard [data-com], #dashboard [data-risk], #dashboard [data-fresh], #dashboard [data-clear]');
+    const key = focused ? ['data-tier', 'data-com', 'data-risk', 'data-fresh', 'data-clear'].map(name => [name, focused.getAttribute(name)]).find(([, value]) => value != null) : null;
     const tag = focused?.tagName;
     root.querySelector('.owe').innerHTML = owePart(state.data, state.debt);
     root.querySelector('.month-card').innerHTML = monthPart(state.data, state.debt);
@@ -274,7 +286,8 @@
     paint();
   }
 
-  // Trạng thái trên địa chỉ trang: ?han= (0–4), ?muc= (mức rủi ro), ?mh= (mặt hàng), ?xep=tong|chua-tra|di-hang.
+  // Trạng thái trên địa chỉ trang: ?han= (0–4), ?muc= (mức rủi ro), ?mh= (mặt hàng), ?moi=1 (khách mới cần để ý),
+  // ?xep=tong|chua-tra|di-hang.
   const params = () => new URLSearchParams(location.search);
   const writeUrl = () => {
     const query = params();
@@ -282,6 +295,7 @@
     set('han', state.tier == null ? null : String(state.tier));
     set('muc', Object.keys(RISK_URL).find(key => RISK_URL[key] === state.risk) ?? null);
     set('mh', state.com);
+    set('moi', state.fresh ? '1' : null);
     set('xep', Object.keys(SORTS).find(key => SORTS[key] === state.sort) ?? null);
     // Tham số của bản cũ (ô ma trận DASH-04, ngăn kéo, tab cũ) không còn nghĩa.
     for (const key of ['nhom', 'khach', 'xem']) query.delete(key);
@@ -294,10 +308,12 @@
     const nhom = query.get('nhom');
     // Link cũ của DASH-03 (?nhom=com:<mặt hàng>) vẫn mở đúng lọc mặt hàng.
     state.com = query.get('mh') || (nhom?.startsWith('com:') ? nhom.slice(4) || null : null);
+    state.fresh = query.get('moi') === '1';
     state.sort = SORTS[query.get('xep')] ?? 'overdue';
   };
   // Bỏ lọc không còn nghĩa khi số liệu mới không có nhóm đó, hoặc danh sách chưa khớp tổng.
   const dropStale = () => {
+    if (!state.ready || state.debt?.rule?.new_days == null) state.fresh = false;
     if (!state.ready) { state.tier = null; state.risk = null; state.com = null; }
     if (state.com != null && !comOf(state.com)) state.com = null;
   };
@@ -309,6 +325,7 @@
       state.tier = state.tier === Number(tier.dataset.tier) ? null : Number(tier.dataset.tier);
       writeUrl(); paint(); return;
     }
+    if (event.target.closest('[data-fresh]')) { state.fresh = !state.fresh; writeUrl(); paint(); return; }
     const risk = event.target.closest('[data-risk]');
     if (risk) {
       const key = risk.dataset.risk || null;
