@@ -120,6 +120,12 @@ class Plan(unittest.TestCase):
         result, _ = self.run_tool([trip(11, "FAKEU0000001", "2026-10-03", [fee_line(50, 1, 4500000)])], tab(row))
         self.assertEqual(result["status"], {"NO_NAMED": 1})
 
+    def test_negative_cell_is_left(self):
+        row = trip_row(2, "FAKEU0000002", "03/10/2026", 85500000, H=2000000, K=-1500000)
+        result, _ = self.run_tool([trip(11, "FAKEU0000002", "2026-10-03", [fee_line(50, 1, 500000)])], tab(row), apply=True)
+        self.assertEqual(result["status"], {"SHEET_NEGATIVE": 1})
+        self.assertEqual(result["written"], 0)
+
     def test_already_split_is_done(self):
         lines = [fee_line(1, 10, 3500000), fee_line(2, 4, 2000000), fee_line(3, 6, 4000000), fee_line(4, 7, 3365691)]
         result, _ = self.run_tool([trip(11, "FAKEU0000002", "2026-10-03", lines)], tab(ROW2))
