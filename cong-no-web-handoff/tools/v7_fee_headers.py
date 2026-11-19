@@ -21,18 +21,18 @@ from v7_price_queue import container_key
 # nghĩa `拼柜`, "ÍNURANCE" gõ sai trên Sheet. Một tiêu đề khớp từ hai loại trở lên ("Neo / Phi dien / Dong ghep") là Khác.
 # 卫生证 (Health cert) vào loại gộp "Health + KĐ" vì đó là cột HC FEE mặc định của sổ (COT-PHU-PHI-01); debit note in như nhau.
 # Bổ sung 19/11/2026: 过磅 là Cân hàng, LOCAL CHARGE 本地费用 là Local charge; Lưu bãi, Phí hủy, Sửa bill theo tên trên debit note.
-# Không dùng chữ trần "CAN" hay "HUY": "CANCEL" chứa "CAN", tên người có "HUY".
+# Không dùng chữ trần "CAN", "HUY", "WEIGH", "AMD": "CANCEL" chứa "CAN", tên người có "HUY", "OVERWEIGHT" là phí quá tải.
 RULES = (("neo", ("NEO", "押车", "压车", "OVERSTAY")),
          ("ghep", ("GHEP", "拼柜", "并柜", "TRUCKING")),
          ("dien", ("DIEN", "发电", "插电", "电费", "GENSET", "GENERATOR")),
          ("combined", ("卫生证", "HEALTH", "HC FEE")),
          ("bao_hiem", ("BAO HIEM", "保险", "INSURANCE", "INURANCE")),
          ("kd", ("KIEM DINH",)),
-         ("can_hang", ("过磅", "CAN HANG", "CAN XE", "WEIGH")),
+         ("can_hang", ("过磅", "CAN HANG", "CAN XE")),
          ("local", ("LOCAL", "本地")),
-         ("luu_bai", ("LUU BAI", "LUU KHO", "STORAGE", "早装")),
+         ("luu_bai", ("LUU BAI", "LUU KHO", "STORAGE", "早装产生")),
          ("huy", ("PHI HUY", "HUY CONT", "CANCEL", "取消")),
-         ("sua_bill", ("SUA BILL", "AMD", "AMEND", "改单")))
+         ("sua_bill", ("SUA BILL", "AMD FEE", "AMEND", "改单")))
 
 
 def fold(text: str) -> str:

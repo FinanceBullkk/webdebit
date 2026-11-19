@@ -96,7 +96,8 @@ class FieldOf(unittest.TestCase):
         self.assertEqual(tool.field_of("AMD FEE 改单费"), "sua_bill")
 
     def test_blank_unknown_or_mixed_header_is_khac(self):
-        for header in ("", "OTHER FEE", "Neo / Phi dien / Dong ghep", "OTHER FEE 拖车", "DET FEE 滞箱费", "HUY"):
+        for header in ("", "OTHER FEE", "Neo / Phi dien / Dong ghep", "OTHER FEE 拖车", "DET FEE 滞箱费", "HUY",
+                       "OVERWEIGHT FEE"):
             self.assertEqual(tool.field_of(header), "khac", header)
 
 

@@ -642,9 +642,11 @@ def write_header_items(items: list[dict], customer: int, version: int, digest: s
     written = 0
     for item in items:
         target, lines = item["target"], header_lines(item)
-        # Khóa theo bản chụp, đích và bộ khoản mới: lượt sau với cùng Sheet trả lại kết quả đã lưu, không ghi lần hai.
-        command_key = hashlib.sha256(
-            f"{key}:{digest}:{target['kind']}:{target['id']}:{json.dumps(lines, sort_keys=True)}".encode()).hexdigest()
+        # Khóa theo bản chụp, đích, khoản cũ và bộ khoản mới: lượt sau với cùng Sheet trả lại kết quả đã lưu, không ghi lần
+        # hai; khoản trên web đã đổi (người sửa tay) thì là lệnh mới, không vướng khóa cũ.
+        before = [line["id"] for line in item["info"]["before"]]
+        command_key = hashlib.sha256(f"{key}:{digest}:{target['kind']}:{target['id']}:{before}:"
+                                     f"{json.dumps(lines, sort_keys=True)}".encode()).hexdigest()
         try:
             result = runner.run("rewrite_trip_fees", {
                 "customer_id": customer, "expected_version": version, "idempotency_key": command_key,

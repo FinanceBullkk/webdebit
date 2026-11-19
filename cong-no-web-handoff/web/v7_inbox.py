@@ -546,7 +546,8 @@ class Inbox:
         def pasting(book: dict) -> bool:
             return bool((trips and book["trips_new"] - book["road_new"]) or (road and book["road_new"]))
         with self.lock:
-            header_todo = set(self.header_todo) if headers else set()
+            header_todo = set(self.header_todo) & set(customers) if headers else set()   # sổ thôi active thì bỏ
+            self.header_todo &= set(customers)
         todo = sorted({cid for cid, book in books.items() if (text and book["text_diff"]) or pasting(book)
                        or (prices and book["prices_auto"]) or (ps and book["ps_auto"])} | header_todo)
         if todo and key is not None:
@@ -836,7 +837,7 @@ class Inbox:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
             digest, plans = header_projection(runner, ledger, AUTO_ACTOR)
-        except (ApiError, ValueError) as exc:
+        except Exception as exc:  # noqa: BLE001  prices.json lạ không được làm lượt nền kẹt `running`
             self._error("đọc tên cột phụ phí", customer_id, exc)
             return
         items = writable(plans)

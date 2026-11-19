@@ -14,13 +14,13 @@ Ngoại lệ của [`PHU-PHI-01`](phu-phi-01.md) (8): **cột phí trên tab kh�
 | `卫生证`, `HEALTH`, `HC FEE` | Health + KĐ | HC FEE 卫生证 |
 | `BẢO HIỂM`, `保险`, `INSURANCE`, `ÍNURANCE` (gõ sai) | Bảo hiểm | INSURANCE 保险 |
 | `KIỂM ĐỊNH` | Kiểm định | INSPECTION 检验费 |
-| `过磅`, `CÂN HÀNG`, `CÂN XE`, `WEIGH` | Cân hàng (loại mới) | cột riêng của sổ, sau bảy cột |
+| `过磅`, `CÂN HÀNG`, `CÂN XE` | Cân hàng (loại mới) | cột riêng của sổ, sau bảy cột |
 | `LOCAL`, `本地` | Local charge (loại mới) | cột riêng của sổ, sau bảy cột |
-| `LƯU BÃI`, `LƯU KHO`, `STORAGE`, `早装` | Lưu bãi | STORAGE 早装产生费用 |
+| `LƯU BÃI`, `LƯU KHO`, `STORAGE`, `早装产生` | Lưu bãi | STORAGE 早装产生费用 |
 | `PHÍ HỦY`, `HỦY CONT`, `CANCEL`, `取消` | Phí hủy | CANCELLATION 取消订柜费 |
-| `SỬA BILL`, `AMD`, `AMEND`, `改单` | Sửa bill | AMD 改单费 |
+| `SỬA BILL`, `AMD FEE`, `AMEND`, `改单` | Sửa bill | AMD 改单费 |
 
-- Năm dòng cuối bảng bổ sung 19/11/2026 (mục Ngày / nguồn). Không dùng chữ trần `CÂN` hay `HỦY`: `CANCEL` chứa `CAN`, tên người có `HUY`. Cân hàng và Local charge là loại mới trong danh mục (migration `2026-11-19-v7-tach-phi-loai-moi.sql`), không phải cột mặc định: sổ có cột riêng cho loại đó khi máy hoặc công cụ vừa tách được tiền vào loại đó (chỉ thêm cột, không đổi cột đang có). Debit note in loại có cột riêng sau bảy cột khi có số ([`DEBIT-NOTE-04`](debit-note-04.md) (2)).
+- Năm dòng cuối bảng bổ sung 19/11/2026 (mục Ngày / nguồn). Không dùng chữ trần `CÂN`, `HỦY`, `WEIGH`, `AMD`: `CANCEL` chứa `CAN`, tên người có `HUY`, `OVERWEIGHT` là phí quá tải. Cân hàng và Local charge là loại mới trong danh mục (migration `2026-11-19-v7-tach-phi-loai-moi.sql`), không phải cột mặc định: sổ có cột riêng cho loại đó khi máy hoặc công cụ vừa tách được tiền vào loại đó (chỉ thêm cột, không đổi cột đang có). Debit note in loại có cột riêng sau bảy cột khi có số ([`DEBIT-NOTE-04`](debit-note-04.md) (2)).
 - `卫生证` là Health cert (người dùng xác nhận). Ghi vào loại "Health + KĐ" vì đó là cột HC FEE mặc định của mọi sổ ([`COT-PHU-PHI-01`](cot-phu-phi-01.md)); loại "Health cert" không có cột nên sẽ hiện ở cột Khác. Debit note in hai loại như nhau.
 - Cột `开发电器` (chữ gõ lệch, nhiều khả năng là `发电机`) là Điện, theo câu hỏi của người dùng ("phí điện hay máy phát"); cột này chưa thấy có tiền.
 - **Chỉ tách khi số khớp:** tổng các ô phí giữa cột ngày/nơi đến và cột đơn giá bằng đúng TOTAL − đơn giá của dòng tab, tới từng đồng, và tổng khoản phí trên web bằng đúng số đó (hoặc dòng sổ gốc có TOTAL − đơn giá bằng số đó, như việc 2 của [`MAY-PS-01`](may-ps-01.md)). Dòng khác, dòng web đã phân loại khác, nhiều chuyến khớp, hay thay khoản làm mất ghi chú người gõ thì để nguyên.

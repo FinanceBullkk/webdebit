@@ -125,7 +125,7 @@ class AutoHeadersTest(unittest.TestCase):
         with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "headers"}):
             self.run_once()
         lines = plan(11, "2026-11")["info"]["after"]
-        key = f"{v7_inbox.AUTO_ACTOR}:headers:1:{'e' * 64}:trip:11:{json.dumps(lines, sort_keys=True)}"
+        key = f"{v7_inbox.AUTO_ACTOR}:headers:1:{'e' * 64}:trip:11:[111]:{json.dumps(lines, sort_keys=True)}"
         self.assertEqual([p["idempotency_key"] for f, p, _ in self.calls if f == "rewrite_trip_fees"],
                          [hashlib.sha256(key.encode()).hexdigest()])
 

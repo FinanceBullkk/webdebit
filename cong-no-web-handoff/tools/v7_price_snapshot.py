@@ -51,7 +51,11 @@ def snapshots(scan: dict, source: dict, tabs=None) -> tuple[dict, dict]:
     rows = match.rows_from_scan(scan)
     if tabs is not None:
         # TACH-PHI-TIEU-DE-01: tiền theo loại khi cột phí của tab có tên rõ và các ô cộng đúng TOTAL − đơn giá; máy tự tách.
-        named = fee_headers.scan_fees(tabs, scan)
+        # Phần phụ: đọc tên cột lỗi thì chỉ mất `sheet_fees` (máy không tách), giá và phiếu thu vẫn ghi đủ.
+        try:
+            named = fee_headers.scan_fees(tabs, scan)
+        except Exception:  # noqa: BLE001
+            named = {}
         for row in rows:
             fees = named.get((row["customer_tab"], row["source_row"]))
             if fees:
