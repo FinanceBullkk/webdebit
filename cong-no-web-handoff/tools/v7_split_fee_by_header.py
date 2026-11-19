@@ -109,6 +109,9 @@ def fees_of(record: dict, header: dict[str, str], keys: dict[str, str]) -> dict:
         amount = loader.rounded(value)
         if amount is None:
             return {**row, "status": "SHEET_BAD_CELL"}
+        if amount < 0:
+            # Giảm trừ trên tab: loại có tên và Khác chỉ nhận số dương; lệnh ghi sẽ báo FEE_SIGN_INVALID và dừng cả sổ.
+            return {**row, "status": "SHEET_NEGATIVE"}
         if amount:
             fees[field_of(header.get(col, ""))] += amount
     if sum(fees.values()) != total - unit:
