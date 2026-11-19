@@ -34,6 +34,7 @@ import v7_doixe_xlsx
 import v7_identity
 import v7_inbox
 import v7_machine
+import v7_month_missing
 import v7_month_report
 import v7_presence
 import v7_read_cache
@@ -356,6 +357,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == "/api/v7/report/month":
         # BAO-CAO-THANG-01: chuyến theo tháng ngày chuyến, booking ↔ Sheet (file của phép kiểm booking) ↔ web (get_trip_month).
         return 200, v7_month_report.handle_get(parts.query, runner, READS, actor)
+    elif parts.path == "/api/v7/report/month/missing":
+        # BAO-CAO-THANG-02: chuyến booking có mà web chưa có, kèm lý do máy giữ; trang chỉ gọi khi người dùng mở danh sách.
+        return 200, v7_month_missing.handle_get(parts.query, runner, READS, actor)
     elif parts.path in MACHINE_READS:
         # MAY-CHAY-01: đọc file của job, không qua DB; vẫn sau xác thực danh tính như mọi route.
         if parts.query:

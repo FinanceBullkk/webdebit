@@ -11,7 +11,10 @@ const BaoCaoThangModel = (() => {
     switch (row.status) {
       case 'khop': return web ? { text: 'Khớp', tone: 'ok' } : { text: 'Web chưa có', tone: 'warn' };
       case 'lech_ngay': return { text: `Lệch ngày ${dayGap(row.date, row.booking?.date)}`, tone: 'warn' };
-      case 'thieu': return current ? { text: 'Chưa lên Sheet', tone: 'warn' } : { text: 'Sheet chưa ghi', tone: 'bad' };
+      case 'thieu': {   // BAO-CAO-THANG-02: nói rõ web đã có chưa, vì máy đưa chuyến booking vào web trước khi Sheet ghi
+        const sheet = current ? 'Chưa lên Sheet' : 'Sheet chưa ghi';
+        return web ? { text: sheet, tone: current ? 'warn' : 'bad' } : { text: `${sheet}, web chưa có`, tone: 'bad' };
+      }
       case 'khong_booking': return { text: 'Booking không có', tone: 'bad' };
       case 'khong_ngay': return { text: 'Sheet không ghi ngày', tone: 'warn' };
       case 'chep': return { text: 'Dòng chép 0đ', tone: 'muted' };
@@ -34,7 +37,7 @@ const BaoCaoThangModel = (() => {
     add(customer.thieu, current ? 'Chưa lên Sheet' : 'Sheet chưa ghi', current ? 'warn' : 'bad');
     add(customer.khong_booking, 'Booking không có', 'bad');
     add(customer.chi_web, 'Chỉ trên web', 'bad');
-    add(customer.web_thieu, 'Web chưa có', 'warn');
+    add((customer.web_thieu ?? 0) + (customer.thieu_web ?? 0), 'Web chưa có', 'warn');
     add(customer.lech_ngay, 'Lệch ngày', 'warn');
     add(customer.khong_ngay, 'Không ngày', 'warn');
     add(customer.chep, 'Chép 0đ', 'muted');
@@ -55,8 +58,38 @@ const BaoCaoThangModel = (() => {
       { key: 'sheet', label: 'Sheet sổ nợ đã ghi', values: pick('sheet') },
       { key: 'web', label: 'Web đã ghi', values: pick('web') },
       { key: 'thieu', label: current ? 'Booking có, chưa lên Sheet' : 'Booking có, Sheet chưa ghi', values: pick('thieu'), flag: true },
+      { key: 'web_chua', label: 'Booking có, web chưa có', values: pick('web_chua'), flag: true, list: true },
       { key: 'web_thieu', label: 'Sheet có, web chưa có', values: pick('web_thieu'), flag: true },
     ];
+  }
+
+  // BAO-CAO-THANG-02: lý do máy chưa đưa chuyến booking vào sổ web (mã từ GET /api/v7/report/month/missing) → câu cho người đọc
+  // và việc phải làm: `sheet` tự hết khi Sheet ghi chuyến, `person` cần người, `machine` máy tự làm ở lượt sau, `book` xem trong sổ.
+  const REASONS = {
+    CONTAINER_REUSED_OR_CHANGED: ['Container đã dùng ở chuyến trước; chờ tab khách ghi riêng', 'sheet'],
+    NO_BOOK: ['Tên chủ hàng chưa gắn sổ web (khách mới hoặc tên khác)', 'person'],
+    COMMODITY_MISMATCH: ['Mặt hàng trên booking khác mặt hàng của sổ', 'person'],
+    COMMODITY_UNKNOWN: ['Booking chưa ghi mặt hàng', 'person'],
+    ROAD_BOOK: ['Tên trên booking biển trùng một sổ đường bộ', 'person'],
+    ROAD_NO_TAB: ['Chưa tab khách nào ghi, chủ hàng chưa rõ sổ', 'sheet'],
+    ROAD_TAB_FAR: ['Tab khách có dòng cùng container nhưng lệch ngày', 'sheet'],
+    ROAD_AMBIGUOUS_TAB: ['Nhiều tab khách cùng ghi container này', 'sheet'],
+    ROAD_NO_BOOK: ['Tab khách ghi chuyến này chưa có sổ web', 'person'],
+    ROAD_AMBIGUOUS_SOURCE: ['Booking bộ ghi container này hai lần', 'person'],
+    ROAD_EARLY: ['Trước tháng 10/2026: chuyến bộ theo sổ gốc', 'sheet'],
+    NEEDS_REVIEW: ['Khác thông tin với sổ, cần người xem', 'person'],
+    MONTH_LOCKED: ['Tháng đã khóa, cần người duyệt', 'person'],
+    NEXT_RUN: ['Đủ điều kiện; máy đưa vào ở lượt tới', 'machine'],
+    IN_BOOK_OTHER_DATE: ['Sổ đã có chuyến này ở ngày khác', 'book'],
+    FUTURE: ['Ngày chuyến sau hôm nay', 'machine'],
+    NOT_IN_SOURCE: ['Không còn trong bản chụp booking mới nhất', 'machine'],
+    SOURCE_INCOMPLETE: ['Dòng booking thiếu thông tin', 'sheet'],
+  };
+  const WHO = { sheet: 'Tự hết khi Sheet ghi', person: 'Cần người', machine: 'Máy tự làm', book: 'Xem trong sổ' };
+
+  function reasonOf(code) {
+    const [text, who] = REASONS[code] ?? ['Chưa đọc được lý do', null];
+    return { text, who, whoText: who ? WHO[who] : '—' };
   }
 
   // Các tháng chọn được: từ tháng đầu báo cáo tới tháng hiện tại, mới nhất trước.
@@ -75,6 +108,6 @@ const BaoCaoThangModel = (() => {
 
   const customerKey = item => `${item.book_id ?? ''}|${item.name ?? ''}|${item.owner ?? ''}`;
 
-  return { statusOf, chips, familyText, filter, summaryRows, months, shift, customerKey, MONTH };
+  return { statusOf, chips, familyText, filter, summaryRows, reasonOf, months, shift, customerKey, MONTH };
 })();
 if (typeof module !== 'undefined') module.exports = BaoCaoThangModel;
