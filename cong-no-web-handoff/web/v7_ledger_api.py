@@ -443,6 +443,10 @@ class Handler(BaseHTTPRequestHandler):
     demo = False
     real_copy = False
     body_taken = False
+    # Audit 19/11/2026 (A10): StreamRequestHandler.setup đặt hạn này cho socket TRƯỚC khi đọc dòng đầu và header. Trước đây
+    # hạn 5 giây chỉ đặt trong _request, tức sau khi header đã đọc xong: client gửi header dở dang giữ một luồng mãi mãi.
+    # Hết hạn lúc đọc header thì handle_one_request đóng kết nối; kết nối keep-alive rảnh quá hạn cũng đóng như vậy.
+    timeout = 5
 
     def unread_body_bytes(self) -> int:
         headers = getattr(self, "headers", None)  # dòng đầu hoặc header hỏng: chưa từng có headers
