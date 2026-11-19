@@ -311,6 +311,12 @@ class ZaloWebPushTest(unittest.TestCase):
                           if path.is_file() and path.name not in (bundle.CACHE, "sync.log"))
         return files(self.out), files(self.server.dir)
 
+    def test_remote_apply_never_chmods_and_sets_umask_first(self):
+        # chmod của tài khoản đẩy (không thuộc nhóm API) xóa setgid của thư mục, API mất quyền đọc gói (19/11/2026).
+        self.assertNotIn("chmod", bundle.REMOTE_APPLY)
+        lines = [line.strip() for line in bundle.REMOTE_APPLY.splitlines() if line.strip()]
+        self.assertEqual(lines[:2], ["set -eu", "umask 027"])
+
     def test_push_mirrors_bundle_sends_only_new_and_prunes_unselected(self):
         first = self.build([GROUP, OTHER], NOW)
         sent = bundle.push(self.out, self.TARGET, run=self.server)

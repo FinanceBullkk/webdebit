@@ -77,7 +77,23 @@ Người dùng đồng ý trong chat 1/11/2026 ("Đồng ý làm G5"), sau khi C
 
 Rollback G5: tắt task `WebdebitZaloSync`; xóa `zalo-bundle.conf`, `daemon-reload`, restart API; xóa `/srv/v7/zalo-bundle`.
 
+## Sửa quyền thư mục gói (20/11/2026)
+
+Người dùng duyệt trong chat ("Sửa luôn") sau khi Claude báo lỗi.
+
+- **Lỗi:** đoạn áp gói phía `hao` (`REMOTE_APPLY`) chạy `chmod -R` trên cả thư mục. `aohanh` (tài khoản đẩy) không thuộc nhóm `v7app`, nên kernel xóa bit setgid của các thư mục. Thư mục dữ liệu tạo ở lượt sau thuộc nhóm `aohanh`, và API (`v7app`) không đọc được `export-report.json` hay dữ liệu. Cùng lỗi đã gặp ở đường đẩy giấy bảo hiểm.
+- **Phát hiện 19/11/2026:** đã có 1 group được chọn, gói có 367 tin, nhưng `sudo -u v7app test -r` thất bại.
+- **Sửa code:** bỏ `chmod`, đặt `umask 027` ở đầu `REMOTE_APPLY`, thêm test.
+- **Thử trên `hao`:** thư mục tạm `/srv/v7/zalo-bundle-test` (2750, nhóm `v7app`), đẩy hai lượt bằng đúng đoạn shell mới. Mọi thư mục giữ `drwxr-s---` nhóm `v7app`, file 0640 nhóm `v7app`; lượt hai dọn đúng thư mục và ảnh cũ; `v7app` đọc được. Đã xóa thư mục tạm.
+- **Trả quyền thư mục thật** bằng `sudo`:
+  - `chgrp -R v7app`;
+  - thư mục 2750, file 0640;
+  - 0 file khác nhóm;
+  - `GET /api/v7/zalo/report` qua Tailscale trả `BUNDLED`, 1 group, 367 tin.
+- **Máy có Zalo còn chạy code cũ:** lượt đẩy 00:11 lại làm mất setgid. Khi máy đó cập nhật `zalo_web_bundle.py` bản mới, trả quyền thêm một lần nữa là xong.
+
 ## CÒN MỞ
 
-- Người dùng chọn group đưa lên web (`zalo_web_bundle.py add`). Tới lúc đó lượt đồng bộ chỉ ghi "bỏ qua: chưa chọn group nào".
+- Máy có Zalo cập nhật `zalo_web_bundle.py` có `umask 027`; sau đó trả quyền `/srv/v7/zalo-bundle` lần cuối.
+- Người dùng chọn group đưa lên web (`zalo_web_bundle.py add`). Đã có 1 group từ 19/11/2026.
 - Người dùng tự đi hết luồng trên web thật: đọc chat, đánh dấu, gắn sổ, xem ở thẻ Trao đổi.

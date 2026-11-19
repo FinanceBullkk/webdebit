@@ -425,7 +425,11 @@ def cmd_change(source: Source, needles: list[str], add: bool) -> int:
 # máy chủ chưa có (cả hai bất biến theo tên), đổi export-report.json sau cùng bằng mv (server nạp lại khi file này đổi),
 # rồi xóa phía máy chủ mọi thư mục dữ liệu và ảnh mà máy này không còn giữ: bỏ chọn group là rời máy chủ ở lượt đẩy kế tiếp.
 TARGET = re.compile(r"(?P<host>[A-Za-z0-9][A-Za-z0-9.-]{0,62}):(?P<path>/[A-Za-z0-9_./-]{1,200})")
+# Quyền: không bao giờ chmod trên máy chủ. Tài khoản đẩy không thuộc nhóm của API, nên chmod một thư mục (kể cả "." và
+# media/) làm kernel xóa bit setgid; thư mục dữ liệu tạo sau đó thuộc nhóm người đẩy và API không đọc được (lỗi gặp
+# 19/11/2026). umask 027 cho file 0640 và thư mục 0750 ngay lúc tar tạo; thư mục mới kế thừa nhóm và setgid của gốc.
 REMOTE_APPLY = r"""set -eu
+umask 027
 cd "$1"
 tar -xf - --no-same-owner --no-same-permissions
 mv -f .incoming-report.json export-report.json
@@ -438,7 +442,6 @@ if [ -d media ]; then
   done
 fi
 rm -f .keep-data .keep-media
-chmod -R u+rwX,g+rX,g-w,o-rwx .
 """
 
 

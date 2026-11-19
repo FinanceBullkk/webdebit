@@ -20,7 +20,7 @@
 - Phát hiện: dòng cuối script phía đích chạy `chmod -R` trên thư mục. `aohanh` không thuộc nhóm `v7app`, nên kernel xóa bit setgid của thư mục; từ lượt sau file mới sẽ thuộc nhóm `aohanh` và API không đọc được.
 - Sửa ở `f25f077`: không bao giờ `chmod` thư mục, chỉ `chmod 0640` từng file vừa đến trước khi `mv`. Trả setgid và nhóm cho `/srv/v7/insurance` bằng `sudo`.
 - Thử bản sửa ở thư mục tạm `/srv/v7/insurance-test` cùng cách dựng: hai lượt, mọi file nhóm `v7app` quyền 0640, gốc giữ setgid, lượt hai không gửi gì. Đã xóa thư mục tạm.
-- Cùng lỗi đang có ở `/srv/v7/zalo-bundle` của G5 (file nhóm `aohanh`, `v7app` không đọc được). Ngoài phạm vi đợt này, CÒN MỞ.
+- Cùng lỗi đang có ở `/srv/v7/zalo-bundle` của G5 (file nhóm `aohanh`, `v7app` không đọc được). Ngoài phạm vi đợt này; đã sửa 20/11/2026, xem [nhật ký G5](2026-11-01-zalo-group.md#sửa-quyền-thư-mục-gói-20112026).
 
 ## Trên máy có Zalo
 
