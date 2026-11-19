@@ -210,3 +210,40 @@ test('Đổi khách trên Tình hình mở ô tìm khách', async () => withPage
   assert.equal(await page.locator('#customer-picker').evaluate(node => node.matches(':popover-open')), true);
   assert.equal(await page.locator('#customer-search').isVisible(), true);
 }, debtor));
+
+// KHACH-MOI-01: sổ mới có một dòng dữ kiện dưới dải nợ, cùng chữ với nhãn "Mới" ở Tổng quan; khung 1265×560 vẫn vừa.
+const freshDebtor = (flag, unpaid = null) => world => {
+  debtor(world);
+  world.debt.rule = { ...RULE, new_days: 90, new_no_pay_days: 30, new_unpaid_days: 45 };
+  Object.assign(world.debt.customers[0], { is_new: true, first_trip_day: '2026-09-30', first_trip_exact: true, new_flag: flag, oldest_unpaid_trip_day: unpaid });
+};
+
+test('KHACH-MOI-01: dòng Khách mới trên Tình hình; chưa trả lần nào thì nhấn mạnh; vẫn vừa khung 1265×560', async () => withPage(async ({ page }) => {
+  await ready(page);
+  const line = page.locator('#the-tinh-hinh .ov-new-line');
+  assert.equal(await line.innerText(), 'Khách mới · chuyến đầu 30/09/2026 · chưa trả lần nào');
+  assert.match(await line.getAttribute('class'), /\bwarn\b/);
+  await page.setViewportSize({ width: 1265, height: 560 });
+  const bottoms = await page.evaluate(() => {
+    const banner = document.querySelector('.book-head').getBoundingClientRect().bottom - 52;
+    return Object.fromEntries(['.ov-hero', '.ov-keyfacts', '#ov-chart', '.ov-activity ol'].map(selector => [selector, Math.round(document.querySelector(selector).getBoundingClientRect().bottom - banner)]));
+  });
+  for (const [selector, bottom] of Object.entries(bottoms)) assert.ok(bottom <= 560, `${selector} tràn mép màn: ${JSON.stringify(bottoms)}`);
+}, freshDebtor('no_pay', '2026-09-30')));
+
+test('KHACH-MOI-01: chuyến chậm trả ghi ngày và số ngày; sổ mới không cờ chỉ ghi chuyến đầu; sổ cũ không có dòng', async () => {
+  await withPage(async ({ page }) => {
+    await ready(page);
+    assert.equal(await page.locator('#the-tinh-hinh .ov-new-line').innerText(), 'Khách mới · chuyến đầu 30/09/2026 · chuyến 02/10 chưa trả đủ · 44 ngày');
+  }, freshDebtor('slow', '2026-10-02'));
+  await withPage(async ({ page }) => {
+    await ready(page);
+    const line = page.locator('#the-tinh-hinh .ov-new-line');
+    assert.equal(await line.innerText(), 'Khách mới · chuyến đầu 30/09/2026');
+    assert.doesNotMatch(await line.getAttribute('class'), /\bwarn\b/);
+  }, freshDebtor(null));
+  await withPage(async ({ page }) => {
+    await ready(page);
+    assert.equal(await page.locator('#the-tinh-hinh .ov-new-line').count(), 0);
+  }, debtor);
+});

@@ -462,12 +462,14 @@ def parse_get(path: str, parts_query: str) -> tuple[str, dict]:
 
 
 # ---- DOI-XE-CHANG-01: đọc danh sách việc và chặng (mục Chặng) ----
+PHIEU_PATH = PREFIX + "/chang/phieu"
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 MAX_VIEC = 1500        # 1500 việc ≈ 84 KB trong tham số psql, dưới trần 128 KB của một đối số dòng lệnh Linux
 MAX_SPAN_DAYS = 93
 MAX_CU = 92
 CONTAINER = re.compile(r"[A-Z]{4}[0-9]{7}")
-NEAR_DAYS = 3          # luật nối chặng ↔ việc (NGUON-CHUYEN-01): lệch ngày đóng không quá 3 ngày
+MARGIN_DAYS = 10       # luật nối chặng ↔ việc (doixe._cach_viec): ngày đóng lệch ≤ 3 ngày (NGUON-CHUYEN-01); chặng chưa có ngày đóng nối theo
+                       # ngày chạy, lệch ≤ 10 ngày. Gửi kèm việc trong 10 ngày quanh khoảng xem để cả hai kiểu nối đều thấy việc của mình
 MIN_DAY = "2020-01-01"  # doixe._ngay từ chối ngày trước mốc này (INVALID_DATE cho cả lượt gọi), nên dòng booking cũ hơn bị bỏ ở đây
 STALE_AFTER = timedelta(hours=1)
 STATES = ("sap_toi", "cho_phan_xe", "da_phan_xe", "da_co_phi", "da_len_bang_ke")
@@ -547,8 +549,8 @@ def _booking_viec(snapshot: dict, codes: set[str], window: dict) -> tuple[list[d
             continue
         mine.append({"cont": _cont(row.get("container")), "day": day, "row": row,
                      "raw": " ".join(str(row.get("container") or "").split()) or None})
-    lo = (date.fromisoformat(window["lui"]) - timedelta(days=NEAR_DAYS)).isoformat()
-    hi = (date.fromisoformat(window["den"]) + timedelta(days=NEAR_DAYS)).isoformat()
+    lo = (date.fromisoformat(window["lui"]) - timedelta(days=MARGIN_DAYS)).isoformat()
+    hi = (date.fromisoformat(window["den"]) + timedelta(days=MARGIN_DAYS)).isoformat()
     near = {m["cont"] for m in mine if m["cont"] and lo <= m["day"] <= hi}
     seen, out = set(), []
     for m in mine:
@@ -588,6 +590,36 @@ def _state(cont: str | None, hang: dict | None) -> str:
     if hang is None:
         return "cho_phan_xe"
     return "da_len_bang_ke" if hang["da_gui"] else "da_co_phi" if hang["co_phi"] or hang["da_hoan"] else "da_phan_xe"
+
+
+def _tai_chinh_gon(item: dict | None) -> dict:
+    """Bản gọn của phần tài chính một chặng cho danh sách: bỏ từng khoản chi và từng dòng thu (có ở phiếu chặng)."""
+    if item is None:
+        return {}
+    chi = {k: v for k, v in item["chi"].items() if k != "dong"}
+    thu = None if item["thu"] is None else {k: v for k, v in item["thu"].items() if k not in ("dong", "loi")}
+    return {"thang_khoa": item["thang_khoa"], "bang_ke_thang": item["bang_ke_thang"], "chi": chi, "thu": thu, "lai_gop": item["lai_gop"]}
+
+
+def read_phieu(query: str, runner, actor: str) -> dict:
+    """`GET /api/v7/doixe/chang/phieu?id=N`: một chặng đầy đủ (từng khoản chi kèm người trả, từng dòng thu) cho phiếu chặng."""
+    q = _query(query, {"id"})
+    if "id" not in q:
+        bad()
+    got = runner.run("doixe_get_chang_tai_chinh", {"tu": None, "den": None, "ids": [_positive(q["id"])]}, actor,
+                     read_only=True)
+    if not got["chang"]:
+        raise ApiError(409, "CHANG_NOT_FOUND", ERRORS["CHANG_NOT_FOUND"][1])
+    return {"hom_nay": got["hom_nay"], "chang": _chang_out(got["chang"][0])}
+
+
+def read_route(path: str, query: str, runner, actor: str) -> dict | None:
+    """Đường đọc mục Chặng không đi một hàm SQL duy nhất (cần bản chụp booking hoặc gộp kết quả); None nếu path không thuộc mục này."""
+    if path == CHANG_PATH:
+        return read_chang(query, runner, actor)
+    if path == PHIEU_PATH:
+        return read_phieu(query, runner, actor)
+    return None
 
 
 def _nearest(days: list[str], day: str) -> list[str]:
@@ -663,6 +695,21 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
             out = _chang_out(c)
             out["cho_phep"] = {**out["cho_phep"], "chuyen_container": out["khoa"] is None, "giu_ngoai": True}
             orphans.append({**out, "trang_thai": "khong_con_tren_booking"})
+    # [PR 2] Thu, chi, lãi gộp: một lượt cho mọi chặng đang hiện, cộng chặng ngày chạy trong khoảng mà không thuộc việc nào.
+    shown = [c for v in viec for c in v["chang"]] + orphans
+    fin = {c["id"]: c for c in runner.run("doixe_get_chang_tai_chinh", {"tu": window["tu"], "den": window["den"],
+                                                                         "ids": [c["id"] for c in shown]}, actor,
+                                                                         read_only=True)["chang"]}
+    for chang in shown:
+        chang.update(_tai_chinh_gon(fin.get(chang["id"])))
+    # Chặng mà hàm nối đã nối với MỘT việc nào đó (kể cả việc ẩn vì ngoài khoảng) hoặc đã xếp mồ côi không phải chặng ngoài booking.
+    linked = {c["id"] for v in dd["viec"] for c in v["chang"]} | {c["id"] for c in dd["mo_coi"]}
+    seen = {c["id"] for c in shown} | linked
+    outside = []
+    for item in fin.values():
+        if item["id"] not in seen and item["ngay_dong"] is None:
+            outside.append({**_chang_out(item), "trang_thai": "ngoai_booking"})
+            outside[-1].update(_tai_chinh_gon(item))
     counted = [v for v in viec if not v["ngoai_khoang"]]
     created = str((snapshot.get("runner") or {}).get("created_at") or "")
     try:
@@ -674,14 +721,15 @@ def read_chang(query: str, runner, actor: str, *, now: datetime | None = None) -
     return {
         "hom_nay": dd["hom_nay"], "tu": window["tu"], "den": window["den"], "cu": window["cu"],
         "nguon": {"tao_luc": shown_at, "qua_han": stale, "so_dong": len(snapshot["rows"]), "bo_qua": skipped},
-        "viec": viec, "khong_con_tren_booking": orphans,
+        "viec": viec, "khong_con_tren_booking": orphans, "ngoai_booking": outside,
         # Bộ đếm hàng chờ chỉ đếm việc trong khoảng đang xem (kể cả việc cũ còn chờ, `cu`); việc `ngoai_khoang` hiện trong `viec` nhưng
         # không cộng vào, vì bấm bộ đếm là lọc trong khoảng đang xem.
         "dem": {"viec": len(counted), **{state: sum(1 for v in counted if v["trang_thai"] == state) for state in STATES},
                 "booking_doi": sum(1 for v in counted if v["booking_doi"]),
                 "chua_co_phi": sum(1 for v in counted for c in v["chang"] if not c["co_phi"]),
+                "chua_co_gia": sum(1 for v in counted for c in v["chang"] if "gia" in (c.get("lai_gop") or {}).get("thieu", ())),
                 "ngoai_khoang": len(viec) - len(counted),
-                "khong_con_tren_booking": len(orphans)},
+                "khong_con_tren_booking": len(orphans), "ngoai_booking": len(outside)},
         "xe": dd["xe"], "tai_xe": dd["tai_xe"],
     }
 

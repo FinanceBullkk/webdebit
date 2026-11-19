@@ -201,6 +201,9 @@ jobs:
       # Đội xe điều độ (specs/doi-xe-dieu-do-01.md): phân xe, luật nối việc ↔ chặng, đổi/bỏ phân công, nhận booking, mã nhà xe.
       - name: Doi xe dieu do on isolated PostgreSQL
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_dieu_do.py
+      # Đội xe mục Chặng (specs/doi-xe-chang-01.md): hàm đọc thu, chi, lãi gộp của chặng; tổng bằng get_so và get_bang_ke.
+      - name: Doi xe chang tai chinh on isolated PostgreSQL
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_chang.py
 
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;
   # hàm Tổng quan hay get_ledger bị làm sai thì tự kiểm đỏ.
