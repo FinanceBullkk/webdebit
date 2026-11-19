@@ -38,7 +38,8 @@ EDITING_MINUTES = 15
 # Quét bù hằng ngày luôn ghi một dòng INVENTORY, nên quá chừng này không có dòng nào là bộ ghi đã dừng.
 STALE_HOURS = 26
 # Chỉ các kết luận "chưa rõ vì sao lệch": máy ghi lỗi hay ghi xong không khớp thì vẫn phải có người xem, dù tab có đang sửa.
-EDITING_REASONS = frozenset({"NO_EXACT_FIX", "NOTHING_TO_WRITE", "AMBIGUOUS_FIX", "SHEET_SHUFFLED", "TOO_MANY_GROUPS", "HELD"})
+EDITING_REASONS = frozenset({"NO_EXACT_FIX", "NOTHING_TO_WRITE", "AMBIGUOUS_FIX", "SHEET_SHUFFLED", "TOO_MANY_GROUPS", "HELD",
+                             "DETAIL_DIFFERS"})
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 _BATCH = 100
 Opener = Callable[..., Any]

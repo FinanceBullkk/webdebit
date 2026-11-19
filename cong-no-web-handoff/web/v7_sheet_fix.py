@@ -31,7 +31,13 @@ from v7_price_queue import (
     project_prices,
     targets,
 )
-from v7_receipt_queue import METHOD, project_receipts, reference, review_reference
+from v7_receipt_queue import (
+    GONE_REASON,
+    METHOD,
+    project_receipts,
+    reference,
+    review_reference,
+)
 
 MAX_GROUPS = 16   # 65.535 tổ hợp; sổ nhiều nhóm hơn thì để chủ sổ xem, không dò
 PRICE_STATUSES = ("READY", "MONTH_LOCKED", "CONFLICT")   # nhiều chuyến khớp, phụ phí gõ tay, chờ kiểm, "Giữ giá web" vẫn để người
@@ -40,7 +46,7 @@ FEE_NOTE = "Theo Sheet: dòng có tiền, không container"
 # Chuyến web đi trước lâu hơn chừng này (theo ngày chuyến) thì hỏi người. Đo trên `hao` 10/11/2026: 6 chuyến đi trước thật đều 0–5 ngày.
 AHEAD_MAX_DAYS = 14
 AHEAD_HINTS_MAX = 8
-APPLY_ORDER = {"receipts_edited": 0, "receipts": 1, "receipts_no_date": 2, "prices": 3, "fee_rows": 4, "fee_undo": 5}
+APPLY_ORDER = {"receipts_gone": 0, "receipts_edited": 1, "receipts": 2, "receipts_no_date": 3, "prices": 4, "fee_rows": 5, "fee_undo": 6}
 
 
 def _vnd(value: Any) -> int | None:
@@ -54,9 +60,13 @@ def month_end(month: str, today: dt.date) -> str:
 
 
 def receipt_groups(receipts: dict[str, Any], ledger: dict[str, Any]) -> list[dict[str, Any]]:
-    """Phiếu sẵn sàng; phiếu không ngày theo tháng; và tháng Sheet đã sửa phiếu cũ: thay khoản thu sổ gốc Sheet không còn bằng
-    đúng các phiếu Sheet đang ghi. Khoản thu sổ gốc có số đã trừ khác số Sheet thì không tính trước được, để người."""
+    """Phiếu sẵn sàng; phiếu không ngày theo tháng; tháng Sheet đã sửa phiếu cũ: thay khoản thu sổ gốc Sheet không còn bằng
+    đúng các phiếu Sheet đang ghi. Khoản thu sổ gốc có số đã trừ khác số Sheet thì không tính trước được, để người.
+    Phiếu web ghi từ Sheet mà Sheet không còn dòng đó là một nhóm hủy (THAY-PHIEU-SHEET-01): nợ tăng đúng tổng các phiếu."""
     groups: list[dict[str, Any]] = []
+    gone = list(receipts.get("gone") or [])
+    if gone:
+        groups.append({"kind": "receipts_gone", "month": None, "rows": gone, "delta_vnd": sum(int(r["amount_vnd"]) for r in gone)})
     ready = list(receipts.get("ready") or [])
     if ready:
         groups.append({"kind": "receipts", "month": None, "rows": ready, "delta_vnd": -sum(int(r["amount_vnd"]) for r in ready)})
@@ -386,10 +396,15 @@ def plan(prices: dict[str, Any], receipts: dict[str, Any], ledger: dict[str, Any
 
 
 def choose(groups: list[dict[str, Any]], need: int) -> tuple[str, list[dict[str, Any]]]:
-    """(kết luận, các nhóm sẽ ghi) để tổng web đổi đúng `need` đồng; nhóm không đổi tiền không ghi."""
+    """(kết luận, các nhóm sẽ ghi) để tổng web đổi đúng `need` đồng; nhóm không đổi tiền không ghi.
+
+    Mọi nhóm cộng lại bằng đúng `need` thì ghi hết, kể cả khi một phần nhỏ hơn cũng ra đúng số: ghi hết là web theo Sheet tới từng
+    dòng, còn phần nhỏ hơn là trùng số tình cờ (THAY-PHIEU-SHEET-01, sổ thật 19/11/2026: Sheet đổi giá và đổi phiếu bù nhau)."""
     active = [group for group in groups if group["delta_vnd"]]
     if not active:
         return "NOTHING_TO_WRITE", []
+    if sum(group["delta_vnd"] for group in active) == need:
+        return "FIX", active
     if len(active) > MAX_GROUPS:
         return "TOO_MANY_GROUPS", []
     found = [combo for size in range(1, len(active) + 1) for combo in itertools.combinations(active, size)
@@ -428,7 +443,7 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
         raise tab_broken(health)   # `health` từ `customer_health`: nơi gọi đã đọc cùng bản chụp với các nhóm; tab lỗi thì không ghi gì
     version = ledger["version"]
     base = f"{AUTO_ACTOR}:doi-soat:{customer_id}:{version}"
-    done = {"receipts": 0, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0}
+    done = {"receipts": 0, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0, "receipts_voided": 0}
 
     def receipt(row: dict[str, Any], at: int) -> int:
         if row["status"] == "NO_DATE":
@@ -445,6 +460,15 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
         return _version(runner, customer_id, result)
 
     for group in sorted(groups, key=lambda item: (APPLY_ORDER[item["kind"]], item["month"] or "")):
+        if group["kind"] == "receipts_gone":
+            # Hủy phiếu không xét ổ khóa tháng (`void_receipt`); hoàn tác của bảng đối chiếu không khôi phục được nên không nhận khóa.
+            for row in group["rows"]:
+                result = runner.run("void_receipt", {"customer_id": customer_id, "expected_version": version,
+                                                     "idempotency_key": _sha(f"{base}:huy-phieu:{row['pid']}"),
+                                                     "pid": row["pid"], "reason": GONE_REASON}, actor)
+                done["receipts_voided"] += 1
+                version = _version(runner, customer_id, result)
+            continue
         if group["kind"] == "receipts_edited":
             def delete(at: int, orphans: list[dict[str, Any]] = group["orphans"]) -> int:
                 for orphan in orphans:

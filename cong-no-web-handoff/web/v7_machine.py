@@ -37,6 +37,7 @@ OPEN_REASONS = {
     "TOO_MANY_GROUPS": "Quá nhiều nhóm việc để máy xét",
     "TOO_MANY_DIFFERENT": "Quá nhiều khách lệch cùng lúc, lượt này không ghi",
     "SHEET_SHUFFLED": "Giá trên Sheet đổi chỗ trong tháng",
+    "DETAIL_DIFFERS": "Khớp tổng nhưng Sheet còn khoản web chưa theo",
     "WRITE_ERROR": "Lỗi khi ghi",
     "CHECK_ERROR": "Lỗi khi kiểm",
     "VERIFY_FAILED": "Ghi xong đọc lại không khớp",

@@ -72,3 +72,5 @@ Việc còn mở của lượt review này (web đi trước không có giới h
 Số đo lúc chốt (10/11/2026, 239 sổ): cả hệ thống có 10 chuyến web có giá mà tab khách không có. 6 chuyến ở 3 sổ đang tính đi trước đều trong tháng đang mở, 0–5 ngày, không container nào nằm ở tab khác. 4 chuyến còn lại hơn 230 ngày, container nằm ở tab của sổ khác, đã được dòng điều chỉnh trừ đúng bằng nên không tính đi trước. Chạy code mới trên cùng dữ liệu: phép tính của cả 239 sổ giống hệt bản cũ, không sổ nào bị hỏi thêm.
 
 Giới hạn: mẫu chỉ có 6 chuyến đi trước thật tại một thời điểm, nên 14 ngày là ước lượng có biên an toàn, chưa phải số đo độ trễ thật giữa web và Sheet; người nhập thường để lâu hơn thì luật sẽ hỏi nhầm, khi đó nới `AHEAD_MAX_DAYS`. Tuổi tính theo ngày chuyến vì không có ngày chuyến lên web. Không đổi DB, quyền, hàm SQL, điều kiện máy ghi.
+
+**Cập nhật 19/11/2026:** [`THAY-PHIEU-SHEET-01`](thay-phieu-sheet-01.md) thêm nhóm hủy phiếu Sheet không còn, ghi hết khi mọi nhóm cộng lại khớp, và xét cả khách đã khớp tổng (Sheet sửa hai chỗ bù nhau). Chốt khớp tổng tới từng đồng giữ nguyên.
