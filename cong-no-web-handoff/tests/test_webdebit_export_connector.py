@@ -184,6 +184,38 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "empty"):
             connector.parse_source_values([])
 
+    def test_source_tab_reads_dieu_xe_columns_by_name_and_tolerates_missing_ones(self):
+        # DOI-XE-CHANG-01: Nhà xe, Số seal, Nhiệt độ, Tên tàu tìm theo tên tiêu đề; thiếu cột thì trống, sổ khách không đổi.
+        base = list(connector.SOURCE_COLUMNS.values())
+        cells = ["ABCU1234567", "01/10/2026", "BK1", "Khách A", "Ship", "WH", "Kho", "Port", "", "", "BIỂN", "T", "2", ""]
+        rows = connector.parse_source_values([["Nhà xe"] + base + ["Số seal", "nhiệt độ", "Tên tàu"],
+                                              ["  MX-1 "] + cells + ["SL9", None, "TAU X"]])
+        self.assertEqual((rows[0]["nha_xe"], rows[0]["seal"], rows[0]["nhiet_do"], rows[0]["ten_tau"]), ("MX-1", "SL9", "", "TAU X"))
+        _, present = connector._source_index([["Nhà xe"] + base + ["Số seal"]])
+        self.assertEqual(sorted(present), ["nha_xe", "seal"])
+        # Bản chụp cũ (chưa có bốn cột): mọi trường trống, trạng thái và các trường khác như trước.
+        old = connector.parse_source_values([base, cells])
+        self.assertEqual((old[0]["status"], old[0]["container"], old[0]["nha_xe"], old[0]["seal"], old[0]["nhiet_do"], old[0]["ten_tau"]),
+                         ("READY", "ABCU1234567", "", "", "", ""))
+        self.assertEqual(connector._source_index([base])[1], {})
+        # Dòng chỉ có bốn cột mới (các cột cũ trống) vẫn là dòng trống như trước.
+        self.assertEqual(connector.parse_source_values([base + ["Nhà xe"], [""] * len(base) + ["MX-1"]]), [])
+
+    def test_read_source_lists_present_optional_columns(self):
+        base = list(connector.SOURCE_COLUMNS.values())
+        mapping = [["Chủ hàng từ BOOKING_DATA", "", "", "", "", "Khách chuẩn trên hao (bạn điền)"], ["Khách A", "", "", "", "", "KHÁCH A"]]
+
+        class Response:
+            def __init__(self, values): self.values = values
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self): return json.dumps({"values": self.values}).encode()
+
+        def reader(tab):
+            return lambda request, timeout: Response(mapping if "WEB_GHEP_KHACH" in request.full_url else tab)
+        self.assertEqual(connector.read_source("sheet-id", "token", reader([base + ["Nhà xe", "Tên tàu"]]))["columns"], ["nha_xe", "ten_tau"])
+        self.assertEqual(connector.read_source("sheet-id", "token", reader([base]))["columns"], [])
+
     def test_road_tab_is_read_by_header_name(self):
         # GĐ2 NGUON-CHUYEN-01: CONT_BO 24 cột; tên cột viết hoa, "/" là ô trống; ngày đóng hàng trước, không có thì khởi hành.
         header = ["STT", "GIÁ", "NOTE", "CỬA KHẨU", "XE", "MÃ TEM", "DC", "SỐ CONT", "SỐ XE", "SỐ MOOC", "KHO", "CHỦ HÀNG",

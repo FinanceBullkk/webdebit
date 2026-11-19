@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # python3 -I không tự thêm thư mục của script
 import v7_load_real_copy as loader
 from v7_api_validate import ApiError  # tools may use the web layer; never the reverse
 from v7_inbox import in_month
@@ -37,13 +38,15 @@ from v7_ps_queue import GENERATED_NOTES, fee_type_ids, match, plan, pool
 from v7_psql import PsqlDirect
 
 ACTOR = "claude"
-# Tên cột → trường của máy PS. Một tiêu đề khớp từ hai loại trở lên ("Neo / Phi dien / Dong ghep") là Khác.
+# Tên cột → trường của máy PS (`kd` là loại Kiểm định). `压车` đồng âm `押车`, `并柜` cùng nghĩa `拼柜`, "ÍNURANCE" gõ sai trên Sheet.
+# Một tiêu đề khớp từ hai loại trở lên ("Neo / Phi dien / Dong ghep") là Khác.
 # 卫生证 (Health cert) vào loại gộp "Health + KĐ" vì đó là cột HC FEE mặc định của sổ (COT-PHU-PHI-01); debit note in như nhau.
-RULES = (("neo", ("NEO", "押车", "OVERSTAY")),
-         ("ghep", ("GHEP", "拼柜", "TRUCKING")),
+RULES = (("neo", ("NEO", "押车", "压车", "OVERSTAY")),
+         ("ghep", ("GHEP", "拼柜", "并柜", "TRUCKING")),
          ("dien", ("DIEN", "发电", "插电", "电费", "GENSET", "GENERATOR")),
          ("combined", ("卫生证", "HEALTH", "HC FEE")),
-         ("bao_hiem", ("BAO HIEM", "保险", "INSURANCE")))
+         ("bao_hiem", ("BAO HIEM", "保险", "INSURANCE", "INURANCE")),
+         ("kd", ("KIEM DINH",)))
 WRITABLE = ("READY", "MONTH_LOCKED")
 
 
@@ -106,6 +109,9 @@ def fees_of(record: dict, header: dict[str, str], keys: dict[str, str]) -> dict:
         amount = loader.rounded(value)
         if amount is None:
             return {**row, "status": "SHEET_BAD_CELL"}
+        if amount < 0:
+            # Giảm trừ trên tab: loại có tên và Khác chỉ nhận số dương; lệnh ghi sẽ báo FEE_SIGN_INVALID và dừng cả sổ.
+            return {**row, "status": "SHEET_NEGATIVE"}
         if amount:
             fees[field_of(header.get(col, ""))] += amount
     if sum(fees.values()) != total - unit:
@@ -220,7 +226,7 @@ def read_tabs(args) -> list:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group()
     source.add_argument("--xlsx", type=Path)
     source.add_argument("--spreadsheet-id", default=os.getenv("WEBDEBIT_SHEET_ID"))
     parser.add_argument("--credentials", default=os.getenv("WEBDEBIT_GOOGLE_CREDENTIALS"))
@@ -230,6 +236,8 @@ def main() -> int:
     parser.add_argument("--customer", type=int, action="append", help="chỉ chạy các khách này; bỏ trống là mọi khách")
     parser.add_argument("--apply", action="store_true", help="ghi thật; không có thì chỉ đếm")
     args = parser.parse_args()
+    if not (args.xlsx or args.spreadsheet_id):
+        parser.error("cần --xlsx hoặc --spreadsheet-id (hay WEBDEBIT_SHEET_ID)")
     result = run(PsqlDirect(args.socket_dir, args.database, args.db_user), read_tabs(args), args.apply, args.customer)
     print(json.dumps(result, ensure_ascii=False))
     return 1 if result["errors"] else 0
