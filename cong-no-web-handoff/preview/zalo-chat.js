@@ -183,6 +183,7 @@
     if (!response.ok) {
       const error = Error(data?.message || '');
       error.status = response.status;
+      error.code = data?.error;
       throw error;
     }
     return data;
@@ -326,6 +327,15 @@
       repaintKeep();
       $('subtitle').textContent = `Đã lưu dấu ${KIND[body.kind].toLowerCase()}.`;
     } catch (error) {
+      // Lần bấm trước (chưa rõ kết quả) đã lưu dấu với nội dung cũ, rồi người dùng sửa ô và bấm lại: máy chủ không nhận nội dung
+      // mới dưới khóa cũ (audit 19/11/2026, A08). Hiện dấu đã lưu; muốn đổi thì bỏ dấu đó và đánh dấu lại bằng khóa mới.
+      if (error.code === 'IDEMPOTENCY_CONFLICT') {
+        marking.key = newKey();
+        markDialog.close();
+        try { await loadMarks(state.selected); repaintKeep(); } catch { /* danh sách dấu cũ vẫn hiện; tải lại trang để xem */ }
+        $('subtitle').textContent = 'Lần bấm trước đã lưu dấu với nội dung cũ. Kiểm tra dấu trên tin; muốn sửa thì bỏ dấu rồi đánh dấu lại.';
+        return;
+      }
       errorBox.textContent = saveError(error, 'lưu dấu');
       errorBox.hidden = false;
       button.disabled = false;

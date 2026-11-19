@@ -45,6 +45,8 @@ BAO_CAO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-1
 LUOI_AN_TOAN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-luoi-an-toan.sql"
 # KIEM-TAB-01 16/11/2026 (K4): edit_trip_info và resolve_sheet_conflict bằng migration này thay bản KHOA-CHU-01.
 CHUAN_HOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql"
+# Audit kiến trúc 19/11/2026 (A12, A08): edit_trip_info và record_mark bằng migration này thay bản KIEM-TAB-01 / ZALO-GROUP-01.
+AUDIT_KIEN_TRUC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-audit-kien-truc.sql"
 # Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
 LATER_TABLE_CHANGES = {
     "fee_type": [("UNIQUE(name_key));", "UNIQUE(name_key),\n default_position integer UNIQUE CHECK(default_position>0));")],
@@ -133,10 +135,15 @@ class FeeSqlSync(unittest.TestCase):
             self.assertIn(index, canonical)
         khoa_chu = KHOA_CHU_MIGRATION.read_text(encoding="utf-8")
         chuan_hoa = CHUAN_HOA_CHU_MIGRATION.read_text(encoding="utf-8")
+        audit = AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8")
         for name in ("edit_trip_info", "resolve_sheet_conflict"):
             with self.subTest(name=name):
-                self.assertEqual(definition(chuan_hoa, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+                latest = audit if name == "edit_trip_info" else chuan_hoa
+                self.assertEqual(definition(latest, "FUNCTION", name), definition(canonical, "FUNCTION", name))
                 self.assertNotEqual(definition(khoa_chu, "FUNCTION", name), definition(canonical, "FUNCTION", name))   # bản KHOA-CHU-01 đã bị thay
+        self.assertNotEqual(definition(chuan_hoa, "FUNCTION", "edit_trip_info"),
+                            definition(canonical, "FUNCTION", "edit_trip_info"))   # bản KIEM-TAB-01 đã bị audit A12 thay
+        self.assertEqual(definition(audit, "FUNCTION", "record_mark"), definition(canonical, "FUNCTION", "record_mark"))
         overload = r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\._change_legacy\([^)]*p_fee_event bigint\).*?\$\$;"
         self.assertEqual(re.search(overload, khoa_chu).group().replace("\r\n", "\n"),
                          re.search(overload, canonical).group().replace("\r\n", "\n"))

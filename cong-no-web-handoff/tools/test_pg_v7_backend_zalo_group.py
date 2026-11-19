@@ -60,7 +60,10 @@ def check_zalo_group(pg: Pg) -> None:
     require((promise["status"], promise["amount_vnd"], promise["paid_vnd"], promise["created_by"], promise["message_id"])
             == ("pending", "300", "0", "harness", "m42"),
             f"new promise: {promise}")
-    replay = call(pg, "record_mark", mark(book, "promise", "zg-promise", amount_vnd=300, on_date=shift(5)))
+    # Gửi lại đúng nội dung cũ (audit 19/11/2026, A08: nội dung khác dưới cùng khóa là IDEMPOTENCY_CONFLICT, xem AUDIT-KT.01).
+    replay = call(pg, "record_mark", mark(book, "promise", "zg-promise", amount_vnd=300, on_date=shift(5), note="mai chuyển",
+                                          conversation_id=CONV, message_id="m42", message_at="2026-11-01T09:15:00+07:00",
+                                          message_sender="Vũ", message_excerpt="Mai em chuyển 300"))
     require(replay["id"] == promise["id"] and replay["replayed"] is True, f"replay must return the same mark: {replay}")
     reject_call(pg, "record_mark", mark(book, "note", "zg-promise", note="x"), error="IDEMPOTENCY_CONFLICT")
     count = int(pg.value(f"SELECT count(*) FROM sokhach.contact_mark WHERE customer_id={book}"))

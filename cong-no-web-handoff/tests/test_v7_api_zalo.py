@@ -119,7 +119,12 @@ class ZaloGroupSqlSync(unittest.TestCase):
         functions = (ROOT / "tools/v7_backend_functions.sql").read_text(encoding="utf-8")
         schema = (repo / "specs/v7-backend/schema-draft.sql").read_text(encoding="utf-8")
         block = re.search(r"(?ms)^-- ZALO-GROUP-01: gắn group Zalo ↔ sổ, dấu tin.*?TO sokhach_app,sokhach_reader;\n", migration).group()
-        self.assertIn(block, functions)
+        # Audit 19/11/2026 (A08): record_mark bản hiện hành ở migration audit-kien-truc; phần còn lại của khối giữ nguyên từng byte.
+        audit = (ROOT / "tools/migrations/2026-11-19-v7-audit-kien-truc.sql").read_text(encoding="utf-8")
+        mark = r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\.record_mark\(.*?END \$\$;"
+        current = re.search(mark, audit).group()
+        self.assertNotEqual(re.search(mark, block).group(), current)
+        self.assertIn(re.sub(mark, lambda _: current, block), functions)
         for table in ("zalo_link", "contact_mark"):
             with self.subTest(table=table):
                 created = re.search(rf"(?ms)^CREATE TABLE IF NOT EXISTS sokhach\.{table} \(.*?^\);\n", migration).group()
