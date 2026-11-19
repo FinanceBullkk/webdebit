@@ -85,6 +85,8 @@ const DashboardModel = (() => {
         payDate: item.last_receipt_date, payExact: item.last_receipt_exact, payDays: item.pay_days,
         tripDate: item.last_trip_date, tripExact: item.last_trip_exact, tripDays: item.trip_days,
         com: commodityKey(item.commodity, item.transport_mode),
+        // KHACH-MOI-01: sổ mới (null khi không mới hoặc API cũ); `fresh.flag` là cờ "cần để ý".
+        fresh: F.newCustomer(item, debt.as_of),
       };
       // Tháng nợ quá hạn đầu tiên còn nợ, để chú thích nói "Nợ T8 quá hạn".
       row.lateMonth = (item.months ?? []).find(m => tierOfMonth(m.month, debt.as_of, rule) >= 2 && F.toBig(m.outstanding_vnd) > 0n)?.month ?? null;
@@ -148,15 +150,21 @@ const DashboardModel = (() => {
         || compare(a.total, b.total) || a.key.localeCompare(b.key, 'vi'));
   }
 
+  /** Sổ mới có cờ cần để ý (KHACH-MOI-01): 30 ngày chưa trả lần nào, hoặc chuyến chưa trả đủ quá 45 ngày. */
+  const watchNew = row => Boolean(row.fresh?.flag);
+
   /**
-   * Lọc chéo (DASH-08): khách theo các lọc đang chọn, bỏ chiều `skip` của chính khối đang vẽ ('tier' | 'risk' | 'com'),
-   * để khối vẫn hiện đủ lựa chọn của mình (ô đang chọn chỉ được tô) mà số tính lại theo các lọc còn lại.
+   * Lọc chéo (DASH-08): khách theo các lọc đang chọn, bỏ chiều `skip` của chính khối đang vẽ ('tier' | 'risk' | 'com' |
+   * 'fresh'), để khối vẫn hiện đủ lựa chọn của mình (ô đang chọn chỉ được tô) mà số tính lại theo các lọc còn lại.
+   * `fresh` (KHACH-MOI-01) chỉ giữ sổ mới cần để ý.
    */
-  function scope(rows, { tier = null, risk = null, com = null } = {}, skip = null) {
+  function scope(rows, { tier = null, risk = null, com = null, fresh = false } = {}, skip = null) {
     const t = skip === 'tier' ? null : tier;
     const r = skip === 'risk' ? null : risk;
     const c = skip === 'com' ? null : com;
-    return rows.filter(row => (t == null || row.tiers[t] > 0n) && (r == null || row.risk === r) && (c == null || row.com === c));
+    const n = skip === 'fresh' ? false : fresh;
+    return rows.filter(row => (t == null || row.tiers[t] > 0n) && (r == null || row.risk === r) && (c == null || row.com === c)
+      && (!n || watchNew(row)));
   }
 
   /** Dải đầu của một phạm vi khách: còn phải thu, 5 nhóm hạn trả, quá hạn (kể phần âm như server), khách dư ở nợ cũ. */
@@ -199,8 +207,8 @@ const DashboardModel = (() => {
    * trong phạm vi. Lọc hạn trả / mức rủi ro chỉ khớp sổ đang nợ (sổ hết nợ không có nhóm); lọc mặt hàng khớp cả sổ hết nợ,
    * mặt hàng không có trong `coms` gộp "Khác". API chưa có `customers` hoặc không lọc gì thì trả null (dùng tổng của server).
    */
-  function monthFlow(thisMonth, rows, coms, { tier = null, risk = null, com = null } = {}) {
-    if (!Array.isArray(thisMonth?.customers) || (tier == null && risk == null && com == null)) return null;
+  function monthFlow(thisMonth, rows, coms, { tier = null, risk = null, com = null, fresh = false } = {}) {
+    if (!Array.isArray(thisMonth?.customers) || (tier == null && risk == null && com == null && !fresh)) return null;
     const byId = new Map(rows.map(row => [row.id, row]));
     const keys = new Set(coms.map(item => item.key));
     const comOf = book => {
@@ -211,8 +219,9 @@ const DashboardModel = (() => {
     };
     const books = thisMonth.customers.filter(book => {
       const row = byId.get(book.customer_id);
-      if ((tier != null || risk != null) && !row) return false;
-      return (tier == null || row.tiers[tier] > 0n) && (risk == null || row.risk === risk) && (com == null || comOf(book) === com);
+      if ((tier != null || risk != null || fresh) && !row) return false;
+      return (tier == null || row.tiers[tier] > 0n) && (risk == null || row.risk === risk) && (com == null || comOf(book) === com)
+        && (!fresh || watchNew(row));
     });
     return { charges_vnd: F.sum(books.map(book => book.charges_vnd)), received_vnd: F.sum(books.map(book => book.received_vnd)), books: books.length };
   }
@@ -241,10 +250,10 @@ const DashboardModel = (() => {
    * `com` là mặt hàng. Xếp theo cột tiền đầu (mặc định), `total` còn nợ, `pay`/`trip` số ngày giảm dần với null
    * (chưa trả / chưa có chuyến) coi là lâu nhất.
    */
-  function filterRows(rows, { tier = null, risk = null, com = null, sort = 'overdue' } = {}) {
+  function filterRows(rows, { tier = null, risk = null, com = null, fresh = false, sort = 'overdue' } = {}) {
     const days = value => (value == null ? Infinity : value);
     const byDays = (field, a, b) => compare(days(a.row[field]), days(b.row[field]));
-    return rows.filter(row => (tier == null || row.tiers[tier] > 0n) && (risk == null || row.risk === risk) && (com == null || row.com === com))
+    return scope(rows, { tier, risk, com, fresh })
       .map(row => ({ row, first: tier == null ? row.overdue : row.tiers[tier] }))
       .sort((a, b) => (sort === 'total' ? compare(a.row.total, b.row.total) || compare(a.first, b.first)
         : sort === 'pay' ? byDays('payDays', a, b) || compare(a.first, b.first)
@@ -253,6 +262,6 @@ const DashboardModel = (() => {
   }
 
   return { UNSORTED, OTHER, TIERS, RISK, RISKS, commodityKey, monthName, tierLabels, tierOfMonth, reason, ago,
-    debtors, totalsMatch, risks, riskMatches, commodities, scope, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
+    debtors, totalsMatch, risks, riskMatches, commodities, watchNew, scope, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;
