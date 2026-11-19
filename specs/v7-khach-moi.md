@@ -49,7 +49,7 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
 - **Người dùng:** người theo dõi công nợ và sếp. Họ mở Tổng quan mỗi ngày, trên màn 1280×720 ở Windows 150% và trên iPhone ([`DIEN-THOAI-SEP-01`](../docs/decisions/dien-thoai-sep-01.md)).
 - **Luồng:**
   1. Mở Tổng quan. Khách mới có nhãn **Mới** cạnh tên ở bảng khách.
-  2. Có ô bấm **"Khách mới cần để ý · n"**. Bấm vào thì bảng khách chỉ còn các sổ mới dính S1 hoặc S2. Mỗi dòng có một câu dữ kiện trong chú thích (rê chuột hoặc focus, đọc màn hình đọc được): "Chưa trả lần nào · chuyến đầu 34 ngày trước" hoặc "Chuyến 02/10 chưa trả đủ · 48 ngày". Nhãn "Mới" màu xanh dương (khác màu mức rủi ro), nền đặc khi sổ cần để ý. Lọc nằm trên địa chỉ trang: `?moi=1`.
+  2. Có ô bấm **"Khách mới · n"** kèm số sổ cần để ý ("3 cần để ý", nền xanh đậm). Bấm vào thì bảng khách chỉ còn các sổ mới đang nợ; sổ dính S1 hoặc S2 xếp lên đầu, rồi mới tới cột xếp đang chọn. Mỗi dòng có một câu dữ kiện trong chú thích (rê chuột hoặc focus, đọc màn hình đọc được): "Chưa trả lần nào · chuyến đầu 34 ngày trước", "Chuyến 02/10 chưa trả đủ · 48 ngày" hoặc "Khách mới · chuyến đầu 19 ngày trước". Nhãn "Mới" màu xanh dương (khác màu mức rủi ro), nền đặc khi sổ cần để ý. Lọc nằm trên địa chỉ trang: `?moi=1`. Bản đầu (19/11/2026) ô chỉ lọc sổ cần để ý; người dùng chọn "Thêm lọc" cùng ngày để xem đủ khách mới. Sổ mới đã trả hết nợ không có ở Tổng quan (chỉ liệt kê sổ đang nợ).
   3. Bấm tên khách mở trang khách, thẻ Tình hình (như hiện nay). Dải nợ có thêm một dữ kiện ở đầu phải hàng "Còn nợ chưa tính" (hàng đó không có việc chờ thì chỉ còn dữ kiện này): "Khách mới · chuyến đầu dd/mm/yyyy · chưa trả lần nào" hoặc "… · chuyến dd/mm chưa trả đủ · N ngày". Đặt trong hàng có sẵn để không thêm chiều cao: khung 1265×560 đã kín.
   4. Người dùng tự liên hệ khách. Web không gửi tin, không chặn ghi chuyến, không đổi số tiền.
 - **Kết quả:** trong 90 ngày đầu của một sổ, người dùng thấy khách đang chậm khoảng ba tuần sớm hơn luật quá hạn hiện tại.
@@ -69,13 +69,13 @@ Gộp S1 với S2 thì bắt đủ 12/12 sổ kẹt, sớm hơn luật hiện t�
 5. Sổ dính cả S1 và S2 thì câu hiện S1.
 6. Sau 90 ngày, nhãn **Mới** và S1, S2 tự hết. Sổ từ đó theo luật thường.
 7. Hai tín hiệu **không đổi** nhóm hạn trả, mức rủi ro hay nhóm tình trạng của `DASH-03`, `DASH-05`, `DASH-06`, và không đổi tiền, phân bổ, khóa tháng hay quyền.
-8. Ô "Khách mới cần để ý" là một chiều lọc theo [`DASH-08`](../docs/decisions/dash-08.md): các khối khác tính lại theo lọc này, còn ô tự nó vẫn hiện đủ số. Không có sổ nào thì ô hiện "0" và không bấm được.
+8. Ô "Khách mới" (mọi sổ mới đang nợ) là một chiều lọc theo [`DASH-08`](../docs/decisions/dash-08.md): các khối khác tính lại theo lọc này, còn ô tự nó vẫn hiện đủ số. Không có sổ nào thì ô hiện "0" và không bấm được.
 
 ## Đối chiếu dữ liệu và code hiện có
 
 - `get_dashboard_debt` đã có đủ nguyên liệu: lần trả, chuyến web, dòng sổ gốc, sổ đang nợ (`debtor`). Hàm chỉ trả về sổ đang nợ. Khách mới đã trả hết thì không cần cảnh báo, nên không thiếu gì.
 - Khối `rule` đã có các mốc (`no_pay_days`, `active_trip_days`…). Thêm `new_days: 90`, `new_no_pay_days: 30`, `new_unpaid_days: 45` vào đó để frontend không tự chép số.
-- Bảng khách và chip ở `preview/dashboard-v7.js` và `dashboard-v7-model.js` đang dùng ba chip rủi ro của `DASH-05`; `DASH-06` (ô tình trạng) chưa code. Ô "Khách mới cần để ý" nằm cạnh hàng chip, đi theo hàng ô khi `DASH-06` được code.
+- Bảng khách và chip ở `preview/dashboard-v7.js` và `dashboard-v7-model.js` đang dùng ba chip rủi ro của `DASH-05`; `DASH-06` (ô tình trạng) chưa code. Ô "Khách mới" nằm cạnh hàng chip, đi theo hàng ô khi `DASH-06` được code.
 - Thẻ Tình hình đã đọc `dashboard/debt` (`so-khach-v7-api.js`, [spec trang khách](v7-trang-khach.md)), nên dòng "Khách mới" dùng chính các trường mới dưới đây, không cần API mới. Sổ không còn nợ không có trong `dashboard/debt`, nên không hiện dòng; chấp nhận được vì đã trả hết.
 
 ## Giao tiếp frontend–backend

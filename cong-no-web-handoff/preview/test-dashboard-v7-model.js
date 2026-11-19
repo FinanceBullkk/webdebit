@@ -215,7 +215,7 @@ test('newCustomer (KHACH-MOI-01): câu dữ kiện của sổ mới theo cờ; k
     oldest_unpaid_trip_day: '2026-10-31' }, at), { flag: null, text: 'Khách mới · chuyến đầu 19 ngày trước', brief: '', first: 'khoảng T10/2026' });
 });
 
-test('lọc khách mới cần để ý (KHACH-MOI-01): scope/filterRows/monthFlow giữ sổ có cờ; skip "fresh" bỏ chiều này', () => {
+test('lọc khách mới (KHACH-MOI-01): scope/filterRows/monthFlow giữ mọi sổ mới, sổ cần để ý lên đầu; skip "fresh" bỏ chiều này', () => {
   const fresh = { ...debt, customers: debt.customers.map(item => (item.customer_id === 3
     ? { ...item, is_new: true, first_trip_day: '2026-09-01', first_trip_exact: true, new_flag: 'slow', oldest_unpaid_trip_day: '2026-09-05' }
     : item.customer_id === 4 ? { ...item, is_new: true, first_trip_day: '2026-10-20', first_trip_exact: true, new_flag: null } : item)),
@@ -223,12 +223,16 @@ test('lọc khách mới cần để ý (KHACH-MOI-01): scope/filterRows/monthFl
     { customer_id: 4, charges_vnd: '5', received_vnd: '0' }, { customer_id: 9, charges_vnd: '1', received_vnd: '1' }] } };
   const rows = M.debtors(fresh);
   assert.deepEqual(rows.filter(M.watchNew).map(r => r.id), [3]);
+  assert.deepEqual(rows.filter(M.isNew).map(r => r.id), [3, 4]);
   assert.equal(rows.find(r => r.id === 4).fresh.flag, null);
   assert.equal(rows.find(r => r.id === 1).fresh, null);
-  assert.deepEqual(M.scope(rows, { fresh: true }).map(r => r.id), [3]);
+  assert.deepEqual(M.scope(rows, { fresh: true }).map(r => r.id), [3, 4]);
   assert.deepEqual(M.scope(rows, { fresh: true, risk: 'high' }).map(r => r.id), []);
   assert.deepEqual(M.scope(rows, { fresh: true, risk: 'watch' }, 'fresh').map(r => r.id), [3]);
-  assert.deepEqual(M.filterRows(rows, { fresh: true }).map(item => item.row.id), [3]);
+  // Sổ cần để ý lên đầu dù cột xếp đặt sổ khác trước: xếp "Trả" thì 4 (chưa trả lần nào) đứng trước 3, trừ khi đang lọc khách mới.
+  assert.deepEqual(M.filterRows(rows, { fresh: true }).map(item => item.row.id), [3, 4]);
+  assert.deepEqual(M.filterRows(rows, { sort: 'pay' }).map(item => item.row.id).filter(id => id > 2), [4, 3]);
+  assert.deepEqual(M.filterRows(rows, { fresh: true, sort: 'pay' }).map(item => item.row.id), [3, 4]);
   const flow = M.monthFlow(fresh.this_month, rows, M.commodities(rows), { fresh: true });
-  assert.deepEqual([flow.charges_vnd, flow.received_vnd, flow.books], [7n, 2n, 1]);
+  assert.deepEqual([flow.charges_vnd, flow.received_vnd, flow.books], [12n, 2n, 2]);
 });

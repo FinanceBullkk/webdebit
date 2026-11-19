@@ -203,6 +203,7 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 /* KHACH-MOI-01: khách mới màu xanh dương, khác màu mức rủi ro; nhãn đặc là sổ mới cần để ý. */
 .rchip.r-new .rdot{background:var(--blue)}
 .rchip.r-new[aria-pressed="true"]{background:#eef3f9;border-color:var(--blue)}
+.rchip.r-new .watch{padding:0 7px;border-radius:9px;background:var(--blue);color:#fff;font-size:13px;font-weight:700;line-height:20px}
 .new-tag{display:inline-block;margin-left:2px;padding:0 7px;border:1px solid #b9cbe0;border-radius:9px;background:#eef3f9;color:var(--blue);font-size:12px;font-weight:700;line-height:18px;white-space:nowrap}
 .new-tag.warn{border-color:var(--blue);background:var(--blue);color:#fff}
 .rchip.tier-x{gap:6px;padding:0 12px;border:2px solid var(--blue);background:#eef3f9;color:var(--blue);font-weight:700}

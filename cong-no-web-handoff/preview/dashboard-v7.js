@@ -45,7 +45,7 @@
   let loading = false;
   // Nút Làm mới đọc Sheet ngay (specs/v7-sheet-refresh.md); chữ trạng thái chỉ hiện khi đang lấy hoặc lỗi.
   let sheetRefresh = null;
-  // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; fresh: chỉ khách mới cần để ý (KHACH-MOI-01);
+  // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; fresh: chỉ khách mới (KHACH-MOI-01);
   // sort: cột xếp; all: đã mở hết danh sách.
   const state = { tier: null, risk: null, com: null, fresh: false, sort: 'overdue', all: false, data: null, debt: null, rows: null, ready: false,
     tiers: [], rk: null, coms: [], names: new Map() };
@@ -69,7 +69,7 @@
   // Lọc chéo (DASH-08): bộ lọc hiện tại và tên của nó cho nhãn "đang lọc" trên các khối.
   const filter = () => ({ tier: state.tier, risk: state.risk, com: state.com, fresh: state.fresh });
   const anyFilter = () => state.tier != null || state.risk != null || state.com != null || state.fresh;
-  const FRESH = 'Khách mới cần để ý';
+  const FRESH = 'Khách mới';
   const scopeName = skip => [skip !== 'com' && state.com, skip !== 'risk' && state.risk && M.RISK[state.risk], skip !== 'fresh' && state.fresh && FRESH,
     skip !== 'tier' && state.tier != null && state.tiers[state.tier].label].filter(Boolean).join(' · ');
   const scopeTag = (skip, tip) => {
@@ -206,13 +206,18 @@
     // Đang lọc mặt hàng (bấm dòng ở khối Công nợ theo mặt hàng hoặc link ?mh=): chip bỏ lọc cùng hàng, như chip hạn trả.
     const com = state.com == null ? '' : `<button type="button" class="rchip tier-x com-x" data-clear="com" aria-label="Bỏ lọc mặt hàng ${esc(state.com)}"${tipAttr([`Đang lọc mặt hàng: ${state.com}`, 'Bấm để bỏ lọc'])}>
         ${esc(state.com)}${ICON.close}</button>`;
-    // KHACH-MOI-01: ô "Khách mới cần để ý" là một chiều lọc như mức rủi ro; API cũ (chưa có mốc new_*) thì không hiện.
+    // KHACH-MOI-01: ô "Khách mới" là một chiều lọc như mức rủi ro: mọi sổ mới đang nợ, kèm số sổ cần để ý (19/11/2026 người
+    // dùng chọn "Thêm lọc" thay cho ô chỉ có sổ cần để ý). API cũ (chưa có mốc new_*) thì không hiện.
     const rule = state.debt.rule;
-    const freshCount = state.ready ? M.scope(state.rows, filter(), 'fresh').filter(M.watchNew).length : state.rows.filter(M.watchNew).length;
+    const inFresh = state.ready ? M.scope(state.rows, filter(), 'fresh').filter(M.isNew) : state.rows.filter(M.isNew);
+    const freshCount = inFresh.length;
+    const watchCount = inFresh.filter(M.watchNew).length;
     const fresh = rule.new_days == null ? '' : `<button type="button" class="rchip r-new" data-fresh aria-pressed="${state.fresh}"${state.ready && (freshCount || state.fresh) ? '' : ' disabled'}${tipAttr([
-      `${FRESH}: ${freshCount} khách`, `Sổ có chuyến đầu trong ${rule.new_days} ngày, và: ${rule.new_no_pay_days} ngày chưa trả lần nào, hoặc có chuyến quá ${rule.new_unpaid_days} ngày chưa trả đủ`,
+      `${FRESH}: ${freshCount} khách, ${watchCount} cần để ý`, `Khách mới: sổ có chuyến đầu trong ${rule.new_days} ngày`,
+      `Cần để ý: ${rule.new_no_pay_days} ngày chưa trả lần nào, hoặc có chuyến quá ${rule.new_unpaid_days} ngày chưa trả đủ (nhãn Mới nền đặc, xếp lên đầu)`,
       'Chỉ để ý thu sớm, không đổi mức rủi ro', 'Bấm để lọc bảng'])}>
-        <i class="rdot" aria-hidden="true"></i><span class="rl">${FRESH}</span><span class="n">${ICON.people}${freshCount}<span class="sr-only"> khách</span></span></button>`;
+        <i class="rdot" aria-hidden="true"></i><span class="rl">${FRESH}</span><span class="n">${ICON.people}${freshCount}<span class="sr-only"> khách</span></span>${watchCount
+          ? `<span class="watch">${watchCount} cần để ý</span>` : ''}</button>`;
     node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${groups.map(chip).join('')}${fresh}${tier}${com}`;
   }
 

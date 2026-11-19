@@ -150,13 +150,14 @@ const DashboardModel = (() => {
         || compare(a.total, b.total) || a.key.localeCompare(b.key, 'vi'));
   }
 
-  /** Sổ mới có cờ cần để ý (KHACH-MOI-01): 30 ngày chưa trả lần nào, hoặc chuyến chưa trả đủ quá 45 ngày. */
+  /** Sổ mới (KHACH-MOI-01): chuyến đầu trong 90 ngày. Cờ cần để ý: 30 ngày chưa trả lần nào, hoặc chuyến chưa trả đủ quá 45 ngày. */
+  const isNew = row => Boolean(row.fresh);
   const watchNew = row => Boolean(row.fresh?.flag);
 
   /**
    * Lọc chéo (DASH-08): khách theo các lọc đang chọn, bỏ chiều `skip` của chính khối đang vẽ ('tier' | 'risk' | 'com' |
    * 'fresh'), để khối vẫn hiện đủ lựa chọn của mình (ô đang chọn chỉ được tô) mà số tính lại theo các lọc còn lại.
-   * `fresh` (KHACH-MOI-01) chỉ giữ sổ mới cần để ý.
+   * `fresh` (KHACH-MOI-01, 19/11/2026 người dùng chọn "Thêm lọc") giữ mọi sổ mới, không chỉ sổ cần để ý.
    */
   function scope(rows, { tier = null, risk = null, com = null, fresh = false } = {}, skip = null) {
     const t = skip === 'tier' ? null : tier;
@@ -164,7 +165,7 @@ const DashboardModel = (() => {
     const c = skip === 'com' ? null : com;
     const n = skip === 'fresh' ? false : fresh;
     return rows.filter(row => (t == null || row.tiers[t] > 0n) && (r == null || row.risk === r) && (c == null || row.com === c)
-      && (!n || watchNew(row)));
+      && (!n || isNew(row)));
   }
 
   /** Dải đầu của một phạm vi khách: còn phải thu, 5 nhóm hạn trả, quá hạn (kể phần âm như server), khách dư ở nợ cũ. */
@@ -221,7 +222,7 @@ const DashboardModel = (() => {
       const row = byId.get(book.customer_id);
       if ((tier != null || risk != null || fresh) && !row) return false;
       return (tier == null || row.tiers[tier] > 0n) && (risk == null || row.risk === risk) && (com == null || comOf(book) === com)
-        && (!fresh || watchNew(row));
+        && (!fresh || isNew(row));
     });
     return { charges_vnd: F.sum(books.map(book => book.charges_vnd)), received_vnd: F.sum(books.map(book => book.received_vnd)), books: books.length };
   }
@@ -247,7 +248,7 @@ const DashboardModel = (() => {
 
   /**
    * Danh sách khách theo lọc: `tier` là nhóm hạn trả (cột tiền đầu thành phần nợ thuộc nhóm), `risk` là mức rủi ro,
-   * `com` là mặt hàng. Xếp theo cột tiền đầu (mặc định), `total` còn nợ, `pay`/`trip` số ngày giảm dần với null
+   * `com` là mặt hàng, `fresh` là khách mới (sổ cần để ý lên đầu, rồi mới xếp theo cột). Xếp theo cột tiền đầu (mặc định), `total` còn nợ, `pay`/`trip` số ngày giảm dần với null
    * (chưa trả / chưa có chuyến) coi là lâu nhất.
    */
   function filterRows(rows, { tier = null, risk = null, com = null, fresh = false, sort = 'overdue' } = {}) {
@@ -255,13 +256,13 @@ const DashboardModel = (() => {
     const byDays = (field, a, b) => compare(days(a.row[field]), days(b.row[field]));
     return scope(rows, { tier, risk, com, fresh })
       .map(row => ({ row, first: tier == null ? row.overdue : row.tiers[tier] }))
-      .sort((a, b) => (sort === 'total' ? compare(a.row.total, b.row.total) || compare(a.first, b.first)
+      .sort((a, b) => (fresh ? watchNew(b.row) - watchNew(a.row) : 0) || (sort === 'total' ? compare(a.row.total, b.row.total) || compare(a.first, b.first)
         : sort === 'pay' ? byDays('payDays', a, b) || compare(a.first, b.first)
           : sort === 'trip' ? byDays('tripDays', a, b) || compare(a.first, b.first)
             : compare(a.first, b.first) || compare(a.row.total, b.row.total)) || a.row.name.localeCompare(b.row.name, 'vi'));
   }
 
   return { UNSORTED, OTHER, TIERS, RISK, RISKS, commodityKey, monthName, tierLabels, tierOfMonth, reason, ago,
-    debtors, totalsMatch, risks, riskMatches, commodities, watchNew, scope, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
+    debtors, totalsMatch, risks, riskMatches, commodities, isNew, watchNew, scope, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;
