@@ -41,3 +41,9 @@
 .ov-go:focus-visible,.ov-month:focus-visible,.ov-link:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 /* Điện thoại (DIEN-THOAI-SEP-01): 12 cột tháng chừng 25px, nhãn chỉ ghi tháng (T12, không /2025, không "đến ngày") để không đè nhau; số đủ khi chạm tháng. */
 @media (max-width:760px){.ov-name{font-size:12px;letter-spacing:-.3px;white-space:nowrap}.ov-name .ov-year,.ov-name small{display:none}}
+/* KHACH-MOI-01: dữ kiện khách mới ở đầu phải hàng Còn nợ chưa tính; xanh dương như nhãn Mới ở Tổng quan, đậm khi cần để ý. */
+.ov-new-line{margin-left:auto;font-size:14px;line-height:20px;color:#52514e}
+.ov-new-line:only-child{margin-left:0}
+.ov-new-line b{display:inline-block;padding:0 8px;border:1px solid #b9cbe0;border-radius:10px;background:#eef3f9;color:#1c5cab;font-size:13px;line-height:20px}
+.ov-new-line.warn{color:#1a1a19;font-weight:600}
+.ov-new-line.warn b{border-color:#1c5cab;background:#1c5cab;color:#fff}

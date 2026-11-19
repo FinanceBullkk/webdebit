@@ -200,3 +200,35 @@ test('filterRows filters by due tier, risk level and commodity; sorts by first c
   assert.equal(M.commodityKey('Sầu riêng', 'BỘ'), 'Sầu riêng bộ');
   assert.equal(M.commodityKey('Sầu riêng', null), M.UNSORTED);
 });
+
+test('newCustomer (KHACH-MOI-01): câu dữ kiện của sổ mới theo cờ; không mới hoặc API cũ thì null', () => {
+  const at = '2026-11-19';
+  assert.equal(F.newCustomer({ is_new: false, first_trip_day: '2026-10-01' }, at), null);
+  assert.equal(F.newCustomer({ risk: 'ok' }, at), null);
+  assert.deepEqual(F.newCustomer({ is_new: true, first_trip_day: '2026-09-30', first_trip_exact: true, new_flag: 'no_pay',
+    oldest_unpaid_trip_day: '2026-09-30' }, at), { flag: 'no_pay', text: 'Chưa trả lần nào · chuyến đầu 50 ngày trước',
+    brief: 'chưa trả lần nào', first: '30/09/2026' });
+  assert.deepEqual(F.newCustomer({ is_new: true, first_trip_day: '2026-09-10', first_trip_exact: true, new_flag: 'slow',
+    oldest_unpaid_trip_day: '2026-10-02' }, at), { flag: 'slow', text: 'Chuyến 02/10 chưa trả đủ · 48 ngày',
+    brief: 'chuyến 02/10 chưa trả đủ · 48 ngày', first: '10/09/2026' });
+  assert.deepEqual(F.newCustomer({ is_new: true, first_trip_day: '2026-10-31', first_trip_exact: false, new_flag: null,
+    oldest_unpaid_trip_day: '2026-10-31' }, at), { flag: null, text: 'Khách mới · chuyến đầu 19 ngày trước', brief: '', first: 'khoảng T10/2026' });
+});
+
+test('lọc khách mới cần để ý (KHACH-MOI-01): scope/filterRows/monthFlow giữ sổ có cờ; skip "fresh" bỏ chiều này', () => {
+  const fresh = { ...debt, customers: debt.customers.map(item => (item.customer_id === 3
+    ? { ...item, is_new: true, first_trip_day: '2026-09-01', first_trip_exact: true, new_flag: 'slow', oldest_unpaid_trip_day: '2026-09-05' }
+    : item.customer_id === 4 ? { ...item, is_new: true, first_trip_day: '2026-10-20', first_trip_exact: true, new_flag: null } : item)),
+  this_month: { ...debt.this_month, customers: [{ customer_id: 3, charges_vnd: '7', received_vnd: '2' },
+    { customer_id: 4, charges_vnd: '5', received_vnd: '0' }, { customer_id: 9, charges_vnd: '1', received_vnd: '1' }] } };
+  const rows = M.debtors(fresh);
+  assert.deepEqual(rows.filter(M.watchNew).map(r => r.id), [3]);
+  assert.equal(rows.find(r => r.id === 4).fresh.flag, null);
+  assert.equal(rows.find(r => r.id === 1).fresh, null);
+  assert.deepEqual(M.scope(rows, { fresh: true }).map(r => r.id), [3]);
+  assert.deepEqual(M.scope(rows, { fresh: true, risk: 'high' }).map(r => r.id), []);
+  assert.deepEqual(M.scope(rows, { fresh: true, risk: 'watch' }, 'fresh').map(r => r.id), [3]);
+  assert.deepEqual(M.filterRows(rows, { fresh: true }).map(item => item.row.id), [3]);
+  const flow = M.monthFlow(fresh.this_month, rows, M.commodities(rows), { fresh: true });
+  assert.deepEqual([flow.charges_vnd, flow.received_vnd, flow.books], [7n, 2n, 1]);
+});

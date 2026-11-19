@@ -630,3 +630,41 @@ test('Việc cần làm MAY-GIA-01: chip Máy đếm giá riêng', async () => {
     assert.equal(await chip.getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 3 giá');
   }, '/viec-can-lam.html');
 });
+
+// KHACH-MOI-01: API có mốc new_* thì có ô "Khách mới cần để ý" cạnh chip mức rủi ro và nhãn "Mới" sau tên; API cũ thì không.
+const freshDebt = { ...debt, as_of: '2026-11-19', rule: { ...rule, new_days: 90, new_no_pay_days: 30, new_unpaid_days: 45 },
+  customers: debt.customers.map(item => (item.customer_id === 2
+    ? { ...item, is_new: true, first_trip_day: '2026-09-10', first_trip_exact: true, new_flag: 'slow', oldest_unpaid_trip_day: '2026-10-02' }
+    : item.customer_id === 1 ? { ...item, is_new: true, first_trip_day: '2026-10-20', first_trip_exact: true, new_flag: null, oldest_unpaid_trip_day: null }
+      : { ...item, is_new: false, first_trip_day: '2025-01-05', first_trip_exact: true, new_flag: null, oldest_unpaid_trip_day: null })) };
+
+test('KHACH-MOI-01: ô Khách mới cần để ý lọc bảng và dải đầu, nhãn Mới sau tên, ?moi=1 giữ lọc', async () => withDashboard({ debtPayload: freshDebt }, async page => {
+  const chip = page.locator('#chips .r-new');
+  await chip.waitFor();
+  assert.deepEqual(await seen(chip), ['Khách mới cần để ý 1']);
+  assert.equal(await chip.isDisabled(), false);
+  assert.match(await chip.getAttribute('data-tip'), /chuyến đầu trong 90 ngày, và: 30 ngày chưa trả lần nào, hoặc có chuyến quá 45 ngày/);
+  assert.deepEqual(await seen(page.locator('#list .new-tag')), ['Mới', 'Mới']);
+  assert.equal(await page.locator('#list tr[data-id="2"] .new-tag.warn').count(), 1);
+  assert.equal(await page.locator('#list tr[data-id="1"] .new-tag.warn').count(), 0);
+  assert.ok((await tipLines(page.locator('#list tr[data-id="2"]'))).includes('Mới: Chuyến 02/10 chưa trả đủ · 48 ngày'));
+  await chip.click();
+  assert.equal(await page.locator('#chips .r-new').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(await page.locator('#list tr').evaluateAll(rows => rows.map(r => r.dataset.id)), ['2']);
+  assert.match(await page.evaluate(() => location.search), /moi=1/);
+  assert.match(await page.locator('#h-owe .scope-tag').innerText(), /Khách mới cần để ý/);
+  await page.reload();
+  await page.locator('#chips .r-new[aria-pressed="true"]').waitFor();
+  assert.equal(await page.locator('#list tr').count(), 1);
+  await page.locator('#chips .r-new').click();
+  assert.equal(await page.locator('#list tr').count(), 4);
+  assert.doesNotMatch(await page.evaluate(() => location.search), /moi=/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 390), 'no horizontal scroll at 390px');
+}));
+
+test('KHACH-MOI-01: API cũ chưa có mốc new_* thì không có ô khách mới, không nhãn Mới', async () => withDashboard({}, async page => {
+  await page.locator('#chips .rchip.all').waitFor();
+  assert.equal(await page.locator('#chips .r-new').count(), 0);
+  assert.equal(await page.locator('#list .new-tag').count(), 0);
+}, '?moi=1'));
