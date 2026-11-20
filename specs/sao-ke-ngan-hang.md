@@ -2,7 +2,7 @@
 
 Trạng thái: **ĐỀ XUẤT** (Claude, 20/11/2026). Chưa chốt, chưa code, chưa đăng ký dịch vụ nào, chưa đụng tài khoản ngân hàng nào. Chờ sếp và người dùng trả lời [câu hỏi cuối spec](#câu-hỏi-cho-sếp-và-người-dùng). Khi chốt sẽ có `docs/decisions/sao-ke-01.md`.
 
-Nguồn: người dùng, chat 20/11/2026: đo thấy Zalo trên máy công ty gần như không nhận ảnh chuyển khoản của khách (chỉ một nhóm), nên chọn "tính sao kê ngân hàng" làm nguồn tiền thật. [`ZALO-THU-CHI-01`](zalo-thu-chi-real-time.md) Q7 đã chốt: nối ngân hàng để sau, spec riêng, sếp quyết vì cần cấp quyền đọc tài khoản và chưa kiểm chi phí. Spec này là spec riêng đó. [`TELEGRAM-01`](../docs/decisions/telegram-01.md) đã chốt: báo thu chi theo sự kiện vào nhóm Telegram.
+Nguồn: người dùng, chat 20/11/2026: đo thấy Zalo trên máy công ty gần như không nhận ảnh chuyển khoản của khách (chỉ một nhóm), nên chọn "tính sao kê ngân hàng" làm nguồn tiền thật. [`ZALO-THU-CHI-01`](zalo-thu-chi-real-time.md) Q7 đã chốt: nối ngân hàng để sau, spec riêng, sếp quyết vì cần cấp quyền đọc tài khoản và chưa kiểm chi phí. Spec này là spec riêng đó. `TELEGRAM-01` đã chốt: báo thu chi theo sự kiện vào nhóm Telegram.
 
 Mọi số liệu về dịch vụ bên ngoài **tra ngày 20/11/2026**, chỉ đọc trang công khai; giá và điều khoản có thể đổi, phải tra lại trước khi quyết. Chỗ không tìm thấy thì ghi "không tìm thấy", không đoán.
 
@@ -173,7 +173,7 @@ Khoản báo trong Zalo (`ZALO-THU-CHI-01`) có thêm một chiều: khoản Zal
 
 Mọi chấm điểm bằng luật cố định, không đưa nội dung chuyển khoản vào model nào ([`MAY-CHAY-01`](../docs/decisions/may-chay-01.md) giữ nguyên tắc: chữ tự do của bên ngoài không tới model). Nội dung chuyển khoản là chữ do người ngoài viết, có thể chứa lệnh giả; web chỉ hiển thị dạng chữ thuần, thoát HTML.
 
-## Telegram ([`TELEGRAM-01`](../docs/decisions/telegram-01.md))
+## Telegram (`TELEGRAM-01`)
 
 Dùng lại đường gửi và luật của TELEGRAM-01, thêm các sự kiện từ ngân hàng, vì đây mới là tiền thật:
 
@@ -275,7 +275,7 @@ Tổng là VND `bigint`; giao dịch không có số tiền hợp lệ không c�
 
 - Người dùng, chat 20/11/2026: chọn "Tính sao kê ngân hàng" làm nguồn tiền thật (nêu ở đầu spec).
 - [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md) Q7: nối ngân hàng để sau, spec riêng, sếp quyết; sửa 20/11/2026: nguồn "đã chi thật" là sao kê.
-- [`TELEGRAM-01`](../docs/decisions/telegram-01.md): báo theo sự kiện, bí mật ngoài repo, chỉ báo.
+- `TELEGRAM-01` (quyết định nằm ở PR FinanceBullkk/webdebit#554, chưa vào `main` lúc viết spec; đổi thành link khi đã merge): báo theo sự kiện, bí mật ngoài repo, chỉ báo.
 - [`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md): ảnh không đọc thay số; đối chiếu sao kê ngân hàng CÒN MỞ, làm sau (spec này).
 - [`UX-NEN-01`](../docs/decisions/ux-nen-01.md) M1: tiền chỉ vào sổ bằng phiếu thu.
 - [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md), [`CANH-BAO-01`](../docs/decisions/canh-bao-01.md), [`QUYEN-01`](../docs/decisions/quyen-01.md), [`MAY-CHAY-01`](../docs/decisions/may-chay-01.md).
