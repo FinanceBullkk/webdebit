@@ -318,8 +318,11 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
     rows: dict[str, list[tuple[int, dict]]] = {cid: [] for cid in chosen}
     senders: set[str] = set()
     wanted: list[tuple[int, dict, dict]] = []   # tin có thể có ảnh/video: (giờ, tin gốc, tin đã làm sạch)
+    needles = [b'"' + cid.encode() + b'"' for cid in chosen]
     with (source.dir / "messages.jsonl").open("rb") as stream:
         for raw in stream:
+            if not any(needle in raw for needle in needles):
+                continue   # dòng của hội thoại khác: khỏi json.loads (131 MB: 1,6 giây xuống 0,25 giây, file live-sync ít bị giữ mở)
             try:
                 row = json.loads(raw)
             except ValueError:

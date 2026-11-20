@@ -6,7 +6,8 @@
 Windows: `open()` của Python không cho file bị thay khi đang mở. Đã đo (20/11/2026): mở bằng `CreateFileW` đủ cờ chia sẻ
 (READ|WRITE|DELETE) vẫn cho đổi tên file đi nhưng KHÔNG cho `os.replace` đè lên nó (WinError 5), nên không có cách mở nào
 tránh được. `live_sync.py` bọc `os.replace` của `messages.jsonl` bằng `_retry_io` (60 lần, nghỉ tới 0,5 giây) và agent chỉ
-giữ file mở khoảng 0,25 giây mỗi lượt quét, nên hai bên không chặn nhau.
+giữ file mở khoảng 0,25 giây mỗi lượt quét, nên hai bên không chặn nhau. Dựng đầy đủ (`zalo_web_bundle.build`) lọc
+byte theo `conversation_id` đã chọn trước khi `json.loads`, nên cũng chỉ giữ file mở cỡ đó (không phải 1,6 giây).
 """
 from __future__ import annotations
 
@@ -20,11 +21,12 @@ from pathlib import Path
 VN = timezone(timedelta(hours=7))
 SELECTION = "web-groups.json"
 CONVERSATION_ID = re.compile(r"[0-9a-f]{64}")
-# `message_id` nằm trong 400 byte đầu mỗi dòng (đo 20/11/2026: byte 92). Trích bằng regex rồi tra tập hợp: 0,26 giây
-# cho 131 MB; lặp `id in dòng` cho 446 id mất 43 giây, nên không dùng. Dòng không khớp trong 400 byte đầu thì rơi về
-# json.loads (đúng nhưng chậm); sau json.loads luôn kiểm lại khóa cấp trên cùng (tin trích dẫn có khóa lồng cùng tên).
-ID_AT_HEAD = re.compile(rb'"message_id": ?"([^"]{1,128})"')
-HEAD = 400
+# Trích mọi `"message_id": "…"` trong dòng bằng regex rồi tra tập hợp: 0,32 giây cho 131 MB (đo 20/11/2026); lặp
+# `id in dòng` cho 446 id mất 43 giây, nên không dùng. Quét cả dòng (không chỉ đầu dòng) để khóa cấp trên cùng nằm sau
+# một khóa lồng của tin trích dẫn vẫn không bị lỡ; sau json.loads luôn kiểm lại khóa cấp trên cùng. Dòng không có chuỗi
+# `"message_id"` nào thì không thể có khóa đó: bỏ qua, khỏi parse.
+ID_KEY = re.compile(rb'"message_id": ?"([^"]{1,128})"')
+PAUSE = 0.05           # giây; hệ số nghỉ của retry_io (test đặt 0)
 IDENTITIES = ("attached", "waiting_for_zalo", "reprobing")
 
 
@@ -45,6 +47,17 @@ def read_json(path: Path, default=None):
         except (OSError, ValueError):
             time.sleep(0.05 * (attempt + 1))
     return default
+
+
+def retry_io(action, attempts: int = 5):
+    """Thử lại ngắn khi Windows từ chối vì trình diệt virus hay trình lập chỉ mục đang giữ file (như `_retry_io` của live-sync)."""
+    for attempt in range(attempts):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(PAUSE * (attempt + 1))
 
 
 class LiveSync:
@@ -94,8 +107,7 @@ class LiveSync:
         rows = []
         with (self.dir / "messages.jsonl").open("rb") as stream:
             for raw in stream:
-                heads = [found.group(1) for found in ID_AT_HEAD.finditer(raw, 0, HEAD)]
-                if heads and wanted.isdisjoint(heads):
+                if wanted.isdisjoint(found.group(1) for found in ID_KEY.finditer(raw)):
                     continue
                 try:
                     row = json.loads(raw)

@@ -42,6 +42,7 @@ from test_zalo_web_bundle import (  # noqa: E402
 from zalo_agent import __main__ as agent_main  # noqa: E402
 from zalo_agent import cursor as cursors  # noqa: E402
 from zalo_agent import push as pusher  # noqa: E402
+from zalo_agent import source as source_module  # noqa: E402
 from zalo_agent import status as status_file  # noqa: E402
 from zalo_agent.processors.bundle import BundleProcessor, clean_row  # noqa: E402
 from zalo_agent.source import VN, LiveSync, Rebuild  # noqa: E402
@@ -529,9 +530,25 @@ class SourceStatusTest(unittest.TestCase):
             stream.write(line("w-far", prefix="s" * 900))                     # id nằm sau 400 byte: rơi về json.loads
             stream.write(line("other", nested="w-nested"))                    # khóa lồng của tin trích dẫn khớp trước: kiểm lại cấp trên
             stream.write(line("w-nested", prefix="s" * 10))                   # tin thật có cùng id đó vẫn được lấy
+            quote_first = {"quote": {"message_id": "khong-can"}, "source_candidate_id": "s" * 900, "message_id": "w-deep", "conversation_id": GROUP}
+            stream.write(json.dumps(quote_first) + "\n")                     # khóa lồng ở đầu dòng, khóa thật sau byte 900
             stream.write("không phải json\n")
-        found = [item["message_id"] for item in self.live.rows_for({"w-long", "w-far", "w-nested"}, {GROUP})]
-        self.assertEqual(found, ["w-long", "w-far", "w-nested"])
+        found = [item["message_id"] for item in self.live.rows_for({"w-long", "w-far", "w-nested", "w-deep"}, {GROUP})]
+        self.assertEqual(found, ["w-long", "w-far", "w-nested", "w-deep"])
+
+    def test_full_build_parses_only_lines_of_selected_conversations(self):
+        wb.Source(self.src).save_selection([GROUP])
+        parsed = []
+        real = json.loads
+
+        def counting(value, *args, **kwargs):
+            if isinstance(value, bytes):                              # chỉ dòng của messages.jsonl (read_json đọc chuỗi)
+                parsed.append(value)
+            return real(value, *args, **kwargs)
+        with patch.object(json, "loads", counting):
+            report = wb.build(wb.Source(self.src), Path(self.tmp.name) / "full", fetch=FakeCdn(), transcode=no_jxl, now=NOW, max_age_days=None)
+        self.assertEqual(report["message_count"], 8)
+        self.assertEqual(len(parsed), 8)                              # 8 tin của nhóm; tin nhóm khác và dòng rác không bị parse
 
     def test_changed_ids_gathers_all_kinds_and_demands_rebuild_on_gap(self):
         for number, change in ((88, {"added": ["a"]}), (89, {"updated": ["b"], "deleted": ["c"]}), (91, {"added": ["z"]})):
@@ -710,10 +727,102 @@ class AgentCycleTest(unittest.TestCase):
         self.assertIsNotNone(mine.lock_handle)               # bị giết giữa lượt: file khóa sót không chặn
         mine.release()
 
+    def test_loop_survives_locked_state_files_and_unexpected_exceptions(self):
+        class Stop(BaseException):
+            pass
+        clock = {"t": NOW, "n": 0}
+
+        def sleep(seconds):
+            clock["t"] += seconds
+            clock["n"] += 1
+            if clock["n"] > 200:
+                raise Stop
+
+        real_replace = os.replace
+        denied = []
+
+        def locked(source, target):              # Defender / trình lập chỉ mục đang giữ status.json và identity.json
+            if Path(target).name in ("status.json", "identity.json"):
+                denied.append(Path(target).name)
+                raise PermissionError(5, "Access is denied")
+            return real_replace(source, target)
+
+        agent = agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote,
+                                 clock=lambda: clock["t"], sleep=sleep, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
+        self.addCleanup(agent.release)
+        wants = agent.wants_work
+        agent.wants_work = lambda: (_ for _ in ()).throw(RuntimeError("lỗi bất ngờ")) if clock["n"] == 5 else wants()
+        with patch.object(source_module, "PAUSE", 0), patch.object(os, "replace", locked), self.assertRaises(Stop):
+            agent.forever()
+        self.assertTrue(denied)                                       # đã gặp PermissionError thật, và vòng lặp vẫn chạy tới cùng
+        self.assertEqual(clock["n"], 201)
+        self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())   # việc chính (gói) vẫn xong trong lúc status bị giữ
+
+    def test_retry_io_rides_through_a_short_permission_denial_then_gives_up(self):
+        calls = []
+
+        def flaky():
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(5, "Access is denied")
+            return "ok"
+        with patch.object(source_module, "PAUSE", 0):
+            self.assertEqual(source_module.retry_io(flaky), "ok")
+            self.assertEqual(len(calls), 3)
+            with self.assertRaises(PermissionError):
+                source_module.retry_io(lambda: (_ for _ in ()).throw(PermissionError(5, "x")), attempts=3)
+
+    def test_local_errors_retry_every_ten_seconds_not_exponentially(self):
+        class Stop(BaseException):
+            pass
+        clock = {"t": NOW, "limit": NOW + 100}
+
+        def sleep(seconds):
+            clock["t"] += seconds
+            if clock["t"] > clock["limit"]:
+                raise Stop
+        (self.src / "revision.json").unlink()                       # lỗi cục bộ: không đọc được revision
+        agent = agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote,
+                                 clock=lambda: clock["t"], sleep=sleep, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
+        self.addCleanup(agent.release)
+        steps = []
+        original = agent.processors[0].step
+        agent.processors[0].step = lambda: (steps.append(clock["t"] - NOW), original())[1]
+        with self.assertRaises(Stop):
+            agent.forever()
+        self.assertEqual(agent.last["bundle"]["error"], "no_revision")
+        self.assertEqual({round(later - earlier) for earlier, later in itertools.pairwise(steps)}, {10})   # đúng 10 giây, không tăng dần
+        (self.src / "revision.json").write_text(json.dumps({"revision": 87}), encoding="utf-8")
+        agent.retry_at, clock["limit"] = 0.0, float("inf")
+        agent.tick()                                                  # hết lỗi: về null ngay lượt sau
+        self.assertIsNone(agent.last["bundle"]["error"])
+        self.assertEqual(agent.failures, 0)
+
+    def test_identity_change_pushes_status_at_once(self):
+        agent = self.agent()
+        agent.cycle(force_status=True)
+        agent.cycle()                                                 # lượt kế: từ "rebuild" về "idle" cũng là một thay đổi
+        calls = self.remote.applies(STATUS_REMOTE)
+        self.assertIsNone(agent.cycle())                              # không đổi gì, chưa đủ một phút: im
+        self.assertEqual(self.remote.applies(STATUS_REMOTE), calls)
+        (self.src / "poller-identity.json").write_text(json.dumps({"status": "waiting_for_zalo"}), encoding="utf-8")
+        status = agent.cycle()                                        # Zalo bị đóng: báo hao ngay, không chờ 60 giây
+        self.assertEqual(status["live_sync"]["identity"], "waiting_for_zalo")
+        self.assertEqual(self.remote.applies(STATUS_REMOTE), calls + 1)
+
+    def test_second_instance_exits_before_opening_the_log(self):
+        holder = self.agent()
+        self.assertTrue(holder.lock())
+        done = subprocess.run([sys.executable, "-X", "utf8", "-I", str(ROOT / "tools" / "zalo_agent"), "run", "--once", "--dry-run",
+                               "--live-sync", str(self.src), "--root", str(self.root)], capture_output=True, check=False, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr.decode("utf-8", "replace"))
+        self.assertIn("agent khác", done.stdout.decode("utf-8"))
+        self.assertFalse((self.root / "logs" / "agent.log").exists())   # không giữ handle agent.log của bản chính
+
     def test_backoff_after_errors_does_not_hammer_the_server(self):
         self.assertEqual([agent_main.backoff(n) for n in range(1, 8)], [60, 120, 240, 480, 900, 900, 900])
 
-        class Stop(Exception):
+        class Stop(BaseException):   # như KeyboardInterrupt: `except Exception` của vòng lặp không được nuốt nó
             pass
         clock = {"t": NOW}
 

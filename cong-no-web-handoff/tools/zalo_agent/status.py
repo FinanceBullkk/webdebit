@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import push as pusher
 from .cursor import now_iso
-from .source import read_json
+from .source import read_json, retry_io
 
 SCHEMA = 1
 FILE = "status.json"
@@ -46,7 +46,7 @@ def track_identity(state: Path, identity: str, now: float) -> str:
     Path(state).mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
     tmp.write_text(json.dumps({"identity": identity, "since": now_iso(now)}), encoding="utf-8")
-    os.replace(tmp, path)
+    retry_io(lambda: os.replace(tmp, path))
     return now_iso(now)
 
 
@@ -90,7 +90,7 @@ def write(state: Path, status: dict) -> bytes:
     path = Path(state) / FILE
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
     tmp.write_bytes(data)
-    os.replace(tmp, path)
+    retry_io(lambda: os.replace(tmp, path))
     return data
 
 

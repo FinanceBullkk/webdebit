@@ -15,7 +15,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .source import VN, Rebuild, read_json
+from .source import VN, Rebuild, read_json, retry_io
 
 NAME = re.compile(r"[a-z_]{1,30}")
 MAX_GAP = 500          # lệch quá số revision này thì dựng lại còn rẻ hơn đọc từng changes-N
@@ -39,7 +39,7 @@ def save(state: Path, name: str, cursor: dict, now: float) -> None:
     path = Path(state) / f"{name}.json"
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
     tmp.write_text(json.dumps({**cursor, "updated_at": now_iso(now)}, ensure_ascii=False, sort_keys=True), encoding="utf-8")
-    os.replace(tmp, path)
+    retry_io(lambda: os.replace(tmp, path))
 
 
 def selection_sha256(selection: list[str]) -> str:

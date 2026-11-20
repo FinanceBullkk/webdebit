@@ -221,7 +221,7 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
   - lần dựng lại đầy đủ tạo thư mục dữ liệu mới với `messages.jsonl` mới, chưa có `messages-delta.jsonl`.
 - Mỗi dòng của delta:
   - tin thêm hoặc sửa: cùng khuôn với một dòng `messages.jsonl` của gói (đã làm sạch như `build`);
-  - tin xóa: `{"message_id": "…", "conversation_id": "…", "timestamp": "<ms>", "deleted": true}`.
+  - tin xóa: **dòng đã làm sạch như bản dựng đầy đủ, thêm `deleted: true`** (có đủ `message_id`, `conversation_id`, `timestamp` và các trường làm sạch khác như `sender_id`, `message_type`, `status`, `body: null`), không chỉ bốn khóa.
 - **Bản cuối cùng theo `message_id` thắng**, xét theo thứ tự: `messages.jsonl` rồi tới delta từ trên xuống.
 - Dòng `deleted` trong delta hiện **giống hệt** tin có `deleted: true` trong một bản dựng đầy đủ (cùng nhãn, cùng chỗ), để lần dựng lại mỗi đêm không đổi những gì người dùng thấy.
 - `data-<…>/media.json` và `data-<…>/users.json` có thể được **thay tại chỗ** khi delta có ảnh hoặc người gửi mới. `hao` đọc lại hai file này mỗi khi `export-report.json` đổi.
