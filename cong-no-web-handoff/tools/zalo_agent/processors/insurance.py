@@ -31,6 +31,7 @@ SNAPSHOT = "insurance-snapshot.json"
 STORE = "remote-media-store"
 WEB = "insurance-web.json"
 RESYNC = 15 * 60       # giây: lâu nhất giữa hai lần hỏi `hao` khi không có gì đổi tại máy
+PDF_RETRY = 60         # giây: PDF đang bị khóa thì chờ chừng này rồi mới quét và hỏi `hao` lại (khỏi ssh mỗi 10 giây)
 SCHEMA_VERSION = 1
 AMOUNT_BASIS = "certificate total incl. VAT"
 SHA_RE = re.compile(r"[0-9a-f]{64}")
@@ -145,6 +146,7 @@ class InsuranceProcessor:
         self.memory: dict | None = None   # --dry-run: nhớ trong tiến trình, không ghi đĩa
         self.seen: dict | None = None     # snapshot đọc lần trước: {key: (cỡ, mtime_ns), raw, sha, at}
         self.unreadable = False           # lần đọc snapshot gần nhất lỗi khác "không có file"
+        self.failed: dict | None = None   # lỗi cục bộ gần nhất {code, sha, sig, at, until}: wants_work False cho tới khi snapshot (hoặc kho) đổi
 
     def result(self, action: str, error: str | None = None, sent: int = 0, reason: str | None = None) -> dict:
         return {"action": action, "revision": None, "error": error, "bytes_sent": sent, "reason": reason}
@@ -194,30 +196,50 @@ class InsuranceProcessor:
         raw, sha = self.read_snapshot(self.clock())
         return raw, sha, self.store_signature()
 
+    def blocked(self, sha: str | None, signature: str, now: float) -> bool:
+        """Lỗi cục bộ lần trước còn hiệu lực: cùng snapshot (và cùng kho nếu lỗi phụ thuộc kho) và chưa tới lượt hỏi lại sau
+        `resync` giây. Không có cái này thì `saved` không tiến, `wants_work` mãi True và mỗi lần thử lại 10 giây vòng lặp lại gom 3 giây."""
+        failed = self.failed
+        return bool(failed and failed["sha"] == sha and failed["sig"] in (None, signature) and 0 <= now - failed["at"] < self.resync)
+
+    def fail(self, code: str, sha: str | None, signature: str, now: float, *, hold: float = 0, static: bool = False, action: str = "idle") -> dict:
+        """Ghi nhớ lỗi cục bộ. `hold`: giây `step` bỏ qua việc (trả lại đúng mã lỗi), 0 là thử lại ngay ở lượt sau; `static`: lỗi chỉ
+        do nội dung snapshot, kho PDF đổi cũng không gỡ được."""
+        self.failed = {"code": code, "sha": sha, "sig": None if static else signature, "at": now, "until": now + hold}
+        return self.result(action, code)
+
     def wants_work(self) -> bool:
         """Có đổi tại máy (snapshot hoặc kho PDF): vòng lặp gom 3 giây rồi mới xử lý. Lần hỏi định kỳ không tính."""
         _, sha, signature = self.look()
         saved = self.load()
-        return sha is not None and (sha != saved.get("snapshot_sha256") or signature != saved.get("store_sig"))
+        if sha is None or self.blocked(sha, signature, self.clock()):
+            return False
+        return sha != saved.get("snapshot_sha256") or signature != saved.get("store_sig")
 
-    def scan(self, wanted: set[str], cache: dict) -> tuple[dict[str, Path], dict]:
-        """({sha256 nội dung: đường dẫn}, cache mới). Kho đặt tên file theo băm URL nên phải băm nội dung; chỉ băm lại file có (cỡ, mtime) đổi."""
-        found, fresh = {}, {}
+    def scan(self, wanted: set[str], cache: dict) -> tuple[dict[str, Path], dict, int]:
+        """({sha256 nội dung: đường dẫn}, cache mới, số PDF không đọc được). Kho đặt tên file theo băm URL nên phải băm nội dung; chỉ băm
+        lại file có (cỡ, mtime) đổi. PDF đang bị khóa (Windows) thì thử lại ngắn bằng `retry_io`; vẫn lỗi thì tính vào số không đọc được
+        (người gọi không được coi kho là đã quét xong)."""
+        found, fresh, unreadable = {}, {}, 0
         for path in sorted(self.store.glob("*.pdf")):
             try:
                 stat = path.stat()
-                entry = cache.get(path.name)
-                if isinstance(entry, list) and len(entry) == 3 and entry[:2] == [stat.st_size, stat.st_mtime_ns] and \
-                        isinstance(entry[2], str) and SHA_RE.fullmatch(entry[2]):
-                    digest = entry[2]
-                else:
-                    digest = sha256_file(path)
-            except OSError:
+            except OSError:   # file vừa biến mất: kho đổi, lượt sau chữ ký kho khác
                 continue
+            entry = cache.get(path.name)
+            if isinstance(entry, list) and len(entry) == 3 and entry[:2] == [stat.st_size, stat.st_mtime_ns] and \
+                    isinstance(entry[2], str) and SHA_RE.fullmatch(entry[2]):
+                digest = entry[2]
+            else:
+                try:
+                    digest = retry_io(lambda path=path: sha256_file(path))
+                except OSError:
+                    unreadable += 1
+                    continue
             fresh[path.name] = [stat.st_size, stat.st_mtime_ns, digest]
             if digest in wanted and digest not in found:
                 found[digest] = path
-        return found, fresh
+        return found, fresh, unreadable
 
     def web_bytes(self, rows: list[dict], now: float) -> bytes:
         path = self.work / WEB
@@ -243,6 +265,9 @@ class InsuranceProcessor:
             if self.unreadable:
                 return self.result("idle", "snapshot_unreadable")
             return self.result("idle", "no_snapshot" if saved.get("snapshot_sha256") else None)
+        failed = self.failed
+        if failed and now < failed["until"] and self.blocked(sha, signature, now):   # đang giữ lỗi: không dựng, không hỏi hao
+            return self.result("idle", failed["code"])
         asked = saved.get("checked_at")
         due = sha != saved.get("snapshot_sha256") or signature != saved.get("store_sig") or \
             not isinstance(asked, (int, float)) or now - asked >= self.resync or asked > now
@@ -251,19 +276,19 @@ class InsuranceProcessor:
         try:
             rows = build_rows(json.loads(raw))
         except (ValueError, SnapshotError):
-            return self.result("idle", "snapshot_invalid")
+            return self.fail("snapshot_invalid", sha, signature, now, hold=self.resync, static=True)
         if not rows:   # không bao giờ để một snapshot rỗng dọn sạch `hao`
-            return self.result("idle", "empty_snapshot")
+            return self.fail("empty_snapshot", sha, signature, now, hold=self.resync, static=True)
         # Bản gốc (`insurance_web.build`) vẫn ghi dòng thiếu/sai `sha256`, nhưng bộ đọc trên hao (`load_insurance_snapshot`) từ chối cả
         # file, và `wanted` thiếu dòng đó sẽ dọn PDF: từ chối đẩy để hao giữ bản tốt cuối cùng.
         if any(not row["sha256"] or not SHA_RE.fullmatch(row["sha256"]) for row in rows):
-            return self.result("idle", "snapshot_invalid")
+            return self.fail("snapshot_invalid", sha, signature, now, hold=self.resync, static=True)
         try:
             web = self.web_bytes(rows, now)
         except OSError:
-            return self.result("idle", "build_failed")
+            return self.fail("build_failed", sha, signature, now, static=True)
         wanted = {row["sha256"] for row in rows if row["sha256"] and SHA_RE.fullmatch(row["sha256"])}
-        found, cache = self.scan(wanted, saved.get("pdf_cache") if isinstance(saved.get("pdf_cache"), dict) else {})
+        found, cache, unreadable = self.scan(wanted, saved.get("pdf_cache") if isinstance(saved.get("pdf_cache"), dict) else {})
         names = {digest: f"pdf/{digest}.pdf" for digest in wanted}
         plan = pusher.Plan(self.target, tuple(pusher.Item(names[digest], path, immutable=True, check=digest) for digest, path in sorted(found.items())),
                            pusher.Item(WEB, web), ("pdf/*",), keep=tuple(names[digest] for digest in sorted(wanted - set(found))))
@@ -277,8 +302,16 @@ class InsuranceProcessor:
             if done["rejected"]:   # PDF đổi sau lần băm (nội dung không còn khớp tên): không gửi, băm lại lượt sau
                 changed = {path.name for digest, path in found.items() if names[digest] in done["rejected"]}
                 self.save({**saved, "pdf_cache": {name: entry for name, entry in cache.items() if name not in changed}}, now)
-                return self.result("retry", "pdf_changed")
+                return self.fail("pdf_changed", sha, signature, now, action="retry")
             sent, skipped, shipped, absent = done["bytes"], done["skipped"], done["sent"], len(done["missing"])
-        self.save({"snapshot_sha256": sha, "store_sig": signature, "checked_at": now, "pdf_cache": cache, "pdf_missing": absent}, now)
-        reason = f"rows={len(rows)} pdf_sent={sum(name.startswith('pdf/') for name in shipped)} missing_local={len(wanted) - len(found)} missing_on_hao={absent}"
+        state = {"snapshot_sha256": sha, "store_sig": signature, "checked_at": now, "pdf_cache": cache, "pdf_missing": absent}
+        if unreadable:   # kho chưa quét xong: không lưu `store_sig` để lượt sau quét lại; chờ `PDF_RETRY` rồi mới thử (không ssh mỗi 10 giây)
+            del state["store_sig"]
+        self.save(state, now)
+        self.failed = None
+        reason = (f"rows={len(rows)} pdf_sent={sum(name.startswith('pdf/') for name in shipped)} missing_local={len(wanted) - len(found)} "
+                  f"missing_on_hao={absent} unreadable={unreadable}")
+        if unreadable:
+            self.fail("pdf_unreadable", sha, signature, now, hold=PDF_RETRY)
+            return self.result("idle" if skipped else "push", "pdf_unreadable", sent=sent, reason=reason)
         return self.result("idle" if skipped else "push", "pdf_missing" if absent else None, sent=sent, reason=reason)
