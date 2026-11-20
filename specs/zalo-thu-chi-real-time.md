@@ -355,8 +355,8 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 Người dùng chốt cả tám câu theo đề xuất của Claude (chat 19/11/2026, "Chốt theo đề xuất").
 
-- **Q1 — Nhóm nào đưa lên web?** **Chốt:** lập **một nhóm Zalo nội bộ "Thu chi"** cho mọi khoản thu chi của công ty. Thêm các nhóm khách hay có ảnh chuyển khoản theo danh sách P0 đưa ra, mỗi nhóm người dùng tự `add`.
-- **Q2 — Có bắt gõ theo mẫu không?** **Chốt:** **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
+- **Q1 — Nhóm nào đưa lên web?** **Sửa 20/11/2026** ([`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md#sửa-ngày-20112026-không-lập-nhóm-thu-chi)): không lập nhóm Thu chi; nguồn là nhóm và chat riêng 1-1 của khách có ảnh chuyển khoản. Bản chốt đầu: lập **một nhóm Zalo nội bộ "Thu chi"** cho mọi khoản thu chi của công ty. Thêm các nhóm khách hay có ảnh chuyển khoản theo danh sách P0 đưa ra, mỗi nhóm người dùng tự `add`.
+- **Q2 — Có bắt gõ theo mẫu không?** **Sửa 20/11/2026:** không bắt; mẫu vẫn được đọc nếu có. Bản chốt đầu: **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
 - **Q3 — Ai xem trang Thu chi?** **Chốt:** mọi người vào được web, như các trang khác (Tailscale). Nếu nhóm Thu chi có lương hay chi riêng của sếp thì cần tách quyền; đó là việc lớn hơn, chưa có trong spec.
 - **Q4 — Đọc ảnh bằng gì?** **Chốt:** OCR ngay trên máy có Zalo, không gửi ảnh ra ngoài, giữ `CHUNG-TU-01`. Nếu P0 cho thấy OCR đọc kém mà sếp muốn dùng AI ngoài (ví dụ Claude đọc ảnh) thì phải sửa `CHUNG-TU-01` mục 4.
   **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md): OCR tại máy đọc mọi ảnh của nhóm đã chọn (P0: đúng 20/20); ảnh có dấu hiệu tiền mà OCR đọc không chắc mới gửi Gemini qua hai đường (proxy OAuth và API trả phí), hai kết quả khớp mới coi là máy đọc được.
