@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import time
@@ -292,7 +293,13 @@ class ZaloDeltaTest(unittest.TestCase):
 
     def write_report(self, **extra):
         report = {"status": "BUNDLED", "data_dir": self.data.name, "bundle_sha256": self.SHA, **extra}
-        (self.root / "export-report.json").write_text(json.dumps(report), encoding="utf-8")
+        path = self.root / "export-report.json"
+        path.write_text(json.dumps(report), encoding="utf-8")
+        # ChatStore nhận ra báo cáo đổi qua (mtime, size). Hai lần ghi liền nhau cùng độ dài (revision 2 -> 3) trên Windows có thể ra
+        # cùng mtime (bước đồng hồ cỡ 10-15 ms), nên mỗi lần ghi đặt mtime tăng dần để test không phụ thuộc đồng hồ máy.
+        self.ticks = getattr(self, "ticks", 0) + 1
+        stamp = 1_700_000_000_000_000_000 + self.ticks * 1_000_000_000
+        os.utime(path, ns=(stamp, stamp))
 
     def append(self, *rows) -> int:
         """Nối dòng vào delta, trả về số byte hợp lệ mới (đặt vào delta_bytes)."""
