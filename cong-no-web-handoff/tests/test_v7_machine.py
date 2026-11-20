@@ -243,10 +243,16 @@ class MachineTests(unittest.TestCase):
         view = machine.zalo()
         self.assertEqual((view["state"], view["at"]), ("silent", None))
 
-    def test_zalo_reports_how_long_since_the_last_good_run(self):
-        self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(40), "error": "push_failed"}}, push={"last_ok_at": ago(25), "error": "ssh_failed"})
+    def test_zalo_error_minutes_from_error_since_then_last_ok_then_unknown(self):
+        self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(1), "error": "push_failed", "error_since": ago(40)},
+                                "insurance": {"lag_revisions": 0, "last_ok_at": ago(25), "error": "read_failed"},
+                                "money_images": {"lag_revisions": 0, "error": "ocr_failed"}},
+                    push={"last_ok_at": ago(1), "error": "ssh_failed", "error_since": ago(7)})
         view = machine.zalo()
-        self.assertEqual((view["processors"][0]["ok_minutes"], view["push_ok_minutes"], view["push_error"]), (40, 25, "ssh_failed"))
+        self.assertEqual([row["error_minutes"] for row in view["processors"]], [40, 25, None])
+        self.assertEqual((view["push_error_minutes"], view["push_error"]), (7, "ssh_failed"))
+        self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(90), "error": None, "error_since": ago(90)}})
+        self.assertIsNone(machine.zalo()["processors"][0]["error_minutes"])      # không lỗi thì không có số phút lỗi
 
     def test_zalo_waiting_identity_and_quiet_minutes(self):
         self.status(identity="waiting_for_zalo", age=1)

@@ -241,6 +241,15 @@ def _minutes_since(text: Any, now: float) -> int | None:
     return None if at is None else max(int((now - at.timestamp()) // 60), 0)
 
 
+def _error_minutes(item: dict[str, Any], error: str | None, now: float) -> int | None:
+    """Lỗi đã kéo dài bao nhiêu phút: từ `error_since` (lúc lỗi bắt đầu); bản agent cũ chưa ghi thì từ `last_ok_at`. None khi không
+    lỗi hoặc không có mốc nào (lỗi ngay từ đầu, chưa từng xong lần nào)."""
+    if not error:
+        return None
+    minutes = _minutes_since(item.get("error_since"), now)
+    return minutes if minutes is not None else _minutes_since(item.get("last_ok_at"), now)
+
+
 def zalo(now: float | None = None) -> dict[str, Any]:
     """Máy Zalo báo về (ZALO-AGENT-01 Phần 6), đọc `status.json`. Không có file: `missing` (chưa bật máy Zalo, không phải lỗi).
 
@@ -250,7 +259,7 @@ def zalo(now: float | None = None) -> dict[str, Any]:
     now = time.time() if now is None else now
     path = Path(os.getenv("WEBDEBIT_ZALO_AGENT_STATUS") or ZALO_STATUS)
     silent: dict[str, Any] = {"state": "silent", "at": None, "silent_minutes": None, "selected_groups": None, "identity": "unknown",
-                              "quiet_minutes": None, "processors": [], "push_error": None, "push_ok_minutes": None}
+                              "quiet_minutes": None, "processors": [], "push_error": None, "push_error_minutes": None}
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -276,7 +285,7 @@ def zalo(now: float | None = None) -> dict[str, Any]:
         lag, error = _count(item.get("lag_revisions")), _code(item.get("error"))
         late = _minutes_since(item.get("last_ok_at"), now)
         state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
-        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "ok_minutes": late})
+        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "error_minutes": _error_minutes(item, error, now)})
     push = data.get("push") if isinstance(data.get("push"), dict) else {}
     silent_for = max(now - at.timestamp(), 0)
     quiet = _minutes_since(live.get("identity_since"), now)
@@ -286,7 +295,7 @@ def zalo(now: float | None = None) -> dict[str, Any]:
             "silent_minutes": int(silent_for // 60), "selected_groups": _count(data.get("selected_groups")), "identity": identity,
             # Số phút `identity` đã giữ giá trị hiện tại (`identity_since`); bản agent cũ chưa ghi thì lấy phút từ lần live-sync thấy thay đổi cuối.
             "quiet_minutes": quiet, "processors": rows, "push_error": _code(push.get("error")),
-            "push_ok_minutes": _minutes_since(push.get("last_ok_at"), now)}
+            "push_error_minutes": _error_minutes(push, _code(push.get("error")), now)}
 
 
 def now_view(now: float | None = None) -> dict[str, Any]:

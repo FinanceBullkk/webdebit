@@ -362,20 +362,36 @@ class ZaloTests(Base):
         self.report(ten, processors=self.slow(ten, 120, lag=0))      # kịp tin (lag 0): lần ok cũ chỉ vì không có tin mới
         self.assertEqual(dog.check_zalo(ten), [])
 
-    def test_error_lasting_over_15_minutes_reports_but_a_fresh_one_does_not(self):
+    def test_error_reports_by_how_long_it_has_lasted(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
         stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
-        failing = lambda minutes: {"bundle": {"revision": 5, "lag_revisions": 0, "last_ok_at": stamp(minutes), "error": "push_failed"}}  # noqa: E731
-        self.report(ten, processors=failing(5))
-        self.assertEqual(dog.check_zalo(ten), [])                       # mới lỗi 5 phút: lỗi lẻ tự lành
-        self.report(ten, processors=failing(20))
-        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: gói chat lỗi push_failed, 20 phút chưa xong lần nào."])
-        self.report(ten, push={"last_ok_at": stamp(30), "error": "ssh_failed"})
-        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: đẩy lên máy chủ lỗi ssh_failed, 30 phút chưa đẩy được."])
-        self.report(ten, push={"last_ok_at": stamp(30), "error": None})
+        failing = lambda **times: {"bundle": {"revision": 5, "lag_revisions": 0, "error": "push_failed", **times}}  # noqa: E731
+        # Nhánh 1: có error_since thì đo từ đó, không phụ thuộc last_ok_at (3 giờ không tin, lỗi thoáng qua mới 2 phút: không báo).
+        self.report(ten, processors=failing(error_since=stamp(2), last_ok_at=stamp(180)))
         self.assertEqual(dog.check_zalo(ten), [])
+        self.report(ten, processors=failing(error_since=stamp(20), last_ok_at=stamp(1)))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: gói chat lỗi push_failed, 20 phút."])
+        self.report(ten, processors=failing(error_since=stamp(15)))
+        self.assertEqual(dog.check_zalo(ten), [])                       # đúng 15 phút chưa quá
+        # Nhánh 2: bản agent cũ chưa có error_since thì dùng last_ok_at.
+        self.report(ten, processors=failing(last_ok_at=stamp(5)))
+        self.assertEqual(dog.check_zalo(ten), [])
+        self.report(ten, processors=failing(last_ok_at=stamp(40)))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: gói chat lỗi push_failed, 40 phút."])
+        # Nhánh 3: thiếu cả hai mà đang lỗi: chưa từng xong lần nào, báo ngay.
+        self.report(ten, processors=failing())
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: gói chat lỗi push_failed, chưa từng xong lần nào."])
+        # Việc đẩy lên: cùng ba nhánh.
+        self.report(ten, push={"last_ok_at": stamp(1), "error": "ssh_failed", "error_since": stamp(30)})
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: đẩy lên máy chủ lỗi ssh_failed, 30 phút."])
+        self.report(ten, push={"last_ok_at": stamp(30), "error": "ssh_failed"})
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: đẩy lên máy chủ lỗi ssh_failed, 30 phút."])
+        self.report(ten, push={"error": "ssh_failed"})
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: đẩy lên máy chủ lỗi ssh_failed, chưa từng đẩy được."])
+        self.report(ten, push={"last_ok_at": stamp(30), "error": None})
+        self.assertEqual(dog.check_zalo(ten), [])                       # không lỗi thì mốc cũ không thành cảnh báo
         night = dt.datetime(2026, 11, 20, 22, 0, tzinfo=VN)
-        self.report(night, processors={"bundle": {"lag_revisions": 0, "last_ok_at": (night - dt.timedelta(minutes=60)).isoformat(), "error": "push_failed"}})
+        self.report(night, processors={"bundle": {"lag_revisions": 0, "error": "push_failed"}})
         self.assertEqual(dog.check_zalo(night), [])                     # ngoài giờ làm việc
 
     def test_status_time_in_the_future_counts_as_broken(self):
