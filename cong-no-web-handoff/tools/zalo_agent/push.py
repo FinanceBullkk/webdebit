@@ -89,6 +89,7 @@ class Plan:
     files: tuple[Item, ...]        # mọi file nên có (trừ file chốt), theo thứ tự cài
     final: Item                    # file chốt, nằm thẳng trong thư mục đích
     prune: tuple[str, ...] = ()    # mẫu như `data-*` hoặc `media/*`: mục khớp mà không có trong kế hoạch bị xóa
+    keep: tuple[str, ...] = ()     # tên mà máy chủ đang có thì giữ, không gửi (nguồn tại máy tạm mất): không bị dọn
 
 
 def ssh_run(host: str, command: str, stdin=None) -> str:
@@ -118,10 +119,10 @@ def validate(plan: Plan) -> tuple[str, str]:
     match = TARGET.fullmatch(plan.target)
     if not match or ".." in match["path"]:
         raise PushError("đích phải dạng máy:/đường/dẫn tuyệt đối, ví dụ hao:/srv/v7/zalo-bundle")
-    names = [item.rel for item in plan.files]
-    if len(set(names)) != len(names) or plan.final.rel in names or "/" in plan.final.rel:
+    held = [*(item.rel for item in plan.files), *plan.keep]
+    if len(set(held)) != len(held) or plan.final.rel in held or "/" in plan.final.rel:
         raise PushError("kế hoạch đẩy có file trùng tên hoặc file chốt không nằm thẳng trong thư mục đích")
-    if not all(REL.fullmatch(rel) and ".." not in rel for rel in [*names, plan.final.rel]) or \
+    if not all(REL.fullmatch(rel) and ".." not in rel for rel in [*held, plan.final.rel]) or \
             not all(PATTERN.fullmatch(pattern) and ".." not in pattern for pattern in plan.prune):
         raise PushError("tên file hoặc mẫu dọn trong kế hoạch đẩy không hợp lệ")
     return match["host"], match["path"].rstrip("/")
@@ -151,12 +152,12 @@ def survey(plan: Plan, host: str, remote: str, run) -> tuple[dict[str, int], dic
 def push(plan: Plan, run=ssh_run) -> dict:
     """Đẩy một kế hoạch. Trả {sent: [đường dẫn file đã gửi], bytes, skipped}."""
     host, remote = validate(plan)
-    keep = [item.rel for item in plan.files]
+    held = [*(item.rel for item in plan.files), *plan.keep]   # giữ trên máy chủ: file sẽ gửi và file "giữ nếu có"
     if plan.files or plan.prune:
         sizes, shas = survey(plan, host, remote, run)
         send = [item for item in plan.files
                 if sizes.get(item.rel) != item.size() or (not item.immutable and shas.get(item.rel) != item.sha256())]
-        planned = set(keep) | {plan.final.rel}
+        planned = set(held) | {plan.final.rel}
         known = {pattern: {unit(name, pattern) for name in planned} for pattern in plan.prune}
         # Glob của shell bỏ qua tên bắt đầu bằng dấu chấm còn fnmatch thì không: bỏ chúng khi so.
         stale = any(fnmatchcase(unit(rel, pattern), pattern) and not unit(rel, pattern).rsplit("/", 1)[-1].startswith(".")
@@ -165,7 +166,7 @@ def push(plan: Plan, run=ssh_run) -> dict:
             return {"sent": [], "bytes": 0, "skipped": True}
     else:
         send = []   # thư mục chỉ có file chốt (nhịp tim): luôn gửi, khỏi hỏi máy chủ
-    ancestors = {"/".join(rel.split("/")[:depth]) for rel in keep for depth in range(1, rel.count("/") + 1)}
+    ancestors = {"/".join(rel.split("/")[:depth]) for rel in held for depth in range(1, rel.count("/") + 1)}
 
     def add(tar, name: str, data: bytes) -> None:
         info = tarfile.TarInfo(name)
@@ -177,7 +178,7 @@ def push(plan: Plan, run=ssh_run) -> dict:
             for item in send:
                 add(tar, item.rel, item.data())
             add(tar, ".list", "".join(f"{item.rel}\n" for item in send).encode())
-            add(tar, ".keep", "".join(f"{name}\n" for name in [*keep, *sorted(ancestors)]).encode())
+            add(tar, ".keep", "".join(f"{name}\n" for name in [*held, *sorted(ancestors)]).encode())
             add(tar, plan.final.rel, plan.final.data())
         size = spool.tell()
         spool.seek(0)

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-01T09:26:40+07:00",
+  "amount_basis": "certificate total incl. VAT",
+  "row_count": 5,
+  "sha256": "85190841bb6bb8728f5c2772ba8c53b44d3bc49e1a0c58a0a9c57f8de4bafe2e",
+  "rows": [
+    {
+      "cert_no": null,
+      "sha256": "347a98a1f55d95968077f4160e90f6923d6e7ce82a29a52a56aa2ca377f6d93c",
+      "container": null,
+      "bookings": [],
+      "amount_vnd": null,
+      "cert_premium_vnd": null,
+      "cert_vat_vnd": null,
+      "cert_total_vnd": null,
+      "containers_on_cert": null,
+      "depart_date": null,
+      "issue_date": null,
+      "status": null,
+      "warnings": []
+    },
+    {
+      "cert_no": "GIA-003",
+      "sha256": "347a98a1f55d95968077f4160e90f6923d6e7ce82a29a52a56aa2ca377f6d93c",
+      "container": "TEST0000003",
+      "bookings": [],
+      "amount_vnd": 1500000,
+      "cert_premium_vnd": 1363636,
+      "cert_vat_vnd": 136364,
+      "cert_total_vnd": 1500000,
+      "containers_on_cert": 2,
+      "depart_date": "2026-11-01",
+      "issue_date": "2026-10-30",
+      "status": "ok",
+      "warnings": []
+    },
+    {
+      "cert_no": "GIA-002",
+      "sha256": "b418e2917df5fdb814c443480394814bb1928f3e4ed9f103d99ad5a6af277398",
+      "container": "TEST0000002",
+      "bookings": [
+        "BK-1",
+        "BK-2"
+      ],
+      "amount_vnd": null,
+      "cert_premium_vnd": 1363636,
+      "cert_vat_vnd": 136364,
+      "cert_total_vnd": 1500000,
+      "containers_on_cert": 2,
+      "depart_date": "2026-11-01",
+      "issue_date": "2026-10-30",
+      "status": "needs_review",
+      "warnings": [
+        "Thiếu số tiền"
+      ]
+    },
+    {
+      "cert_no": "GIA-001",
+      "sha256": "f426363223730a9536bbb1d2183bd974738182a2de28b1ea850f53d868b3a3aa",
+      "container": "TEST0000000",
+      "bookings": [
+        "BK-1",
+        "BK-2"
+      ],
+      "amount_vnd": 1500000,
+      "cert_premium_vnd": 1363636,
+      "cert_vat_vnd": 136364,
+      "cert_total_vnd": 1500000,
+      "containers_on_cert": 2,
+      "depart_date": "2026-11-01",
+      "issue_date": "2026-10-30",
+      "status": "ok",
+      "warnings": [
+        "info: có 2 container",
+        "B/L [redacted] không khớp",
+        "Tàu [redacted] khác chuyến",
+        "seal [redacted] lạ"
+      ]
+    },
+    {
+      "cert_no": "GIA-001",
+      "sha256": "f426363223730a9536bbb1d2183bd974738182a2de28b1ea850f53d868b3a3aa",
+      "container": "TEST0000001",
+      "bookings": [
+        "BK-1",
+        "BK-2"
+      ],
+      "amount_vnd": 1500000,
+      "cert_premium_vnd": 1363636,
+      "cert_vat_vnd": null,
+      "cert_total_vnd": null,
+      "containers_on_cert": 2,
+      "depart_date": "2026-11-01",
+      "issue_date": "2026-10-30",
+      "status": "ok",
+      "warnings": [
+        "info: có 2 container",
+        "B/L [redacted] không khớp",
+        "Tàu [redacted] khác chuyến",
+        "seal [redacted] lạ"
+      ]
+    }
+  ]
+}

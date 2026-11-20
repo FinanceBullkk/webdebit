@@ -118,9 +118,20 @@ Bộ xử lý nhận hai loại kích hoạt:
 | Đường chat | `umask 027` ở đầu, **không bao giờ `chmod`**; thư mục con kế thừa nhóm và setgid của gốc |
 | Cả hai | File chốt (`export-report.json`, `insurance-web.json`, `status.json`) `mv` sau cùng; dọn file không còn trong danh sách giữ |
 
-Gọi bằng một "kế hoạch đẩy": thư mục đích, các file (đường dẫn tương đối, sha256, nguồn), file chốt, luật dọn. Bố cục thư mục trên `hao` **không đổi**, nên `v7_zalo_chat.py` và `v7_insurance_queue.py` đọc như cũ.
+Gọi bằng một "kế hoạch đẩy": thư mục đích, các file (đường dẫn tương đối, sha256, nguồn), file chốt, luật dọn, và (từ PR-3) danh sách `keep`: tên mà máy chủ đang có thì giữ, không gửi. Bố cục thư mục trên `hao` **không đổi**, nên `v7_zalo_chat.py` và `v7_insurance_queue.py` đọc như cũ.
 
 Sau PR-3, task `ZaloInsurancePush` và worktree `claude/bao-hiem-web` không còn cần. `insurance_web.build` (dựng bản gọn) chuyển vào bộ xử lý `insurance`.
+
+**Bộ xử lý `insurance` (PR-3, `zalo_agent/processors/insurance.py`).**
+
+- **Kích hoạt theo file đổi**, không theo revision: sha256 của `insurance-snapshot.json` đổi, hoặc kho PDF (`remote-media-store`) có file mới hoặc đổi (chữ ký tên + cỡ + mtime), hoặc đã 15 phút chưa hỏi `hao` (máy chủ mất file thì lượt sau tự gửi lại). Snapshot không đổi và chưa tới 15 phút thì không chạm máy chủ. Lượt hỏi mà `hao` đã đủ thì không gửi tar.
+- **Bản gọn** `insurance-web.json` giữ **nguyên hợp đồng** của `insurance_web.build` ([`BAO-HIEM-ZALO-01`](v7-bao-hiem-zalo.md#nguồn-và-đường-đẩy-lên-hao)): `schema_version` 1, danh sách trắng 13 trường, các dòng xếp theo (`sha256`, `cert_no`, `container`), `sha256` tính trên các dòng, `row_count`, NULL vẫn NULL, giá trị riêng tư lọt vào `warnings` thành `[redacted]`. Các dòng không đổi thì giữ nguyên byte (kể cả `created_at`) nên máy chủ không thấy đổi vô cớ. Đã so bằng test với golden sinh từ code gốc, và trên snapshot thật bằng sha256 (không in nội dung).
+- **Đẩy** tới `hao:/srv/v7/insurance`: `pdf/<sha256 nội dung>.pdf` (bất biến: cùng tên và cùng cỡ là đủ), `insurance-web.json` `mv` sau cùng, dọn `pdf/*` không dòng nào còn dùng. Giấy có dòng mà máy này tạm không có PDF thì PDF đang có trên `hao` được giữ (`keep`).
+- **Không đẩy khi snapshot 0 dòng** (`empty_snapshot`): snapshot hỏng không được dọn sạch `hao`. Snapshot sai khuôn là `snapshot_invalid`; snapshot từng có rồi mất là `no_snapshot`; chưa từng có (chưa cài `insurance_sync`) thì im.
+- **Không băm lại mọi PDF mỗi lượt:** kho đặt tên file theo băm URL nên phải băm nội dung; sha256 nhớ theo (tên, cỡ, mtime) trong `state/insurance.json` (chỉ có băm, số đếm và giờ). PDF đặt tên theo nội dung nên cache này an toàn.
+- **`status.json`:** khóa `processors.insurance` cùng khuôn `bundle`, nhưng `revision` và `lag_revisions` luôn `null` (không theo revision). Không đổi `schema`.
+- **Cấu hình:** `--insurance-target` / `ZALO_AGENT_INSURANCE_TARGET` (mặc định `hao:/srv/v7/insurance`, rỗng thì tắt), `--insurance-snapshot` / `ZALO_INSURANCE_SNAPSHOT`, `--insurance-store` / `ZALO_INSURANCE_STORE` (mặc định nằm trong thư mục live-sync).
+- **`--dry-run`** (sửa kèm PR-3 cho mọi bộ xử lý): làm hết ở máy, không đẩy, **không lưu con trỏ, `status.json`, `identity.json`**; lượt thật sau đó vẫn đẩy.
 
 ### Phần 3: kết quả đọc ảnh có nguồn gốc
 
@@ -316,7 +327,8 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 - [ ] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm.
 - [ ] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px.
 - [ ] Chuyển: một ngày làm việc trên máy thật, tin mới lên web trong **30 giây** (p95, từ `revision_at` tới `status.json` trên `hao`); khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp, không mất tin. Ghi số trong nhật ký.
-- [ ] PR-3: task bảo hiểm không còn phụ thuộc worktree, chạy cả khi dùng pin; 16 giấy hiện như trước trên `hao`.
+- [x] PR-3, test với snapshot, PDF và máy chủ bịa (`tests/test_zalo_agent_insurance.py`): bản gọn trùng từng byte với golden của code gốc; PDF mới gửi, PDF cũ dọn, PDF mất ở máy thì giữ trên máy chủ; 0 dòng không đẩy; snapshot không đổi thì không gửi tar; lỗi đẩy thì `error_since` có mốc; băm PDF theo cache; `--dry-run` không lưu gì.
+- [ ] PR-3, ở bước bật: task bảo hiểm không còn phụ thuộc worktree, chạy cả khi dùng pin; mọi giấy hiện như trước trên `hao` (hỏi người dùng trước khi tắt `ZaloInsurancePush`).
 - [ ] PR-4, ảnh tổng hợp bằng PIL (số tài khoản giả):
   - ô có dãy ≥ 8 chữ số bị tô đen, số tiền không bị che;
   - OCR không thấy chữ thì không gửi;
