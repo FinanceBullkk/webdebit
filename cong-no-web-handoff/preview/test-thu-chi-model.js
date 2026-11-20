@@ -9,7 +9,7 @@ const item = (day, direction, amount, status, extra = {}) => ({ source: 'chat', 
 test('Tổng thu, chi, ứng cộng BigInt; khoản không có số chỉ đếm riêng, không vào tổng', () => {
   const sum = M.summarize([item('2026-11-20', 'thu', 50_000_000, 'RECORDED'), item('2026-11-20', 'thu', 1_200_000, 'MISSING'), item('2026-11-20', 'chi', 2_500_000, 'WAITING'),
     item('2026-11-20', 'ung', 3_000_000, 'AMOUNT_DIFF'), item('2026-11-20', 'thu', null, 'NO_AMOUNT')]);
-  assert.deepEqual([sum.thu, sum.chi, sum.ung], [{ n: 2, vnd: '51200000' }, { n: 1, vnd: '2500000' }, { n: 1, vnd: '3000000' }]);
+  assert.deepEqual([sum.thu, sum.chi, sum.ung], [{ n: 2, img: 0, vnd: '51200000' }, { n: 1, img: 0, vnd: '2500000' }, { n: 1, img: 0, vnd: '3000000' }]);
   assert.deepEqual([sum.missing, sum.diff, sum.noAmount], [1, 1, 1]);
 });
 
@@ -63,4 +63,46 @@ test('Khoản chưa đối chiếu được (nguồn sổ lỗi) không bị ghi
   assert.deepEqual([text.tone, text.text], ['info', 'Chưa đối chiếu được']);
   assert.match(M.statusText(item('d', 'thu', 5, 'UNKNOWN_TARGET', { unchecked: true })).note, /danh sách khách và xe/);
   assert.equal(M.statusText(item('d', 'thu', 5, 'WAITING')).text, 'Chờ vào sổ');
+});
+
+// PR-4b: ảnh chuyển khoản máy đọc (source 'anh'). Số bịa.
+const photo = (amount, status, extra = {}) => item('2026-11-19', 'thu', amount, status, { source: 'anh', message_id: 'img', amount_from: amount == null ? null : 'anh',
+  image_vnd: amount, media: [{ id: 'a'.repeat(64) }], image: { by: amount == null ? 'human' : 'ocr', bank: 'VCB', txn_time: null, candidates: [] }, ...extra });
+
+test('Ảnh: tổng đếm riêng số khoản từ ảnh; ảnh chưa đọc chắc không vào tổng', () => {
+  const sum = M.summarize([photo(7_000_000, 'RECORDED'), photo(null, 'NO_AMOUNT'), item('2026-11-19', 'thu', 5_000_000, 'WAITING')]);
+  assert.deepEqual([sum.thu, sum.noAmount], [{ n: 2, img: 1, vnd: '12000000' }, 1]);
+});
+
+test('Ảnh: câu trạng thái nói rõ lý do, không đoán', () => {
+  const unsure = M.statusText(photo(null, 'NO_AMOUNT', { image: { by: 'human', candidates: [1_050_000, 1_500_000] } }));
+  assert.deepEqual([unsure.text, unsure.note], ['Ảnh chưa đọc chắc', 'Máy đọc ra 1.050.000 đ và 1.500.000 đ. Mở ảnh để xem, không cộng vào tổng.']);
+  assert.match(M.statusText(photo(null, 'NO_AMOUNT')).note, /^Máy không đọc ra số\./);
+  assert.equal(M.statusText(photo(7, 'UNKNOWN_TARGET', { link: 'none' })).note, 'Hội thoại chưa gắn sổ.');
+  assert.equal(M.statusText(photo(7, 'UNKNOWN_TARGET', { link: 'many', ambiguous: true })).note, 'Hội thoại gắn nhiều sổ.');
+  assert.equal(M.statusText(photo(7, 'UNKNOWN_TARGET', { link: 'failed', unchecked: true })).note, 'Không đọc được danh sách nhóm gắn sổ lúc này.');
+  // Danh sách khách hay phiếu đọc lỗi (không phải danh sách nhóm): giữ lý do thật, thêm câu chưa kiểm được.
+  assert.equal(M.statusText(photo(7, 'UNKNOWN_TARGET', { link: 'none', unchecked: true })).note, 'Hội thoại chưa gắn sổ. Chưa kiểm được phiếu đúng số lúc này.');
+  assert.equal(M.statusText(photo(7, 'RECORDED')).text, 'Đã vào sổ');
+});
+
+test('Ảnh chứng khác số gõ: "Lệch: mẫu X, ảnh Y", câu đối chiếu vẫn giữ ở ghi chú; đếm vào Lệch số', () => {
+  const diff = item('d', 'thu', 5_000_000, 'RECORDED', { image_vnd: 5_500_000, image_diff: true, ledger_vnd: 5_000_000 });
+  assert.deepEqual([M.statusText(diff).tone, M.statusText(diff).text, M.statusText(diff).note], ['warn', 'Lệch: mẫu 5.000.000 đ, ảnh 5.500.000 đ', 'Đã vào sổ.']);
+  const suggest = item('d', 'thu', 5_000_000, 'SUGGEST', { image_vnd: 5_500_000, image_diff: true, ledger_ref: { name: 'SỔ D' } });
+  assert.equal(M.statusText(suggest).note, 'Có thể là phiếu của sổ SỔ D. Người xác nhận.');   // gợi ý vẫn là gợi ý, không thành "sổ ghi"
+  const missing = item('d', 'thu', 5_000_000, 'MISSING', { image_vnd: 5_500_000, image_diff: true });
+  assert.equal(M.statusText(missing).note, 'Chưa vào sổ. Quá 3 ngày vẫn chưa thấy trong sổ.');
+  assert.deepEqual([M.counts([diff, missing]).diff, M.counts([diff, missing]).missing, M.summarize([diff, missing]).diff], [2, 1, 2]);
+  assert.equal(M.imageDiff(item('d', 'thu', 5_000_000, 'RECORDED', { image_vnd: 5_000_000, image_diff: false })), false);
+  assert.equal(M.statusText(item('d', 'thu', 5, 'AMOUNT_DIFF', { ledger_vnd: 4 })).text, 'Lệch: báo 5 đ, sổ 4 đ');   // lệch với sổ như cũ
+  const mark = item('d', 'thu', 8_000_000, 'WAITING', { source: 'mark', image_vnd: 7_000_000 });
+  assert.deepEqual([M.statusText(mark).text, M.statusText(mark).note], ['Chờ vào sổ', 'Ảnh đọc ra 7.000.000 đ.']);   // dấu giữ số người nhập
+});
+
+test('Ảnh: hai ảnh trong một tin là hai khoản khác nhau khi nhận khoản mới', () => {
+  const one = photo(1, 'WAITING', { media: [{ id: '1'.repeat(64) }] });
+  const two = photo(2, 'WAITING', { media: [{ id: '2'.repeat(64) }] });
+  assert.notEqual(M.keyOf(one), M.keyOf(two));
+  assert.deepEqual(M.newKeys([one], [one, two]), [M.keyOf(two)]);
 });

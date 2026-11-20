@@ -43,6 +43,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-chip{min-height:40px;padding:0 14px;border:1px solid #c9d0d8;border-radius:20px;background:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
 .tc-chip b{margin-left:4px;font-variant-numeric:tabular-nums}
 .tc-chip[aria-pressed="true"]{background:#e4eefb;border-color:var(--accent);color:var(--accent-ink)}
+.tc-note{margin:0;color:var(--ink-2);font-size:13px}   /* PR-4b: ảnh cũ gửi lại, giao dịch trước khoảng xem */
 
 /* Danh sách theo ngày: đầu ngày có tổng, mỗi khoản một hàng lưới. */
 .tc-day{border:1px solid var(--line);border-radius:var(--radius);background:#fff;overflow:hidden}
@@ -64,6 +65,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-kind.ung{background:var(--warning-soft);color:var(--warning)}
 .tc-amt{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tc-amt .dash{color:var(--ink-3);font-weight:600}
+.tc-amt .tc-src{display:block;color:var(--ink-3);font-size:12px;font-weight:600}   /* PR-4b: số do máy đọc từ ảnh, không phải người gõ */
 .tc-target{min-width:0;overflow-wrap:anywhere}
 .tc-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tc-status b{display:block}

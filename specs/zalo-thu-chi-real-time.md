@@ -200,9 +200,62 @@ Không thêm bảng DB, không mở cổng ghi mới trên `hao`, không đổi 
 
 ### B4. OCR ảnh chuyển khoản (đợt sau, theo P0)
 
-- Chạy ở máy có Zalo, ngay trong `watch`, chỉ cho ảnh của nhóm đã chọn.
-- Gói thêm `ocr: {amount_vnd, txn_time, bank, txn_ref, engine, ok}` vào tin ảnh. `hao` chỉ nhận các trường này, không nhận số tài khoản hay tên chủ tài khoản trên ảnh.
-- Engine dùng lại engine của `insurance_sync` nếu đọc được ảnh chụp màn hình ngân hàng. Chưa kiểm engine đó là gì: CÒN MỞ.
+- Chạy ở máy có Zalo, chỉ cho ảnh của nhóm đã chọn: bộ xử lý `money_images` của [`zalo-agent`](zalo-agent.md#phần-3-kết-quả-đọc-ảnh-có-nguồn-gốc) (PR-4a, đã merge 20/11/2026, mặc định tắt).
+- **Sửa 20/11/2026:** kết quả không gói vào tin ảnh mà đi riêng trong `money-reads.json` (khóa là sha256 ảnh, trùng `media[].id` của gói chat). `hao` chỉ nhận kết luận (`by`, số tiền, giờ giao dịch, ngân hàng) và số mỗi engine đọc ra, không nhận chữ OCR, số tài khoản hay tên. Chưa có mã giao dịch.
+
+### B4 trên `hao`: trang Thu chi hiện số đọc từ ảnh (PR-4b, 21/11/2026)
+
+`web/v7_cash_chat.py` đọc `$WEBDEBIT_ZALO_READS_DIR/money-reads.json` (mặc định `/srv/v7/zalo-reads`, thư mục mà máy Zalo đẩy tới bằng `--reads-target`). Chỉ đọc, không ghi gì.
+
+- **Thiếu file** (chưa bật `money_images`): trang như trước.
+- **File hỏng, quá 8 MB hoặc sai khuôn** (`schema` khác 1): bỏ cả file. Trang có dòng cảnh báo "Không đọc được kết quả đọc ảnh lúc này", không báo lỗi trang.
+- **Một mục sai khuôn bị bỏ, không đoán:** khóa không phải sha256; kết luận có số mà số không phải số nguyên dương; giờ giao dịch hay tên ngân hàng lạ thì để trống.
+
+Luật:
+
+1. **Ảnh chứng của khoản gõ theo mẫu** (cùng người gửi, trong 2 phút sau tin) giữ như B1, và thắng bất kể thứ tự đọc: ảnh đã làm ảnh chứng ở bất kỳ hội thoại nào thì không thành khoản riêng. Nếu các ảnh chứng đọc ra đúng một số (tính trước khi gộp ảnh khác vào):
+   - mẫu không đọc được số: lấy số của ảnh, ghi "đọc từ ảnh";
+   - mẫu và ảnh khác số: cảnh báo **Lệch: mẫu X, ảnh Y** (đếm vào Lệch số, như Luồng 4). Trạng thái đối chiếu giữ nguyên và hiện ở dòng dưới (đã vào sổ, gợi ý sổ, chưa vào sổ…).
+2. **Ảnh còn lại có kết luận thành một khoản thu "từ ảnh"**, mỗi ảnh một khoản, khi người gửi không phải tài khoản Zalo của mình. Ảnh mình gửi đi thường là mình trả hoặc chuyển tiếp, không phải tiền vào.
+   - **Đối tượng:** hội thoại gắn đúng một sổ (`get_zalo_links`, ZALO-GROUP-01) thì là sổ đó. Chưa gắn hoặc gắn nhiều sổ thì chưa rõ của ai, vẫn gợi ý phiếu đúng số như thu chưa rõ sổ.
+   - **Số:** số của kết luận (`ocr`, hoặc hai đường ngoài khớp nhau). Kết luận "cần người xem" (`human`) thì không có số, không vào tổng, hiện "Ảnh chưa đọc chắc" kèm các số máy đọc ra.
+   - **Ngày:** ngày tin. Ảnh cũ gửi lại (giao dịch trước ngày tin, trong 93 ngày) thì là ngày giao dịch, để đối chiếu đúng phiếu và cộng vào đúng ngày tiền vào. Giao dịch trước khoảng đang xem thì không cộng, trang chỉ ghi số ảnh như vậy.
+   - **Đối chiếu sổ** như khoản thu gõ tay (B2), trừ một điều: khoản từ ảnh không ghép đoán (lệch số, gợi ý) vào phiếu mà một dấu "Khách báo đã chuyển" đang giữ. Ảnh khác số với phiếu đó thường là lần trả khác. Khoản gõ tay vẫn ghép như cũ vì gõ nhầm số là chuyện thường.
+3. **Không đếm hai lần.** Mỗi khoản thu gõ theo mẫu và mỗi dấu "Khách báo đã chuyển" là một lần trả. Ảnh (theo thứ tự gửi) gắn vào:
+   - cùng ảnh (cùng khóa) gửi nhiều lần: một khoản, lần sớm nhất;
+   - chỗ đang giữ một ảnh cùng hội thoại, cùng số, cùng giờ giao dịch (tới phút, theo giờ VN), không giới hạn ngày: cùng một giao dịch;
+   - dấu đặt trên chính tin ảnh;
+   - khoản thu gõ cùng hội thoại, cùng số (số gõ hoặc số ảnh chứng), cách không quá 24 giờ; rồi dấu cùng hội thoại, cùng số, ngày báo cách ngày giao dịch của ảnh không quá 1 ngày. Hai điều kiện: giờ giao dịch không vênh với ảnh chỗ đó đã có (giờ khác là lần trả khác), và chỗ đó chưa nhận ảnh nào theo luật này. Ảnh gắn vào dấu thì giữ số người nhập trên dấu; ảnh đọc ra số khác chỉ ghi chú "Ảnh đọc ra X".
+4. **Trang:**
+   - khoản từ ảnh có chữ "đọc từ ảnh" dưới số tiền;
+   - cột nội dung ghi giờ giao dịch rồi ngân hàng máy đọc được ("Giao dịch 09:58 · VIETCOMBANK"; khác ngày tin thì thêm ngày). Giờ đứng trước vì ô hẹp bị cắt ở cuối dòng. Không đọc ra giờ thì ghi "Ảnh chuyển khoản · ngân hàng";
+   - khoản nằm ở ngày khác ngày tin (ảnh cũ gửi lại, dấu) thì cột giờ ghi cả ngày tin;
+   - khoản chưa rõ của ai ghi lý do: "Hội thoại chưa gắn sổ", "Hội thoại gắn nhiều sổ" hoặc "Không đọc được danh sách nhóm gắn sổ lúc này";
+   - khối tổng ghi "N khoản, M từ ảnh".
+
+**"Chờ xác nhận" của Luồng 4:** khoản từ ảnh là máy đọc. Khớp phiếu đúng số nghĩa là sổ đã xác nhận. Nút xác nhận bằng tay thuộc PR-3.
+
+**Giờ giao dịch** lưu dạng ISO. Hao nhận thêm cách ghi của đường đọc ngoài (cách thay `T`, `Z`, `+0700`) rồi chuẩn hóa; ngày giờ không có thật thì để trống.
+
+**API:** mỗi `item` thêm:
+
+- `image_vnd`: số đọc từ ảnh của khoản (khoản gõ: chỉ ảnh chứng), hoặc `null`;
+- `image_diff`: `true` khi mẫu và ảnh chứng khác số;
+- `amount_from`: `anh` khi số tiền lấy từ ảnh, không thì `null`;
+- `image`: chỉ có ở khoản từ ảnh, gồm `{by, bank, txn_time, candidates}`;
+- `link`: chỉ có ở khoản từ ảnh, là `one`, `many`, `none` hoặc `failed`.
+
+`source` thêm giá trị `anh`. `totals` thêm `from_image` (số khoản từ ảnh có số), và `amount_diff` đếm cả `image_diff`. Kết quả thêm `images_before` (số ảnh cũ gửi lại có giao dịch trước khoảng xem). `sources_failed` có thể có:
+
+- `reads`: file đọc ảnh hỏng;
+- `links`: không đọc được danh sách nhóm gắn sổ.
+
+Review độc lập ngày 21/11/2026 (FinanceBullkk/webdebit#562) tìm ra 8 chỗ đếm hai lần, ẩn nhầm hoặc ghi sai lý do ở bản đầu. Luật trên là bản đã sửa; mỗi chỗ có một test trong `ImageReadTests`.
+
+CÒN MỞ:
+
+- Ảnh chuyển khoản do người không phải tài khoản Zalo của mình gửi vẫn tính là thu, kể cả nhân viên khác trong nhóm khách.
+- File chưa có mã giao dịch. Hai ảnh khác nhau của cùng một giao dịch mà máy không đọc ra giờ giao dịch vẫn thành hai khoản.
 
 ## P0: đo trước khi code
 
@@ -287,6 +340,14 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
   - Mở tin sang đúng tin;
   - Zalo cũ hiện câu "cập nhật lần cuối";
   - dùng được bằng bàn phím.
+- [x] PR-4b, test với gói chat, `money-reads.json` và sổ bịa (`tests/test_v7_cash_chat.py`, `test-thu-chi-*.js`):
+  - ảnh có kết luận thành khoản thu, đối tượng theo hội thoại gắn đúng một sổ;
+  - ảnh mình gửi không thành khoản;
+  - `human` không vào tổng;
+  - mẫu và ảnh khác số thì Lệch, mẫu không có số thì lấy số ảnh;
+  - các luật không đếm hai lần, kể cả 8 tình huống của review #562 (ảnh chứng thắng bất kể thứ tự, giờ giao dịch khác là lần trả khác, ảnh cũ gửi lại, phiếu của dấu khách báo);
+  - file thiếu, hỏng hoặc mục sai khuôn không làm hỏng trang;
+  - trang hiện "đọc từ ảnh", "Ảnh chưa đọc chắc", "N khoản, M từ ảnh".
 - [ ] PR-3: harness PostgreSQL cho `cash_report_review`: không đổi dấu vân tay tổng khách, bấm lặp chỉ ghi một lần, loại mà thiếu lý do thì bị từ chối, quyền của role app và role reader.
 - [ ] `npm run check` xanh; `node scripts/check-secrets.js` xanh.
 - [ ] Trên `hao` (dữ liệu thật): gửi một tin thử vào nhóm thì tin lên web trong ≤ 30 giây; tắt Zalo 20 phút trong giờ làm việc thì có email.
@@ -301,6 +362,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 | PR-2 | B1–B2: `v7_cash_chat.py`, route đọc, trang Thu chi chỉ xem | Không | — |
 | PR-3 | B3: bảng `cash_report_review`, hàm, nút xác nhận/sửa/loại | Có, ngoài đường tiền | Tự triển khai theo `DEPLOY-CLAUDE-01` |
 | PR-4 | B4: OCR ở máy có Zalo (P0 đạt 20/20), Gemini cho ảnh OCR đọc không chắc theo [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md) | Không | Khóa API và địa chỉ proxy đặt trên máy có Zalo |
+| PR-4b | B4 trên `hao`: trang Thu chi đọc `money-reads.json` | Không | — (số chỉ hiện khi máy Zalo bật `money_images` và `--reads-target`) |
 
 - Agent: claude ([`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md)).
 - Review: opus cho PR-3 (DB, quyền), sonnet medium cho các PR còn lại.
