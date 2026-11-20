@@ -1,7 +1,7 @@
 """ZALO-AGENT-01: `python -X utf8 -I …\\zalo_agent run [--once] [--dry-run]`, một tiến trình nền ở máy có Zalo.
 
 Cấu hình đọc từ tham số hoặc biến môi trường (`ZALO_LIVE_SYNC`, `ZALO_AGENT_ROOT`, `ZALO_AGENT_TARGET`,
-`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`, `ZALO_AGENT_MONEY_IMAGES`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
+`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`, `ZALO_AGENT_MONEY_IMAGES`, `ZALO_AGENT_READS_TARGET`; gửi ảnh đã che ra Gemini: `ZALO_AGENT_EXTERNAL`, `ZALO_AGENT_GEMINI_*`, `GEMINI_API_KEY`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
 `bundle/` (gói chat dựng tại máy), `insurance/` (bản gọn bảo hiểm), `reads/` (kết quả OCR ảnh, chỉ ở máy), `logs/` (xoay vòng 10 MB x 3). Chỉ đọc thư mục live-sync.
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ class Agent:
             self.processors.append(InsuranceProcessor(live, self.state, self.root / "insurance", insurance_target,
                                                       snapshot=insurance_snapshot, store=insurance_store, run=run, dry_run=dry_run, clock=clock))
         if money_images:   # mặc định tắt: agent chạy code từ checkout `main`, bật sẵn thì merge là bắt đầu OCR trên máy thật
-            self.processors.append(MoneyImagesProcessor(live, self.state, self.root / "reads", dry_run=dry_run, clock=clock, **(money_args or {})))
+            self.processors.append(MoneyImagesProcessor(live, self.state, self.root / "reads", dry_run=dry_run, clock=clock, run=run, **(money_args or {})))
         self.last = {}
         self.last_status_at = 0.0
         # Lùi dần RIÊNG từng bộ xử lý: lỗi của bộ này không bao giờ làm bộ khác chạy chậm đi.
@@ -220,6 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--insurance-store", default=os.environ.get("ZALO_INSURANCE_STORE"), help="mặc định: <live-sync>/remote-media-store")
     run.add_argument("--money-images", choices=("on", "off"), default=os.environ.get("ZALO_AGENT_MONEY_IMAGES", "off"),
                      help="bật bộ xử lý money_images (OCR ảnh của nhóm đã chọn tại máy); MẶC ĐỊNH off")
+    run.add_argument("--reads-target", default=os.environ.get("ZALO_AGENT_READS_TARGET", ""),
+                     help="đích file kết quả đọc ảnh cho hao, ví dụ hao:/srv/v7/zalo-reads; MẶC ĐỊNH RỖNG = không đẩy (cần thư mục do bước bật tạo)")
     run.add_argument("--money-max-age-days", type=int, default=30, help="chỉ đọc ảnh gửi trong chừng này ngày khi dựng lại từ đầu")
     run.add_argument("--max-fetch", type=int, default=50, help="số ảnh tối đa tải từ Zalo mỗi lượt")
     run.add_argument("--max-age-days", type=int, default=30)
@@ -235,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     agent = Agent(LiveSync(Path(args.live_sync)), root, args.target, args.status_target, dry_run=args.dry_run,
                   insurance_target=args.insurance_target, insurance_snapshot=Path(args.insurance_snapshot) if args.insurance_snapshot else None,
                   insurance_store=Path(args.insurance_store) if args.insurance_store else None,
-                  money_images=args.money_images == "on", money_args={"max_age_days": args.money_max_age_days},
+                  money_images=args.money_images == "on", money_args={"max_age_days": args.money_max_age_days, "reads_target": args.reads_target},
                   max_fetch=args.max_fetch, max_age_days=args.max_age_days)
     if not agent.lock():   # trước khi mở agent.log: bản thứ hai giữ handle log sẽ làm bản chính không xoay vòng được log trên Windows
         print("đang có một agent khác chạy")
