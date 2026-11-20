@@ -29,6 +29,7 @@ import v7_api_sheet
 import v7_api_zalo
 import v7_book_export
 import v7_booking_view
+import v7_cash_chat
 import v7_company_info
 import v7_debit_note_config
 import v7_doixe_xlsx
@@ -367,6 +368,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, v7_booking_view.view()
+    elif parts.path == "/api/v7/cash-chat":
+        # ZALO-THU-CHI-01: khoản thu/chi/ứng báo trong nhóm Zalo đã chọn, đối chiếu chỉ đọc với phiếu thu và Đội xe; tin chat không vào model.
+        return 200, v7_cash_chat.handle_get(parts.query, runner, actor)
     elif parts.path == "/api/v7/report/month":
         # BAO-CAO-THANG-01: chuyến theo tháng ngày chuyến, booking ↔ Sheet (file của phép kiểm booking) ↔ web (get_trip_month).
         return 200, v7_month_report.handle_get(parts.query, runner, READS, actor)

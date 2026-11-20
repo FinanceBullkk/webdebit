@@ -428,6 +428,19 @@ class ChatStore:
         return {"conversation_id": conversation_id, "messages": rows, "since": token, "token": new_token, "reset": False,
                 "total": total, "has_more": more, "latest_ms": latest_ms}
 
+    def messages_between(self, start_ms: int, end_ms: int) -> list[tuple[str, dict]]:
+        """Mọi tin chưa xóa có giờ gửi trong [start_ms, end_ms) của mọi hội thoại, theo từng hội thoại rồi giờ gửi (ZALO-THU-CHI-01: trang Thu chi)."""
+        with self.lock:
+            picked = [(cid, entry) for cid, entries in self.entries.items()
+                      for entry in entries[bisect.bisect_left(entries, (start_ms,)):bisect.bisect_left(entries, (end_ms,))]
+                      if not entry[4] & TOMBSTONE]
+        streams: dict = {}
+        try:
+            return [(cid, self.shape(self._read(streams, entry))) for cid, entry in picked]
+        finally:
+            for stream in streams.values():
+                stream.close()
+
     def messages(self, conversation_id: str, page: int = 0, limit: int = DEFAULT_LIMIT, query: str = "",
                  focus: str = "") -> dict:
         """Trang 0 là các tin mới nhất; tin trong trang xếp theo thời gian tăng dần.
