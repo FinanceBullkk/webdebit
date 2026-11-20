@@ -37,9 +37,23 @@ def agent_version(repo: Path) -> str:
     return text if done.returncode == 0 and re.fullmatch(r"[0-9a-f]{7,40}", text) else "unknown"
 
 
+def track_identity(state: Path, identity: str, now: float) -> str:
+    """Lúc `identity` đổi sang giá trị hiện tại. Nhớ trong `<state>/identity.json` để chạy lại agent không mất mốc."""
+    path = Path(state) / "identity.json"
+    saved = read_json(path)
+    if isinstance(saved, dict) and saved.get("identity") == identity and isinstance(saved.get("since"), str):
+        return saved["since"]
+    Path(state).mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(json.dumps({"identity": identity, "since": now_iso(now)}), encoding="utf-8")
+    os.replace(tmp, path)
+    return now_iso(now)
+
+
 def compose(previous: dict | None, now: float, version: str, selected: int, live, results: dict[str, dict],
-            push_ok_at: str | None, push_error: str | None) -> dict:
-    """`live`: LiveSync. `results`: kết quả `step()` từng bộ xử lý. `last_ok_at` giữ giá trị lượt trước khi lượt này lỗi."""
+            push_ok_at: str | None, push_error: str | None, identity: tuple[str, str]) -> dict:
+    """`live`: LiveSync. `results`: kết quả `step()` từng bộ xử lý. `identity`: (giá trị, lúc đổi sang giá trị đó).
+    `last_ok_at` giữ giá trị lượt trước khi lượt này lỗi."""
     before = (previous or {}).get("processors", {}) if isinstance((previous or {}).get("processors"), dict) else {}
     revision = live.revision()
     processors = {}
@@ -53,7 +67,7 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             "error": error}
     failed = next((item["error"] for item in processors.values() if item["error"] == "push_failed"), None)
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
-            "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": live.identity()},
+            "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},
             "processors": processors,
             "push": {"last_ok_at": push_ok_at or ((previous or {}).get("push") or {}).get("last_ok_at"), "error": code(failed or push_error)}}
 

@@ -4,7 +4,8 @@ Dựng đầy đủ (lần đầu, baseline đổi, đổi nhóm đã chọn, m�
 Giữa hai lần dựng chỉ nối vào `data-<…>/messages-delta.jsonl` những tin thêm, sửa, xóa của nhóm đã chọn:
 
 - tin thêm hoặc sửa: cùng khuôn một dòng `messages.jsonl` của gói;
-- tin xóa: `{"message_id", "conversation_id", "timestamp", "deleted": true}`.
+- tin xóa: đúng dòng mà bản dựng đầy đủ sinh cho tin đó (các trường làm sạch + `deleted: true`, nên có đủ
+  `message_id`, `conversation_id`, `timestamp` của hợp đồng).
 
 `users.json` và `media.json` của thư mục dữ liệu hiện tại được gộp thêm người gửi và ảnh mới của các dòng delta
 (`bundle_sha256` giữ giá trị của lần dựng đầy đủ). `export-report.json` thêm `delta_bytes`, `delta_lines`, `revision`.
@@ -108,8 +109,7 @@ class BundleProcessor:
         lines = []
         for row in rows:
             if row.get("deleted"):
-                lines.append({"message_id": row.get("message_id"), "conversation_id": row.get("conversation_id"),
-                              "timestamp": row.get("timestamp"), "deleted": True})
+                lines.append({**clean_row(row), "deleted": True})   # giống hệt dòng tin xóa của một bản dựng đầy đủ
                 continue
             clean = clean_row(row)
             if row.get("message_type") in wb.IMAGE_TYPES or row.get("client_message_id") in media.local:

@@ -82,8 +82,10 @@ class Agent:
             self.last = results
             if not (force_status or changed or now - self.last_status_at >= STATUS_EVERY):
                 return None
+            identity = self.live.identity()
             status = status_file.compose(status_file.load(self.state), now, self.version, len(self.live.selection()), self.live,
-                                         results, self.push_ok_at, self.push_error)
+                                         results, self.push_ok_at, self.push_error,
+                                         (identity, status_file.track_identity(self.state, identity, now)))
             data = status_file.write(self.state, status)
             self.last_status_at = now
             if not self.dry_run:

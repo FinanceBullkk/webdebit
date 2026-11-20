@@ -5,11 +5,14 @@ Dữ liệu bịa trong thư mục tạm (kho live-sync giả, máy chủ giả 
 
 import contextlib
 import hashlib
+import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from datetime import datetime, timedelta
@@ -19,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import zalo_web_bundle as wb  # noqa: E402
 from test_zalo_web_bundle import (  # noqa: E402
+    BAN,
     BASH,
     GROUP,
     KHACH,
@@ -43,26 +47,61 @@ BUNDLE_REMOTE, STATUS_REMOTE = "/srv/v7/zalo-bundle", "/srv/v7/zalo-agent"
 
 
 class Remote:
-    """`hao` giả: mỗi đường dẫn đích là một thư mục tạm; chạy đúng dòng lệnh mà push() gửi qua ssh."""
+    """`hao` giả: mỗi đường dẫn đích là một thư mục tạm. `fast=False` chạy đúng dòng lệnh mà push() gửi qua ssh (đoạn shell
+    thật bằng bash + tar thật, ~1 giây mỗi lệnh trên Windows); `fast=True` mô phỏng cùng hai đoạn shell bằng Python để các
+    ca về con trỏ và delta chạy nhanh. `test_python_fake_matches_real_shell` giữ hai bản không lệch nhau."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, fast: bool = True):
         self.dirs = {BUNDLE_REMOTE: root / "bundle", STATUS_REMOTE: root / "agent"}
         for directory in self.dirs.values():
             directory.mkdir()
+        self.fast = fast
         self.calls: list[tuple[str, bool]] = []
         self.drop_after_apply = False
+        self.tars: list[list[str]] = []   # tên các thành viên của mỗi tar đã gửi, theo thứ tự trong tar
 
     def __call__(self, host, command, stdin=None):
         assert host == "fake"
         remote = next(path for path in self.dirs if path in command)
-        done = subprocess.run([BASH, "-c", command.replace(remote, self.dirs[remote].as_posix())], stdin=stdin,
-                              capture_output=True, check=False)
-        assert done.returncode == 0, done.stderr
+        data = stdin.read() if stdin is not None else None   # đọc một lần: tránh lệch vị trí đọc của handle khi chuyển cho bash
+        if data is not None:
+            with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
+                self.tars.append(tar.getnames())
+        out = self.emulate(remote, command, data) if self.fast else self.shell(remote, command, data)
         self.calls.append((remote, stdin is not None))
         if stdin is not None and self.drop_after_apply:
             self.drop_after_apply = False
             raise pusher.PushError("ssh đứt sau khi máy chủ đã áp gói")
+        return out
+
+    def shell(self, remote, command, data):
+        done = subprocess.run([BASH, "-c", command.replace(remote, self.dirs[remote].as_posix())], input=data,
+                              capture_output=True, check=False)
+        assert done.returncode == 0, done.stderr
         return done.stdout.decode("utf-8", "replace")
+
+    def emulate(self, remote, command, data):
+        _, _, script, _, _, *args = shlex.split(command)
+        root = self.dirs[remote]
+        if script == pusher.INVENTORY_SCRIPT:
+            files = [path for path in root.rglob("*") if path.is_file() and not path.relative_to(root).parts[0].startswith(".incoming-")]
+            listing = "".join(f"{path.relative_to(root).as_posix()}\t{path.stat().st_size}\n" for path in files)
+            hashes = "".join(f"{hashlib.sha256((root / name).read_bytes()).hexdigest()}  {name}\n" for name in args if (root / name).is_file())
+            return listing + "---\n" + hashes
+        assert script == pusher.APPLY_SCRIPT
+        final, patterns = args[0], args[1:]
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
+            members = {member.name: tar.extractfile(member).read() for member in tar.getmembers()}
+        for rel in members[".list"].decode().splitlines():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_bytes(members[rel])
+        (root / final).write_bytes(members[final])
+        keep = set(members[".keep"].decode().splitlines())
+        for pattern in patterns:
+            for path in sorted(root.glob(pattern)):
+                if path.relative_to(root).as_posix() not in keep:
+                    shutil.rmtree(path) if path.is_dir() else path.unlink()
+        return ""
 
     def applies(self, remote=BUNDLE_REMOTE):
         return sum(1 for path, applied in self.calls if path == remote and applied)
@@ -75,7 +114,6 @@ def snapshot(directory: Path) -> dict[str, bytes]:
     return {str(path.relative_to(directory)): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
 
 
-@unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn shell phía máy chủ")
 class AgentTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -88,6 +126,7 @@ class AgentTest(unittest.TestCase):
         (self.src / "baseline-manifest.json").write_text(json.dumps({"messages_sha256": "a" * 64}), encoding="utf-8")
         wb.Source(self.src).save_selection([GROUP])
         self.remote = Remote(base / "remote")
+        self.base = base
         self.now = NOW
         self.live = LiveSync(self.src)
         self.processor = self.make()
@@ -160,7 +199,8 @@ class AgentTest(unittest.TestCase):
         lines = self.remote_delta()
         self.assertEqual([line["message_id"] for line in lines], ["m1", "m3", added["message_id"]])   # theo thứ tự trong messages.jsonl
         self.assertEqual(lines[0], clean_row(updated))
-        self.assertEqual(lines[1], {"message_id": "m3", "conversation_id": GROUP, "timestamp": "1700000003000", "deleted": True})
+        self.assertEqual((lines[1]["message_id"], lines[1]["conversation_id"], lines[1]["timestamp"], lines[1]["deleted"], lines[1]["body"]),
+                         ("m3", GROUP, "1700000003000", True, None))
         self.assertEqual(lines[2]["body"], "tin mới của khách")
         report = self.remote_report()
         size = next(self.remote.dirs[BUNDLE_REMOTE].glob("data-*/messages-delta.jsonl")).stat().st_size
@@ -175,13 +215,17 @@ class AgentTest(unittest.TestCase):
         self.processor.step()
         text = row(GROUP, "m1", OWNER, 1_700_000_001_000, [{"title": "Thẻ", "description": "https://x.example/y", "href": "https://x.example/y"}], 21)
         self.publish(updated=[text])
+        self.publish(deleted=["m3"])
         self.processor.step()
         full = wb.build(wb.Source(self.src), Path(self.tmp.name) / "full", fetch=FakeCdn(), transcode=no_jxl, now=NOW + 5, max_age_days=None)
         built = {item["message_id"]: item for item in (json.loads(line) for line in
                  (Path(self.tmp.name) / "full" / full["data_dir"] / "messages.jsonl").read_text(encoding="utf-8").splitlines())}
-        delta = self.remote_delta()[0]
-        self.assertEqual(delta, {key: value for key, value in built["m1"].items() if key != "media"})
-        self.assertEqual(delta["body"], [{"title": "Thẻ"}])   # URL không lọt vào gói
+        delta = self.remote_delta()
+        self.assertEqual([line["message_id"] for line in delta], ["m1", "m3"])
+        for line in delta:   # cả tin sửa lẫn tin xóa giống hệt dòng của bản dựng đầy đủ
+            self.assertEqual(line, {key: value for key, value in built[line["message_id"]].items() if key != "media"})
+        self.assertEqual(delta[0]["body"], [{"title": "Thẻ"}])   # URL không lọt vào gói
+        self.assertTrue(built["m3"]["deleted"])
 
     def test_delta_of_new_image_adds_media_and_is_sent(self):
         self.processor.step()
@@ -195,6 +239,42 @@ class AgentTest(unittest.TestCase):
         data = next(self.remote.dirs[BUNDLE_REMOTE].glob("data-*"))
         self.assertIn(sha, json.loads((data / "media.json").read_text(encoding="utf-8")))
         self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / "media" / (sha + ".jpg")).is_file())
+
+    def test_push_order_delta_media_users_images_first_report_last(self):
+        self.processor.step()
+        url = "https://f6.photo.zdn.vn/order.jpg"
+        image = row(GROUP, "img2", KHACH, 1_700_000_100_000, {"title": "", "description": "", "oriUrl": url, "normalUrl": url}, 2)
+        self.publish(added=[image, self.message(body="chữ", sender=BAN)])   # người gửi mới: users.json đổi
+        before = len(self.remote.tars)
+        self.processor.step()
+        names = self.remote.tars[before]
+        sha = hashlib.sha256(cdn_bytes(url)).hexdigest()
+        data = next(self.remote.dirs[BUNDLE_REMOTE].glob("data-*")).name
+        listed = ["messages-delta.jsonl", "media.json", "users.json"]
+        for name in [f"{data}/{item}" for item in listed] + [f"media/{sha}.jpg"]:
+            self.assertIn(name, names)
+            self.assertLess(names.index(name), names.index(wb.REPORT))
+        self.assertEqual(names[-1], wb.REPORT)                          # file chốt là thành viên cuối của tar
+        self.assertNotIn(wb.REPORT, self.processor.plan(data).files and [item.rel for item in self.processor.plan(data).files])
+        self.assertEqual(self.processor.plan(data).final.rel, wb.REPORT)
+
+    @unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn shell phía máy chủ")
+    def test_python_fake_matches_real_shell(self):
+        """Cùng một chuỗi bước chạy qua bản mô phỏng Python và đoạn shell thật phải để lại cùng một cây thư mục trên máy chủ."""
+        root = Path(self.tmp.name) / "real"
+        (root / "remote").mkdir(parents=True)
+        real = Remote(root / "remote", fast=False)
+        twin = BundleProcessor(self.live, root / "state", root / "bundle", "fake:" + BUNDLE_REMOTE, run=real, fetch=FakeCdn(),
+                               transcode=no_jxl, max_age_days=None, clock=lambda: self.now)
+        steps = [lambda: None,
+                 lambda: self.publish(added=[self.message(body="một")], deleted=["m3"]),
+                 lambda: (wb.Source(self.src).save_selection([GROUP, OTHER]), setattr(self, "now", self.now + 60)),
+                 lambda: (wb.Source(self.src).save_selection([GROUP]), setattr(self, "now", self.now + 60))]   # bỏ chọn: máy chủ phải dọn
+        for index, change in enumerate(steps):
+            change()
+            self.processor.step()
+            twin.step()
+            self.assertEqual(snapshot(self.remote.dirs[BUNDLE_REMOTE]), snapshot(real.dirs[BUNDLE_REMOTE]), f"bước {index}")
 
     def test_revision_without_selected_messages_moves_cursor_and_sends_nothing(self):
         self.processor.step()
@@ -310,7 +390,7 @@ class PushTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         base = Path(self.tmp.name)
         (base / "remote").mkdir()
-        self.remote = Remote(base / "remote")
+        self.remote = Remote(base / "remote", fast=False)
         self.target = "fake:" + BUNDLE_REMOTE
         self.dir = self.remote.dirs[BUNDLE_REMOTE]
 
@@ -417,20 +497,30 @@ class SourceStatusTest(unittest.TestCase):
     def test_status_matches_the_contract_and_never_carries_free_text(self):
         (self.src / "poller-identity.json").write_text(json.dumps({"status": "attached"}), encoding="utf-8")
         results = {"bundle": {"action": "idle", "revision": 80, "error": None}}
-        first = status_file.compose(None, NOW, "abc1234", 1, self.live, results, None, None)
+        first = status_file.compose(None, NOW, "abc1234", 1, self.live, results, None, None, ("attached", "2026-11-01T09:00:00+07:00"))
         self.assertEqual(set(first), {"schema", "at", "agent_version", "selected_groups", "live_sync", "processors", "push"})
         self.assertEqual(first["schema"], 1)
         self.assertEqual(first["at"], "2026-11-01T09:26:40+07:00")
-        self.assertEqual(first["live_sync"]["identity"], "attached")
+        self.assertEqual(first["live_sync"], {"revision": 87, "revision_at": None, "identity": "attached",
+                                              "identity_since": "2026-11-01T09:00:00+07:00"})
         self.assertEqual(set(first["processors"]["bundle"]), {"revision", "lag_revisions", "last_ok_at", "error"})
         self.assertEqual((first["processors"]["bundle"]["revision"], first["processors"]["bundle"]["lag_revisions"]), (80, 7))
         self.assertEqual(first["push"], {"last_ok_at": None, "error": None})
         failed = {"bundle": {"action": "retry", "revision": 80, "error": "Lỗi: mạng đứt tới 100.1.2.3"}}
-        second = status_file.compose(first, NOW + 60, "abc1234", 1, self.live, failed, "2026-11-01T09:26:40+07:00", None)
+        second = status_file.compose(first, NOW + 60, "abc1234", 1, self.live, failed, "2026-11-01T09:26:40+07:00", None, ("attached", "x"))
         self.assertEqual(second["processors"]["bundle"]["error"], "unexpected")                       # chữ tự do bị thay bằng mã
         self.assertEqual(second["processors"]["bundle"]["last_ok_at"], first["processors"]["bundle"]["last_ok_at"])   # lỗi thì giữ mốc cũ
         self.assertNotIn("100.1.2.3", json.dumps(second))
-        self.assertEqual(status_file.compose(second, NOW, "v", 0, self.live, {"bundle": {"revision": 80, "error": "push_failed"}}, None, None)["push"]["error"], "push_failed")
+        self.assertEqual(status_file.compose(second, NOW, "v", 0, self.live, {"bundle": {"revision": 80, "error": "push_failed"}}, None, None,
+                                                ("unknown", "x"))["push"]["error"], "push_failed")
+
+    def test_identity_since_changes_only_when_identity_changes_and_survives_restart(self):
+        state = Path(self.tmp.name) / "state"
+        self.assertEqual(status_file.track_identity(state, "waiting_for_zalo", NOW), "2026-11-01T09:26:40+07:00")
+        self.assertEqual(status_file.track_identity(state, "waiting_for_zalo", NOW + 600), "2026-11-01T09:26:40+07:00")   # giữ mốc cũ
+        self.assertEqual(status_file.track_identity(state, "attached", NOW + 900), "2026-11-01T09:41:40+07:00")
+        self.assertEqual(status_file.track_identity(state, "attached", NOW + 9000), "2026-11-01T09:41:40+07:00")
+        self.assertEqual(status_file.track_identity(state, "waiting_for_zalo", NOW + 9600), "2026-11-01T12:06:40+07:00")   # đổi lại: mốc mới
 
     def test_cursor_rules(self):
         base = {"revision": 100, "baseline_sha256": "x", "selection_sha256": cursors.selection_sha256([GROUP]), "built_at": cursors.now_iso(NOW)}
@@ -446,7 +536,6 @@ class SourceStatusTest(unittest.TestCase):
         self.assertEqual(cursors.rebuild_reason({**base, "built_at": cursors.now_iso(early - 86400)}, 100, "x", [GROUP], early + 3 * 3600), "nightly")
 
 
-@unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn shell phía máy chủ")
 class AgentCycleTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -470,6 +559,8 @@ class AgentCycleTest(unittest.TestCase):
         self.assertEqual(remote_status["processors"]["bundle"]["revision"], 87)
         self.assertEqual((remote_status["schema"], remote_status["selected_groups"], remote_status["live_sync"]["identity"]), (1, 1, "attached"))
         self.assertEqual(remote_status["at"], status["at"])
+        self.assertEqual(remote_status["live_sync"]["identity_since"], status["at"])   # lần đầu thấy "attached"
+        self.assertEqual(json.loads((self.root / "state" / "identity.json").read_text(encoding="utf-8"))["identity"], "attached")
         self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())
         calls = len(self.remote.calls)
         quiet = self.agent(dry_run=True)
