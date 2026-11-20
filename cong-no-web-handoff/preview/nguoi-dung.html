@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Người dùng: ai được vào sổ, ai là quản lý; cho vào login vừa bị chặn, thêm, đổi vai trò, bỏ quyền. Chỉ quản lý.">
+  <meta name="description" content="Người dùng: ai được vào sổ, ai là quản lý; cho vào login xin vào, thêm, đổi vai trò, bỏ quyền. Chỉ quản lý.">
   <title>Công nợ HTH · Người dùng</title>
   <link rel="stylesheet" href="cong-no-theme.css">
   <link rel="stylesheet" href="nguoi-dung.css">
@@ -16,39 +16,52 @@
   <main class="page app-page">
     <div class="page-head topbar">
       <h1>Người dùng</h1>
-      <div class="live-controls"><button id="refresh-data" class="btn icon-btn" type="button" aria-label="Đọc lại danh sách"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
+      <div class="live-controls"><button id="refresh-data" class="nd-icon" type="button" aria-label="Đọc lại danh sách"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
     </div>
-    <div id="error" role="alert" hidden></div>
-    <p id="flash" role="status" hidden></p>
     <div class="nd-main">
-      <section id="denied-box" class="nd-denied" aria-labelledby="denied-title" hidden>
-        <h2 id="denied-title">Vừa bị chặn</h2>
-        <p class="nd-hint">Login đã thử mở sổ mà chưa có quyền, từ lần khởi động gần nhất của máy chủ.</p>
-        <ul id="denied" class="nd-list"></ul>
+      <div id="error" role="alert" hidden></div>
+      <section class="nd-card" aria-labelledby="users-title">
+        <div class="nd-card-head">
+          <h2 id="users-title">Thành viên <span class="nd-count" id="user-count"></span></h2>
+          <button type="button" class="nd-btn primary" id="add-open" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Thêm người</button>
+        </div>
+        <div class="nd-grid nd-cols" aria-hidden="true"><span>Người</span><span>Vai trò</span><span></span></div>
+        <div id="denied"></div>
+        <div id="users"><p class="nd-empty">Đang tải…</p></div>
+        <p id="users-note" class="nd-note" hidden></p>
       </section>
-      <section aria-labelledby="users-title">
-        <h2 id="users-title">Ai được vào sổ <span class="nd-count" id="user-count"></span></h2>
-        <div id="users"><p class="loading">Đang tải…</p></div>
-      </section>
-      <section id="add-box" aria-labelledby="add-title" hidden>
-        <h2 id="add-title">Thêm người</h2>
-        <form id="add-form" class="nd-add" novalidate>
-          <label>Login Tailscale<input id="add-login" type="text" inputmode="email" autocomplete="off" spellcheck="false" placeholder="ten@gmail.com" required></label>
-          <label>Tên gọi<input id="add-name" type="text" autocomplete="off" maxlength="40" placeholder="Không bắt buộc"></label>
-          <fieldset><legend>Vai trò</legend>
-            <label class="nd-radio"><input type="radio" name="add-role" value="user" checked>Nhân viên</label>
-            <label class="nd-radio"><input type="radio" name="add-role" value="admin">Quản lý</label>
-          </fieldset>
-          <button type="submit" class="btn primary" id="add-submit">Thêm</button>
-        </form>
-        <p class="nd-hint">Nhân viên thấy Tổng quan, Công nợ theo tháng, Sổ khách, Bảng thu, Báo cáo tháng. Quản lý thấy thêm mục Quản trị.</p>
-      </section>
-      <section aria-labelledby="history-title">
-        <h2 id="history-title">Lịch sử</h2>
+      <section class="nd-card" aria-labelledby="history-title">
+        <div class="nd-card-head"><h2 id="history-title">Lịch sử thay đổi</h2></div>
         <div id="history"></div>
       </section>
     </div>
   </main>
+  <dialog id="add-dialog" class="nd-dialog" aria-labelledby="add-title">
+    <form id="add-form" novalidate>
+      <div class="nd-dialog-head">
+        <h2 id="add-title">Thêm người</h2>
+        <button type="button" class="nd-icon" data-close aria-label="Đóng"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+      </div>
+      <div class="nd-dialog-body">
+        <label class="nd-field">Login Tailscale
+          <input id="add-login" type="text" inputmode="email" autocomplete="off" spellcheck="false" placeholder="ten@gmail.com" required aria-describedby="add-error">
+          <span id="add-error" class="nd-field-error" hidden></span>
+        </label>
+        <label class="nd-field"><span>Tên gọi <span class="nd-optional">(không bắt buộc)</span></span>
+          <input id="add-name" type="text" autocomplete="off" maxlength="40">
+        </label>
+        <fieldset class="nd-roles"><legend>Vai trò</legend>
+          <label class="nd-role-opt"><input type="radio" name="add-role" value="user" checked><span><b>Nhân viên</b><span>Tổng quan, Công nợ, Sổ khách, Bảng thu, Báo cáo</span></span></label>
+          <label class="nd-role-opt"><input type="radio" name="add-role" value="admin"><span><b>Quản lý</b><span>Như nhân viên, thêm mục Quản trị</span></span></label>
+        </fieldset>
+      </div>
+      <div class="nd-dialog-foot">
+        <button type="button" class="nd-btn" data-close>Thôi</button>
+        <button type="submit" class="nd-btn primary" id="add-submit">Thêm người</button>
+      </div>
+    </form>
+  </dialog>
+  <p id="flash" class="nd-toast" role="status" hidden></p>
   <script src="cong-no-format.js"></script>
   <script src="dashboard-v7-model.js"></script>
   <script src="viec-can-lam-table.js"></script>
