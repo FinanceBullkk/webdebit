@@ -1,8 +1,8 @@
 """ZALO-AGENT-01: `python -X utf8 -I …\\zalo_agent run [--once] [--dry-run]`, một tiến trình nền ở máy có Zalo.
 
 Cấu hình đọc từ tham số hoặc biến môi trường (`ZALO_LIVE_SYNC`, `ZALO_AGENT_ROOT`, `ZALO_AGENT_TARGET`,
-`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
-`bundle/` (gói chat dựng tại máy), `insurance/` (bản gọn bảo hiểm), `logs/` (xoay vòng 10 MB x 3). Chỉ đọc thư mục live-sync.
+`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`, `ZALO_AGENT_MONEY_IMAGES`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
+`bundle/` (gói chat dựng tại máy), `insurance/` (bản gọn bảo hiểm), `reads/` (kết quả OCR ảnh, chỉ ở máy), `logs/` (xoay vòng 10 MB x 3). Chỉ đọc thư mục live-sync.
 """
 from __future__ import annotations
 
@@ -13,17 +13,20 @@ import logging.handlers
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 if __package__ in (None, ""):   # chạy `python -I …\zalo_agent`: đưa thư mục cha vào sys.path rồi nạp như gói
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zalo_agent import cursor as cursors
+from zalo_agent import ocr
 from zalo_agent import push as pusher
 from zalo_agent import status as status_file
 from zalo_agent.processors.bundle import BundleProcessor
 from zalo_agent.processors.insurance import InsuranceProcessor
-from zalo_agent.source import LiveSync
+from zalo_agent.processors.money_images import MoneyImagesProcessor
+from zalo_agent.source import VN, LiveSync
 
 REPO = Path(__file__).resolve().parents[3]
 STATUS_EVERY = 60     # giây: nhịp tim tối thiểu khi không có gì đổi
@@ -35,7 +38,8 @@ LOCAL_RETRY = 10      # giây: thử lại lỗi cục bộ
 class Agent:
     def __init__(self, live: LiveSync, root: Path, bundle_target: str, status_target: str, *, run=pusher.ssh_run,
                  dry_run: bool = False, clock=time.time, sleep=time.sleep, log=None, insurance_target: str | None = None,
-                 insurance_snapshot: Path | None = None, insurance_store: Path | None = None, **processor_args):
+                 insurance_snapshot: Path | None = None, insurance_store: Path | None = None, money_images: bool = False, money_args: dict | None = None,
+                 **processor_args):
         self.live, self.root, self.status_target, self.run = live, Path(root), status_target, run
         self.dry_run, self.clock, self.sleep = dry_run, clock, sleep
         self.state = self.root / "state"
@@ -46,6 +50,8 @@ class Agent:
         if insurance_target:   # không đích thì không có bộ xử lý (và không có khóa trong status.json)
             self.processors.append(InsuranceProcessor(live, self.state, self.root / "insurance", insurance_target,
                                                       snapshot=insurance_snapshot, store=insurance_store, run=run, dry_run=dry_run, clock=clock))
+        if money_images:   # mặc định tắt: agent chạy code từ checkout `main`, bật sẵn thì merge là bắt đầu OCR trên máy thật
+            self.processors.append(MoneyImagesProcessor(live, self.state, self.root / "reads", dry_run=dry_run, clock=clock, **(money_args or {})))
         self.last = {}
         self.last_status_at = 0.0
         # Lùi dần RIÊNG từng bộ xử lý: lỗi của bộ này không bao giờ làm bộ khác chạy chậm đi.
@@ -184,6 +190,19 @@ def configure_logging(root: Path) -> logging.Logger:
     return logger
 
 
+def run_reread(args, root: Path) -> int:
+    """`zalo_agent reread`: in số đếm, không in chữ OCR, số tiền hay đường dẫn."""
+    since = datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=VN)
+    processor = MoneyImagesProcessor(LiveSync(Path(args.live_sync)), root / "state", root / "reads")
+    try:
+        counts = processor.reread(ocr.ENGINES[args.engine](), int(since.timestamp() * 1000))
+    except ocr.OcrUnavailable:
+        print("thiếu engine OCR ở máy này (ocr_unavailable)")
+        return 1
+    print(json.dumps(counts))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="zalo_agent", description="Tiến trình nền ở máy có Zalo (ZALO-AGENT-01).")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -199,13 +218,24 @@ def main(argv: list[str] | None = None) -> int:
                           "tắt ZaloInsurancePush, để hai đường không ghi song song)")
     run.add_argument("--insurance-snapshot", default=os.environ.get("ZALO_INSURANCE_SNAPSHOT"), help="mặc định: <live-sync>/insurance-snapshot.json")
     run.add_argument("--insurance-store", default=os.environ.get("ZALO_INSURANCE_STORE"), help="mặc định: <live-sync>/remote-media-store")
+    run.add_argument("--money-images", choices=("on", "off"), default=os.environ.get("ZALO_AGENT_MONEY_IMAGES", "off"),
+                     help="bật bộ xử lý money_images (OCR ảnh của nhóm đã chọn tại máy); MẶC ĐỊNH off")
+    run.add_argument("--money-max-age-days", type=int, default=30, help="chỉ đọc ảnh gửi trong chừng này ngày khi dựng lại từ đầu")
     run.add_argument("--max-fetch", type=int, default=50, help="số ảnh tối đa tải từ Zalo mỗi lượt")
     run.add_argument("--max-age-days", type=int, default=30)
+    reread = sub.add_parser("reread", help="đọc lại ảnh đã nhận bằng một engine OCR (hoặc phiên bản mới), giữ kết quả cũ cạnh bên")
+    reread.add_argument("--engine", required=True, choices=sorted(ocr.ENGINES))
+    reread.add_argument("--since", required=True, help="YYYY-MM-DD (giờ VN): chỉ ảnh gửi từ ngày này")
+    reread.add_argument("--live-sync", default=os.environ.get("ZALO_LIVE_SYNC", r"D:\zalo-audit-viewer\live-sync-20261030"))
+    reread.add_argument("--root", default=os.environ.get("ZALO_AGENT_ROOT", r"D:\zalo-agent"))
     args = parser.parse_args(argv)
     root = Path(args.root)
+    if args.command == "reread":
+        return run_reread(args, root)
     agent = Agent(LiveSync(Path(args.live_sync)), root, args.target, args.status_target, dry_run=args.dry_run,
                   insurance_target=args.insurance_target, insurance_snapshot=Path(args.insurance_snapshot) if args.insurance_snapshot else None,
                   insurance_store=Path(args.insurance_store) if args.insurance_store else None,
+                  money_images=args.money_images == "on", money_args={"max_age_days": args.money_max_age_days},
                   max_fetch=args.max_fetch, max_age_days=args.max_age_days)
     if not agent.lock():   # trước khi mở agent.log: bản thứ hai giữ handle log sẽ làm bản chính không xoay vòng được log trên Windows
         print("đang có một agent khác chạy")

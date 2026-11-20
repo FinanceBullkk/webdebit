@@ -99,6 +99,27 @@ class LiveSync:
                 ids.update(mid for mid in change.get(key) or [] if isinstance(mid, str))
         return ids
 
+    def image_rows(self, conversations: set[str], since_ms: int = 0, types: tuple = (2, 7)) -> list[dict]:
+        """Một lượt quét `messages.jsonl`: dòng ảnh (`message_type` trong `types`, chưa xóa) của `conversations` có `timestamp` >=
+        `since_ms`, theo thứ tự file. Lọc byte theo `conversation_id` trước khi `json.loads`, như `zalo_web_bundle.build`."""
+        needles = [cid.encode() for cid in conversations]
+        rows = []
+        if not needles:
+            return rows
+        with (self.dir / "messages.jsonl").open("rb") as stream:
+            for raw in stream:
+                if not any(needle in raw for needle in needles):
+                    continue
+                try:
+                    row = json.loads(raw)
+                except ValueError:
+                    continue
+                stamp = row.get("timestamp") if isinstance(row, dict) else None
+                if isinstance(row, dict) and row.get("conversation_id") in conversations and row.get("message_type") in types \
+                        and not row.get("deleted") and (int(stamp) if str(stamp).isdigit() else 0) >= since_ms:
+                    rows.append(row)
+        return rows
+
     def rows_for(self, ids: set[str], conversations: set[str]) -> list[dict]:
         """Một lượt quét `messages.jsonl`: dòng có `message_id` trong `ids` và thuộc `conversations`, theo thứ tự file."""
         if not ids or not conversations:

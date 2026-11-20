@@ -165,6 +165,18 @@ T chốt bằng dữ liệu ở PR-4 (CÒN MỞ).
 
 **Đọc lại khi đổi engine.** `zalo_agent reread --engine <tên> --since <ngày>` đọc lại bằng engine hoặc phiên bản mới, giữ kết quả cũ cạnh bên để so. Cùng engine và phiên bản thì không đọc lại.
 
+**Bộ xử lý `money_images` (PR-4a-1, `zalo_agent/processors/money_images.py`, `ocr.py`, `reads.py`).**
+
+- **Nguồn ảnh:** tin `message_type` 2 và 7 của nhóm đã chọn; file lấy ở `media-store` qua `media-index.json` (tên file là `id`, không phải sha256). Dựng lại từ đầu (lần đầu, baseline đổi, đổi nhóm, mất `changes-N`, revision lùi, mỗi đêm) quét ảnh trong `--money-max-age-days` ngày (mặc định 30); giữa hai lần chỉ xét tin thêm trong `changes-N`.
+- **Khóa kho** là sha256 của **byte mà gói chat sẽ lưu** (JXL đã chuyển JPEG như `zalo_web_bundle.Media`), để `hao` nối kết quả với `media/<sha256>.<đuôi>`; băm file thô trong `media-store` không dùng được vì `hao` không thấy nó. Cùng ảnh ở hai tin chỉ đọc một lần.
+- **OCR ở luồng nền, một luồng, 2 luồng torch:** `step()` chỉ nộp việc, thu kết quả và ghi con trỏ nên 14 giây mỗi ảnh không chặn `bundle` và `insurance`. Ảnh mới nhất đọc trước. Nạp model một lần, ở luồng nền.
+- **Con trỏ `state/money_images.json`:** `revision`, `baseline_sha256`, `selection_sha256`, `built_at` như `bundle`, cộng `todo` (hàng chờ, sống qua lần khởi động lại), `members` (ảnh của nhóm **đang chọn** đã có kết quả: tập duy nhất được phép xuất ra ngoài; bỏ chọn nhóm rồi dựng lại thì ảnh của nhóm đó rời tập), `canon` (băm file thô → khóa kho, để dựng lại không giải mã lại), `failed`. Con trỏ tiến ngay khi ảnh vào hàng chờ vì bước này không có gì phải đẩy.
+- **Khuôn file kho** (`reads/<sha256>/<engine>@<phiên bản>.json`, **chỉ ở máy**): `engine`, `version` (`<phiên bản engine>+<ANALYSIS>`), `read_at`, `size` (rộng, cao của ảnh đã thu nhỏ ≤ 1600 px mà ô chữ dùng), `boxes` (`b` = [x0, y0, x1, y1], `t` chữ, `c` độ tin cậy), và phần phân tích: `is_money`, `amount_vnd`, `confidence` (của ô số tiền), `hits` (số từ khóa), `unique` (một ứng viên đứng đầu), `txn_time` (ISO `+07:00`, hoặc `YYYY-MM-DD`, hoặc null), `bank` (null nếu không thấy). Phân tích lưu rời từng trường nên đổi T không phải đọc lại ảnh.
+- **Phân loại:** `none` (không dấu hiệu tiền: không bao giờ rời máy), `ocr` (OCR chắc), `unsure` (có dấu hiệu tiền mà OCR không chắc: sang Gemini ở PR-4a-2). Dấu hiệu tiền = ≥ 2 từ khóa ngân hàng, hoặc số kèm VND/đ. OCR chắc = ô số tiền có `confidence` ≥ T, `hits` ≥ 2, `unique`. T là hằng số `CONFIDENCE_T` trong `ocr.py`, ghi đè bằng `ZALO_AGENT_OCR_CONFIDENCE`.
+- **`status.json`:** khóa `processors.money_images` cùng khuôn `bundle` (revision, `lag_revisions`, …) cộng `counts` = `{read, pending, review, failed}` (số nguyên; `review` = ảnh có dấu hiệu tiền mà OCR không chắc). Mã lỗi: `ocr_unavailable` (máy thiếu easyocr, torch hoặc Pillow), `no_revision`, `scan_failed`. Ảnh hỏng thử 3 lần rồi bỏ, chỉ tính vào `failed`.
+- **Cấu hình:** `--money-images on|off` / `ZALO_AGENT_MONEY_IMAGES` (**mặc định off**: agent chạy code từ checkout `main`, bật sẵn thì merge là bắt đầu OCR trên máy thật), `--money-max-age-days`. `--dry-run` vẫn ghi kho kết quả (việc tại máy, idempotent) nhưng không lưu con trỏ.
+- **`zalo_agent reread --engine <tên> --since <YYYY-MM-DD>`** đọc lại ảnh trong `members` có giờ gửi từ ngày đó bằng engine hoặc phiên bản mới (giữ kết quả cũ cạnh bên; cùng engine và phiên bản thì bỏ qua) và chỉ in số đếm.
+
 **Lên `hao`:** gói chỉ mang `{sha256, decided: {amount_vnd, txn_time, bank, by}, reads: [{engine, version, amount_vnd, confidence}]}`. Không mang chữ OCR, số tài khoản hay tên (giữ B4).
 
 ### Phần 4: che thông tin trước khi gửi ra ngoài
@@ -309,7 +321,7 @@ Thứ tự theo phụ thuộc. Mỗi PR ≤ 600 dòng logic, `npm run check` xan
 | PR-2 | `hao`: A2 đọc phần thêm (bản mới nhất thắng, dòng xóa), A3 `after=` và trang tự cập nhật, đọc `status.json` ở tab Máy chạy, phép kiểm `zalo` | 1, 6 | PR-1 | Merge là deploy; phép kiểm chỉ bật khi có `status.json` |
 | Chuyển | Bật task `zalo-agent`, tắt (không xóa) `WebdebitZaloSync` | 1 | PR-1, PR-2 | **Hỏi người dùng** (spec Thu chi đã ghi: thay task 15 phút phải hỏi) |
 | PR-3 | Bộ xử lý `insurance` qua `push.py` chung; chuyển `insurance_web.build` vào | 2 | Chuyển | **Hỏi người dùng** trước khi tắt `ZaloInsurancePush` |
-| PR-4 | Bộ xử lý `money_images`: OCR 2 luồng, kho kết quả, đọc lại, che thông tin, Gemini hai đường, kết luận | 3, 4 | Chuyển; PR-2 của Thu chi để có trang hiện | Người dùng đặt khóa API và địa chỉ proxy ở máy có Zalo; thử với `ZALO_AGENT_EXTERNAL=off` trước |
+| PR-4 | Bộ xử lý `money_images`, chia hai PR xếp chồng: **4a-1** OCR nền 2 luồng, kho kết quả, `reread`, phân loại, `status.json`; **4a-2** che thông tin, Gemini hai đường, kết luận, đẩy kết quả lên `hao` | 3, 4 | Chuyển; PR-2 của Thu chi để có trang hiện | Người dùng đặt khóa API và địa chỉ proxy ở máy có Zalo; thử với `ZALO_AGENT_EXTERNAL=off` trước |
 | PR-5 | Số đo tuần theo engine ở trang Thu chi và Máy chạy | 5 | PR-3 của Thu chi, PR-4 | Không |
 
 Quan hệ với spec Thu chi: PR-1 của Thu chi (A1–A4) được thay bởi PR-1, PR-2 và bước Chuyển ở đây. PR-2, PR-3 của Thu chi giữ nguyên. PR-4 của Thu chi chính là PR-4 ở đây.
