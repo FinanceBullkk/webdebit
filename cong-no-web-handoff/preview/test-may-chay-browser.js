@@ -84,7 +84,8 @@ test('Máy chạy: mở trang là trực tiếp, không có nút phát lại, th
   assert.ok(lastDay.y + lastDay.height <= 560, `dải lượt lọt khung 560: ${lastDay.y + lastDay.height}`);
   const canvas = await page.locator('#office').boundingBox();
   assert.ok(canvas.width >= 700, `văn phòng đủ rộng để đọc chữ: ${canvas.width}`);
-  assert.equal(await page.locator('.app-nav a.active').innerText(), 'Máy chạy');
+  assert.equal((await page.locator('.app-nav nav a.active').innerText()).split('\n')[0], 'Quản trị');   // QUYEN-02
+  assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Máy chạy');
   const menu = await page.locator('.app-nav nav a').last().boundingBox();
   assert.ok(menu.y + menu.height <= 560, `mục cuối menu lọt khung: ${menu.y + menu.height}`);
   const heights = await page.evaluate(() => [...new Set([...document.querySelectorAll('.stage-head > *:not([hidden])')].map(node => Math.round(node.getBoundingClientRect().top + node.getBoundingClientRect().height / 2)))]);

@@ -180,6 +180,11 @@ def _login(value: object) -> str:
     return local + separator + domain.lower() if separator else login
 
 
+def normalize_login(value: object) -> str:
+    """One login normalized like actors (domain lower-cased); IdentityError when empty or with control characters."""
+    return _login(value)
+
+
 def parse_allowed_logins(value: object) -> frozenset[str] | None:
     """Operator allowlist from WEBDEBIT_ALLOWED_LOGINS / --allowed-login (ACCESS-01).
 

@@ -21,6 +21,7 @@ from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
+import v7_access
 import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_doixe
@@ -307,6 +308,7 @@ POST_HANDLERS = {
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
     "/api/v7/machine/office": v7_machine.handle_office,
     **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
+    "/api/v7/admin/users": v7_access.handle_users,   # QUYEN-02: trang Người dùng, chỉ quản lý (v7_role)
 }
 MACHINE_READS = {"/api/v7/machine": v7_machine.view, "/api/v7/machine/now": v7_machine.now_view, "/api/v7/machine/summary": v7_machine.summary}
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
@@ -408,6 +410,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
             result = runner.run(function, payload, actor)
         return 200, v7_api_doixe.with_names(result, lambda login: v7_presence.display_name(login, names))
+    elif parts.path == "/api/v7/admin/users":
+        # QUYEN-02: danh sách login được vào sổ, ngoài DB; v7_role chặn người không phải quản lý trước khi tới đây.
+        if parts.query:
+            bad()
+        return 200, v7_access.view_users(actor)
     elif parts.path == "/api/v7/nhat-ky":
         # NHAT-KY-01: PR đã merge của repo do luồng nền đọc từ GitHub, ngoài DB; vẫn sau xác thực danh tính.
         if parts.query:
@@ -661,13 +668,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                          self.behind_tailscale_serve, self.serve_hosts)
+            # QUYEN-02: danh sách có hiệu lực gộp phần cố định (cấu hình unit) với file sửa trên trang Người dùng.
+            # Chưa đặt file thì giữ đúng danh sách của lớp Handler (test thay thuộc tính lớp).
+            store = v7_access.STORE
+            allowed_logins, admin_logins = (store.lists() if store is not None and store.path is not None
+                                            else (self.allowed_logins, self.admin_logins))
             actor = self.server.dev_actor
             if actor is None:
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
                                                   source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve,
-                                                  allowed_logins=self.allowed_logins)
+                                                  allowed_logins=allowed_logins)
             route = urlsplit(self.path)
-            role = v7_role.role(actor, self.admin_logins)
+            role = v7_role.role(actor, admin_logins)
             if not v7_role.allowed(route.path, role, PAGES):
                 if route.path in PAGES:
                     self.forbidden_page()
@@ -730,13 +742,14 @@ class Handler(BaseHTTPRequestHandler):
                                    port=self.port, host=self.bind_host, default_actor=self.default_actor,
                                    actor=actor, demo=self.demo, real_copy=self.real_copy,
                                    serve_hosts=self.serve_hosts, behind_tailscale_serve=self.behind_tailscale_serve,
-                                   allowed_logins=self.allowed_logins)
+                                   allowed_logins=allowed_logins)
             self.reply(status, value)
         except v7_identity.IdentityError as exc:
             if exc.code == "LOGIN_NOT_ALLOWED":
                 # ACCESS-01: the login goes to the journal (so the admin knows whom to add), never to the client.
                 print(f"ACCESS-01: từ chối login ngoài danh sách: {exc.detail} (peer {self.client_address[0]})",
                       file=sys.stderr, flush=True)
+                v7_access.DENIED.record(exc.detail)   # QUYEN-02: trang Người dùng cho vào bằng một bấm
                 self.reply(403, {"error": exc.code,
                                  "message": "Tài khoản này chưa được cấp quyền dùng sổ. Báo quản trị thêm vào danh sách."})
             else:
@@ -826,6 +839,8 @@ def main() -> None:
     parser.add_argument("--admin-login", action="append", default=[],
                         help="Tailscale login that sees the admin pages (QUYEN-01); repeatable, merged with "
                              "WEBDEBIT_ADMIN_LOGINS. Unset: every allowed login is admin")
+    parser.add_argument("--access-file", default=os.getenv("WEBDEBIT_ACCESS_FILE"),
+                        help="JSON file of logins managed on the Người dùng page (QUYEN-02); added to the fixed lists")
     source = parser.add_mutually_exclusive_group()
     source.add_argument(
         "--demo", action="store_true", help="Mark GET snapshots as fake demo data"
@@ -917,6 +932,9 @@ def main() -> None:
     Handler.serve_hosts = tuple(accepted_hosts)
     Handler.allowed_logins = allowed_logins
     Handler.admin_logins = admin_logins
+    if args.access_file and not os.path.isdir(os.path.dirname(os.path.abspath(args.access_file))):
+        parser.error("access file folder does not exist (QUYEN-02)")
+    v7_access.STORE = v7_access.AccessStore(args.access_file, allowed_logins, admin_logins)
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()

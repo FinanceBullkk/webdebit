@@ -9,7 +9,7 @@ Web có trang **Nhật ký công việc** (chỉ xem) cho người làm và qu�
 1. **Nguồn là các PR đã merge của repo** (repo public). Không ghi việc ngoài repo. Không đếm PR chỉ ghi nhật ký/trạng thái triển khai (trùng với PR làm tính năng) và PR bot nâng thư viện.
 2. **Chạy trên `hao`, không cần máy cá nhân bật**: tiến trình API có một luồng nền hỏi GitHub mỗi 5 phút (không token, dùng ETag), lưu ở `/var/lib/webdebit-sheet-sync/nhat-ky/store.json` (ngoài repo, ngoài DB). Dịch vụ cần thêm quyền ghi đúng thư mục đó (drop-in `ReadWritePaths`).
 3. **Tóm tắt lời thường do Claude trên máy chủ viết**, dùng key đã có (`WEBDEBIT_ANTHROPIC_KEY_FILE`), chỉ gửi tên PR; mỗi ngày tối đa một lần mỗi 30 phút. Không có key thì trang vẫn hiện số liệu và tên PR.
-4. **Ai cũng thấy** (từ 20/11/2026 chỉ quản lý thấy, theo [`QUYEN-01`](quyen-01.md)) trong số người được vào web: mục nằm dưới khối chín mục của menu trái (khung thấp thì nằm trong ☰).
+4. **Ai cũng thấy** (từ 20/11/2026 chỉ quản lý thấy, theo [`QUYEN-01`](quyen-01.md)) trong số người được vào web: mục nằm dưới khối chín mục của menu trái (từ 20/11/2026 là thẻ Nhật ký trong dải thẻ Quản trị, [`QUYEN-02`](quyen-02.md)) (khung thấp thì nằm trong ☰).
 5. Giao diện theo trang hồ sơ GitHub (Primer, giao diện sáng): Hôm nay, Việc lớn, lưới đóng góp + chọn tháng, Theo tuần, Giờ làm (kèm % ngoài giờ), tab Cây công việc; bấm mảng, ngày, tuần, ô giờ thì cả trang lọc theo.
 
 ## Ngày / nguồn

@@ -33,4 +33,4 @@ restart unit; xem journal để biết login nào đang bị từ chối. Quy tr
 CÒN MỞ: (1) Tailscale ACL cho người dùng được chia sẻ vẫn phải thu hẹp về cổng Vaultwarden (lớp mạng; danh sách
 này là lớp ứng dụng); (2) ở chế độ Serve, API tin header danh tính từ mọi tiến trình loopback trên `hao`, danh sách
 chỉ giới hạn *ai* chứ chưa chặn giả danh từ tiến trình cục bộ; (3) chưa có cách tự phục vụ để thêm người, phải sửa
-file trên `hao`.
+file trên `hao` (đã đóng 20/11/2026 bằng trang Người dùng, [`QUYEN-02`](quyen-02.md)).

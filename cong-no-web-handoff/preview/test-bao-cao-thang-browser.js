@@ -120,7 +120,7 @@ test('Báo cáo tháng: lọc khách cần xem, biển/bộ, đổi tháng giữ
   });
 });
 
-test('Báo cáo tháng: lỗi tải có nút Thử lại; số cũ báo rõ; khung 1265×560 lọt menu chín mục, không cuộn ngang', async () => {
+test('Báo cáo tháng: lỗi tải có nút Thử lại; số cũ báo rõ; khung 1265×560 lọt menu, không cuộn ngang', async () => {
   await withPage({ down: true }, async (page, shared) => {
     assert.match(await page.locator('#error').innerText(), /Không tải được báo cáo tháng/);
     shared.down = false;
@@ -130,7 +130,7 @@ test('Báo cáo tháng: lỗi tải có nút Thử lại; số cũ báo rõ; khu
   });
   await withPage({}, async page => {
     const items = await page.locator('.app-nav nav a').allInnerTexts();
-    assert.equal(items.length, 9);
+    assert.equal(items.length, 6);   // QUYEN-02: năm trang làm sổ + Quản trị
     assert.ok(items.some(text => text.includes('Báo cáo tháng')));
     const last = await page.locator('.app-nav nav a').last().boundingBox();
     assert.ok(last.y + last.height <= 560, `mục cuối menu lọt khung: ${last.y + last.height}`);
