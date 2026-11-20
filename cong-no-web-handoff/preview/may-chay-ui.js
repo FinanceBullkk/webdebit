@@ -276,6 +276,17 @@
     $('jobs-body').innerHTML = jobs.map(job => `<tr class="job-${esc(job.state)}"><td>${esc(job.name)}</td><td>${esc(job.does)}</td><td>${esc(job.every)}</td><td>${job.last ? esc(`${M.hhmm(job.last)} ${Number(job.last.slice(8, 10))}/${Number(job.last.slice(5, 7))}`) : '—'}</td><td>${job.next ? esc(`${M.hhmm(job.next)} ${Number(job.next.slice(8, 10))}/${Number(job.next.slice(5, 7))}`) : '—'}</td><td>${esc(JOB_STATE[job.state] ?? job.state)}</td></tr>`).join('');
   }
 
+  // Nhóm "Máy Zalo" (ZALO-AGENT-01): mỗi bộ xử lý một dòng câu thường; chưa có file báo về thì một dòng "Chưa có máy Zalo báo về".
+  function paintZalo() {
+    const view = M.zaloLines(state.data?.zalo), key = JSON.stringify(view);
+    if (key === state.zaloKey) return;
+    state.zaloKey = key;
+    const head = $('zalo-head');
+    head.textContent = view.head;
+    head.className = `zalo-sub zalo-${view.tone}`;
+    $('zalo-rows').innerHTML = view.rows.map(row => `<li class="zr zr-${esc(row.tone)}" data-zalo="${esc(row.id)}"><b>${esc(row.name)}</b><span>${esc(row.text)}</span></li>`).join('');
+  }
+
   // ----- Thẻ nhân viên -----
   function openWho(key) {
     state.selected = key;
@@ -323,6 +334,7 @@
     state.paintedAt = 0;   // số mới thì vẽ ngay, khoảng giãn chỉ để khung hình không dựng lại HTML liên tục
     rememberJobRuns();
     paintJobs();
+    paintZalo();
     const running = isRunning(), finished = state.data.run?.finished_at ?? null;
     if (full) state.fullFinished = finished;
     if (state.mode === 'live') setLiveRun();
