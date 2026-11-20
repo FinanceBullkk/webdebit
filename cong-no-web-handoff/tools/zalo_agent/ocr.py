@@ -1,23 +1,31 @@
 """ZALO-AGENT-01 Phần 3: đọc chữ trong ảnh bằng OCR tại máy có Zalo và phân tích "có phải ảnh tiền, số tiền bao nhiêu".
 
 Engine là đối tượng có `name`, `version` và `read(ảnh PIL) -> [{"b": [x0, y0, x1, y1], "t": chữ, "c": độ tin cậy}]`; `easyocr`
-chỉ được nạp khi đọc ảnh đầu tiên (nạp model mất vài giây và vài trăm MB), nên import module này không kéo torch vào test hay vào
-vòng lặp của agent. `version` có đuôi `+ANALYSIS`: đổi cách tiền xử lý hay cách phân tích thì đổi `ANALYSIS`, kho sinh file mới
+chạy ở tiến trình con (`ocr_child.py`), nên agent không import torch và torch chết thì agent vẫn sống. `version` có đuôi `+ANALYSIS`: đổi cách tiền xử lý hay cách phân tích thì đổi `ANALYSIS`, kho sinh file mới
 (`<engine>@<version>.json`) và kết quả cũ vẫn nằm cạnh để so (`reread`).
 
 Chữ OCR và vị trí ô chữ chỉ nằm trong kho tại máy; thứ ra khỏi máy chỉ là số tiền, giờ, ngân hàng (Phần 3 của spec).
 """
 from __future__ import annotations
 
+import atexit
+import contextlib
 import io
+import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
+import threading
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from importlib import metadata
+from pathlib import Path
 
 from zalo_web_bundle import fold
 
+CHILD = Path(__file__).with_name("ocr_child.py")
 ANALYSIS = "a1"        # đổi khi đổi tiền xử lý hoặc luật phân tích: kho đọc lại theo phiên bản mới
 MAX_SIDE = 1600        # cạnh dài tối đa khi đọc VÀ khi gửi ra ngoài (Phần 4): tọa độ ô chữ dùng chung cho cả che ảnh
 THREADS = 2
@@ -61,11 +69,30 @@ def prepare_image(data: bytes):
     return image, image.size
 
 
+class OcrFailure(Exception):
+    """Tiến trình OCR chết, quá giờ hoặc trả lời hỏng khi đọc một ảnh: lỗi của lần đọc, không phải thiếu engine. `code` là mã ngắn."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 class EasyOcr:
+    """easyocr chạy ở **tiến trình con sống lâu** (`ocr_child.py`), agent chính không import torch. Con chết hoặc quá `timeout` giây
+    thì bị giết, lần đọc sau tạo lại. Thiếu thư viện hay model (`~/.EasyOCR`, không tự tải) là `OcrUnavailable`; con chết giữa chừng là
+    `OcrFailure`. Chỉ một luồng gọi `read` mỗi lúc (bộ xử lý chạy một việc một lần)."""
     name = "easyocr"
 
-    def __init__(self, threads: int = THREADS):
-        self.threads, self.reader, self.cached = threads, None, None
+    def __init__(self, threads: int = THREADS, command: list[str] | None = None, timeout: float = 300, work: str | None = None):
+        self.threads, self.timeout, self.work, self.cached = threads, timeout, work, None
+        self.command = command or [self.interpreter(), "-X", "utf8", "-I", str(CHILD), str(threads)]
+        self.child = None
+
+    @staticmethod
+    def interpreter() -> str:
+        """`pythonw.exe` không có luồng chuẩn: con chạy bằng `python.exe` cùng thư mục (cờ CREATE_NO_WINDOW không mở cửa sổ)."""
+        exe = Path(sys.executable)
+        return str(exe.with_name("python.exe")) if exe.name.lower() == "pythonw.exe" else str(exe)
 
     @property
     def version(self) -> str:
@@ -76,22 +103,67 @@ class EasyOcr:
                 raise OcrUnavailable("easyocr") from exc
         return self.cached
 
+    def close(self) -> None:
+        child, self.child = self.child, None
+        if child is not None:
+            with contextlib.suppress(OSError):
+                child.kill()
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                child.wait(timeout=10)
+
+    def spawn(self):
+        try:
+            self.child = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError as exc:
+            raise OcrUnavailable("child") from exc
+        atexit.register(self.close)   # agent thoát thì con không mồ côi (con cũng tự thoát khi stdin đóng)
+        return self.child
+
+    def ask(self, path: str) -> dict:
+        child = self.child if self.child is not None and self.child.poll() is None else self.spawn()
+        timer = threading.Timer(self.timeout, child.kill)
+        timer.start()
+        try:
+            child.stdin.write(json.dumps({"path": path}).encode("utf-8") + b"\n")
+            child.stdin.flush()
+            line = child.stdout.readline()
+        except OSError:
+            line = b""
+        finally:
+            timer.cancel()
+        try:
+            reply = json.loads(line) if line else None
+        except ValueError:
+            reply = None
+        if not isinstance(reply, dict):   # chết, bị giết vì quá giờ, hoặc nói rác
+            self.close()
+            raise OcrFailure("child_died")
+        if reply.get("error") in ("unavailable", "model_missing"):
+            self.close()
+            raise OcrUnavailable(reply["error"])
+        return reply
+
     def read(self, image) -> list[dict]:
-        if self.reader is None:
-            try:
-                import easyocr
-                import numpy
-                import torch
-            except ImportError as exc:
-                raise OcrUnavailable("easyocr") from exc
-            torch.set_num_threads(self.threads)   # máy 6 nhân: để dành phần còn lại cho Zalo PC và live-sync
-            self.reader = easyocr.Reader(["vi", "en"], gpu=False, verbose=False)
-            self.numpy = numpy
-        boxes = []
-        for points, text, confidence in self.reader.readtext(self.numpy.asarray(image)):
-            xs, ys = [point[0] for point in points], [point[1] for point in points]
-            boxes.append({"b": [round(min(xs)), round(min(ys)), round(max(xs)), round(max(ys))], "t": text, "c": round(confidence * 1000) / 1000})
-        return boxes
+        handle, path = tempfile.mkstemp(suffix=".png", dir=self.work)
+        os.close(handle)
+        try:
+            image.save(path, "PNG")
+            reply = self.ask(path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        boxes = reply.get("boxes")
+        if not isinstance(boxes, list):
+            raise OcrFailure("failed")
+        clean = []
+        for item in boxes:   # kiểm khuôn: ô chữ từ tiến trình con là dữ liệu, không tin
+            where, text, confidence = (item.get("b"), item.get("t"), item.get("c")) if isinstance(item, dict) else (None, None, None)
+            if not (isinstance(where, list) and len(where) == 4 and all(isinstance(value, int) for value in where)
+                    and isinstance(text, str) and isinstance(confidence, (int, float)) and 0 <= confidence <= 1):
+                raise OcrFailure("bad_reply")
+            clean.append({"b": where, "t": text, "c": confidence})
+        return clean
 
 
 ENGINES = {EasyOcr.name: EasyOcr}

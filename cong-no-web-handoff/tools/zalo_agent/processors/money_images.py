@@ -12,15 +12,17 @@ con trỏ tiến ngay khi ảnh vào hàng chờ (không có gì phải đẩy �
 tập duy nhất được phép xuất ra ngoài, nên nhóm bị bỏ chọn rồi dựng lại thì ảnh của nhóm đó rời khỏi tập.
 
 Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_revision`, `scan_failed`. Ảnh hỏng (sai băm chỉ mục, không giải mã được)
-thử 3 lần rồi bỏ, chỉ đếm vào `counts.failed`, không làm cả bộ xử lý báo lỗi. `--dry-run` không lưu con trỏ ra đĩa (kho kết quả
+thử 3 lần rồi bỏ vào `failed` (cấm 1 ngày, `reread` vẫn đọc lại được), chỉ đếm vào `counts.failed`, không làm cả bộ xử lý báo lỗi.
+Engine không dùng được (thiếu thư viện, lỗi DLL, thiếu model) là `ocr_unavailable`, không phải lỗi của ảnh: không tính lần thử, không vào `failed`. `--dry-run` không lưu con trỏ ra đĩa (kho kết quả
 vẫn ghi: đó là việc làm tại máy, idempotent).
 """
 from __future__ import annotations
 
 import hashlib
 import re
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from pathlib import Path
 
 import zalo_web_bundle as wb
@@ -34,6 +36,24 @@ MIMES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/
 ID = re.compile(r"[A-Za-z0-9_-]{8,128}")
 TRIES = 3
 MAX_FAILED = 2000
+FAILED_BAN = 24 * 3600   # giây: ảnh đã thử đủ 3 lần rồi bỏ thì lần dựng lại sau 1 ngày mới thử lại (`reread` đọc lại được ngay)
+BROKEN = 60              # giây: engine chưa dùng được (`ocr_unavailable`) thì không hỏi lại và không đòi gom revision trong chừng này
+COOL = 30                # giây x 2^(lần liên tiếp - 1), tối đa x16: nghỉ sau khi tiến trình OCR chết hoặc quá giờ
+
+
+class Background:
+    """Chạy mỗi việc ở một luồng **daemon**: thoát agent (`--once`) không chờ OCR đang đọc dở (review L7). Chỉ có một việc mỗi lúc."""
+
+    def submit(self, function, *args) -> Future:
+        future: Future = Future()
+
+        def run() -> None:
+            try:
+                future.set_result(function(*args))
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+        threading.Thread(target=run, name="money_ocr", daemon=True).start()
+        return future
 
 
 class MoneyImagesProcessor:
@@ -47,11 +67,13 @@ class MoneyImagesProcessor:
         self.dry_run, self.clock, self.max_age_days = dry_run, clock, max_age_days
         self.cursor: dict | None = None
         self.future = None
+        self.broken_until = self.cool_until = 0.0
+        self.engine_failures = 0
 
     # ---------------------------------------------------------------- con trỏ (nguồn thật là bản trong bộ nhớ)
     def state(self) -> dict:
         if self.cursor is None:
-            self.cursor = {"todo": [], "members": {}, "canon": {}, "failed": [], **(cursors.load(self.dir, NAME) or {})}
+            self.cursor = {"todo": [], "members": {}, "canon": {}, "failed": {}, **(cursors.load(self.dir, NAME) or {})}
         return self.cursor
 
     def save(self, now: float) -> None:
@@ -71,8 +93,8 @@ class MoneyImagesProcessor:
     def wants_work(self) -> bool:
         """Có revision mới hoặc phải dựng lại (vòng lặp gom 3 giây). Hàng chờ OCR không tính: nó tự chạy mỗi nhịp."""
         revision, selection, cursor = self.live.revision(), self.live.selection(), self.state()
-        if revision is None or not selection:
-            return False
+        if revision is None or not selection or self.clock() < self.broken_until:
+            return False   # engine hỏng: không đòi gom 3 giây mỗi vòng cho cả agent (review L8)
         if cursor.get("revision") is None or revision != cursor["revision"]:
             return True
         return cursors.rebuild_reason(cursor, revision, self.live.baseline_sha256(), selection, self.clock()) is not None
@@ -85,7 +107,8 @@ class MoneyImagesProcessor:
         for key, item in ((read_json(self.live.dir / "media-index.json", {}) or {}).get("items") or {}).items():
             if isinstance(item, dict) and isinstance(item.get("client_message_id"), str) and item.get("mime") in MIMES:
                 by_message.setdefault(item["client_message_id"], []).append({**item, "id": item.get("id") or key})
-        waiting, failed = {item["raw"] for item in cursor["todo"]}, set(cursor["failed"])
+        waiting, now = {item["raw"] for item in cursor["todo"]}, self.clock()
+        failed = {raw for raw, entry in cursor["failed"].items() if now - entry["at"] < FAILED_BAN}
         version = self.engine.version
         for row in rows:
             stamp = int(row["timestamp"]) if str(row.get("timestamp", "")).isdigit() else 0
@@ -143,6 +166,8 @@ class MoneyImagesProcessor:
             return {"raw": raw, "status": "ok", "sha": sha, "verdict": ocr.verdict(found)}
         except ocr.OcrUnavailable:
             return {"raw": raw, "status": "unavailable"}
+        except ocr.OcrFailure:   # tiến trình OCR chết hoặc quá giờ: lỗi của engine, chưa chắc của ảnh
+            return {"raw": raw, "status": "engine_error"}
         except Exception:  # noqa: BLE001  (ảnh hỏng không được làm chết luồng nền)
             return {"raw": raw, "status": "error"}
 
@@ -160,8 +185,15 @@ class MoneyImagesProcessor:
             return False, None
         cursor = self.state()
         item = next((todo for todo in cursor["todo"] if todo["raw"] == outcome["raw"]), None)
-        if outcome["status"] == "unavailable":
+        now = self.clock()
+        if outcome["status"] == "unavailable":   # thiếu thư viện, lỗi nạp DLL, thiếu model: không tính lần thử, không đẩy ảnh vào `failed`
+            self.broken_until = now + BROKEN
             return False, "ocr_unavailable"
+        if outcome["status"] == "engine_error":
+            self.engine_failures += 1
+            self.cool_until = now + COOL * 2 ** min(self.engine_failures - 1, 4)
+        elif outcome["status"] == "ok":
+            self.engine_failures = 0
         if item is None:   # nhóm bị bỏ chọn trong lúc đọc: kết quả nằm trong kho nhưng không vào `members`
             return True, None
         if outcome["status"] == "ok":
@@ -172,25 +204,31 @@ class MoneyImagesProcessor:
             item["tries"] += 1
             if item["tries"] >= TRIES:
                 cursor["todo"].remove(item)
-                cursor["failed"] = [*cursor["failed"], item["raw"]][-MAX_FAILED:]
-        self.save(self.clock())
+                cursor["failed"][item["raw"]] = {"file": item["file"], "ts": item["ts"], "at": now}
+                for old in sorted(cursor["failed"], key=lambda raw: cursor["failed"][raw]["at"])[:-MAX_FAILED]:
+                    del cursor["failed"][old]
+        self.save(now)
         return True, None
 
-    def submit(self) -> None:
+    def submit(self, now: float) -> None:
         todo = self.state()["todo"]
-        if self.future is not None or not todo:
+        if self.future is not None or not todo or now < self.cool_until:
             return
         if self.executor is None:
-            self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="money_ocr")
+            self.executor = Background()
         self.future = self.executor.submit(self.process, dict(max(todo, key=lambda item: item["ts"])), self.engine)   # mới nhất trước
 
     def step(self) -> dict:
         now = self.clock()
-        try:
-            _ = self.engine.version   # thiếu engine: báo ngay, đừng để hàng chờ rỗng che mất lỗi
-        except ocr.OcrUnavailable:
-            return self.result("idle", "ocr_unavailable")
-        worked, error = self.collect()
+        worked, error = self.collect()   # luôn thu trước: kết quả của lần đọc đang chạy không được kẹt lại
+        if error is None and now >= self.broken_until:
+            try:
+                _ = self.engine.version   # thiếu engine: báo ngay, đừng để hàng chờ rỗng che mất lỗi
+            except ocr.OcrUnavailable:
+                self.broken_until = now + BROKEN
+                error = "ocr_unavailable"
+        if error or now < self.broken_until:   # engine chưa dùng được: không phát hiện, không nộp việc, khỏi hỏi lại mỗi giây
+            return self.result("read" if worked else "idle", error or "ocr_unavailable")
         revision, selection = self.live.revision(), self.live.selection()
         if revision is None:
             return self.result("read" if worked else "idle", error or "no_revision")
@@ -199,20 +237,23 @@ class MoneyImagesProcessor:
                 self.discover(revision, selection, now)
             except OSError:
                 return self.result("idle", error or "scan_failed")
-        self.submit()
+        self.submit(now)
         return self.result("read" if worked else "idle", error)
 
     # ---------------------------------------------------------------- `zalo_agent reread`
     def reread(self, engine, since_ms: int) -> dict:
         """Đọc lại ảnh đã nhận (`members`) có giờ gửi >= `since_ms` bằng `engine` (engine hoặc phiên bản mới), giữ kết quả cũ cạnh bên.
-        Cùng engine và phiên bản thì bỏ qua. Chỉ ghi kho kết quả, không đụng con trỏ. Ném `OcrUnavailable` khi thiếu engine."""
+        Cùng engine và phiên bản thì bỏ qua. Gồm cả ảnh đã bị bỏ vào `failed` (thử lại bằng engine mới). Chỉ ghi kho kết quả, không đụng
+        con trỏ (ảnh `failed` đọc được thì lần dựng lại sau hết hạn cấm sẽ nhận nó từ kho). Ném `OcrUnavailable` khi thiếu engine."""
         version = engine.version
+        cursor = self.state()
         counts = {"wanted": 0, "read": 0, "had": 0, "failed": 0}
-        for sha, member in sorted(self.state()["members"].items(), key=lambda pair: -pair[1]["ts"]):
+        candidates = list(cursor["members"].items()) + [(None, {"raw": raw, **entry}) for raw, entry in cursor["failed"].items()]
+        for sha, member in sorted(candidates, key=lambda pair: -pair[1]["ts"]):
             if member["ts"] < since_ms:
                 continue
             counts["wanted"] += 1
-            if reads.load(self.reads, sha, engine.name, version):
+            if sha and reads.load(self.reads, sha, engine.name, version):
                 counts["had"] += 1
                 continue
             outcome = self.process(member, engine)
