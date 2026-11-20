@@ -63,7 +63,7 @@ class TailnetHttpsTest(unittest.TestCase):
                 patch.object(api.ssl, "SSLContext") as context, patch.object(api.threading, "Thread") as thread, \
                 patch.object(api.Handler, "serve_hosts", ()), \
                 patch.object(api.INBOX, "start"), patch.object(api.INBOX, "keep_fresh"), \
-                patch.object(api.v7_zalo_chat, "warm"):
+                patch.object(api.v7_zalo_chat, "warm"), patch.object(api.v7_nhat_ky, "journal"):   # NHAT-KY-01: luồng nền riêng
             api.main()
             self.assertIn("congno.example.test:8445", api.Handler.serve_hosts)
         self.assertEqual(server.call_args_list[0].args[:2], (("100.101.102.103", 8445), api.Handler))
