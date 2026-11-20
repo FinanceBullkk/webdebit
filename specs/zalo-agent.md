@@ -161,7 +161,7 @@ Chữ OCR đầy đủ và vị trí các ô chữ nằm trong file này, **ch�
 - có ít nhất 2 từ khóa ngân hàng;
 - chỉ một ứng viên số tiền đứng đầu.
 
-T chốt bằng dữ liệu ở PR-4 (CÒN MỞ).
+T mặc định **0,6** (`ocr.CONFIDENCE_T`, đổi bằng `ZALO_AGENT_OCR_CONFIDENCE`). Số đo ngày 20/11/2026 trên 20 ảnh chuyển khoản của P0 (người dùng đã chấm đúng 20/20), chạy qua bộ xử lý thật: **20/20 khớp**; độ tin cậy của ô số tiền thấp nhất 0,42, phân vị 10% là 0,62, trung vị 0,73; cả 20 ảnh đều có ≥ 2 từ khóa và một ứng viên đứng đầu. Số ảnh được coi là "chắc" (đúng cả ba điều) theo T: 0,5 → 19/20; **0,6 → 18/20**; 0,7 → 13/20; 0,8 → 6/20; 0,9 → 3/20, và không ảnh nào "chắc mà sai" ở mọi T. T = 0,6 để 2/20 ảnh sang Gemini; T cao hơn đẩy gần hết ảnh sang Gemini vì easyocr hiếm khi báo tin cậy trên 0,8 cho ô chữ lớn. Mẫu 20 ảnh toàn đúng nên không đo được tỉ lệ "chắc mà sai": T vẫn chỉ đổi bằng PR có số đo tuần đi kèm (Phần 5). Tốc độ: khoảng 19 giây mỗi ảnh (trung vị) khi máy đang chạy Zalo PC, live-sync và agent; lần đọc đầu 71 giây vì nạp model.
 
 **Đọc lại khi đổi engine.** `zalo_agent reread --engine <tên> --since <ngày>` đọc lại bằng engine hoặc phiên bản mới, giữ kết quả cũ cạnh bên để so. Cùng engine và phiên bản thì không đọc lại.
 

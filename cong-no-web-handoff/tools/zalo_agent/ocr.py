@@ -20,7 +20,7 @@ from zalo_web_bundle import fold
 ANALYSIS = "a1"        # đổi khi đổi tiền xử lý hoặc luật phân tích: kho đọc lại theo phiên bản mới
 MAX_SIDE = 1600        # cạnh dài tối đa khi đọc VÀ khi gửi ra ngoài (Phần 4): tọa độ ô chữ dùng chung cho cả che ảnh
 THREADS = 2
-CONFIDENCE_T = 0.8     # T: độ tin cậy tối thiểu của ô số tiền để OCR được coi là "chắc"; đổi bằng ZALO_AGENT_OCR_CONFIDENCE
+CONFIDENCE_T = 0.6     # T: độ tin cậy tối thiểu của ô số tiền để OCR được coi là "chắc" (P0: 20/20 ảnh đọc đúng, độ tin cậy 0,42-0,9, trung vị 0,73); đổi bằng ZALO_AGENT_OCR_CONFIDENCE
 RIVAL = 0.85           # ứng viên số tiền khác trị mà điểm >= RIVAL * điểm cao nhất thì không còn "một ứng viên đứng đầu"
 
 BANKS = ("vietcombank", "techcombank", "mb bank", "mbbank", "bidv", "vietinbank", "acb", "tpbank", "vpbank", "sacombank",
