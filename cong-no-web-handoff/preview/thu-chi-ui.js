@@ -127,8 +127,11 @@
     const open = item.conversation_id
       ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}">Mở tin</a>` : '';
     const amount = item.amount_vnd == null ? '<span class="dash">—</span>' : esc(money(item.amount_vnd));
+    // Khoản nằm ở ngày giao dịch (ảnh cũ gửi lại) hoặc ngày khách báo (dấu): tin gửi ngày khác thì ghi cả ngày tin.
+    const sentDay = item.sent_at == null ? null : F.vnDay(item.sent_at);
+    const time = sentDay && sentDay !== item.day ? `${dayMonth(sentDay)} ${clock(item.sent_at)}` : clock(item.sent_at);
     return `<div class="tc-row${state.fresh.has(M.keyOf(item)) ? ' is-new' : ''}" data-status="${esc(item.status)}" data-source="${esc(item.source)}">`
-      + `<span class="tc-time">${esc(clock(item.sent_at))}</span>`
+      + `<span class="tc-time">${esc(time)}</span>`
       + `<div class="tc-who"><b>${esc(item.sender_name ?? 'Không rõ tên')}</b><small title="${esc(item.conversation_name ?? '')}">${esc(item.conversation_name ?? '')}${item.source === 'mark' ? ' · dấu khách báo' : ''}</small></div>`
       + `<span class="tc-kind-cell"><span class="tc-kind ${esc(item.direction)}">${esc(M.KIND_LABEL[item.direction])}</span></span>`
       + `<span class="tc-amt">${amount}${item.amount_from === 'anh' ? '<small class="tc-src">đọc từ ảnh</small>' : ''}</span>`
@@ -153,8 +156,10 @@
     const empty = !all.length
       ? `<p class="empty">Chưa có khoản thu chi nào trong ${range}. Ở đây hiện ảnh chuyển khoản khách gửi mà máy đọc được, và tin bắt đầu bằng thu, chi hoặc ứng kèm số tiền, ví dụ: thu 50tr Khách A.</p>`
       : !shown.length ? '<p class="empty">Không có khoản nào trong bộ lọc này.</p>' : '';
+    // Ảnh cũ gửi lại có giao dịch trước khoảng đang xem: không cộng vào khoảng này, nói rõ số ảnh để không ai tưởng bị sót.
+    const before = data.images_before ? `<p class="tc-note">${count(data.images_before)} ảnh chuyển khoản gửi trong ${range} là giao dịch trước đó, không cộng vào tổng.</p>` : '';
     root.innerHTML = `<div class="tc-band">${card('Hôm nay', M.summarize(all.filter(item => item.day === data.today)))}${card(`${range} gần nhất`, M.summarize(all))}</div>`
-      + `<div class="tc-filters" role="group" aria-label="Lọc khoản">${filters}</div>${empty}`
+      + `<div class="tc-filters" role="group" aria-label="Lọc khoản">${filters}</div>${before}${empty}`
       + shown.map(group => `<section class="tc-day" aria-label="${esc(dayLabel(group.day, data.today))}"><header><h3>${esc(dayLabel(group.day, data.today))}</h3>`
         + `<span class="sums">${esc(sumLine(group.sum))}</span></header>${group.rows.map(row).join('')}</section>`).join('');
     if (keepFocus) root.querySelector(`[data-f="${keepFocus}"]`)?.focus();

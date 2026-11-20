@@ -60,9 +60,10 @@ READS_FILE = "money-reads.json"
 READS_MAX_BYTES = 8 * 1024 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}")   # khóa ảnh, trùng `media[].id` của gói chat
 READ_BY = re.compile(r"[a-z0-9-]{1,20}")   # kết luận của máy đọc ảnh; "human" là cần người xem, không có số
-TXN_TIME = re.compile(r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2})?)?")
-SAME_PAYMENT_MS = 24 * 3600 * 1000   # khoản thu gõ theo mẫu cùng hội thoại, cùng số trong chừng này: ảnh là ảnh chứng của nó
-MARK_IMAGE_DAYS = 1   # dấu "Khách báo đã chuyển" cùng hội thoại, cùng số, ngày báo cách ngày ảnh không quá chừng này: giữ dấu
+# Giờ giao dịch: ISO như spec; nhận thêm cách ghi của đường đọc ngoài (cách thay T, "Z", "+0700") rồi chuẩn hóa về `±HH:MM`.
+TXN_TIME = re.compile(r"(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?)(Z|[+-]\d{2}:?\d{2})?)?")
+SAME_PAYMENT_MS = 24 * 3600 * 1000   # khoản thu gõ theo mẫu cùng hội thoại, cùng số trong chừng này: ảnh là ảnh của lần trả đó
+MARK_IMAGE_DAYS = 1   # dấu "Khách báo đã chuyển" cùng hội thoại, cùng số, ngày báo cách ngày giao dịch của ảnh không quá chừng này
 _FLIGHTS: dict[tuple, Future] = {}
 _CACHE: dict[tuple, tuple[float, dict]] = {}
 _LOCK = threading.Lock()
@@ -161,13 +162,14 @@ class Directory:
 def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list[dict], reads: dict | None = None) -> tuple[list[dict], list[dict]]:
     """Khoản báo trong [start_ms, end_ms) của các hội thoại đã chọn, kèm ảnh chứng. `directory_of()` chỉ được gọi khi có ít nhất một khoản.
 
-    Trả thêm các ảnh có kết quả đọc (`reads`) mà không làm ảnh chứng: mỗi ảnh một khoản thu "từ ảnh", chưa có đối tượng. Ảnh do tài khoản
-    Zalo của mình gửi không thành khoản (thường là mình trả hoặc chuyển tiếp); cùng ảnh gặp lại thì không thành khoản nữa."""
+    Trả thêm các ảnh có kết quả đọc (`reads`) không làm ảnh chứng: mỗi ảnh một khoản thu "từ ảnh", chưa có đối tượng. Ảnh chứng thắng bất
+    kể thứ tự đọc: ảnh đã làm ảnh chứng ở bất kỳ hội thoại nào thì không thành khoản riêng; cùng ảnh gửi nhiều lần chỉ giữ lần sớm nhất.
+    Ảnh do tài khoản Zalo của mình gửi không thành khoản (thường là mình trả hoặc chuyển tiếp)."""
     reads = reads or {}
     names = {row["conversation_id"]: row["display_name"] for row in conversations}
     items: list[dict] = []
-    images: list[dict] = []
-    used: set[str] = set()
+    candidates: list[dict] = []
+    proof: set[str] = set()
     last: dict | None = None
     current = None
     directory = None
@@ -186,19 +188,18 @@ def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list
                     "target": directory.target(report["direction"], report["rest"]), "rest": report["rest"]}
             items.append(last)
         elif row["media"] and last and row["sender_id"] == last["sender"] and 0 <= stamp - last["sent_at"] <= IMAGE_GAP_MS:
-            last["media"] += row["media"]
-            used.update(media["id"] for media in row["media"])
+            have = {media["id"] for media in last["media"]}
+            last["media"] += [media for media in row["media"] if media["id"] not in have]
+            proof.update(media["id"] for media in row["media"])
         elif row["media"] and stamp < end_ms and not row["deleted"] and not row["is_own"]:
-            for media in row["media"]:
-                read = reads.get(media["id"])
-                if read is None or media["id"] in used:
-                    continue
-                used.add(media["id"])
-                images.append({"message_id": row["message_id"], "conversation_id": cid, "conversation_name": names.get(cid), "sent_at": stamp,
-                               "sender_name": row["sender_name"], "sender": row["sender_id"], "direction": "thu", "amount_vnd": read["amount_vnd"],
-                               "text": "", "media": [media], "rest": "", "source": "anh", "image_vnd": read["amount_vnd"],
-                               "amount_from": "anh" if read["amount_vnd"] is not None else None,
-                               "image": {key: read[key] for key in ("by", "bank", "txn_time", "candidates")}})
+            candidates += [image_item(cid, names.get(cid), row, stamp, media, reads[media["id"]]) for media in row["media"] if media["id"] in reads]
+    images: list[dict] = []
+    seen: set[str] = set()
+    for image in sorted(candidates, key=lambda one: one["sent_at"]):
+        key = image["media"][0]["id"]
+        if key not in proof and key not in seen:
+            seen.add(key)
+            images.append(image)
     return items, images
 
 
@@ -206,6 +207,52 @@ def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list
 def _amount(value: Any) -> int | None:
     """Số tiền trong file đọc ảnh: số nguyên dương của JSON. Chuỗi, bool, số lẻ, 0 hay số âm đều là None, không ép."""
     return value if isinstance(value, int) and not isinstance(value, bool) and 0 < value <= MAX_AMOUNT else None
+
+
+def _txn_time(value: Any) -> str | None:
+    """Giờ giao dịch máy đọc → `YYYY-MM-DD` hoặc `YYYY-MM-DDTHH:MM[:SS][±HH:MM]`. Ngày giờ không có thật hay cách ghi lạ thì None."""
+    found = TXN_TIME.fullmatch(value) if isinstance(value, str) else None
+    if found is None:
+        return None
+    day, clock, zone = found.groups()
+    if clock is None:
+        text = day
+    else:
+        zone = "" if zone is None else "+00:00" if zone == "Z" else zone if ":" in zone else f"{zone[:3]}:{zone[3:]}"
+        text = f"{day}T{clock}{zone}"
+    try:
+        datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return text
+
+
+def txn_day(value: str | None) -> date | None:
+    """Ngày giao dịch theo giờ VN (giờ không ghi múi là giờ VN)."""
+    if not value:
+        return None
+    when = datetime.fromisoformat(value)
+    return when.astimezone(VN).date() if when.tzinfo else when.date()
+
+
+def txn_key(value: str | None) -> str | None:
+    """Khóa "cùng một giao dịch": ngày giờ tới phút theo giờ VN; chỉ có ngày thì không đủ để nhận ra."""
+    if not value or "T" not in value:
+        return None
+    when = datetime.fromisoformat(value)
+    return (when.astimezone(VN) if when.tzinfo else when).strftime("%Y-%m-%dT%H:%M")
+
+
+def image_item(cid: str, name: str | None, row: dict, stamp: int, media: dict, read: dict) -> dict:
+    """Một ảnh chuyển khoản thành một khoản thu "từ ảnh". Ngày của khoản là ngày giao dịch khi ảnh cũ được gửi lại (giao dịch trước ngày tin,
+    trong 93 ngày), để đối chiếu đúng phiếu và cộng vào đúng ngày tiền vào; còn lại là ngày tin."""
+    sent = datetime.fromtimestamp(stamp / 1000, VN).date()
+    paid = txn_day(read["txn_time"])
+    return {"message_id": row["message_id"], "conversation_id": cid, "conversation_name": name, "sent_at": stamp,
+            "day": paid if paid is not None and paid < sent and (sent - paid).days < MAX_SPAN_DAYS else sent,
+            "sender_name": row["sender_name"], "sender": row["sender_id"], "direction": "thu", "amount_vnd": read["amount_vnd"],
+            "text": "", "media": [media], "rest": "", "source": "anh", "image_vnd": read["amount_vnd"], "image_diff": False,
+            "amount_from": "anh" if read["amount_vnd"] is not None else None, "image": {key: read[key] for key in ("by", "bank", "txn_time", "candidates")}}
 
 
 def parse_reads(data: Any) -> dict[str, dict]:
@@ -224,10 +271,9 @@ def parse_reads(data: Any) -> dict[str, dict]:
         if amount is None and not human:
             continue
         bank = entry.get("bank").strip() if isinstance(entry.get("bank"), str) else ""
-        txn = entry.get("txn_time") if isinstance(entry.get("txn_time"), str) and TXN_TIME.fullmatch(entry["txn_time"]) else None
         candidates = sorted({value for one in _dicts(entry.get("reads")) if (value := _amount(one.get("amount_vnd"))) is not None})
         out[key] = {"by": entry["by"], "amount_vnd": amount, "bank": bank if 0 < len(bank) <= 40 and bank.isprintable() else None,
-                    "txn_time": txn, "candidates": candidates[:4]}
+                    "txn_time": _txn_time(entry.get("txn_time")), "candidates": candidates[:4]}
     return out
 
 
@@ -248,7 +294,11 @@ def load_reads() -> tuple[dict[str, dict], bool]:
     try:
         if info.st_size > READS_MAX_BYTES or path.is_symlink() or not path.is_file():
             raise ValueError("money-reads")
-        value, ok = parse_reads(json.loads(path.read_bytes())), True
+        with path.open("rb") as stream:   # đọc có giới hạn: file bị thay giữa stat và đọc cũng không nạp quá cỡ
+            raw = stream.read(READS_MAX_BYTES + 1)
+        if len(raw) > READS_MAX_BYTES:
+            raise ValueError("money-reads")
+        value, ok = parse_reads(json.loads(raw)), True
     except (OSError, ValueError, TypeError, RecursionError):
         value, ok = {}, False
     with _READS_LOCK:
@@ -262,56 +312,78 @@ def image_amount(media: list[dict], reads: dict) -> int | None:
     return found.pop() if len(found) == 1 else None
 
 
-def merge_images(items: list[dict], images: list[dict]) -> list[dict]:
-    """Ảnh cùng số với khoản thu gõ theo mẫu cùng hội thoại trong 24 giờ, hoặc cùng số và cùng giờ giao dịch (đủ ngày giờ) với ảnh trước
-    trong cùng hội thoại, thành ảnh chứng của khoản đó thay vì một khoản mới. Trả các ảnh còn lại."""
-    kept: list[dict] = []
-    for image in sorted(images, key=lambda one: one["sent_at"]):
-        amount, txn, host = image["amount_vnd"], image["image"]["txn_time"], None
-        if amount is not None:
-            host = next((item for item in items if item["conversation_id"] == image["conversation_id"] and item["direction"] == "thu"
-                         and item["amount_vnd"] == amount and abs(item["sent_at"] - image["sent_at"]) <= SAME_PAYMENT_MS), None)
-            if host is None and txn and "T" in txn:
-                host = next((other for other in kept if other["conversation_id"] == image["conversation_id"] and other["amount_vnd"] == amount
-                             and other["image"]["txn_time"] == txn), None)
-        if host is None:
-            kept.append(image)
-        else:
-            host["media"] += image["media"]
-    return kept
+def _fits(host: dict, key: str | None) -> bool:
+    """Chỗ (khoản gõ hay dấu) còn nhận được một ảnh theo số và ngày: chưa nhận ảnh nào theo luật này, giờ giao dịch không vênh."""
+    return host["_took"] == 0 and (key is None or not host["_keys"] or key in host["_keys"])
 
 
-def absorb_marks(images: list[dict], marks: list[dict]) -> list[dict]:
-    """Dấu "Khách báo đã chuyển" ở chính tin ảnh, hoặc cùng hội thoại, cùng số, ngày báo cách ngày ảnh không quá 1 ngày: giữ dấu (người
-    nhập số và sổ), ảnh thành ảnh chứng của dấu. Trả các ảnh còn lại."""
+def attach_images(items: list[dict], marks: list[dict], images: list[dict], reads: dict) -> list[dict]:
+    """Không đếm hai lần (spec Thu chi, "B4 trên `hao`"). Mỗi khoản thu gõ theo mẫu và mỗi dấu "Khách báo đã chuyển" là một lần trả.
+    Ảnh (theo thứ tự gửi) được gắn vào:
+    1. chỗ đang giữ một ảnh cùng hội thoại, cùng số, cùng giờ giao dịch (tới phút), không giới hạn ngày: cùng một giao dịch;
+    2. dấu đặt trên chính tin ảnh;
+    3. khoản thu gõ cùng hội thoại cùng số (số gõ hoặc số ảnh chứng) trong 24 giờ, rồi dấu cùng hội thoại cùng số cách ngày giao dịch của ảnh
+       không quá 1 ngày; chỉ khi giờ giao dịch không vênh với ảnh chỗ đó đã có, và chỗ đó chưa nhận ảnh nào theo luật này.
+    Trả các ảnh còn lại, mỗi ảnh một khoản."""
+    index: dict[tuple, dict] = {}
+    hosts = [item for item in items if item["direction"] == "thu"]
+    for host in (*hosts, *marks):
+        host["_keys"], host["_took"] = set(), 0
+    for host in hosts:   # ảnh chứng đã gắn sẵn cho biết giao dịch của khoản gõ
+        for media in host["media"]:
+            read = reads.get(media["id"])
+            key = txn_key(read["txn_time"]) if read and read["amount_vnd"] is not None else None
+            if key:
+                host["_keys"].add(key)
+                index.setdefault((host["conversation_id"], read["amount_vnd"], key), host)
     kept: list[dict] = []
     for image in images:
-        day = datetime.fromtimestamp(image["sent_at"] / 1000, VN).date()
-        mark = next((mark for mark in marks if mark["conversation_id"] == image["conversation_id"] and (
-            (mark["message_id"] is not None and mark["message_id"] == image["message_id"])
-            or (image["amount_vnd"] is not None and mark["amount"] == image["amount_vnd"] and abs((mark["day"] - day).days) <= MARK_IMAGE_DAYS))), None)
-        if mark is None:
+        conv, amount, key = image["conversation_id"], image["amount_vnd"], txn_key(image["image"]["txn_time"])
+        same = (conv, amount, key) if amount is not None and key else None
+        owner, took = index.get(same) if same else None, False
+        if owner is None:
+            owner = next((mark for mark in marks if mark["conversation_id"] == conv and mark["message_id"] is not None and mark["message_id"] == image["message_id"]), None)
+        if owner is None and amount is not None:
+            owner = next((host for host in hosts if host["conversation_id"] == conv and _fits(host, key) and amount in (host["amount_vnd"], host["image_vnd"])
+                          and abs(host["sent_at"] - image["sent_at"]) <= SAME_PAYMENT_MS), None) \
+                or next((mark for mark in marks if mark["conversation_id"] == conv and _fits(mark, key) and mark["amount"] == amount
+                         and abs((mark["day"] - image["day"]).days) <= MARK_IMAGE_DAYS), None)
+            took = owner is not None
+        if owner is None:
             kept.append(image)
-        else:
-            mark["media"] += image["media"]
+            if same:
+                index[same] = image
+            continue
+        have = {media["id"] for media in owner["media"]}
+        owner["media"] += [media for media in image["media"] if media["id"] not in have]
+        if "_took" in owner:
+            owner["_took"] += took
+            if key:
+                owner["_keys"].add(key)
+        if same:
+            index.setdefault(same, owner)
+    for host in (*hosts, *marks):
+        del host["_keys"], host["_took"]
     return kept
 
 
 def link_targets(images: list[dict], sources: Sources, directory: Directory) -> None:
-    """Đối tượng của khoản từ ảnh: hội thoại gắn đúng một sổ (ZALO-GROUP-01) thì là sổ đó; chưa gắn hoặc gắn nhiều sổ thì chưa rõ."""
+    """Đối tượng của khoản từ ảnh: hội thoại gắn đúng một sổ (ZALO-GROUP-01) thì là sổ đó; chưa gắn hoặc gắn nhiều sổ thì chưa rõ.
+    `link` ghi lý do cho trang: one, many, none, hoặc failed (không đọc được danh sách nhóm gắn sổ)."""
     linked: dict[str, dict[int, Any]] = {}
     for link in _dicts(sources.read("links", "get_zalo_links", {}).get("links")):
         if isinstance(link.get("conversation_id"), str) and isinstance(link.get("customer_id"), int) and not isinstance(link["customer_id"], bool):
             linked.setdefault(link["conversation_id"], {})[link["customer_id"]] = link.get("customer_name")
+    failed = "links" in sources.failed
     names = {book_id: name for book_id, name, _ in directory.books}
     for image in images:
         found = linked.get(image["conversation_id"], {})
         if len(found) == 1:
             customer, name = next(iter(found.items()))
-            label = names.get(customer) or (name if isinstance(name, str) else None)
-            image["target"] = {"kind": "so", "id": customer, "label": label}
+            image["target"], image["link"] = {"kind": "so", "id": customer, "label": names.get(customer) or (name if isinstance(name, str) else None)}, "one"
         else:
             image["target"] = {"kind": None, "id": None, "label": None, "ambiguous": len(found) > 1}
+            image["link"] = "failed" if failed else "many" if len(found) > 1 else "none"
 
 
 # ---- B2: đối chiếu ----
@@ -486,13 +558,18 @@ def pair_single(items: list[dict], rows_of, claimed: set, status: str) -> None:
             _settle(item, status, rows[0], shared=use[rows[0]["key"]] > 1)
 
 
-def reconcile(items: list[dict], directory: Directory, sources: Sources, today: date) -> None:
+def reconcile(items: list[dict], directory: Directory, sources: Sources, today: date, reserved: frozenset = frozenset()) -> None:
     """Gán `status`, `ledger_ref`, `ledger_vnd`, `shared`, `unchecked` cho từng khoản báo theo bảng trạng thái của spec (Luồng 2).
 
     Chủ ý: chi khớp từng dòng phí chứ không khớp tổng của chặng; ứng cho xe không có tài xế là chưa rõ đối tượng; "chi lương tài xế Hùng"
-    có người nên đi ghép sổ Đội xe (chỉ chi không có xe hay người mà nói lương, văn phòng… mới là `NO_LEDGER`)."""
+    có người nên đi ghép sổ Đội xe (chỉ chi không có xe hay người mà nói lương, văn phòng… mới là `NO_LEDGER`).
+
+    Khoản từ ảnh (B4) không ghép đoán (lệch số, gợi ý) vào phiếu mà một dấu "Khách báo đã chuyển" đang giữ (`reserved`, mã phiếu): ảnh
+    khác số với phiếu đó thường là lần trả khác. Khoản gõ tay vẫn ghép như cũ vì gõ nhầm số là chuyện thường. Ngày của khoản từ ảnh đã
+    đặt sẵn (ngày giao dịch khi ảnh cũ được gửi lại); khoản khác lấy ngày tin."""
     for item in items:
-        item["day"] = datetime.fromtimestamp(item["sent_at"] / 1000, VN).date()
+        if "day" not in item:
+            item["day"] = datetime.fromtimestamp(item["sent_at"] / 1000, VN).date()
         item["status"], item["shared"], item["ledger_ref"], item["ledger_vnd"], item["unchecked"] = None, False, None, None, False
     claimed: set = set()
     for item in items:
@@ -512,9 +589,13 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
             item["status"] = "NO_LEDGER"
     known = [item for item in items if "rows" in item]
     pair_exact(known, lambda one: one["rows"](), claimed)
-    pair_single([item for item in known if item["status"] is None], lambda one: one["rows"](), claimed, "AMOUNT_DIFF")
+
+    def guess(one: dict, rows: list[dict]) -> list[dict]:
+        return [row for row in rows if one.get("source") != "anh" or row["ref"].get("pid") not in reserved]
+
+    pair_single([item for item in known if item["status"] is None], lambda one: guess(one, one["rows"]()), claimed, "AMOUNT_DIFF")
     unknown_thu = [item for item in items if item["status"] is None and item["direction"] == "thu" and "rows" not in item]
-    anywhere = lambda one: [row for row in _near(sources.receipts(one["day"]), one["day"]) if row["amount"] == one["amount_vnd"]]   # noqa: E731
+    anywhere = lambda one: guess(one, [row for row in _near(sources.receipts(one["day"]), one["day"]) if row["amount"] == one["amount_vnd"]])   # noqa: E731
     pair_single(unknown_thu, anywhere, claimed, "SUGGEST")
     for item in items:
         if item["status"] is None:
@@ -548,7 +629,7 @@ def parse_query(query: str, today: date) -> tuple[date, date, set[str]]:
 
 def read_marks(conversations: list[dict], sources: Sources, start: date, end: date) -> list[dict]:
     """Dấu "Khách báo đã chuyển" hợp lệ của các nhóm đã chọn, ngày báo trong khoảng xem (mỗi nhóm đọc một lần). Đọc trước khi đối chiếu
-    để ảnh chuyển khoản của cùng lần trả gộp vào dấu (`absorb_marks`)."""
+    để ảnh chuyển khoản của cùng lần trả gộp vào dấu (`attach_images`)."""
     out = []
     for conversation in conversations:
         for mark in _dicts(sources.read("marks", "get_marks", {"conversation_id": conversation["conversation_id"]}).get("marks")):
@@ -592,7 +673,9 @@ def mark_items(marks: list[dict], directory: Directory, taken_messages: set, tak
 
 def _public(item: dict) -> dict:
     out = {key: item.get(key) for key in ("message_id", "conversation_id", "conversation_name", "sent_at", "sender_name", "direction", "amount_vnd", "text",
-                                          "media", "status", "shared", "unchecked", "ledger_ref", "ledger_vnd", "image_vnd", "amount_from", "image")}
+                                          "media", "status", "shared", "unchecked", "ledger_ref", "ledger_vnd", "image_vnd", "amount_from", "image",
+                                          "link")}
+    out["image_diff"] = bool(item.get("image_diff"))
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
     out["target"] = {key: item["target"].get(key) for key in ("kind", "id", "label")}
@@ -602,7 +685,8 @@ def _public(item: dict) -> dict:
 
 def totals(items: list[dict]) -> dict:
     out = {"thu_vnd": 0, "chi_vnd": 0, "ung_vnd": 0, "thu_count": 0, "chi_count": 0, "ung_count": 0, "no_amount": 0,
-           "missing": sum(item["status"] == "MISSING" for item in items), "amount_diff": sum(item["status"] == "AMOUNT_DIFF" for item in items),
+           "missing": sum(item["status"] == "MISSING" for item in items),
+           "amount_diff": sum(item["status"] == "AMOUNT_DIFF" or bool(item.get("image_diff")) for item in items),
            "from_image": sum(item.get("source") == "anh" and item["amount_vnd"] is not None for item in items)}
     for item in items:
         if item["amount_vnd"] is None:
@@ -697,21 +781,24 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
     if not reads_ok:
         failed.add("reads")
     items, images = collect(store, directory_of, start_ms, end_ms, conversations, reads)
-    marks = read_marks(conversations, sources, start, end) if conversations else []
-    images = merge_images(items, absorb_marks(images, marks))
+    # Số ảnh chứng của khoản gõ (chỉ ảnh chứng) có trước khi gộp, để ảnh gộp sau không xóa mất cảnh báo "mẫu X, ảnh Y".
     for item in items:
         item["image_vnd"], item["amount_from"] = image_amount(item["media"], reads), None
         if item["amount_vnd"] is None and item["image_vnd"] is not None:   # mẫu không đọc được số mà ảnh chứng đọc được
             item["amount_vnd"], item["amount_from"] = item["image_vnd"], "anh"
+        item["image_diff"] = item["image_vnd"] is not None and item["amount_from"] is None and item["amount_vnd"] not in (None, item["image_vnd"])
+    before = sum(image["day"] < start for image in images)   # ảnh cũ gửi lại: giao dịch trước khoảng xem, không cộng vào khoảng này
+    images = [image for image in images if image["day"] >= start]
+    marks = read_marks(conversations, sources, start, end) if conversations else []
+    images = attach_images(items, marks, images, reads)
     if images:
         link_targets(images, sources, directory_of())
         items += images
     if items:
-        reconcile(items, directory_of(), sources, today)
+        held = frozenset(pid for mark in marks if isinstance(pid := mark["raw"].get("receipt_pid"), str))
+        reconcile(items, directory_of(), sources, today, held)
     for item in items:
-        if item.get("source") != "anh" and item["image_vnd"] is not None and item["amount_vnd"] not in (None, item["image_vnd"]):
-            item["status"] = "AMOUNT_DIFF"   # Luồng 4: mẫu X, ảnh Y; giữ phiếu đã ghép (nếu có) để người xem mở
-        if item.get("source") == "anh" and item["target"]["kind"] is None and "links" in failed:
+        if item.get("link") == "failed":
             item["unchecked"] = True
     marked, hidden = mark_items(marks, directory_of(), {item["message_id"] for item in items},
                                 {item["ledger_ref"]["pid"] for item in items if item.get("ledger_ref") and item["ledger_ref"].get("pid")}) if conversations else ([], 0)
@@ -720,7 +807,7 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
     items += marked
     items.sort(key=lambda item: (item["day"], item["sent_at"] or 0), reverse=True)
     return {"items": [_public(item) for item in items], "totals": totals(items), "sources_failed": sorted(failed), "marks_hidden": hidden,
-            "conversations_skipped": len(everything) - len(conversations),
+            "conversations_skipped": len(everything) - len(conversations), "images_before": before,
             "counts": {code: sum(item["status"] == code for item in items) for code in STATUSES}}
 
 

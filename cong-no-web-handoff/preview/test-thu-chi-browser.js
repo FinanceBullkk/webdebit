@@ -377,9 +377,9 @@ const IMAGES = [
   photo('a1', TODAY, 10, 7_000_000, 'RECORDED', { by: 'ocr', bank: 'VIETCOMBANK', txn_time: '2026-11-20T09:58:00+07:00', candidates: [7_000_000] },
     { target: so(1, 'SỔ A'), ledger_ref: { kind: 'receipt', customer_id: 1, pid: 'PH-2', date: TODAY } }),
   photo('a2', TODAY, 9, null, 'NO_AMOUNT', { by: 'human', bank: null, txn_time: null, candidates: [1_050_000, 1_500_000] }),
-  photo('a3', '2026-11-19', 15, 4_000_000, 'UNKNOWN_TARGET', { by: 'ocr', bank: 'MB', txn_time: '2026-11-19', candidates: [4_000_000] }),
-  item('t1', '2026-11-19', 9, 'thu', 5_000_000, 'AMOUNT_DIFF', { text: 'thu 5tr SỔ B', image_vnd: 5_500_000, amount_from: null, ledger_vnd: 5_000_000, target: so(2, 'SỔ B'),
-    ledger_ref: { kind: 'receipt', customer_id: 2, date: '2026-11-19' }, media: [shot] }),
+  photo('a3', '2026-11-19', 15, 4_000_000, 'UNKNOWN_TARGET', { by: 'ocr', bank: 'MB', txn_time: '2026-11-19', candidates: [4_000_000] }, { link: 'none' }),
+  item('t1', '2026-11-19', 9, 'thu', 5_000_000, 'RECORDED', { text: 'thu 5tr SỔ B', image_vnd: 5_500_000, image_diff: true, amount_from: null, ledger_vnd: 5_000_000,
+    target: so(2, 'SỔ B'), ledger_ref: { kind: 'receipt', customer_id: 2, date: '2026-11-19' }, media: [shot] }),
 ];
 
 test('Thu chi: ảnh chuyển khoản máy đọc hiện như khoản thu, ghi "đọc từ ảnh", giờ giao dịch rồi ngân hàng', () => withPage(ok(IMAGES), async page => {
@@ -393,7 +393,7 @@ test('Thu chi: ảnh chuyển khoản máy đọc hiện như khoản thu, ghi "
   assert.equal((await row('a2').locator('.tc-amt').innerText()).trim(), '—');
   assert.match(clean(await row('a2').innerText()), /Ảnh chưa đọc chắc Máy đọc ra 1\.050\.000 đ và 1\.500\.000 đ\. Mở ảnh để xem, không cộng vào tổng\./);
   assert.match(clean(await row('a3').innerText()), /— Ảnh chuyển khoản · MB Chưa rõ của ai Hội thoại chưa gắn sổ\./);
-  assert.match(clean(await row('t1').innerText()), /Lệch: mẫu 5\.000\.000 đ, ảnh 5\.500\.000 đ Sổ ghi 5\.000\.000 đ\./);
+  assert.match(clean(await row('t1').innerText()), /Lệch: mẫu 5\.000\.000 đ, ảnh 5\.500\.000 đ Đã vào sổ\. Mở sổ/);   // đối chiếu vẫn giữ, có nút mở sổ
   assert.equal(await row('t1').locator('.tc-src').count(), 0);   // số gõ theo mẫu: không ghi "đọc từ ảnh"
   assert.equal(await page.locator('.tc-row[data-source="anh"] img').first().getAttribute('alt'), 'Ảnh chuyển khoản');
   assert.deepEqual((await page.locator('.tc-chip').allInnerTexts()).map(clean), ['Tất cả4', 'Chưa vào sổ0', 'Lệch số1', 'Chưa rõ đối tượng1', 'Không đọc được số1']);
@@ -420,7 +420,7 @@ test('Thu chi: file đọc ảnh hỏng thì nói rõ khoản từ ảnh chưa h
   }));
 
 test('Thu chi: danh sách nhóm gắn sổ đọc lỗi thì khoản từ ảnh ghi lý do, cảnh báo nêu đúng nguồn', () => withPage(
-  () => ({ body: body([photo('a9', TODAY, 9, 7_000_000, 'UNKNOWN_TARGET', { by: 'ocr', bank: null, txn_time: null, candidates: [7_000_000] }, { unchecked: true })],
+  () => ({ body: body([photo('a9', TODAY, 9, 7_000_000, 'UNKNOWN_TARGET', { by: 'ocr', bank: null, txn_time: null, candidates: [7_000_000] }, { unchecked: true, link: 'failed' })],
     { sources_failed: ['links'] }) }), async page => {
     await ready(page);
     assert.match(await page.locator('#source-warn').innerText(), /^Không đọc được danh sách nhóm gắn sổ lúc này\./);
@@ -435,4 +435,13 @@ test('Thu chi: giờ giao dịch khác ngày tin thì ghi cả ngày; giờ khô
     await ready(page);
     assert.deepEqual((await page.locator('.tc-row .tc-text').allInnerTexts()).map(clean),
       ['Giao dịch 23:50 18/11 · ACB', 'Giao dịch ngày 18/11 · ACB', 'Giao dịch 06:15']);
+  }));
+
+test('Thu chi: ảnh cũ gửi lại nằm ở ngày giao dịch, cột giờ ghi cả ngày tin; giao dịch trước khoảng xem chỉ được đếm, không cộng', () => withPage(
+  () => ({ body: body([photo('o1', '2026-11-16', 10, 5_000_000, 'RECORDED', { by: 'ocr', bank: 'ACB', txn_time: '2026-11-16T10:15:00+07:00', candidates: [] },
+    { sent_at: Date.parse('2026-11-19T15:12:00+07:00'), target: so(1, 'SỔ A'), link: 'one' })], { images_before: 2 }) }), async page => {
+    await ready(page);
+    assert.deepEqual((await page.locator('.tc-day h3').allInnerTexts()).map(clean), ['16/11']);
+    assert.match(clean(await page.locator('.tc-row').innerText()), /^19\/11 15:12 Lan .* Giao dịch 10:15 · ACB Đã vào sổ/);
+    assert.equal(clean(await page.locator('.tc-note').innerText()), '2 ảnh chuyển khoản gửi trong 7 ngày là giao dịch trước đó, không cộng vào tổng.');
   }));

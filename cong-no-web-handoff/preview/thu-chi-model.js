@@ -9,7 +9,7 @@ const ThuChiModel = (() => {
   const FILTERS = [
     { id: 'all', label: 'Tất cả', match: () => true },
     { id: 'missing', label: 'Chưa vào sổ', match: item => item.status === 'MISSING' },
-    { id: 'diff', label: 'Lệch số', match: item => item.status === 'AMOUNT_DIFF' },
+    { id: 'diff', label: 'Lệch số', match: item => item.status === 'AMOUNT_DIFF' || Boolean(item.image_diff) },
     { id: 'unknown', label: 'Chưa rõ đối tượng', match: item => item.status === 'UNKNOWN_TARGET' || item.status === 'SUGGEST' },
     { id: 'noamount', label: 'Không đọc được số', match: item => item.status === 'NO_AMOUNT' },
   ];
@@ -22,7 +22,7 @@ const ThuChiModel = (() => {
     const sums = { thu: 0n, chi: 0n, ung: 0n };
     for (const item of items) {
       if (item.status === 'MISSING') out.missing += 1;
-      if (item.status === 'AMOUNT_DIFF') out.diff += 1;
+      if (item.status === 'AMOUNT_DIFF' || item.image_diff) out.diff += 1;
       if (item.amount_vnd == null) { out.noAmount += 1; continue; }
       sums[item.direction] += F.toBig(String(item.amount_vnd));
       out[item.direction].n += 1;
@@ -65,12 +65,19 @@ const ThuChiModel = (() => {
   const money = value => (value == null ? '—' : F.full(String(value)));
 
   /** Mẫu gõ và ảnh chứng đọc ra hai số khác nhau (Luồng 4: "mẫu X, ảnh Y"). Số lấy từ ảnh thì không có gì để so. */
-  const imageDiff = item => item.source === 'chat' && item.amount_from !== 'anh' && item.image_vnd != null && item.amount_vnd != null
-    && String(item.image_vnd) !== String(item.amount_vnd);
+  /** Mẫu gõ và ảnh chứng đọc ra hai số khác nhau (Luồng 4: "mẫu X, ảnh Y"). Máy chủ đặt cờ; trạng thái đối chiếu vẫn giữ nguyên. */
+  const imageDiff = item => Boolean(item.image_diff);
   const joinNotes = (...notes) => notes.filter(Boolean).join(' ');
 
-  /** Câu trạng thái đối chiếu theo bảng của spec (Luồng 2). `tone`: ok (đã vào sổ), wait, warn (cần người xem), info. */
+  /** Câu trạng thái đối chiếu theo bảng của spec (Luồng 2). `tone`: ok (đã vào sổ), wait, warn (cần người xem), info.
+      Mẫu và ảnh khác số thì câu chính là "Lệch: mẫu X, ảnh Y", câu đối chiếu (đã vào sổ, gợi ý sổ, chưa vào sổ…) chuyển xuống ghi chú. */
   function statusText(item) {
+    const base = matchText(item);
+    if (!imageDiff(item)) return base;
+    return { tone: 'warn', text: `Lệch: mẫu ${money(item.amount_vnd)}, ảnh ${money(item.image_vnd)}`, note: joinNotes(`${base.text}.`, base.note) };
+  }
+
+  function matchText(item) {
     const shared = item.shared ? 'Một dòng sổ có hai khoản báo cùng chờ: người xem chọn.' : '';
     const image = item.source === 'anh';
     // Dấu khách báo giữ số người nhập; ảnh gộp vào dấu mà đọc ra số khác thì chỉ ghi chú để người xem so.
@@ -80,17 +87,12 @@ const ThuChiModel = (() => {
       case 'RECORDED': return { tone: 'ok', text: 'Đã vào sổ', note: markImage };
       case 'WAITING': return { tone: 'wait', text: 'Chờ vào sổ', note: markImage };
       case 'MISSING': return { tone: 'warn', text: 'Chưa vào sổ', note: joinNotes('Quá 3 ngày vẫn chưa thấy trong sổ.', markImage) };
-      case 'AMOUNT_DIFF':
-        if (imageDiff(item)) {
-          return { tone: 'warn', text: `Lệch: mẫu ${money(item.amount_vnd)}, ảnh ${money(item.image_vnd)}`,
-            note: joinNotes(item.ledger_vnd != null ? `Sổ ghi ${money(item.ledger_vnd)}.` : '', shared) };
-        }
-        return { tone: 'warn', text: `Lệch: báo ${money(item.amount_vnd)}, sổ ${money(item.ledger_vnd)}`, note: shared };
+      case 'AMOUNT_DIFF': return { tone: 'warn', text: `Lệch: báo ${money(item.amount_vnd)}, sổ ${money(item.ledger_vnd)}`, note: shared };
       case 'SUGGEST': return { tone: 'warn', text: `Có thể là phiếu của sổ ${item.ledger_ref?.name ?? ''}`.trim(), note: joinNotes('Người xác nhận.', shared) };
       case 'UNKNOWN_TARGET':
-        if (image) {
-          return { tone: 'info', text: 'Chưa rõ của ai',
-            note: item.unchecked ? 'Không đọc được danh sách nhóm gắn sổ lúc này.' : item.ambiguous ? 'Hội thoại gắn nhiều sổ.' : 'Hội thoại chưa gắn sổ.' };
+        if (image) {   // `link`: lý do máy chủ gửi kèm (one, many, none, failed)
+          const why = { failed: 'Không đọc được danh sách nhóm gắn sổ lúc này.', many: 'Hội thoại gắn nhiều sổ.' }[item.link] ?? 'Hội thoại chưa gắn sổ.';
+          return { tone: 'info', text: 'Chưa rõ của ai', note: joinNotes(why, item.unchecked && item.link !== 'failed' ? 'Chưa kiểm được phiếu đúng số lúc này.' : '') };
         }
         return { tone: 'info', text: 'Chưa rõ của ai', note: item.unchecked ? 'Không đọc được danh sách khách và xe lúc này.' : item.ambiguous ? 'Tin khớp nhiều hơn một tên.' : '' };
       case 'NO_LEDGER': return { tone: 'info', text: 'Web chưa có sổ chi này', note: 'Chỉ liệt kê.' };
