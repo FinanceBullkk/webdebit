@@ -3,13 +3,19 @@
  * với trang Việc cần làm (InboxTable.books: việc từ Sheet + chuyến thiếu giá, chờ kiểm, số dư đầu, sổ chưa gán mặt hàng).
  * Trang đã có số liệu thì báo qua AppNav.setCustomers / AppNav.setTodoCount (data-count="page") để khỏi đọc API hai lần;
  * trang khác thì file tự đọc. Không ghi gì lên server; chỉ lưu số đếm gần nhất trên máy (localStorage) và bản số liệu Việc cần
- * làm gần nhất trong tab (sessionStorage, đóng tab là hết) để bấm sang trang đó thấy bảng ngay. */
+ * làm gần nhất trong tab (sessionStorage, đóng tab là hết) để bấm sang trang đó thấy bảng ngay.
+ * QUYEN-01 (20/11/2026): máy chủ gắn data-role="user" vào <html> cho login không phải quản lý; khi đó menu chỉ còn các
+ * trang làm sổ, không có số Việc cần làm, và mọi link tới trang quản lý trên trang (cả menu viết sẵn của Sổ khách) bị bỏ. */
 globalThis.AppNav = (() => {
   'use strict';
   // cong-no-format.js khai báo CongNoFormat bằng const ở tầm script: dùng tên trực tiếp, không có trên globalThis.
   const F = CongNoFormat;
   const svg = paths => `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
-  const PAGES = [
+  // Chỉ máy chủ quyết vai trò; thiếu thuộc tính là quản lý (dev, test, bản cài chưa đặt danh sách quản lý).
+  const isAdmin = () => document.documentElement.dataset.role !== 'user';
+  const ADMIN_PAGES = ['/viec-can-lam.html', '/may-chay.html', '/doi-xe.html', '/doi-xe-bang-ke.html', '/thong-tin-cty.html',
+    '/nhat-ky-cong-viec.html', '/doi-no.html', '/sheet-trip-queue.html'];
+  const ALL_PAGES = [
     ['tong-quan', '/dashboard-v7.html', 'Tổng quan', '<rect x="4" y="4" width="7" height="7" rx="1"></rect><rect x="13" y="4" width="7" height="7" rx="1"></rect><rect x="4" y="13" width="7" height="7" rx="1"></rect><rect x="13" y="13" width="7" height="7" rx="1"></rect>'],
     ['theo-thang', '/cong-no-theo-thang.html', 'Công nợ theo tháng', '<rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M4 10h16M9 3v4M15 3v4"></path>'],
     ['so-khach', '/so-khach-v7-live.html', 'Sổ khách', '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M5 17a3 3 0 0 1 3-3h11"></path>'],
@@ -20,6 +26,7 @@ globalThis.AppNav = (() => {
     ['doi-xe', '/doi-xe.html', 'Đội xe', '<path d="M2.5 6.5h11v9h-11z"></path><path d="M13.5 9.5h4l3 3v3h-7z"></path><circle cx="6.5" cy="17.5" r="1.8"></circle><circle cx="16.5" cy="17.5" r="1.8"></circle>'],
     ['thong-tin-cty', '/thong-tin-cty.html', 'Thông tin cty', '<path d="M4 21V5l8-3v19M12 9h8v12M7 8h2M7 12h2M7 16h2M15 13h2M15 17h2M2 21h20"></path>'],
   ];
+  const PAGES = isAdmin() ? ALL_PAGES : ALL_PAGES.filter(([, href]) => !ADMIN_PAGES.includes(href));
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   const root = document.querySelector('aside.app-nav');
   let customers = null, loadingCustomers = null;
@@ -33,8 +40,8 @@ globalThis.AppNav = (() => {
       + `<nav aria-label="Điều hướng chính">${PAGES.map(([id, href, label, paths]) => `<a${id === active ? ' class="active" aria-current="page"' : ''} href="${href}">`
         + `${svg(paths)}${label}${id === 'viec-can-lam' ? '<span class="badge" id="todo-badge" hidden></span>' : ''}</a>`).join('')}</nav>`
       // NHAT-KY-01: ngoài khối chín mục (khung 1280×560 chỉ vừa chín mục), khung thấp thì chỉ hiện khi bấm ☰.
-      + `<div class="nav-extra"><a${active === 'nhat-ky' ? ' class="active" aria-current="page"' : ''} href="/nhat-ky-cong-viec.html">`
-      + `${svg('<circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M6 7v10M6 9c0 3 4 3 10 3"></path>')}Nhật ký công việc</a></div>`;
+      + (isAdmin() ? `<div class="nav-extra"><a${active === 'nhat-ky' ? ' class="active" aria-current="page"' : ''} href="/nhat-ky-cong-viec.html">`
+      + `${svg('<circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M6 7v10M6 9c0 3 4 3 10 3"></path>')}Nhật ký công việc</a></div>` : '');
     root.querySelector('#nav-toggle').addEventListener('click', event => {
       const expanded = event.currentTarget.getAttribute('aria-expanded') !== 'true';
       event.currentTarget.setAttribute('aria-expanded', String(expanded));
@@ -135,13 +142,22 @@ globalThis.AppNav = (() => {
     }
   }
 
+  // Người dùng: bỏ link tới trang quản lý đã có sẵn trong HTML (menu riêng của Sổ khách). Link vẽ sau lúc chạy thì
+  // trang tự hỏi AppNav.isAdmin().
+  function dropAdminLinks() {
+    for (const link of document.querySelectorAll('a[href]')) {
+      if (ADMIN_PAGES.includes(new URL(link.href, location.href).pathname)) link.remove();
+    }
+  }
+
   // Sổ khách còn menu riêng (cùng số đo): không có <aside class="app-nav"> thì chỉ hiện số đệm, không đọc API.
   if (root) mount();
-  paintCached();
-  addEventListener('storage', event => { if (event.key === CACHE) paintCached(); });
-  if (root && root.dataset.count !== 'page') {
+  if (!isAdmin()) dropAdminLinks();
+  else paintCached();
+  addEventListener('storage', event => { if (event.key === CACHE && isAdmin()) paintCached(); });
+  if (root && root.dataset.count !== 'page' && isAdmin()) {
     loadTodoCount();
     setInterval(() => { if (!document.hidden) loadTodoCount(); }, 120_000);
   }
-  return { setCustomers, setTodoCount, loadTodoCount, saveTodoSnapshot, readTodoSnapshot };
+  return { isAdmin, setCustomers, setTodoCount, loadTodoCount, saveTodoSnapshot, readTodoSnapshot };
 })();

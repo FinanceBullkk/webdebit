@@ -371,6 +371,16 @@ Thêm người: sửa dòng này rồi `sudo systemctl daemon-reload` và `sudo 
 nhận 403 `LOGIN_NOT_ALLOWED` và được ghi vào journal của unit (dòng `ACCESS-01: từ chối login …`), nên tra
 `journalctl -u <unit>` để biết cần thêm ai.
 
+**Danh sách quản lý ([`QUYEN-01`](decisions/quyen-01.md), từ 20/11/2026):** login trong danh sách này thấy mọi trang;
+login được vào mà không có ở đây chỉ thấy các trang làm sổ. Mỗi login quản lý phải có trong danh sách trên, không thì
+service từ chối khởi động. Không đặt thì ai được vào cũng là quản lý.
+
+```ini
+# /etc/systemd/system/<unit>.service.d/admin-logins.conf
+[Service]
+Environment=WEBDEBIT_ADMIN_LOGINS=<login1>
+```
+
 ```bash
 sudo systemctl daemon-reload
 ```

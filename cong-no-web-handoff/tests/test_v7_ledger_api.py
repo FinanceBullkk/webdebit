@@ -14,7 +14,7 @@ import threading
 import time
 import unittest
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -795,6 +795,90 @@ class LedgerApiTest(unittest.TestCase):
             finally:
                 server.shutdown()
                 worker.join(timeout=3)
+
+    def test_http_user_role_sees_only_ledger_pages(self):
+        # QUYEN-01: login ngoài danh sách quản lý chỉ mở trang làm sổ; trang và API quản lý trả 403, API sổ vẫn mở.
+        authority = "demo.tail-example.ts.net:8443"
+        class RoleHandler(api.Handler):
+            behind_tailscale_serve = True
+            serve_hosts = (authority,)
+            allowed_logins = frozenset({"boss@example.test", "staff@example.test"})
+            admin_logins = frozenset({"boss@example.test"})
+            default_actor = None
+            dev_actor_mode = False
+        RoleHandler.runner = self.runner
+        RoleHandler.localapi = self.localapi
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), RoleHandler) as server, \
+                patch.object(api.v7_nhat_ky, "view", return_value={"days": []}):
+            RoleHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            def request(login, path):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                conn.request("GET", path, headers={"Host": authority, "Tailscale-User-Login": login})
+                response = conn.getresponse()
+                data = response.read()
+                conn.close()
+                return response.status, response.getheader("Content-Type"), response.getheader("ETag"), data
+            try:
+                for path in ("/may-chay.html", "/viec-can-lam.html", "/doi-xe.html", "/thong-tin-cty.html",
+                             "/nhat-ky-cong-viec.html", "/doi-no.html", "/sheet-trip-queue.html"):
+                    with self.subTest(path=path):
+                        status, kind, _, data = request("staff@example.test", path)
+                        self.assertEqual((status, kind), (403, "text/html; charset=utf-8"))
+                        self.assertIn("chỉ dành cho quản lý", data.decode("utf-8"))
+                        self.assertEqual(request("boss@example.test", path)[0], 200)
+                self.runner.calls.clear()
+                for path in ("/api/v7/nhat-ky", "/api/v7/machine", "/api/v7/machine/booking", "/api/v7/doixe/xe",
+                             "/api/v7/doixe/bang-ke.xlsx?thang=2026-10"):
+                    with self.subTest(path=path):
+                        status, _, _, data = request("staff@example.test", path)
+                        self.assertEqual((status, json.loads(data)["error"]), (403, "ADMIN_ONLY"))
+                self.assertEqual(self.runner.calls, [])
+                self.assertEqual(request("boss@example.test", "/api/v7/nhat-ky")[0], 200)
+                for path in ("/", "/dashboard-v7.html", "/so-khach-v7-live.html", "/bang-thu.html", "/bao-cao-thang.html",
+                             "/cong-no-theo-thang.html", "/zalo-chat.html"):
+                    with self.subTest(path=path):
+                        status, _, user_tag, user_page = request("staff@example.test", path)
+                        _, _, boss_tag, boss_page = request("boss@example.test", path)
+                        self.assertEqual(status, 200)
+                        self.assertIn(b'<html lang="vi" data-role="user"', user_page)
+                        self.assertNotIn(b"data-role", boss_page)
+                        self.assertNotEqual(user_tag, boss_tag)  # trình duyệt không lấy nhầm bản của vai trò kia
+                self.assertEqual(request("staff@example.test", "/app-nav.js")[0], 200)
+                self.assertEqual(request("staff@example.test", "/api/v7/customers")[0], 200)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+
+    def test_admin_logins_cli(self):
+        base = ["api", "--container", "fake", "--behind-tailscale-serve", "--allowed-login", "boss@example.test",
+                "--allowed-login", "staff@example.test"]
+        def patches():
+            return (patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"),
+                    patch.object(api.Handler, "allowed_logins", None), patch.object(api.Handler, "admin_logins", None),
+                    patch.object(api.Handler, "behind_tailscale_serve", False), patch.object(api.Handler, "serve_hosts", ()),
+                    patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None))
+        with patch.dict(os.environ, {"WEBDEBIT_ADMIN_LOGINS": "boss@EXAMPLE.TEST"}, clear=True), \
+                patch.object(sys, "argv", base), ExitStack() as stack:
+            for item in patches():
+                stack.enter_context(item)
+            api.main()
+            self.assertEqual(api.Handler.admin_logins, frozenset({"boss@example.test"}))
+        # Quản lý phải nằm trong danh sách được vào; danh sách đặt mà rỗng là lỗi gõ: không khởi động.
+        for env in ({"WEBDEBIT_ADMIN_LOGINS": "other@example.test"}, {"WEBDEBIT_ADMIN_LOGINS": " "}):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True), patch.object(sys, "argv", base), \
+                    ExitStack() as stack:
+                for item in patches():
+                    stack.enter_context(item)
+                with self.assertRaises(SystemExit) as caught:
+                    api.main()
+                self.assertEqual(caught.exception.code, 2)
+
+    def test_every_page_can_carry_user_role(self):
+        for route, name in api.PAGES.items():
+            with self.subTest(route=route):
+                self.assertIn(b'data-role="user"', api.v7_role.mark_html((api.PREVIEW / name).read_bytes()))
 
     def test_receivables_matrix_route_year_validation(self):
         current = api.datetime.now().year
