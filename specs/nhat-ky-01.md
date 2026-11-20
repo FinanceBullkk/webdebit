@@ -21,8 +21,8 @@ Người làm và quản lý mở web công nợ là thấy việc đã đưa l�
 
 Bản tin theo ngày (chọn A, 20/11/2026), dùng `cong-no-theme.css` và `.card` như các trang Quản trị; luật riêng nằm dưới `.nk`. Thứ tự đọc trong khung 1280×560:
 
-1. **Khối tuần** (luôn ở đầu): tuần mới nhất hoặc tuần đang chọn, số thay đổi và số ngày làm, tuần trước, mảng làm nhiều nhất; **bảng nhiệt mảng × tuần** (8 tuần gần nhất, màn hẹp 5 tuần): một sắc xanh theo số thay đổi, số in trong ô, chấm màu và mô tả việc lớn dưới tên mảng, cột "Gần nhất". Bấm tên mảng, tuần hoặc ô để lọc.
-2. **Từng ngày**: mới nhất trước, 7 ngày một lượt ("Xem thêm"), mỗi ngày tiêu đề tóm tắt, số thay đổi và giờ đầu–cuối, câu lời thường gom theo mảng; danh sách thay đổi kỹ thuật thu gọn (mở sẵn khi lọc giờ hoặc khi ngày chưa có tóm tắt).
+1. **Khối tuần** (luôn ở đầu): tuần mới nhất hoặc tuần đang chọn, số thay đổi, số ngày làm, nhãn tăng/giảm so tuần trước; **lưới ô vuông theo ngày** (như lịch đóng góp GitHub): hàng Tất cả rồi mỗi mảng một hàng, 6 tuần gần nhất (màn hẹp 3 tuần, tên mảng nằm trên hàng ô), một sắc xanh bốn mức theo số thay đổi, **ô không in số** (di chuột xem), số bên phải là số thay đổi của tuần đang xem. Bấm tên mảng, nhãn tuần hoặc một ô (lọc mảng + ngày).
+2. **Từng ngày** dạng dòng thời gian như "Contribution activity" của GitHub: nút trên đường dọc, ngày, tiêu đề tóm tắt, số thay đổi; mỗi mảng một dòng có **thanh dài theo số thay đổi** (cùng thang cho các ngày đang hiện) và số. Bấm dòng mảng mới bung câu lời thường của mảng đó; tên thay đổi kỹ thuật thu vào "Xem N thay đổi kỹ thuật" (hiện luôn nếu mảng chưa có câu). Lọc mảng hoặc giờ thì dòng mảng tự bung. 7 ngày một lượt ("Xem thêm").
 3. **Cột phải**: Đang làm tiếp; **Giờ làm**: % ngoài giờ hành chính, thanh chia bốn nhóm (trong giờ, sáng sớm trước 8h, buổi tối từ 17h30, thứ Bảy/Chủ nhật) có số, biểu đồ cột theo giờ trong ngày (chồng theo nhóm, nền nhạt 8h–17h30, bấm cột để lọc giờ) và theo thứ trong tuần.
 
 Bộ lọc chung mảng/tuần/giờ, chip bỏ từng lọc, Esc xóa hết; mỗi khối không tự lọc theo chiều của nó. Màu sáu mảng là sáu ô đầu bảng màu phân loại đã kiểm bằng công cụ kiểm bảng màu (phân biệt được cho người mù màu), tên mảng luôn in cạnh chấm màu. Màn dưới 1012px một cột: tuần → đang làm tiếp → từng ngày → giờ làm.
@@ -32,5 +32,5 @@ Bộ lọc chung mảng/tuần/giờ, chip bỏ từng lọc, Esc xóa hết; m�
 ## Kiểm
 
 - `tests/test_v7_nhat_ky.py`: chia mảng, mẫu không đếm, nhịp đọc với GitHub và Claude giả, ETag, tóm tắt chỉ viết lại sau 30 phút, bỏ câu trả lời sai, không key thì không gọi Claude, nạp bản khởi đầu, hết lượt thì chờ, route và trang được phục vụ.
-- `preview/test-nhat-ky-browser.js`: trang với API giả, bỏ PR nhật ký triển khai, khối tuần và bảng mảng × tuần, từng ngày lời thường, lọc mảng và giờ, Esc xóa lọc, % ngoài giờ, lỗi máy chủ rồi đọc lại, không cuộn ngang 1280/390, thẻ Nhật ký trong dải Quản trị; Theo máy đổi theo máy, Tối nhớ sau khi tải lại, Sáng trả nền sáng.
+- `preview/test-nhat-ky-browser.js`: trang với API giả, bỏ PR nhật ký triển khai, khối tuần, lưới ô ngày (ô không in số, số tuần theo mảng), dòng thời gian (câu chỉ hiện khi bấm), lọc mảng, ô ngày và giờ, Esc xóa lọc, % ngoài giờ, lỗi máy chủ rồi đọc lại, không cuộn ngang 1280/390, thẻ Nhật ký trong dải Quản trị; Theo máy đổi theo máy, Tối nhớ sau khi tải lại, Sáng trả nền sáng.
 - Trên `hao` sau triển khai: `GET /api/v7/nhat-ky` có `checked_at` mới, `store.json` được tạo, ngày hôm nay có tóm tắt.
