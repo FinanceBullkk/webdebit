@@ -29,7 +29,10 @@ function makeServer(state) {
     if (route === '/api/v7/admin/users' && request.method === 'GET') {
       if (state.readFails) return out({ error: 'X', message: 'Máy chủ bận.' }, 503);
       const { users, ...rest } = state.data;
-      return out({ ...rest, users: users.map(user => ({ ...user, me: user.login === BOSS })) });
+      const body = { ...rest, users: users.map(user => ({ ...user, me: user.login === BOSS })) };
+      // Lượt đọc lại sau khi ghi chậm như máy CI bận: câu báo "Đã …" chỉ được hiện khi bảng đã vẽ lại.
+      if (state.slowReload && state.posts.length) { setTimeout(() => out(body), 300); return undefined; }
+      return out(body);
     }
     if (route === '/api/v7/admin/users' && request.method === 'POST') {
       let raw = '';
@@ -115,7 +118,7 @@ test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ bảy
   if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'nguoi-dung-1280.png') });
 }));
 
-test('Người dùng: cho vào login vừa bị chặn, đổi vai trò, bỏ quyền phải hỏi lại, Thôi thì không gửi gì', () => withPage({}, async (page, state) => {
+test('Người dùng: cho vào login vừa bị chặn, đổi vai trò, bỏ quyền phải hỏi lại, Thôi thì không gửi gì', () => withPage({ slowReload: true }, async (page, state) => {
   await page.locator('#denied-box:not([hidden])').waitFor();
   await page.locator('#denied li', { hasText: 'la@example.test' }).getByRole('button', { name: 'Cho vào (nhân viên)' }).click();
   await page.locator('#flash', { hasText: 'Đã cho la@example.test vào làm Nhân viên.' }).waitFor();
@@ -139,7 +142,7 @@ test('Người dùng: cho vào login vừa bị chặn, đổi vai trò, bỏ qu
   assert.match(await page.locator('#history').innerText(), /Bỏ quyền vào của lan\.ketoan@example\.test \(trước là Quản lý\)/);
 }));
 
-test('Người dùng: thêm người kiểm dạng login trước khi gửi, đặt tên; trùng thì báo câu của máy chủ', () => withPage({}, async (page, state) => {
+test('Người dùng: thêm người kiểm dạng login trước khi gửi, đặt tên; trùng thì báo câu của máy chủ', () => withPage({ slowReload: true }, async (page, state) => {
   await page.locator('.nd-table').waitFor();
   await page.locator('#add-login').fill('khong co a cong');
   await page.locator('#add-submit').click();

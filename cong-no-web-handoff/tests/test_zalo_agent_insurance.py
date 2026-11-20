@@ -550,6 +550,93 @@ class InsuranceRobustnessTest(InsuranceCase):
             self.assertEqual(self.processor.step()["error"], "snapshot_unreadable")
 
 
+class InsuranceLocalErrorTest(InsuranceCase):
+    """Lỗi cục bộ không được giữ `wants_work` ở True (mỗi lần như vậy vòng lặp gom 3 giây) và PDF bị khóa không được lờ đi."""
+
+    def test_static_snapshot_errors_stop_wanting_work_until_the_snapshot_changes_or_resync_is_due(self):
+        for snapshot in (fake_snapshot([]), fake_snapshot([fake_row("GIA-001", "a", "TEST0000001"), {"sha256": "khong-phai-hex"}])):
+            self.setUp()
+            self.put_snapshot(snapshot)
+            self.assertTrue(self.processor.wants_work())                       # lần đầu: có việc
+            first = self.processor.step()
+            self.assertIn(first["error"], ("empty_snapshot", "snapshot_invalid"))
+            built = []
+            real = ins.build_rows
+            with patch.object(ins, "build_rows", lambda *a, built=built, real=real, **k: (built.append(1), real(*a, **k))[1]):
+                for _ in range(5):
+                    self.now += 10                                              # đúng nhịp thử lại 10 giây của agent
+                    self.assertFalse(self.processor.wants_work())               # không còn gom 3 giây vì lỗi này
+                    self.assertEqual(self.processor.step()["error"], first["error"])
+                self.assertEqual(built, [])                                     # và không dựng lại vô ích
+                self.now += ins.RESYNC
+                self.assertTrue(self.processor.wants_work())                    # hết 15 phút: xét lại một lần
+                self.assertEqual(self.processor.step()["error"], first["error"])
+                self.assertEqual(len(built), 1)                                 # tới lượt hỏi lại 15 phút thì xét lại một lần
+                self.put_snapshot(fake_snapshot())                              # snapshot đổi: có việc ngay
+                self.assertTrue(self.processor.wants_work())
+                self.assertEqual(self.processor.step()["error"], "pdf_missing")  # đẩy được (kho thử không có PDF): hết lỗi snapshot
+
+    def test_build_failed_and_pdf_changed_do_not_hold_wants_work_but_still_retry_at_once(self):
+        self.start()
+        with patch.object(InsuranceProcessor, "web_bytes", side_effect=OSError("đĩa đầy")) as broken:
+            self.assertEqual(self.processor.step()["error"], "build_failed")
+            self.assertFalse(self.processor.wants_work())
+            self.now += 10
+            self.assertEqual(self.processor.step()["error"], "build_failed")    # thử lại ngay ở lượt sau (đĩa có thể đã hết đầy)
+            self.assertEqual(broken.call_count, 2)
+        self.assertIsNone(self.processor.step()["error"])
+        self.assertFalse(self.processor.wants_work())
+
+    def test_pdf_changed_marks_the_failure_so_wants_work_stays_false(self):
+        self.put_snapshot()
+        self.put_pdf("b")
+        self.put_pdf("c")
+        wrong = self.store / ("9" * 64 + ".pdf")
+        wrong.write_bytes(PDFS["d"])
+        stat = wrong.stat()
+        self.state.mkdir(parents=True)
+        (self.state / "insurance.json").write_text(json.dumps({"pdf_cache": {wrong.name: [stat.st_size, stat.st_mtime_ns, SHA["a"]]}}), encoding="utf-8")
+        self.assertEqual(self.processor.step()["error"], "pdf_changed")
+        self.assertFalse(self.processor.wants_work())
+        self.assertEqual(self.processor.step()["error"], "pdf_missing")        # lượt sau băm lại và xong
+
+    def test_locked_pdf_is_retried_then_counted_and_the_store_is_not_marked_as_scanned(self):
+        self.start()
+        locked = next(path for path in self.store.glob("*.pdf") if path.read_bytes() == PDFS["c"])
+        real = ins.sha256_file
+        attempts = []
+
+        def lock(path):
+            if Path(path) == locked:
+                attempts.append(1)
+                raise PermissionError(5, "Access is denied")
+            return real(path)
+        with patch.object(source_module, "PAUSE", 0), patch.object(ins, "sha256_file", lock):
+            result = self.processor.step()
+            self.assertEqual((result["action"], result["error"]), ("push", "pdf_unreadable"))   # phần đọc được vẫn đẩy, lỗi không im lặng
+            self.assertEqual(len(attempts), 5)                                  # retry_io thử lại trước khi bỏ cuộc
+            self.assertIn("unreadable=1", result["reason"])
+            self.assertNotIn(f"pdf/{SHA['c']}.pdf", self.hao_files())
+            self.assertIn(f"pdf/{SHA['a']}.pdf", self.hao_files())
+            saved = json.loads((self.state / "insurance.json").read_text(encoding="utf-8"))
+            self.assertNotIn("store_sig", saved)                                # chưa quét xong kho: lượt sau phải quét lại
+            self.assertIn("snapshot_sha256", saved)
+            calls = len(self.remote.calls)
+            self.now += 10
+            self.assertFalse(self.processor.wants_work())                       # không gom 3 giây vì PDF bị khóa
+            self.assertEqual(self.processor.step()["error"], "pdf_unreadable")
+            self.assertEqual((len(self.remote.calls), len(attempts)), (calls, 5))   # chờ PDF_RETRY: không quét, không ssh mỗi 10 giây
+            self.now += ins.PDF_RETRY
+            self.assertEqual(self.processor.step()["error"], "pdf_unreadable")      # vẫn khóa: quét lại một lượt, vẫn báo
+            self.assertEqual(len(attempts), 10)
+        self.now += ins.PDF_RETRY                                               # hết khóa
+        done = self.processor.step()
+        self.assertEqual((done["action"], done["error"]), ("push", None))
+        self.assertEqual((self.hao / "pdf" / f"{SHA['c']}.pdf").read_bytes(), PDFS["c"])
+        self.assertIn("store_sig", json.loads((self.state / "insurance.json").read_text(encoding="utf-8")))
+        self.assertFalse(self.processor.wants_work())
+
+
 class AgentIsolationTest(unittest.TestCase):
     """Lùi dần riêng từng bộ xử lý và `--dry-run` của `bundle` giữ con trỏ trong bộ nhớ."""
 
@@ -640,6 +727,21 @@ class AgentIsolationTest(unittest.TestCase):
         self.publish("tin mới")
         agent.tick()
         self.assertEqual((agent.last["bundle"]["action"], sleeps), ("delta", [agent_main.SETTLE]))
+
+    def test_a_long_empty_snapshot_never_makes_the_loop_wait_three_seconds_for_insurance(self):
+        self.put_snapshot(fake_snapshot([]))
+        agent = self.make_agent()
+        agent.tick()                                                          # lượt đầu: bundle dựng lần đầu (gom 3 giây vì bundle)
+        sleeps = []
+        agent.sleep = lambda seconds: (sleeps.append(seconds), self.clock.__setitem__("t", self.clock["t"] + seconds))[1]
+        for _ in range(40):                                                   # hơn 6 phút lỗi liên tục, nhịp thử lại 10 giây
+            self.clock["t"] += 11
+            agent.tick()
+            self.assertEqual(agent.last["insurance"]["error"], "empty_snapshot")
+        self.assertEqual(sleeps, [])                                          # bundle đứng yên: không ai bị bắt chờ vì bảo hiểm
+        self.publish("tin mới")                                               # chỉ khi bundle thật sự có việc mới gom 3 giây
+        agent.tick()
+        self.assertEqual(sleeps, [agent_main.SETTLE])
 
     def test_a_broken_wants_work_does_not_stop_the_other_processor(self):
         agent = self.make_agent()
