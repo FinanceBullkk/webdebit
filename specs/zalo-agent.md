@@ -272,6 +272,58 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 
 Thư mục `/srv/v7/zalo-agent` trên `hao` (nhóm `v7app`, `drwxr-s---`) do Claude tạo bằng `sudo` ở bước Chuyển, theo đúng cách của `/srv/v7/zalo-bundle`.
 
+## Nguồn WeChat (WECHAT-01)
+
+Người dùng chốt 20/11/2026 ([`WECHAT-01`](../docs/decisions/wechat-01.md)): WeChat là nguồn thứ hai của agent, chỉ nhóm người dùng chọn (hiện nhóm nội bộ "HTH THU- CHI"). Bật bằng `--wechat` (hoặc `ZALO_AGENT_WECHAT=1`); **mặc định tắt**, nên merge không đổi gì trên máy thật.
+
+**Lựa chọn thiết kế: cùng gói, `hao` không sửa.** Nhóm WeChat là một hội thoại của gói `/srv/v7/zalo-bundle` giống nhóm Zalo; hợp đồng dữ liệu ở trên không đổi một chữ. Bộ xử lý `bundle` có thêm một "overlay" (kho của bộ xử lý `wechat`): dựng đầy đủ xong thì gộp vào thư mục dữ liệu mới, giữa hai lần dựng thì nối vào `messages-delta.jsonl` cùng với tin Zalo, cùng luật "bản mới nhất theo `message_id` thắng". Không dùng gói thứ hai vì `hao` chỉ đọc một gói; không ghi `messages.jsonl` riêng vì hai bộ xử lý ghi chung một gói sẽ lệch con trỏ.
+
+```
+WeChat DB ─► wechat_export.py (tiến trình con, venv WeChat, chỉ đọc) ─► JSONL
+                                │
+        processors/wechat.py: đổi khuôn ─► <root>\wechat\log.jsonl (chỉ nối thêm), users.json, media.json, media\
+                                │
+        processors/bundle.py (overlay): rebuild ─► gộp vào data-<giờ>\;  delta ─► messages-delta.jsonl
+                                │
+                       kênh đẩy chung ─► hao:/srv/v7/zalo-bundle
+```
+
+**Tiến trình con** `zalo_agent/wechat_export.py`: chạy bằng Python của venv WeChat (`--wechat-python`, mặc định `D:\deibt\wechat-mcp-pilot\.venv\Scripts\python.exe`), nạp `db_adapter` của dự án pilot (`--wechat-pilot`), chỉ dùng `open_database()`; không đọc `private-state`, không in khóa. `groups` liệt kê nhóm (tên, số thành viên); `read` nhận con trỏ từng nhóm trên stdin và in JSONL tin mới hơn con trỏ rồi một dòng `end` có số đếm. Chỉ đọc nhóm có trong yêu cầu. Lỗi chỉ ra mã ngắn (tên lớp ngoại lệ), không chữ lỗi.
+
+**Chọn nhóm.** `D:\zalo-agent\wechat-groups.json` (`--wechat-groups`), ngoài repo: `{"schema": 1, "groups": [{"username": "…@chatroom", "name": "…"}]}`. Chỉ `@chatroom` được nhận (chat riêng không bao giờ đọc). Lệnh: `zalo_agent wechat-list`, `wechat-add <tên>` (khớp không phân biệt hoa thường, dấu; mơ hồ thì dừng, không đổi), `wechat-remove <tên>`. Thêm hoặc bỏ nhóm làm đổi băm danh sách chọn của `bundle` nên dựng lại (nhóm bỏ chọn rời gói ngay; kho cục bộ vẫn giữ tin, gói không mang).
+
+**Khuôn dòng tin** (đúng khuôn một dòng `messages.jsonl` của gói, nên `hao` hiện không cần sửa):
+
+| Trường | Giá trị |
+| --- | --- |
+| `conversation_id` | sha256 hex của `wechat:<username>` (64 hex) |
+| `message_id` | sha256 hex của `wechat:<username>:<local_id>:<sort_seq>`. Thêm `sort_seq` so với đề xuất ban đầu vì `local_id` của WeChat 4.x lặp lại giữa các phân mảnh DB (upstream ghi rõ); hai tin không được trùng mã |
+| `sender_id` | sha256 hex 32 ký tự của `wechat:sender:<wxid>` (mã WeChat không rời máy); tin của chính chủ: mã cố định, tên "Tôi (WeChat)"; tin hệ thống: `null` |
+| `timestamp`, `server_time` | `create_time` × 1000, chuỗi số |
+| `message_type` | chữ → 1, ảnh → 2, tệp/liên kết/thẻ → 19, hệ thống → -4; thêm ghi âm → 3, video → 18, vị trí → 17, biểu tượng → 4, cuộc gọi → 6, lì xì → 19, loại lạ → 19 |
+| `status` | 2 tin chính chủ gửi, 4 tin nhận |
+| `body` | chữ của tin; ghi âm, video, vị trí… chỉ nhãn tiếng Việt ("[Ghi âm WeChat]"); loại lạ "[Tin WeChat loại lạ]" |
+| ảnh | giải mã được: `media: [sha256]` + `media/<sha256>.<đuôi>`, `body` "Ảnh WeChat"; chưa được: `body` "Ảnh WeChat (chưa đọc được)" |
+
+`conversations.json`: `display_name` "WeChat · <tên>", `is_group` true. `users.json`: người gửi và tên (biệt danh hoặc ghi chú). `self_user` vẫn là chủ tài khoản Zalo.
+
+**Con trỏ và idempotent.**
+
+- Con trỏ đọc: `state/wechat.json` theo từng nhóm `{sort_seq, tail}`; `tail` là các `local_id` đã thấy ở đúng `sort_seq` đó (tin cùng `sort_seq` đến muộn vẫn được đọc, tin đã thấy không đọc lại). Con trỏ tiến sau khi tin đã vào kho cục bộ (`log.jsonl`, `fsync`).
+- Con trỏ vào gói: `wechat_bytes` trong con trỏ `bundle` (byte của kho đã vào gói), tiến **sau khi đẩy thành công** như `revision`; lượt chết giữa chừng thì `pending` đẩy lại đúng phần đã chuẩn bị. Gửi lại không sinh dòng trùng vì `hao` gộp theo `message_id`.
+- Lần đầu đọc tối đa 5000 tin mỗi nhóm; về sau tối đa 2000 tin mỗi lượt.
+
+**Chạy nền và lỗi.** Mỗi 10 giây (`--wechat-interval`) bộ xử lý `wechat` mở tiến trình con ở **luồng nền**, timeout 60 giây (đo 20/11/2026: mỗi lượt khoảng 1,6 giây vì phải mở DB). Vòng lặp của `bundle` không bao giờ chờ nó. Tiến trình con lỗi thì lùi dần riêng (nhịp × 2 tới 15 phút) với mã `child_failed`, `child_timeout`, `child_missing`, `child_output`, `store_failed`; lỗi này không đụng `bundle`. `wants_work` của `wechat` luôn False; `bundle` tự thấy kho dài ra và xử lý sau lượt gom 3 giây.
+
+**`status.json`.** Khóa `processors.wechat` cùng khuôn `bundle` (`revision` và `lag_revisions` luôn `null`), thêm `messages` (số tin đã nhập kho từ lúc có con trỏ). Chỉ mã và số đếm. Không đổi `schema`.
+
+**Chưa làm (CÒN MỞ):**
+
+- Giải mã ảnh `.dat`: upstream có bộ giải mã, nhưng khóa AES cần `cfg_dword` của WeChat (máy này chưa có) hoặc quét bộ nhớ Weixin.exe (cố ý không dùng). `--wechat-images` mặc định tắt; không suy ra được khóa thì ảnh để "chưa đọc được".
+- Tiền tệ: khoản có đơn vị tệ (元, 块, ¥, RMB, tệ) phải tách khỏi tổng VND ở trang Thu chi; `web/v7_cash_chat.py` chưa đổi (PR sau).
+- Tab Máy chạy và máy canh chưa liệt kê bộ xử lý `wechat` (`ZALO_PROCESSORS` ở `hao`).
+- Nhóm mới vào chỉ có tin từ lúc được thêm; độ phủ mẫu `thu|chi|ứng` chưa đo.
+
 ## Người dùng và luồng
 
 - **Luồng 1. Xem máy Zalo còn chạy không (sếp, người dùng).** Mở tab Máy chạy → nhóm "Máy Zalo" hiện trạng thái từng việc bằng câu thường. Không có dòng nào đỏ thì không phải làm gì.
@@ -359,12 +411,13 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 - [`CANH-BAO-01`](../docs/decisions/canh-bao-01.md): kênh email của máy canh.
 - [`MAY-CHAY-01`](../docs/decisions/may-chay-01.md): tab Máy chạy, `summary()` không mang chữ tự do.
 - [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md): merge là deploy; không có migration.
+- [`WECHAT-01`](../docs/decisions/wechat-01.md): nguồn WeChat thứ hai, chỉ nhóm người dùng chọn.
 
 ## Ngoài phạm vi
 
 - **Máy luôn bật.** Mọi thứ vẫn phụ thuộc một laptop có lúc tắt. Một máy mini luôn bật chỉ chạy Zalo PC (Q5 của Thu chi) là khuyến nghị, không thuộc spec này.
 - DB, hàng đợi, dịch vụ mới; route ghi mới trên `hao`.
-- Bot trả lời trong nhóm, WeChat, nối ngân hàng.
+- Bot trả lời trong nhóm, nối ngân hàng. (WeChat: có, như nguồn thứ hai, xem [Nguồn WeChat](#nguồn-wechat-wechat-01).)
 - Đổi cách `live_sync.py` ghi `messages.jsonl` (ghi lại cả file). Agent đọc được như hiện nay; tối ưu phía đó để sau nếu đo thấy chậm.
 
 ## Câu hỏi đã chốt
