@@ -13,6 +13,7 @@ import io
 import os
 import re
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from importlib import metadata
 
 from zalo_web_bundle import fold
@@ -38,11 +39,12 @@ class OcrUnavailable(Exception):
     """Thiếu easyocr/torch/Pillow ở máy này: bộ xử lý báo `ocr_unavailable`, không phải lỗi của ảnh."""
 
 
-def threshold() -> float:
+def threshold() -> Decimal:
+    """T là xác suất, không phải tiền; dùng Decimal (luật VND-02 cấm số thực ở đường tính tiền). So được trực tiếp với số thực của JSON."""
     try:
-        return float(os.environ.get("ZALO_AGENT_OCR_CONFIDENCE", CONFIDENCE_T))
-    except ValueError:
-        return CONFIDENCE_T
+        return Decimal(os.environ.get("ZALO_AGENT_OCR_CONFIDENCE", str(CONFIDENCE_T)))
+    except InvalidOperation:
+        return Decimal(str(CONFIDENCE_T))
 
 
 def prepare_image(data: bytes):
@@ -88,7 +90,7 @@ class EasyOcr:
         boxes = []
         for points, text, confidence in self.reader.readtext(self.numpy.asarray(image)):
             xs, ys = [point[0] for point in points], [point[1] for point in points]
-            boxes.append({"b": [round(min(xs)), round(min(ys)), round(max(xs)), round(max(ys))], "t": text, "c": round(float(confidence), 3)})
+            boxes.append({"b": [round(min(xs)), round(min(ys)), round(max(xs)), round(max(ys))], "t": text, "c": round(confidence * 1000) / 1000})
         return boxes
 
 
@@ -142,7 +144,7 @@ def analyse(boxes: list[dict]) -> dict:
             "hits": len(hits), "unique": not rivals, "txn_time": when(text), "bank": bank}
 
 
-def is_confident(read: dict, limit: float | None = None) -> bool:
+def is_confident(read: dict, limit: Decimal | float | None = None) -> bool:
     """"OCR chắc" (ANH-GEMINI-01): ô số tiền đủ tin cậy, >= 2 từ khóa ngân hàng, một ứng viên đứng đầu. Tính từ trường đã lưu
     nên đổi T không cần đọc lại ảnh."""
     limit = threshold() if limit is None else limit
