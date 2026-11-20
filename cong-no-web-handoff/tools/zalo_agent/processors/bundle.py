@@ -106,18 +106,20 @@ class BundleProcessor:
             return self.finish(current, now)
         selection = self.selection()
         if not self.live.selection():
-            return self.result("idle", have)
+            # Có nhóm WeChat chọn mà chưa chọn nhóm Zalo nào thì gói không dựng được: báo mã để status không im.
+            return self.result("idle", have, "no_zalo_group" if self.overlay and self.overlay.conversation_ids() else None)
         reason, ids = cursors.decide(current, revision, self.live.baseline_sha256(), selection, now, self.live)
         if current and not reason:
             reason = self.damaged(current)
         if reason is None and revision == have and not self.wechat_pending(current):
             return self.result("idle", have)
+        wechat, offset = (self.overlay.rows_after((current or {}).get("wechat_bytes", 0)) if self.overlay and not reason else ([], 0))
         try:
-            pending = self.rebuild(reason, revision, selection, now) if reason else self.delta(current, ids, revision, now)
+            pending = self.rebuild(reason, revision, selection, now) if reason else self.delta(current, ids, revision, now, wechat, offset)
         except wb.BundleError:
             return self.result("idle", have, "build_failed")
         if pending is None:   # revision mới nhưng không có tin nào của nhóm đã chọn: tiến con trỏ, không đẩy gì
-            self.save({**current, "revision": revision, **({"wechat_bytes": self.overlay.size()} if self.overlay else {})}, now)
+            self.save({**current, "revision": revision, **({"wechat_bytes": offset} if self.overlay else {})}, now)
             return self.result("idle", revision)
         self.save({**(current or {}), "pending": pending}, now)
         return self.finish({**(current or {}), "pending": pending}, now)
@@ -125,7 +127,8 @@ class BundleProcessor:
     def rebuild(self, reason: str, revision: int, selection: list[str], now: float) -> dict:
         source = wb.Source(self.live.dir)
         report = wb.build(source, self.out, fetch=self.fetch, transcode=self.transcode, max_fetch=self.max_fetch,
-                          now=now, max_age_days=self.max_age_days)
+                          now=now, max_age_days=self.max_age_days,
+                          keep_conversations=self.overlay.conversation_ids() if self.overlay else ())
         wechat = {}
         if self.overlay:
             merged = self.overlay.merge_into(self.out / report["data_dir"], self.out)
@@ -136,10 +139,9 @@ class BundleProcessor:
         return {"revision": revision, "baseline_sha256": self.live.baseline_sha256(), "selection_sha256": cursors.selection_sha256(selection),
                 "data_dir": report["data_dir"], "delta_bytes": 0, "delta_lines": 0, "built_at": cursors.now_iso(now), "reason": reason, **wechat}
 
-    def delta(self, current: dict, ids: set[str], revision: int, now: float) -> dict | None:
+    def delta(self, current: dict, ids: set[str], revision: int, now: float, wechat: list[dict] = (), offset: int = 0) -> dict | None:
         source = wb.Source(self.live.dir)
         rows = self.live.rows_for(ids, {cid for cid in self.live.selection() if cid in source.conversations})
-        wechat, offset = self.overlay.rows_after(current.get("wechat_bytes", 0)) if self.overlay else ([], 0)
         if not rows and not wechat:
             return None
         directory = self.out / current["data_dir"]
@@ -166,6 +168,7 @@ class BundleProcessor:
             if isinstance(sender, str) and sender in source.users:
                 users.setdefault("users", {}).setdefault(sender, source.users[sender])
         if wechat:   # đã là khuôn dòng của gói (làm sạch xong ở bộ xử lý wechat); người gửi và ảnh vào users.json, media.json
+            wechat = self.overlay.adopt(wechat, users.get("self_user"))   # tin chính chủ gửi từ WeChat mang mã chủ Zalo
             lines.extend(wechat)
             users["users"] = {**users.get("users", {}), **self.overlay.users_for(wechat)}
             media.items.update(self.overlay.media_for(wechat, self.out))

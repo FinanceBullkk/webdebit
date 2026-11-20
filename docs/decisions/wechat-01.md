@@ -25,7 +25,8 @@ Vẫn phải hỏi người dùng trước khi bật `--wechat` trong lệnh c�
 
 CÒN MỞ:
 
-- **Giải mã ảnh WeChat:** upstream có bộ giải mã `.dat` (`MediaDownloader`), nhưng khóa AES chỉ suy ra được từ cấu hình WeChat khi có `cfg_dword`; máy này chưa có, nên tin ảnh hiện "Ảnh WeChat (chưa đọc được)". Đường còn lại là quét bộ nhớ tiến trình Weixin.exe (chưa dùng, cần người dùng cho phép riêng). Cờ `--wechat-images` đã có nhưng mặc định tắt.
+- **Giải mã ảnh WeChat (PR-W2):** upstream có bộ giải mã `.dat` (`MediaDownloader`), nhưng khóa AES chỉ suy ra được ngoại tuyến khi có `cfg_dword`; máy này chưa có, nên tin ảnh hiện "Ảnh WeChat (chưa đọc được)". **Người dùng cho phép quét bộ nhớ WeChat (Weixin.exe) trên máy để lấy khóa đọc ảnh** (20/11/2026, chat; do phiên điều phối chuyển lại). Khóa chỉ ở máy (thư mục `private-state` có ACL hạn chế của pilot hoặc tương đương), không ghi vào log, repo, `status.json` hay `hao`. Thực tế upstream đã đọc bộ nhớ mỗi lần tạo `WeChatDB` (`extract_master_key()` khi `cfg_dword is None`, `extract_keys()` khi có mảnh DB chưa có khóa; `db.py` khoảng dòng 715–728), nên bộ đọc giữ một tiến trình sống lâu để quét một lần. Phần giải mã ảnh làm ở PR-W2; PR-W1 có cờ `--wechat-images` mặc định tắt.
+- **Thu hồi chưa kiểm chứng với tin thật:** cách WeChat 4.x ghi thu hồi chưa quan sát được (nhóm chưa có tin thu hồi). Đã dựng cách an toàn cho cả hai khả năng (đọc lại cửa sổ 6 giờ, dòng bị sửa tại chỗ thành tin hệ thống thu hồi thì phát dòng xóa); cần một tin thu hồi thật để xác nhận.
 - **Tách tiền tệ RMB:** khoản có đơn vị tệ (元, 块, ¥, RMB, tệ) phải tách khỏi tổng VND ở trang Thu chi (`web/v7_cash_chat.py` chưa sửa; PR sau).
 - **Nhóm chỉ có tin từ lúc được thêm vào:** lịch sử trước đó không có; số tin đo được còn ít nên chưa biết độ phủ mẫu `thu|chi|ứng`.
 - **Máy chạy / máy canh:** `hao` mới liệt kê bộ xử lý `bundle`, `insurance`, `money_images`; dòng `wechat` trong `status.json` chưa hiện ở tab Máy chạy (PR sau).

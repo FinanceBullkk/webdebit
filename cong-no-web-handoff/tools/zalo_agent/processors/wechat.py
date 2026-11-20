@@ -11,9 +11,11 @@ Tiến trình con chạy trong luồng nền để chậm hay treo (timeout 60 g
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -24,10 +26,12 @@ import zalo_web_bundle as wb
 
 from .. import cursor as cursors
 from ..source import read_json, retry_io
+from ..wechat_export import XMLISH, clean_content
 
 NAME = "wechat"
 SCRIPT = Path(__file__).resolve().parents[1] / "wechat_export.py"
 INTERVAL, MAX_BACKOFF, TIMEOUT = 10, 15 * 60, 60
+RECHECK_HOURS = 6      # đọc lại các tin trong khoảng này mỗi lượt để thấy tin bị sửa tại chỗ (thu hồi)
 SELF_NAME = "Tôi (WeChat)"
 # local_type của WeChat 4.x (tên do upstream đặt) → message_type của gói Zalo (TYPE_NAMES trong web/v7_zalo_chat.py).
 KINDS = {"文本": 1, "图片": 2, "文件/链接/卡片": 19, "系统消息": -4, "语音": 3, "视频": 18, "位置": 17, "动画表情": 4,
@@ -64,6 +68,8 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
         return None
     kind = item.get("type")
     content = item.get("content") if isinstance(item.get("content"), str) else ""
+    if isinstance(item.get("type"), str) and XMLISH.search(content):   # phòng con cũ chưa làm sạch: XML không bao giờ lên gói
+        content = clean_content(item["type"], content, item.get("sender") or "")
     mtype = KINDS.get(kind, 19) if isinstance(kind, str) else 19
     if kind == "图片":
         body = "Ảnh WeChat" if image else LABELS[kind]
@@ -80,6 +86,12 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
            "timestamp": millis, "server_time": millis, "message_type": mtype, "status": 2 if own else 4, "body_state": None,
            "body": body}
     return row, ((sid, str(name)) if sid and name else None)
+
+
+def trace(row: dict) -> dict:
+    """Dấu vết đủ để so một dòng với bản đã ghi: chữ ký (loại, chữ, đã xóa) và các trường cần cho dòng xóa."""
+    body = json.dumps([row.get("message_type"), row.get("body"), bool(row.get("deleted"))], ensure_ascii=False, sort_keys=True)
+    return {"sig": sha(body), "deleted": bool(row.get("deleted")), "sender_id": row.get("sender_id"), "message_type": row.get("message_type"), "status": row.get("status")}
 
 
 class Selection:
@@ -143,15 +155,16 @@ class Store:
             wb.write_atomic(target, data)
         return digest, {"mime": mime, "bytes": len(data), "width": None, "height": None}
 
-    def rows_after(self, offset: int) -> tuple[list[dict], int]:
-        """Tin của nhóm đang chọn nằm sau `offset` (bản cuối của mỗi mã tin thắng) và vị trí mới. Nhóm đã bỏ chọn không lọt."""
+    def rows_after(self, offset: int, chosen: set[str] | None = None) -> tuple[list[dict], int]:
+        """Tin của nhóm đang chọn nằm sau `offset` (bản cuối của mỗi mã tin thắng) và vị trí mới. Nhóm đã bỏ chọn không lọt.
+        `chosen` (tập `conversation_id`) cho người gọi đọc danh sách nhóm đúng một lần."""
         if not self.log.is_file():
             return [], 0
         with self.log.open("rb") as stream:
             stream.seek(offset)
             data = stream.read()
         data = data[:data.rfind(b"\n") + 1]
-        chosen = set(self.conversation_ids())
+        chosen = set(self.conversation_ids()) if chosen is None else chosen
         latest: dict[str, dict] = {}
         for raw in data.splitlines():
             try:
@@ -161,6 +174,28 @@ class Store:
             if isinstance(row, dict) and row.get("conversation_id") in chosen and isinstance(row.get("message_id"), str):
                 latest[row["message_id"]] = row
         return list(latest.values()), offset + len(data)
+
+    def known(self) -> dict[str, dict]:
+        """Mã tin → dấu vết của bản cuối trong log, để nhận ra tin đã đổi (cửa sổ đọc lại) mà không phát dòng trùng."""
+        out: dict[str, dict] = {}
+        if not self.log.is_file():
+            return out
+        for raw in self.log.read_bytes().splitlines():
+            try:
+                row = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and isinstance(row.get("message_id"), str):
+                out[row["message_id"]] = trace(row)
+        return out
+
+    @staticmethod
+    def adopt(rows: list[dict], self_user: object) -> list[dict]:
+        """Tin chính chủ gửi từ WeChat mang mã người gửi của chủ tài khoản Zalo (`users.json.self_user`, thứ duy nhất hao dùng để
+        nhận ra chủ): cùng một người nên căn lề và tên đúng."""
+        if not isinstance(self_user, str) or not self_user:
+            return rows
+        return [{**row, "sender_id": self_user} if row.get("sender_id") == SELF_ID else row for row in rows]
 
     def users_for(self, rows: list[dict]) -> dict[str, str]:
         known = read_json(self.users_path, {}) or {}
@@ -184,9 +219,11 @@ class Store:
 
     def merge_into(self, data_dir: Path, out: Path) -> dict:
         """Dựng đầy đủ xong: thêm nhóm, người gửi, tin và ảnh WeChat vào thư mục dữ liệu mới, tính lại `bundle_sha256`."""
-        rows, offset = self.rows_after(0)
-        groups = self.selection.groups()
-        count = dict.fromkeys(self.conversation_ids(), 0)
+        groups = self.selection.groups()   # đọc một lần: `wechat-remove` giữa chừng không làm lệch tập nhóm
+        count = dict.fromkeys((conversation_id(username) for username in groups), 0)
+        users = read_json(data_dir / "users.json", {"self_user": None, "users": {}}) or {}
+        rows, offset = self.rows_after(0, set(count))
+        rows = self.adopt(rows, users.get("self_user"))
         for row in rows:
             count[row["conversation_id"]] += 1
         conversations = read_json(data_dir / "conversations.json", []) or []
@@ -194,8 +231,7 @@ class Store:
         extra = [{"conversation_id": conversation_id(u), "display_name": f"WeChat · {name or u[:8]}", "name_status": "name_index",
                   "is_group": True, "participant_ids": [], "message_count": count[conversation_id(u)]}
                  for u, name in sorted(groups.items()) if conversation_id(u) not in have]
-        users = read_json(data_dir / "users.json", {"self_user": None, "users": {}}) or {}
-        users["users"] = {**(users.get("users") or {}), **self.users_for(rows)}
+        users["users"] ={**(users.get("users") or {}), **self.users_for(rows)}
         media = read_json(data_dir / "media.json", {}) or {}
         media.update(self.media_for(rows, out))
         wb.write_atomic(data_dir / "conversations.json", wb.dump(conversations + extra))
@@ -228,13 +264,83 @@ def parse(output: str) -> list[dict]:
     return items
 
 
+class Session:
+    """Tiến trình con SỐNG LÂU cho lệnh `read` (`wechat_export serve`): giữ `WeChatDB` mở nên chỉ lấy khóa một lần (mở DB mỗi 10
+    giây làm upstream quét bộ nhớ Weixin.exe mỗi lần). Mỗi yêu cầu một dòng JSON, trả về tới dòng `end` hoặc `error`; quá `timeout`
+    thì giết và tạo lại (ném `TimeoutExpired`), tiến trình chết giữa chừng thì tạo lại ở yêu cầu sau. Gọi từ luồng nền của bộ xử lý
+    nên chờ ở đây không bao giờ giữ vòng lặp của `bundle`. Lệnh khác (`groups`) vẫn chạy một lần bằng `run_child`.
+    Có cùng chữ ký với `run_child`: `(python, pilot, command, request, timeout) -> (mã thoát, đầu ra)`."""
+
+    def __init__(self, script: Path = SCRIPT, popen=subprocess.Popen):
+        self.script, self.popen = script, popen
+        self.proc = None
+        self.lines: queue.Queue | None = None
+        self.key = None
+
+    def start(self, python: str, pilot: str) -> None:
+        self.stop()
+        self.proc = self.popen([python, "-X", "utf8", "-I", str(self.script), "--pilot", pilot, "serve"], stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.lines, self.key = queue.Queue(), (python, pilot)
+        threading.Thread(target=self.pump, args=(self.proc, self.lines), daemon=True, name="wechat-export-reader").start()
+
+    @staticmethod
+    def pump(proc, lines: queue.Queue) -> None:
+        try:
+            for line in proc.stdout:
+                lines.put(line)
+        except (OSError, ValueError):
+            pass
+        lines.put(None)   # EOF: tiến trình đã chết
+
+    def stop(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is not None:
+            with contextlib.suppress(OSError):
+                proc.kill()
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                proc.wait(5)
+            for stream in (proc.stdin, proc.stdout):   # đóng ống để luồng đọc thấy EOF và không rò tay cầm
+                with contextlib.suppress(OSError, ValueError):
+                    stream.close()
+
+    def __call__(self, python: str, pilot: str, command: str, request: dict, timeout: float = TIMEOUT) -> tuple[int, str]:
+        if command != "read":
+            return run_child(python, pilot, command, request, timeout)
+        if self.proc is None or self.proc.poll() is not None or self.key != (python, pilot):
+            self.start(python, pilot)
+        deadline, out = time.monotonic() + timeout, []
+        try:
+            self.proc.stdin.write(json.dumps(request) + "\n")
+            self.proc.stdin.flush()
+        except OSError:
+            self.stop()
+            raise
+        while True:
+            try:
+                line = self.lines.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                self.stop()
+                raise subprocess.TimeoutExpired("wechat_export", timeout) from None
+            if line is None:
+                self.stop()
+                return 1, "".join(out)
+            out.append(line)
+            kind = (parse(line) or [{}])[0].get("kind")
+            if kind in ("end", "error"):
+                return (2 if kind == "error" else 0), "".join(out)
+
+
 class WeChatProcessor:
     name = NAME
 
     def __init__(self, store: Store, state: Path, *, python: str, pilot: str, interval: float = INTERVAL, first_limit: int = 5000,
-                 images: bool = False, run=run_child, clock=time.time, dry_run: bool = False, background: bool = True):
+                 images: bool = False, run=run_child, clock=time.time, dry_run: bool = False, background: bool = True,
+                 recheck_hours: float = RECHECK_HOURS):
         self.store, self.state, self.python, self.pilot = store, Path(state), python, pilot
-        self.interval, self.first_limit, self.images = interval, first_limit, images
+        self.interval, self.first_limit, self.images, self.recheck_hours = interval, first_limit, images, recheck_hours
+        self.known: dict[str, dict] | None = None   # dấu vết bản cuối của mỗi mã tin trong log; nạp lười ở lượt nhập đầu
         self.run, self.clock, self.dry_run, self.background = run, clock, dry_run, background
         saved = read_json(self.state / f"{NAME}.json", {}) or {}
         self.cursors: dict = saved.get("groups") if isinstance(saved.get("groups"), dict) else {}
@@ -252,7 +358,8 @@ class WeChatProcessor:
         images = str(self.store.dir / "incoming") if self.images else None
         if images:
             Path(images).mkdir(exist_ok=True)
-        return {"groups": {u: self.cursors.get(u) or {} for u in groups}, "first_limit": self.first_limit, "images_dir": images}
+        return {"groups": {u: self.cursors.get(u) or {} for u in groups}, "first_limit": self.first_limit, "images_dir": images,
+                "window_hours": self.recheck_hours}
 
     def poll(self, groups: dict[str, str]) -> tuple[str | None, list[dict], dict]:
         """Chạy tiến trình con (có thể ở luồng nền). Trả (mã lỗi, các dòng tin, dòng `end`)."""
@@ -302,7 +409,9 @@ class WeChatProcessor:
         self.last = {"action": "idle" if error or not items else "poll", "revision": None, "error": error, "messages": self.total}
 
     def ingest(self, items: list[dict], groups: dict[str, str]) -> str | None:
-        rows, users, media, moved = [], {}, {}, {}
+        if self.known is None:
+            self.known = self.store.known()
+        rows, users, media, moved, staged = [], {}, {}, {}, {}   # staged: dấu vết chỉ nhớ sau khi nối log thành công
         for item in items:
             image = None
             if item.get("image") and self.images:
@@ -315,15 +424,32 @@ class WeChatProcessor:
             row, user = converted
             if image:
                 row["media"] = [image[0]]
-            rows.append(row)
-            if user:
-                users[user[0]] = user[1]
+            window = bool(item.get("window"))
+            prior = staged.get(row["message_id"]) or self.known.get(row["message_id"])
+            if window and prior is not None:
+                # Cửa sổ đọc lại: chỉ phát khi dòng đã đổi. WeChat thu hồi bằng cách biến dòng cũ thành tin hệ thống: dòng đó
+                # trở thành dòng xóa (giữ người gửi, loại tin cũ) và không bao giờ bị tin hệ thống ghi đè lại.
+                if prior["deleted"]:
+                    continue
+                if item.get("revoked") and prior["message_type"] != -4:
+                    row = {**row, "sender_id": prior["sender_id"], "message_type": prior["message_type"], "status": prior["status"],
+                           "body": None, "deleted": True}
+                    row.pop("media", None)
+            duplicate = prior is not None and prior["sig"] == trace(row)["sig"]
+            if not duplicate:
+                rows.append(row)
+                staged[row["message_id"]] = trace(row)
+                if user:
+                    users[user[0]] = user[1]
+            if window:
+                continue   # tin cũ đọc lại không đẩy con trỏ
             username, seq, local_id = item["username"], item["sort_seq"], item["local_id"]
             old = moved.get(username) or self.cursors.get(username) or {}
             tail = (old.get("tail") or []) if old.get("sort_seq") == seq else []
             if not isinstance(old.get("sort_seq"), int) or seq >= old["sort_seq"]:
                 moved[username] = {"sort_seq": seq, "tail": [*tail, local_id]}
         self.store.append(rows, users, media)
+        self.known.update(staged)
         self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **moved}
         self.total += len(rows)
         if not self.dry_run:

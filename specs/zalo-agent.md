@@ -288,7 +288,12 @@ WeChat DB ─► wechat_export.py (tiến trình con, venv WeChat, chỉ đọc)
                        kênh đẩy chung ─► hao:/srv/v7/zalo-bundle
 ```
 
-**Tiến trình con** `zalo_agent/wechat_export.py`: chạy bằng Python của venv WeChat (`--wechat-python`, mặc định `D:\deibt\wechat-mcp-pilot\.venv\Scripts\python.exe`), nạp `db_adapter` của dự án pilot (`--wechat-pilot`), chỉ dùng `open_database()`; không đọc `private-state`, không in khóa. `groups` liệt kê nhóm (tên, số thành viên); `read` nhận con trỏ từng nhóm trên stdin và in JSONL tin mới hơn con trỏ rồi một dòng `end` có số đếm. Chỉ đọc nhóm có trong yêu cầu. Lỗi chỉ ra mã ngắn (tên lớp ngoại lệ), không chữ lỗi.
+**Tiến trình con** `zalo_agent/wechat_export.py`: chạy bằng Python của venv WeChat (`--wechat-python`, mặc định `D:\deibt\wechat-mcp-pilot\.venv\Scripts\python.exe`), nạp `db_adapter` của dự án pilot (`--wechat-pilot`), chỉ dùng `open_database()`; không đọc `private-state`, không in khóa. `groups` liệt kê nhóm (tên, số thành viên); `read` nhận con trỏ từng nhóm trên stdin và in JSONL tin mới hơn con trỏ rồi một dòng `end` có số đếm; `serve` là tiến trình **sống lâu** (mỗi dòng stdin một yêu cầu `read`, giữ `WeChatDB` mở, mở lại sau lỗi). Chỉ đọc nhóm có trong yêu cầu. Lỗi chỉ ra mã ngắn (tên lớp ngoại lệ), không chữ lỗi.
+
+- **Một tiến trình sống lâu, không phải mỗi 10 giây một tiến trình.** Upstream quét bộ nhớ Weixin.exe mỗi lần tạo `WeChatDB` (`extract_master_key()` khi chưa có `cfg_dword`, `extract_keys()` khi có mảnh DB chưa có khóa; `db.py` khoảng dòng 715–728), nên bộ xử lý giữ MỘT tiến trình `serve` (`Session`) và lấy khóa một lần. Mỗi yêu cầu có timeout 60 giây; treo thì giết và tạo lại ở yêu cầu sau; chết giữa chừng thì tạo lại; `open_database()` lỗi thì tiến trình quên DB và mở lại ở yêu cầu sau. Đo 20/11/2026: yêu cầu đầu 2,1 giây (mở DB), các yêu cầu sau khoảng 0,01 giây. Khóa chỉ ở máy: không vào log, repo, `status.json` hay `hao`; stderr của con bị bỏ.
+- **Đọc tăng dần, không mất tin.** Có con trỏ thì đọc bằng `get_new_messages(since_seq)` của upstream, nhiều trang (200 tin/trang), tới hết; trần 20000 tin mỗi lượt, chạm trần thì lượt sau đọc tiếp từ con trỏ (chỉ chậm). Lần đầu (chưa có con trỏ): 5000 tin gần nhất mỗi nhóm.
+- **Làm sạch nội dung ngay trong tiến trình con**: tin chữ chỉ bỏ tiền tố `wxid…:` của tin nhóm (khi trùng người gửi hoặc bắt đầu bằng `wxid_`); tin tệp/liên kết/thẻ chỉ ra `<title> · <des>` (bỏ `refermsg`, URL, `cdnattachurl`, `aeskey`, `md5`, mọi mã; không dùng bộ phân tích XML để khỏi bom thực thể); tin hệ thống chỉ ra chữ của `replacemsg` hoặc văn bản thường, XML không có chữ thì rỗng. XML và URL không bao giờ rời tiến trình con; bộ xử lý lọc thêm lần nữa phòng con cũ.
+- **Thu hồi.** WeChat 4.x chưa kiểm chứng được cách ghi thu hồi trên máy này (nhóm hiện chưa có tin thu hồi nào), nên dùng cách an toàn cho cả hai khả năng: mỗi lượt con đọc lại **cửa sổ 6 giờ** gần nhất (`--wechat-interval` không đổi; cờ `window` trên dòng) và bộ xử lý so dấu vết (loại, chữ, đã xóa) với bản cuối trong log. Dòng đổi thì phát bản mới ("bản mới nhất thắng"); riêng dòng cũ **biến thành tin hệ thống có `revokemsg` hoặc "撤回"** thì phát dòng xóa đúng hợp đồng (đủ `message_id`, `conversation_id`, `timestamp`, người gửi và loại tin cũ, `body: null`, `deleted: true`) và không bao giờ bị tin hệ thống ghi đè lại. Tin hệ thống thu hồi là dòng mới thì hiện như thông báo thường. Tin đến muộn có `sort_seq` nhỏ hơn con trỏ cũng được lượm từ cửa sổ này.
 
 **Chọn nhóm.** `D:\zalo-agent\wechat-groups.json` (`--wechat-groups`), ngoài repo: `{"schema": 1, "groups": [{"username": "…@chatroom", "name": "…"}]}`. Chỉ `@chatroom` được nhận (chat riêng không bao giờ đọc). Lệnh: `zalo_agent wechat-list`, `wechat-add <tên>` (khớp không phân biệt hoa thường, dấu; mơ hồ thì dừng, không đổi), `wechat-remove <tên>`. Thêm hoặc bỏ nhóm làm đổi băm danh sách chọn của `bundle` nên dựng lại (nhóm bỏ chọn rời gói ngay; kho cục bộ vẫn giữ tin, gói không mang).
 
@@ -305,21 +310,24 @@ WeChat DB ─► wechat_export.py (tiến trình con, venv WeChat, chỉ đọc)
 | `body` | chữ của tin; ghi âm, video, vị trí… chỉ nhãn tiếng Việt ("[Ghi âm WeChat]"); loại lạ "[Tin WeChat loại lạ]" |
 | ảnh | giải mã được: `media: [sha256]` + `media/<sha256>.<đuôi>`, `body` "Ảnh WeChat"; chưa được: `body` "Ảnh WeChat (chưa đọc được)" |
 
-`conversations.json`: `display_name` "WeChat · <tên>", `is_group` true. `users.json`: người gửi và tên (biệt danh hoặc ghi chú). `self_user` vẫn là chủ tài khoản Zalo.
+`conversations.json`: `display_name` "WeChat · <tên>", `is_group` true. `users.json`: người gửi và tên (biệt danh hoặc ghi chú). `self_user` vẫn là chủ tài khoản Zalo. Tin chính chủ gửi từ WeChat mang `sender_id` = `self_user` lúc gộp vào gói (hao chỉ nhận ra chủ bằng `self_user`; cùng một người nên tên và căn lề đúng); kho cục bộ giữ mã cố định rồi đổi ở bước gộp.
 
 **Con trỏ và idempotent.**
 
 - Con trỏ đọc: `state/wechat.json` theo từng nhóm `{sort_seq, tail}`; `tail` là các `local_id` đã thấy ở đúng `sort_seq` đó (tin cùng `sort_seq` đến muộn vẫn được đọc, tin đã thấy không đọc lại). Con trỏ tiến sau khi tin đã vào kho cục bộ (`log.jsonl`, `fsync`).
 - Con trỏ vào gói: `wechat_bytes` trong con trỏ `bundle` (byte của kho đã vào gói), tiến **sau khi đẩy thành công** như `revision`; lượt chết giữa chừng thì `pending` đẩy lại đúng phần đã chuẩn bị. Gửi lại không sinh dòng trùng vì `hao` gộp theo `message_id`.
-- Lần đầu đọc tối đa 5000 tin mỗi nhóm; về sau tối đa 2000 tin mỗi lượt.
+- Lần đầu đọc 5000 tin gần nhất mỗi nhóm; về sau đọc hết phần tồn (xem "Đọc tăng dần").
+- `--dry-run` dùng kho riêng `wechat-dry` (không nối `log.jsonl` thật, lượt thật sau đó không có dòng thừa) và không lưu con trỏ.
+- Dựng đầy đủ giữ `KEEP_DATA_DIRS = 2` cả khi thư mục dữ liệu trước chỉ có thêm nhóm WeChat còn được chọn (`keep_conversations` của `zalo_web_bundle.build`); nhóm bỏ chọn thì rời ngay.
+- Gói không dựng được vì chưa chọn nhóm Zalo nào mà đã chọn nhóm WeChat: `processors.bundle.error` = `no_zalo_group` (không im).
 
-**Chạy nền và lỗi.** Mỗi 10 giây (`--wechat-interval`) bộ xử lý `wechat` mở tiến trình con ở **luồng nền**, timeout 60 giây (đo 20/11/2026: mỗi lượt khoảng 1,6 giây vì phải mở DB). Vòng lặp của `bundle` không bao giờ chờ nó. Tiến trình con lỗi thì lùi dần riêng (nhịp × 2 tới 15 phút) với mã `child_failed`, `child_timeout`, `child_missing`, `child_output`, `store_failed`; lỗi này không đụng `bundle`. `wants_work` của `wechat` luôn False; `bundle` tự thấy kho dài ra và xử lý sau lượt gom 3 giây.
+**Chạy nền và lỗi.** Mỗi 10 giây (`--wechat-interval`) bộ xử lý `wechat` gửi một yêu cầu cho tiến trình con sống lâu ở **luồng nền**, timeout 60 giây. Vòng lặp của `bundle` không bao giờ chờ nó. Tiến trình con lỗi thì lùi dần riêng (nhịp × 2 tới 15 phút) với mã `child_failed`, `child_timeout`, `child_missing`, `child_output`, `store_failed`; lỗi này không đụng `bundle`. `wants_work` của `wechat` luôn False; `bundle` tự thấy kho dài ra và xử lý sau lượt gom 3 giây.
 
 **`status.json`.** Khóa `processors.wechat` cùng khuôn `bundle` (`revision` và `lag_revisions` luôn `null`), thêm `messages` (số tin đã nhập kho từ lúc có con trỏ). Chỉ mã và số đếm. Không đổi `schema`.
 
 **Chưa làm (CÒN MỞ):**
 
-- Giải mã ảnh `.dat`: upstream có bộ giải mã, nhưng khóa AES cần `cfg_dword` của WeChat (máy này chưa có) hoặc quét bộ nhớ Weixin.exe (cố ý không dùng). `--wechat-images` mặc định tắt; không suy ra được khóa thì ảnh để "chưa đọc được".
+- Giải mã ảnh `.dat` (PR-W2): upstream có bộ giải mã (`MediaDownloader`) nhưng khóa AES cần `cfg_dword` (máy này chưa có) hoặc quét bộ nhớ Weixin.exe. Người dùng đã cho phép quét bộ nhớ (20/11/2026, [`WECHAT-01`](../docs/decisions/wechat-01.md)); khóa chỉ ở máy. PR này chưa dùng khóa đó: `--wechat-images` mặc định tắt và chỉ chạy khi khóa suy ra ngoại tuyến; ảnh để "chưa đọc được".
 - Tiền tệ: khoản có đơn vị tệ (元, 块, ¥, RMB, tệ) phải tách khỏi tổng VND ở trang Thu chi; `web/v7_cash_chat.py` chưa đổi (PR sau).
 - Tab Máy chạy và máy canh chưa liệt kê bộ xử lý `wechat` (`ZALO_PROCESSORS` ở `hao`).
 - Nhóm mới vào chỉ có tin từ lúc được thêm; độ phủ mẫu `thu|chi|ứng` chưa đo.

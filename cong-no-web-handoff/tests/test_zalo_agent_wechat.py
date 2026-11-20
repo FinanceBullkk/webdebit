@@ -45,6 +45,7 @@ class FakeDb:
         self.requests = []
         self.fail = None      # (mã trả về) hoặc ngoại lệ sẽ ném
         self.gate = None      # threading.Event: chặn cho tới khi test cho chạy
+        self.window = []      # tin đọc lại trong cửa sổ (đã đổi tại chỗ), phát kèm ở mỗi lượt
 
     def __call__(self, python, pilot, command, request, timeout=None):
         self.requests.append((command, request))
@@ -56,7 +57,7 @@ class FakeDb:
             return self.fail, ""
         groups = request.get("groups") or {}
         items = [item for item in self.feed if item["username"] in groups and export.is_new(item, groups[item["username"]])]
-        return 0, "".join(json.dumps(item) + "\n" for item in [*items, {"kind": "end", "messages": len(items)}])
+        return 0, "".join(json.dumps(item) + "\n" for item in [*items, *self.window, {"kind": "end", "messages": len(items)}])
 
 
 class WeChatBase(unittest.TestCase):
@@ -377,17 +378,23 @@ class AgentWiringTest(WeChatBase):
 
 class ExportTest(unittest.TestCase):
     class Db:
-        def __init__(self, groups):
-            self.groups, self.touched = groups, []
-
         def get_groups(self):
             return [{"username": u, "name": n, "members": [1, 2]} for u, n in self.groups]
 
+        def __init__(self, groups, total=7):
+            self.groups, self.touched, self.total = groups, [], total
+
+        def rows(self):
+            return [{"local_id": i, "type": "文本", "sender_id": 5, "sender_username": "wxid_a", "create_time": 1_793_000_000 + i,
+                     "content": f"tin {i}", "sort_seq": i * 1000} for i in range(1, self.total + 1)]
+
         def get_messages(self, username, limit=20, offset=0):
             self.touched.append(username)   # `get_messages` trả mới trước cũ như upstream
-            rows = [{"local_id": i, "type": "文本", "sender_id": 5, "sender_username": "wxid_a", "create_time": 1_793_000_000 + i,
-                     "content": f"tin {i}", "sort_seq": i * 1000} for i in range(1, 8)]
-            return list(reversed(rows))[offset:offset + limit]
+            return list(reversed(self.rows()))[offset:offset + limit]
+
+        def get_new_messages(self, username, since_seq=0, limit=200):
+            self.touched.append(username)   # sort_seq > since_seq, tăng dần, `limit` tin nhỏ nhất như upstream
+            return [row for row in self.rows() if row["sort_seq"] > since_seq][:limit]
 
         def nickname_map(self):
             return {"wxid_a": "Khách A"}
@@ -399,6 +406,40 @@ class ExportTest(unittest.TestCase):
             self.assertEqual([r["local_id"] for r in export.read_group(db, USER, {"sort_seq": 5000, "tail": []}, 100)], [5, 6, 7])
             self.assertEqual([r["local_id"] for r in export.read_group(db, USER, None, 4)], [4, 5, 6, 7])   # lần đầu: tối đa first_limit tin
 
+    def test_a_backlog_of_three_thousand_is_read_in_full_across_pages_and_the_cursor_follows(self):
+        db = self.Db([(USER, NAME)], total=3000)
+        rows = export.read_group(db, USER, {"sort_seq": 1000, "tail": [1]}, 100)
+        self.assertEqual([r["local_id"] for r in rows], list(range(2, 3001)))   # không mất tin nào dù tồn > 2000
+        again = export.read_group(db, USER, {"sort_seq": 3_000_000, "tail": [3000]}, 100)
+        self.assertEqual(again, [])
+        with unittest.mock.patch.object(export, "PAGE", 100):   # trang đầy ngay ranh giới: không lặp vô hạn, không trùng
+            rows = export.read_group(db, USER, {"sort_seq": 1000, "tail": [1]}, 100)
+        self.assertEqual([r["local_id"] for r in rows], list(range(2, 3001)))
+
+    def test_clean_content_keeps_only_readable_text_never_urls_keys_or_ids(self):
+        card = ("wxid_abc123:\n<msg><appmsg appid=\"\" sdkver=\"0\"><title>Báo giá tháng 11.pdf</title><des>Bản đã duyệt</des>"
+                "<url>https://cdn.example.test/file?key=SECRET</url><appattach><cdnattachurl>3057020100</cdnattachurl>"
+                "<aeskey>0123456789abcdef0123456789abcdef</aeskey><md5>fedcba9876543210fedcba9876543210</md5></appattach>"
+                "<refermsg><title>tin cũ được trích</title><content>wxid_xyz</content></refermsg></appmsg></msg>")
+        text = export.clean_content("文件/链接/卡片", card, "wxid_abc123")
+        self.assertEqual(text, "Báo giá tháng 11.pdf · Bản đã duyệt")
+        for leak in ("http", "SECRET", "aeskey", "0123456789abcdef", "fedcba98", "wxid", "<", "cdn"):
+            self.assertNotIn(leak, text)
+        cdata = "<msg><appmsg><title><![CDATA[Tiêu đề &amp; chữ]]></title></appmsg></msg>"
+        self.assertEqual(export.clean_content("文件/链接/卡片", cdata), "Tiêu đề & chữ")
+        revoke = "<sysmsg type=\"revokemsg\"><revokemsg><session>abc@chatroom</session><newmsgid>123</newmsgid><replacemsg><![CDATA[\"A\" 撤回了一条消息]]></replacemsg></revokemsg></sysmsg>"
+        self.assertEqual(export.clean_content("系统消息", revoke), "\"A\" 撤回了一条消息")
+        self.assertEqual(export.clean_content("系统消息", "<sysmsg type=\"x\"><a>mã</a></sysmsg>"), "")   # XML không có chữ: rỗng, không lộ mã
+        self.assertEqual(export.clean_content("系统消息", "Bạn đã thêm X vào nhóm https://x.example.test/y"), "Bạn đã thêm X vào nhóm")
+        self.assertEqual(export.clean_content("文本", "wxid_abc123:\nThu 5 triệu", "wxid_abc123"), "Thu 5 triệu")
+        self.assertEqual(export.clean_content("文本", "Ghi chú:\nThu 5 triệu", "wxid_abc123"), "Ghi chú:\nThu 5 triệu")   # không phải mã người gửi
+        self.assertEqual(export.clean_content("语音", "<voicemsg voiceurl=\"x\"/>"), "")
+        item = export.record({}, USER, {"local_id": 1, "sort_seq": 1000, "create_time": 1, "type": "文件/链接/卡片", "sender_id": 5,
+                                        "sender_username": "wxid_abc123", "content": card}, None, None)
+        self.assertNotIn("aeskey", json.dumps(item))   # XML không ra khỏi tiến trình con
+        row = wc.convert({**item, "content": card})[0]   # phòng con cũ: bộ xử lý cũng không để XML lên gói
+        self.assertEqual(row["body"], "Báo giá tháng 11.pdf · Bản đã duyệt")
+
     def test_read_only_touches_requested_groups_and_never_the_image_tools_unless_asked(self):
         db = self.Db([(USER, NAME), (OTHER_USER, "Nhóm khác")])
         lines = []
@@ -406,7 +447,7 @@ class ExportTest(unittest.TestCase):
             export.cmd_read(db, {"groups": {USER: {}, "wxid_khong_co@chatroom": {}}, "first_limit": 50})
         self.assertEqual(set(db.touched), {USER})
         tools.assert_not_called()
-        self.assertEqual(lines[-1], {"kind": "end", "messages": 7, "images": 0, "missing_groups": 1, "image_keys": False})
+        self.assertEqual(lines[-1], {"kind": "end", "messages": 7, "images": 0, "missing_groups": 1, "window": 0, "image_keys": False})
         self.assertEqual(lines[0]["sender_name"], "Khách A")
         self.assertNotIn("wxid", json.dumps([line for line in lines if line["kind"] == "end"]))
 
@@ -477,6 +518,193 @@ class SelectionCommandTest(unittest.TestCase):
         self.selection.path.write_text(json.dumps({"groups": [{"username": "wxid_ca_nhan", "name": "x"}, {"username": USER, "name": "y"}]}),
                                        encoding="utf-8")
         self.assertEqual(self.selection.groups(), {USER: "y"})   # chat riêng không bao giờ được đọc
+
+
+class RevokeTest(WeChatBase):
+    def test_a_message_turned_into_a_revoke_notice_becomes_one_deleted_row_never_flip_flopping(self):
+        self.db.feed = [msg(1, 1000, "Thu 5 triệu", sender="wxid_a", name="Khách A")]
+        self.poll()
+        original = json.loads(self.store.log.read_text(encoding="utf-8").splitlines()[0])
+        revoked = msg(1, 1000, "A 撤回了一条消息", "系统消息", sender="", window=True, revoked=True)
+        self.db.window = [msg(1, 1000, "Thu 5 triệu", sender="wxid_a", name="Khách A", window=True)]
+        self.poll()
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 1)   # cửa sổ không đổi: không phát lại
+        self.db.window = [revoked]
+        self.poll()
+        lines = [json.loads(line) for line in self.store.log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(lines), 2)
+        deleted = lines[1]
+        self.assertEqual(set(deleted), {*CLEAN_KEYS, "body", "deleted"})
+        self.assertEqual((deleted["message_id"], deleted["conversation_id"], deleted["timestamp"], deleted["body"], deleted["deleted"]),
+                         (original["message_id"], original["conversation_id"], original["timestamp"], None, True))
+        self.assertEqual((deleted["sender_id"], deleted["message_type"], deleted["status"]),
+                         (original["sender_id"], original["message_type"], original["status"]))   # như dòng xóa của bản dựng đầy đủ
+        self.poll()   # cửa sổ vẫn thấy tin hệ thống: không ghi đè dòng xóa, không phát lại
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 2)
+        self.assertTrue(self.store.rows_after(0)[0][0]["deleted"])   # bản cuối thắng
+
+    def test_deleted_row_reaches_hao_in_the_delta_and_a_new_revoke_notice_row_stays_a_notice(self):
+        self.db.feed = [msg(1, 1000, "Chi 2 triệu")]
+        self.poll()
+        self.bundle.step()
+        self.db.window = [msg(1, 1000, "A 撤回了一条消息", "系统消息", sender="", window=True, revoked=True)]
+        self.poll()
+        self.assertEqual(self.bundle.step()["action"], "delta")
+        delta = self.remote_files()["delta"]
+        self.assertEqual([(line["body"], line.get("deleted")) for line in delta], [(None, True)])
+        self.db.window = []
+        self.db.feed.append(msg(2, 2000, "B 撤回了一条消息", "系统消息", sender="", revoked=True))   # dòng hệ thống MỚI, không phải sửa tại chỗ
+        self.poll()
+        rows = self.store.rows_after(cursors.load(self.state, "bundle")["wechat_bytes"])[0]
+        self.assertEqual([(row["message_type"], row.get("deleted")) for row in rows], [(-4, None)])
+
+    def test_edited_text_in_the_window_is_resent_as_the_latest_version(self):
+        self.db.feed = [msg(1, 1000, "Thu 5 triệu")]
+        self.poll()
+        self.db.window = [msg(1, 1000, "Thu 6 triệu", window=True)]
+        self.poll()
+        rows, _ = self.store.rows_after(0)
+        self.assertEqual([row["body"] for row in rows], ["Thu 6 triệu"])
+
+    def test_late_arrival_older_than_the_cursor_is_picked_up_from_the_window(self):
+        self.db.feed = [msg(2, 2000, "đến trước")]
+        self.poll()
+        self.db.window = [msg(1, 1000, "đến muộn nhưng sort_seq nhỏ hơn", window=True)]
+        self.poll()
+        self.assertEqual(sorted(row["body"] for row in self.store.rows_after(0)[0]), ["đến muộn nhưng sort_seq nhỏ hơn", "đến trước"])
+        self.assertEqual(json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))["groups"][USER]["sort_seq"], 2000)
+
+
+class OverlayDetailsTest(WeChatBase):
+    def test_previous_data_dir_survives_when_only_wechat_groups_are_in_it(self):
+        self.db.feed = [msg(1, 1000)]
+        self.poll()
+        self.bundle.step()
+        self.now += 100   # mỗi lượt dựng một thư mục dữ liệu theo giờ
+        self.selection.save({USER: NAME, OTHER_USER: "Nhóm hai"})
+        self.bundle.step()
+        self.assertEqual(len(list((self.root / "bundle").glob("data-*"))), 2)   # KEEP_DATA_DIRS: hao còn đọc dở lượt trước
+        self.now += 100
+        self.selection.save({OTHER_USER: "Nhóm hai"})
+        self.bundle.step()
+        dirs = sorted(path.name for path in (self.root / "bundle").glob("data-*"))
+        self.assertEqual(len(dirs), 1)   # các lượt trước còn nhóm vừa bỏ chọn: bỏ ngay, không giữ cho hao đọc dở
+        current = json.loads((self.root / "bundle" / dirs[0] / "conversations.json").read_text(encoding="utf-8"))
+        self.assertNotIn(wc.conversation_id(USER), {c["conversation_id"] for c in current})
+
+    def test_own_wechat_messages_carry_the_zalo_owner_id_in_rebuild_and_delta(self):
+        self.db.feed = [msg(1, 1000, "tôi gửi trước", own=True)]
+        self.poll()
+        self.bundle.step()
+        files = self.remote_files()
+        owner = files["users"]["self_user"]
+        self.assertEqual([row["sender_id"] for row in self.wechat_rows(files["messages"])], [owner])
+        self.db.feed.append(msg(2, 2000, "tôi gửi sau", own=True))
+        self.poll()
+        self.bundle.step()
+        self.assertEqual([line["sender_id"] for line in self.remote_files()["delta"]], [owner])
+
+    def test_wechat_with_no_zalo_group_reports_a_code_instead_of_staying_silent(self):
+        wb.Source(self.src).save_selection([])
+        self.assertEqual(self.bundle.step()["error"], "no_zalo_group")
+        plain = BundleProcessor(LiveSync(self.src), self.root / "state2", self.root / "bundle2", "fake:" + BUNDLE_REMOTE, run=self.remote,
+                                fetch=FakeCdn(), transcode=no_jxl, clock=lambda: self.now)
+        self.assertIsNone(plain.step()["error"])   # không có WeChat thì giữ hành vi cũ
+
+    def test_dry_run_uses_its_own_store_so_the_real_log_is_never_appended(self):
+        live = LiveSync(self.src)
+        wechat = {"python": "py", "pilot": "p", "groups": str(self.selection.path), "run": self.db}
+        dry = agent_main.Agent(live, self.root, "fake:" + BUNDLE_REMOTE, "fake:/srv/v7/zalo-agent", run=self.remote, dry_run=True, wechat=wechat)
+        self.assertEqual(dry.processors[0].overlay.dir.name, "wechat-dry")
+        real = agent_main.Agent(live, self.root, "fake:" + BUNDLE_REMOTE, "fake:/srv/v7/zalo-agent", run=self.remote, wechat=wechat)
+        self.assertEqual(real.processors[0].overlay.dir.name, "wechat")
+
+    def test_rebuild_reads_the_group_list_once(self):
+        self.db.feed = [msg(1, 1000)]
+        self.poll()
+        data = self.root / "bundle" / "data-x"
+        data.mkdir(parents=True)
+        for name, content in (("conversations.json", "[]"), ("users.json", '{"self_user": null, "users": {}}'), ("messages.jsonl", ""), ("media.json", "{}")):
+            (data / name).write_text(content, encoding="utf-8")
+        reads = []
+        original = self.selection.groups
+        self.selection.groups = lambda: (reads.append(1), original())[1]
+        self.store.merge_into(data, self.root / "bundle")
+        self.assertEqual(len(reads), 1)
+
+
+class SessionTest(unittest.TestCase):
+    PILOT = (
+        "import os, time\n"
+        "HERE = os.path.dirname(os.path.abspath(__file__))\n"
+        "class Db:\n"
+        "    def get_groups(self):\n"
+        "        if os.path.exists(os.path.join(HERE, 'slow')):\n"
+        "            time.sleep(30)\n"
+        f"        return [{{'username': {USER!r}, 'name': 'Nhóm', 'members': []}}]\n"
+        "    def get_messages(self, username, limit=20, offset=0):\n"
+        "        return []\n"
+        "    def get_new_messages(self, username, since_seq=0, limit=200):\n"
+        "        return []\n"
+        "    def nickname_map(self):\n"
+        "        return {}\n"
+        "def open_database():\n"
+        "    with open(os.path.join(HERE, 'opens.txt'), 'a') as f:\n"
+        "        f.write('x')\n"
+        "    if os.path.exists(os.path.join(HERE, 'fail')):\n"
+        "        raise RuntimeError('hỏng')\n"
+        "    return Db()\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.pilot = Path(self.tmp.name)
+        (self.pilot / "db_adapter.py").write_text(self.PILOT, encoding="utf-8")
+        self.session = wc.Session()
+        self.addCleanup(self.session.stop)
+
+    def opens(self):
+        return len((self.pilot / "opens.txt").read_text(encoding="utf-8")) if (self.pilot / "opens.txt").exists() else 0
+
+    def read(self, timeout=60):
+        return self.session(sys.executable, str(self.pilot), "read", {"groups": {USER: {}}}, timeout)
+
+    def test_one_long_lived_child_opens_the_database_once_for_many_requests(self):
+        for _ in range(3):
+            code, output = self.read()
+            self.assertEqual((code, [i["kind"] for i in wc.parse(output)]), (0, ["end"]))
+        self.assertEqual(self.opens(), 1)   # khóa chỉ lấy một lần, không mỗi 10 giây
+
+    def test_a_dead_child_is_recreated_on_the_next_request(self):
+        self.read()
+        self.session.proc.kill()
+        self.session.proc.wait(10)
+        self.assertEqual(self.read()[0], 0)
+        self.assertEqual(self.opens(), 2)
+
+    def test_a_hung_request_times_out_kills_the_child_and_the_next_one_works(self):
+        self.read()
+        (self.pilot / "slow").write_text("1", encoding="utf-8")
+        started = time.time()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            self.read(timeout=2)
+        self.assertLess(time.time() - started, 15)
+        self.assertIsNone(self.session.proc)
+        (self.pilot / "slow").unlink()
+        self.assertEqual(self.read()[0], 0)
+
+    def test_a_failing_database_open_reports_an_error_code_and_recovers_later(self):
+        (self.pilot / "fail").write_text("1", encoding="utf-8")
+        code, output = self.read()
+        self.assertEqual((code, wc.parse(output)), (2, [{"kind": "error", "code": "RuntimeError"}]))
+        (self.pilot / "fail").unlink()
+        self.assertEqual(self.read()[0], 0)   # cùng tiến trình sống, mở lại DB ở yêu cầu sau
+
+    def test_groups_command_still_runs_one_shot(self):
+        code, output = self.session(sys.executable, str(self.pilot), "groups", {}, 60)
+        self.assertEqual((code, [g["name"] for g in wc.parse(output)]), (0, ["Nhóm"]))
+        self.assertIsNone(self.session.proc)
 
 
 if __name__ == "__main__":
