@@ -230,6 +230,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 - `zalo_age_seconds` được thay bằng `zalo {state, at, silent_minutes, identity, quiet_minutes}` lấy từ `status.json` của máy Zalo (`v7_machine.zalo()`), cộng `bundle_at` (giờ dựng gói) và `last_message_at`: đủ để phân biệt "máy im", "Zalo chưa mở" và "ít tin".
 - `shared: true` khi một phiếu hoặc dòng sổ là ứng viên của hai khoản báo; cả hai hiện `AMOUNT_DIFF` (hoặc `SUGGEST`) cho người chọn.
 - Đọc DB chỉ qua hàm đọc có sẵn: `list_customers`, `doixe_get_tong`, `get_receipt_book` (theo tháng, gồm phiếu web chưa hủy và dòng thu sổ gốc), `doixe_get_so` (theo xe hoặc người, chỉ cho đối tượng đã gắn), `get_marks` (theo nhóm). Kết quả giữ 8 giây trong bộ nhớ vì trang hỏi vài giây một lần.
+- **Trang Thu chi (PR-2b, `thu-chi.html`):** thẻ "Thu chi" trong dải Quản trị, chỉ quản lý (cùng quyền route). Đầu trang hai khối Hôm nay và 7 ngày (thu, chi, ứng, chưa vào sổ, lệch số), chip lọc có số đếm, danh sách theo ngày với nút "Mở tin" (`/zalo-chat.html?c=&m=`) và ảnh chứng; chọn 7 hoặc 30 ngày. Hỏi lại 5 giây một lần khi tab hiện, tab ẩn thì ngừng, khoản mới nền vàng nhạt rồi nhạt dần. Luôn hiện "Zalo cập nhật lúc …" ("lần cuối" khi máy im hoặc Zalo chưa mở quá 5 phút) kèm dòng cảnh báo.
 - Chi hoặc ứng khớp một dòng phí (`dong_phi`) hoặc một lần ứng chưa hủy của Đội xe; chi không có xe/người mà có từ "lương", "văn phòng", "mặt bằng", "internet"… là `NO_LEDGER`, còn lại không rõ đối tượng là `UNKNOWN_TARGET`.
 
 ## Nguồn quyết định

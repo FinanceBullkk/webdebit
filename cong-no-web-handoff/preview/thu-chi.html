@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Thu chi: khoản thu, chi, ứng báo trong nhóm Zalo đã chọn, đối chiếu với phiếu thu và sổ Đội xe. Chỉ xem. Chỉ quản lý.">
+  <title>Công nợ HTH · Thu chi</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="thu-chi.css">
+  <link rel="stylesheet" href="app-nav.css">
+</head>
+<body class="tc">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="thu-chi"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Thu chi</h1>
+      <label class="tc-range">Xem <select id="range" aria-label="Khoảng ngày"><option value="7">7 ngày</option><option value="30">30 ngày</option></select></label>
+      <div class="live-controls"><span id="zalo-at" class="tc-zalo" tabindex="0">Zalo: —</span><button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
+    </div>
+    <div id="error" role="alert" hidden></div>
+    <p id="zalo-warn" class="tc-warn" role="status" hidden></p>
+    <p id="new-note" class="sr-only" role="status" aria-live="polite"></p>
+    <div id="thu-chi"><p class="loading">Đang tải thu chi…</p></div>
+  </main>
+  <script src="cong-no-format.js"></script>
+  <script src="thu-chi-model.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="thu-chi-ui.js"></script>
+</body>
+</html>
