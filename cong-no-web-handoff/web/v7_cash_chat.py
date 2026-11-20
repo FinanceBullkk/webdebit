@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from concurrent.futures import Future
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 from typing import Any
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs
 import v7_api_sheet
 import v7_machine
 import v7_zalo_chat
-from v7_api_validate import bad, valid_date
+from v7_api_validate import ApiError, bad, valid_date
 
 VN = v7_machine.VN
 STATUSES = ("RECORDED", "WAITING", "MISSING", "AMOUNT_DIFF", "SUGGEST", "UNKNOWN_TARGET", "NO_LEDGER", "NO_AMOUNT")
@@ -34,10 +35,15 @@ MAX_CONVERSATIONS = 20
 CACHE_SECONDS = 8   # trang hỏi vài giây một lần; phần đọc DB giữ ngắn như vậy để nhiều người xem không nhân số lần đọc
 MARK_STATUS = {"received": "RECORDED", "not_seen": "MISSING", "waiting": "WAITING"}
 UNITS = {"trieu": 10**6, "tr": 10**6, "k": 10**3, "nghin": 10**3, "ngan": 10**3, "ty": 10**9}
-REPORT = re.compile(r"\s*(?P<verb>thu|chi|ung)(?![a-z])[\s:.\-]*(?P<num>\d[\d.,]*)"
+REPORT = re.compile(r"\s*(?P<verb>thu|chi|ung)(?![a-z])(?P<sep>[\s:.\-−–—]*)(?P<num>\d[\d.,]*)"
                     r"(?:\s*(?P<unit>trieu|tr|k|nghin|ngan|ty|vnd|d)(?![a-z])(?P<tail>\d*))?(?P<rest>.*)", re.S)
 OFFICE = re.compile(r"(?<![a-z0-9])(luong|van phong|vpp|mat bang|thue nha|tien nha|internet)(?![a-z0-9])")
-PLATE_RUN = re.compile(r"\d(?:[\d.\-]*\d)?")
+# Biển số chỉ nhận khi có chữ cái của dãy biển (51C-123.45) hoặc đứng ngay sau "xe", "bks", "bs", "biển số": "15.11", "2026" không phải biển.
+PLATE = re.compile(r"(?<![a-z0-9])(?:\d{2}(?!tr|ty)[a-z]{1,2}[\s.\-]*|(?:xe|bks|bs|bien so)[\s:.\-]*(?:so\s*)?)(\d[\d.\-]*\d)(?![a-z])")
+# Số theo sau đơn vị rồi cách rồi vài chữ số ("1 triệu 2", "2 tr 5"): không đoán là số lẻ hay chữ khác. Ngày "20/11" và biển 4–5 số thì không dính.
+SPLIT_AMOUNT = re.compile(r"\s+\d{1,3}(?!\d)(?![/\-]\d)")
+MIN_NAME = 3   # tên (đã bỏ dấu) ngắn hơn thế không tự khớp: dễ trùng với từ thường
+_FLIGHTS: dict[tuple, Future] = {}
 _CACHE: dict[tuple, tuple[float, dict]] = {}
 _LOCK = threading.Lock()
 
@@ -66,8 +72,11 @@ def read_report(text: str) -> dict | None:
     match = REPORT.match(v7_zalo_chat.fold(text))
     if match is None:
         return None
-    return {"direction": {"thu": "thu", "chi": "chi", "ung": "ung"}[match["verb"]],
-            "amount_vnd": amount_vnd(match["num"], match["unit"], match["tail"] or ""), "rest": match["rest"]}
+    amount = amount_vnd(match["num"], match["unit"], match["tail"] or "")
+    # "chi -500k" (dấu trừ dính vào số) và "chi 1 triệu 2" (số rời sau đơn vị) không đoán: số để trống.
+    if match["sep"].endswith(("-", "−", "–", "—")) or SPLIT_AMOUNT.match(match["rest"]):
+        amount = None
+    return {"direction": {"thu": "thu", "chi": "chi", "ung": "ung"}[match["verb"]], "amount_vnd": amount, "rest": match["rest"]}
 
 
 def _has(text: str, needle: str) -> bool:
@@ -88,12 +97,13 @@ class Directory:
     """Sổ khách, xe và người của Đội xe, tên đã bỏ dấu để khớp. Chỉ gắn đối tượng khi khớp đúng một."""
 
     def __init__(self, customers: list[dict], xe: list[dict], nguoi: list[dict]):
-        self.books = [(row["id"], row["name"], [v7_zalo_chat.fold(name) for name in
-                       (row.get("name"), row.get("display_name"), *(row.get("aliases") or [])) if isinstance(name, str) and len(name.strip()) >= 2])
+        self.books = [(row["id"], row["name"], [fold for name in (row.get("name"), row.get("display_name"), *(row.get("aliases") or []))
+                                                 if isinstance(name, str) and len(fold := v7_zalo_chat.fold(name).strip()) >= MIN_NAME])
                       for row in customers if isinstance(row.get("id"), int) and isinstance(row.get("name"), str)]
         self.xe = {row["id"]: row for row in xe if isinstance(row.get("id"), int) and isinstance(row.get("bien_so"), str)}
-        self.people = [(row["id"], row["ten"], v7_zalo_chat.fold(row["ten"])) for row in nguoi
-                       if isinstance(row.get("id"), int) and isinstance(row.get("ten"), str) and row.get("dang_dung", True) and len(row["ten"].strip()) >= 2]
+        self.people = [(row["id"], row["ten"], v7_zalo_chat.fold(row["ten"]).strip()) for row in nguoi
+                       if isinstance(row.get("id"), int) and isinstance(row.get("ten"), str) and row.get("dang_dung", True)
+                       and len(v7_zalo_chat.fold(row["ten"]).strip()) >= MIN_NAME]
 
     def book(self, rest: str) -> tuple[dict | None, int]:
         hits = [(book_id, name, cand) for book_id, name, cands in self.books for cand in cands if _has(rest, cand)]
@@ -101,7 +111,7 @@ class Directory:
         return _unique({book_id: name for book_id, name, _ in hits}), len({hit[0] for hit in hits})
 
     def vehicle(self, rest: str) -> tuple[dict | None, None]:
-        tokens = {digits for run in PLATE_RUN.findall(rest) if 4 <= len(digits := re.sub(r"\D", "", run)) <= 5}
+        tokens = {digits for run in PLATE.findall(rest) if 4 <= len(digits := re.sub(r"\D", "", run)) <= 5}
         return _unique({xid: row["bien_so"] for xid, row in self.xe.items()
                         if any(re.sub(r"\D", "", row["bien_so"]).endswith(token) for token in tokens)}), None
 
@@ -121,14 +131,16 @@ class Directory:
         return {"kind": None, "id": None, "label": None, "ambiguous": ambiguous}
 
 
-def collect(store, directory_of, start_ms: int, end_ms: int) -> list[dict]:
-    """Khoản báo trong [start_ms, end_ms) của mọi hội thoại trong gói, kèm ảnh chứng. `directory_of()` chỉ được gọi khi có ít nhất một khoản."""
-    names = {row["conversation_id"]: row["display_name"] for row in store.conversations()}
+def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list[dict]) -> list[dict]:
+    """Khoản báo trong [start_ms, end_ms) của các hội thoại đã chọn, kèm ảnh chứng. `directory_of()` chỉ được gọi khi có ít nhất một khoản."""
+    names = {row["conversation_id"]: row["display_name"] for row in conversations}
     items: list[dict] = []
     last: dict | None = None
     current = None
     directory = None
     for cid, row in store.messages_between(start_ms, end_ms + IMAGE_GAP_MS):
+        if cid not in names:
+            continue
         if cid != current:
             current, last = cid, None
         stamp = row["timestamp_ms"] or 0
@@ -158,23 +170,59 @@ def months(first: date, last: date) -> list[date]:
     return out
 
 
-class Sources:
-    """Mỗi lần dựng đọc từng hàm DB một lần (theo tháng, theo người hoặc xe); chỉ đọc, qua các hàm đọc đã có của Bảng thu và Đội xe."""
+def _int(value: Any) -> int | None:
+    """Số nguyên từ JSON (số hoặc chuỗi số); null, bool và chữ khác là None để bỏ dòng, không ép thành 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)) or not re.fullmatch(r"-?[0-9]{1,18}", str(value)):
+        return None
+    return int(value)
 
-    def __init__(self, runner, actor: str, today: date):
-        self.runner, self.actor, self.today = runner, actor, today
+
+def _day(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def _dicts(value: Any) -> list[dict]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+class Sources:
+    """Mỗi lần dựng đọc từng hàm DB một lần (theo tháng, theo người hoặc xe); chỉ đọc, qua các hàm đọc đã có của Bảng thu và Đội xe.
+
+    Dòng có giá trị null hay sai khuôn bị bỏ (NULL không phải 0). Một nguồn đọc lỗi thì ghi mã vào `failed` (`receipt`, `fleet`, `directory`,
+    `marks`) và trang hiện các khoản liên quan là "chưa đối chiếu được" thay vì báo lỗi cả trang hay kết luận "chưa vào sổ"."""
+
+    def __init__(self, runner, actor: str, today: date, failed: set[str]):
+        self.runner, self.actor, self.today, self.failed = runner, actor, today, failed
         self.books: dict[date, list[dict]] = {}
         self.fleet: dict[tuple, dict] = {}
+
+    def read(self, code: str, function: str, payload: dict) -> dict:
+        try:
+            body = self.runner.run(function, payload, self.actor)
+        except (ApiError, OSError, ValueError, TypeError, KeyError):
+            body = None
+        if not isinstance(body, dict):
+            self.failed.add(code)
+            return {}
+        return body
 
     def receipts(self, day: date) -> list[dict]:
         out = []
         for month in months(day - timedelta(MATCH_BEFORE), min(day + timedelta(MATCH_AFTER), self.today)):
             if month not in self.books:
-                body = self.runner.run("get_receipt_book", {"month": month.isoformat()}, self.actor)
-                self.books[month] = [{"key": ("receipt", row.get("source"), row.get("id")), "date": date.fromisoformat(row["date"]), "customer": row["customer_id"],
-                                      "amount": int(row["amount_vnd"]), "ref": {"kind": "receipt", "source": row.get("source"), "id": row.get("id"), "pid": row.get("pid"),
-                                                                                "customer_id": row["customer_id"], "name": row.get("name"), "date": row["date"]}}
-                                     for group in body.get("days") or [] for row in group.get("rows") or [] if row.get("date")]
+                rows = []
+                for group in _dicts(self.read("receipt", "get_receipt_book", {"month": month.isoformat()}).get("days")):
+                    for row in _dicts(group.get("rows")):
+                        when, amount = _day(row.get("date")), _int(row.get("amount_vnd"))
+                        if when is None or amount is None or not isinstance(row.get("customer_id"), int):
+                            continue
+                        rows.append({"key": ("receipt", row.get("source"), row.get("id")), "date": when, "customer": row["customer_id"], "amount": amount,
+                                     "ref": {"kind": "receipt", "source": row.get("source"), "id": row.get("id"), "pid": row.get("pid"),
+                                             "customer_id": row["customer_id"], "name": row.get("name"), "date": when.isoformat()}})
+                self.books[month] = rows
             out += self.books[month]
         return out
 
@@ -183,18 +231,24 @@ class Sources:
         for month in months(day - timedelta(MATCH_BEFORE), min(day + timedelta(MATCH_AFTER), self.today)):
             key = (kind, entity, month)
             if key not in self.fleet:
-                self.fleet[key] = self.runner.run("doixe_get_so", {"loai": "xe" if kind == "xe" else "nguoi", "id": entity, "thang": month.isoformat()}, self.actor)
+                self.fleet[key] = self.read("fleet", "doixe_get_so", {"loai": "xe" if kind == "xe" else "nguoi", "id": entity, "thang": month.isoformat()})
             data = self.fleet[key]
             if direction == "ung":
-                out += [{"key": ("ung", row["id"]), "date": date.fromisoformat(row["ngay"]), "amount": int(row["so_tien_vnd"]),
-                         "ref": {"kind": "ung", "id": row["id"], "date": row["ngay"]}} for row in data.get("ung") or [] if not row.get("huy")]
+                for row in _dicts(data.get("ung")):
+                    when, amount = _day(row.get("ngay")), _int(row.get("so_tien_vnd"))
+                    if when is not None and amount is not None and isinstance(row.get("id"), int) and not row.get("huy"):
+                        out.append({"key": ("ung", row["id"]), "date": when, "amount": amount, "ref": {"kind": "ung", "id": row["id"], "date": when.isoformat()}})
                 continue
-            for trip in data.get("chang") or []:
-                if trip.get("da_bo") or (kind == "tai_xe" and trip.get("nguoi_tra_id") != entity):
+            for trip in _dicts(data.get("chang")):
+                when = _day(trip.get("ngay"))
+                if when is None or trip.get("da_bo") or (kind == "tai_xe" and trip.get("nguoi_tra_id") != entity):
                     continue
-                out += [{"key": ("phi", line["id"], code), "date": date.fromisoformat(trip["ngay"]), "amount": int(money),
-                         "ref": {"kind": "dong_phi", "id": line["id"], "loai_phi": code, "chang_id": trip.get("id"), "date": trip["ngay"]}}
-                        for line in trip.get("dong") or [] for code, money in (line.get("phi") or {}).items()]
+                for line in _dicts(trip.get("dong")):
+                    for code, money in (line.get("phi") or {}).items() if isinstance(line.get("phi"), dict) else []:
+                        amount = _int(money)
+                        if amount is not None and isinstance(line.get("id"), int):
+                            out.append({"key": ("phi", line["id"], code), "date": when, "amount": amount,
+                                        "ref": {"kind": "dong_phi", "id": line["id"], "loai_phi": code, "chang_id": trip.get("id"), "date": when.isoformat()}})
         return out
 
 
@@ -206,10 +260,8 @@ def _settle(item: dict, status: str, row: dict | None = None, shared: bool = Fal
     item.update(status=status, shared=shared, ledger_ref=row["ref"] if row else None, ledger_vnd=row["amount"] if row else None)
 
 
-def pair_exact(items: list[dict], rows_of, claimed: set) -> None:
-    """Khoản báo đúng số với dòng sổ trong khoảng ngày thì ứng đúng một dòng. Hai khoản tranh cùng dòng (nhiều khoản hơn dòng) thì cả hai
-    để người xem chọn (`shared`), không tự chọn."""
-    cands = {id(item): [row for row in rows_of(item) if row["amount"] == item["amount_vnd"] and row["key"] not in claimed] for item in items}
+def _components(items: list[dict], cands: dict) -> list[list[dict]]:
+    """Nhóm các khoản báo có chung ít nhất một dòng ứng viên (trực tiếp hay qua khoản khác)."""
     parent: dict = {}
 
     def find(node):
@@ -225,17 +277,41 @@ def pair_exact(items: list[dict], rows_of, claimed: set) -> None:
     for item in items:
         if cands[id(item)]:
             groups.setdefault(find(("i", id(item))), []).append(item)
-    for members in groups.values():
-        keys = {row["key"] for item in members for row in cands[id(item)]}
-        free = {row["key"]: row for item in members for row in cands[id(item)]}
-        for item in sorted(members, key=lambda one: one["sent_at"]):
-            pick = next((row for row in sorted(cands[id(item)], key=lambda one: (one["date"], str(one["key"]))) if row["key"] in free), None)
-            if len(members) > len(keys) or pick is None:
-                _settle(item, "AMOUNT_DIFF", cands[id(item)][0], shared=True)
+    return list(groups.values())
+
+
+def _saturate(members: list[dict], cands: dict) -> dict | None:
+    """Ghép mỗi khoản báo với một dòng riêng (ghép cực đại, đường tăng của Kuhn, khoản sớm trước, dòng sớm trước).
+    Trả {khóa dòng: khoản} khi mọi khoản đều có dòng; None khi không có cách nào đủ."""
+    owner: dict = {}
+
+    def augment(item: dict, seen: set) -> bool:
+        for row in sorted(cands[id(item)], key=lambda one: (one["date"], str(one["key"]))):
+            if row["key"] in seen:
                 continue
-            del free[pick["key"]]
-            claimed.add(pick["key"])
-            _settle(item, "RECORDED", pick)
+            seen.add(row["key"])
+            if row["key"] not in owner or augment(owner[row["key"]], seen):
+                owner[row["key"]] = item
+                return True
+        return False
+
+    return owner if all(augment(item, set()) for item in sorted(members, key=lambda one: one["sent_at"])) else None
+
+
+def pair_exact(items: list[dict], rows_of, claimed: set) -> None:
+    """Khoản báo đúng số với dòng sổ trong khoảng ngày thì ứng đúng một dòng. Trong mỗi nhóm khoản tranh chung dòng, nếu có cách ghép đủ
+    cho mọi khoản thì ghép (chọn theo thứ tự thời gian); không đủ dòng thì cả nhóm để người xem chọn (`shared`), không tự chọn."""
+    cands = {id(item): [row for row in rows_of(item) if row["amount"] == item["amount_vnd"] and row["key"] not in claimed] for item in items}
+    for members in _components(items, cands):
+        owner = _saturate(members, cands)
+        if owner is None:
+            for item in members:
+                _settle(item, "AMOUNT_DIFF", cands[id(item)][0], shared=True)
+            continue
+        rows = {row["key"]: row for item in members for row in cands[id(item)]}
+        for key, item in owner.items():
+            claimed.add(key)
+            _settle(item, "RECORDED", rows[key])
 
 
 def pair_single(items: list[dict], rows_of, claimed: set, status: str) -> None:
@@ -253,20 +329,26 @@ def pair_single(items: list[dict], rows_of, claimed: set, status: str) -> None:
 
 
 def reconcile(items: list[dict], directory: Directory, sources: Sources, today: date) -> None:
-    """Gán `status`, `ledger_ref`, `ledger_vnd`, `shared` cho từng khoản báo theo bảng trạng thái của spec (Luồng 2)."""
+    """Gán `status`, `ledger_ref`, `ledger_vnd`, `shared`, `unchecked` cho từng khoản báo theo bảng trạng thái của spec (Luồng 2).
+
+    Chủ ý: chi khớp từng dòng phí chứ không khớp tổng của chặng; ứng cho xe không có tài xế là chưa rõ đối tượng; "chi lương tài xế Hùng"
+    có người nên đi ghép sổ Đội xe (chỉ chi không có xe hay người mà nói lương, văn phòng… mới là `NO_LEDGER`)."""
     for item in items:
         item["day"] = datetime.fromtimestamp(item["sent_at"] / 1000, VN).date()
-        item["status"], item["shared"], item["ledger_ref"], item["ledger_vnd"] = None, False, None, None
+        item["status"], item["shared"], item["ledger_ref"], item["ledger_vnd"], item["unchecked"] = None, False, None, None, False
     claimed: set = set()
     for item in items:
         kind, entity, direction = item["target"]["kind"], item["target"]["id"], item["direction"]
         if item["amount_vnd"] is None:
             item["status"] = "NO_AMOUNT"
         elif direction == "thu" and kind == "so":
+            item["track"] = "receipt"
             item["rows"] = lambda one=item: [row for row in _near(sources.receipts(one["day"]), one["day"]) if row["customer"] == one["target"]["id"]]
         elif direction == "ung" and kind == "xe" and directory.xe[entity].get("tai_xe_id"):
+            item["track"] = "fleet"
             item["rows"] = lambda one=item: _near(sources.fleet_rows("tai_xe", directory.xe[one["target"]["id"]]["tai_xe_id"], "ung", one["day"]), one["day"])
         elif (direction == "ung" and kind == "tai_xe") or (direction == "chi" and kind in ("xe", "tai_xe")):
+            item["track"] = "fleet"
             item["rows"] = lambda one=item: _near(sources.fleet_rows(one["target"]["kind"], one["target"]["id"], one["direction"], one["day"]), one["day"])
         elif direction == "chi" and OFFICE.search(item["rest"]):
             item["status"] = "NO_LEDGER"
@@ -278,7 +360,13 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
     pair_single(unknown_thu, anywhere, claimed, "SUGGEST")
     for item in items:
         if item["status"] is None:
-            item["status"] = ("UNKNOWN_TARGET" if "rows" not in item else "MISSING" if today > item["day"] + timedelta(MISSING_AFTER) else "WAITING")
+            if "rows" not in item:
+                item["status"] = "UNKNOWN_TARGET"
+            elif item["track"] in sources.failed:
+                item["status"], item["unchecked"] = "WAITING", True   # không đọc được sổ thì không kết luận "chưa vào sổ"
+            else:
+                item["status"] = "MISSING" if today > item["day"] + timedelta(MISSING_AFTER) else "WAITING"
+        item["unchecked"] = item["unchecked"] or (item["status"] in ("UNKNOWN_TARGET", "NO_LEDGER") and "directory" in sources.failed)
 
 
 # ---- dựng kết quả ----
@@ -299,29 +387,40 @@ def parse_query(query: str, today: date) -> tuple[date, date, set[str]]:
     return start, end, wanted
 
 
-def _marks(store, runner, actor: str, start: date, end: date, directory: Directory, taken: set) -> list[dict]:
-    """Dấu "Khách báo đã chuyển" của các nhóm trong gói: hiện như khoản thu, trạng thái do SQL chấm (cùng luật), không chép sang đâu."""
+def _marks(conversations: list[dict], sources: Sources, start: date, end: date, directory: Directory, taken_messages: set, taken_receipts: set) -> tuple[list[dict], int]:
+    """Dấu "Khách báo đã chuyển" của các nhóm đã chọn: hiện như khoản thu, trạng thái do SQL chấm (cùng luật), không chép sang đâu.
+
+    Cửa sổ ngày của dấu tính từ `on_date` (ngày khách báo đã chuyển), của khoản chat từ ngày tin. Dấu cùng tin với một khoản chat, hoặc có
+    phiếu (`receipt_pid`) mà một khoản chat đã ứng, thì ẩn: giữ khoản chat, tổng thu không cộng hai lần (trả thêm số dấu đã ẩn)."""
     names = {book_id: name for book_id, name, _ in directory.books}
-    items = []
-    for conversation in store.conversations()[:MAX_CONVERSATIONS]:
-        for mark in runner.run("get_marks", {"conversation_id": conversation["conversation_id"]}, actor).get("marks") or []:
-            if mark.get("kind") != "paid_claim" or mark.get("status") not in MARK_STATUS or mark.get("message_id") in taken:
+    items, hidden, seen = [], 0, set()
+    for conversation in conversations:
+        for mark in _dicts(sources.read("marks", "get_marks", {"conversation_id": conversation["conversation_id"]}).get("marks")):
+            day, amount = _day(mark.get("on_date")), _int(mark.get("amount_vnd"))
+            if mark.get("kind") != "paid_claim" or mark.get("status") not in MARK_STATUS or day is None or amount is None or amount <= 0 \
+                    or not isinstance(mark.get("customer_id"), int) or not start <= day <= end:
                 continue
-            day = date.fromisoformat(mark["on_date"])
-            if start <= day <= end:
-                items.append({"message_id": mark.get("message_id"), "conversation_id": mark["conversation_id"], "conversation_name": conversation["display_name"],
-                              "sent_at": int(datetime.fromisoformat(mark["message_at"]).timestamp() * 1000) if mark.get("message_at") else None,
-                              "sender_name": mark.get("message_sender"), "direction": "thu", "amount_vnd": int(mark["amount_vnd"]),
-                              "text": (mark.get("message_excerpt") or mark.get("note") or "")[:300], "media": [], "day": day, "source": "mark",
-                              "target": {"kind": "so", "id": mark["customer_id"], "label": names.get(mark["customer_id"])},
-                              "status": MARK_STATUS[mark["status"]], "shared": False, "ledger_vnd": None,
-                              "ledger_ref": {"kind": "receipt", "pid": mark["receipt_pid"]} if mark.get("receipt_pid") else None})
-    return items
+            pid = mark.get("receipt_pid") if isinstance(mark.get("receipt_pid"), str) else None
+            if mark.get("message_id") in taken_messages or (pid and (pid in taken_receipts or pid in seen)):
+                hidden += 1
+                continue
+            seen.add(pid)
+            try:
+                sent = int(datetime.fromisoformat(mark["message_at"]).timestamp() * 1000) if isinstance(mark.get("message_at"), str) else None
+            except ValueError:
+                sent = None
+            items.append({"message_id": mark.get("message_id"), "conversation_id": conversation["conversation_id"], "conversation_name": conversation["display_name"],
+                          "sent_at": sent, "sender_name": mark.get("message_sender"), "direction": "thu", "amount_vnd": amount,
+                          "text": str(mark.get("message_excerpt") or mark.get("note") or "")[:300], "media": [], "day": day, "source": "mark",
+                          "target": {"kind": "so", "id": mark["customer_id"], "label": names.get(mark["customer_id"])},
+                          "status": MARK_STATUS[mark["status"]], "shared": False, "unchecked": False, "ledger_vnd": None,
+                          "ledger_ref": {"kind": "receipt", "pid": pid} if pid else None})
+    return items, hidden
 
 
 def _public(item: dict) -> dict:
     out = {key: item.get(key) for key in ("message_id", "conversation_id", "conversation_name", "sent_at", "sender_name", "direction", "amount_vnd", "text",
-                                          "media", "status", "shared", "ledger_ref", "ledger_vnd")}
+                                          "media", "status", "shared", "unchecked", "ledger_ref", "ledger_vnd")}
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
     out["target"] = {key: item["target"].get(key) for key in ("kind", "id", "label")}
@@ -348,6 +447,34 @@ def zalo_view(now: float) -> dict:
     return {key: view.get(key) for key in ("state", "at", "silent_minutes", "identity", "quiet_minutes")}
 
 
+def _single_flight(key: tuple, now: float, compute) -> dict:
+    """Kết quả giữ `CACHE_SECONDS` giây; nhiều người cùng hỏi lúc hết hạn thì chỉ một lượt dựng, những người kia chờ kết quả đó."""
+    with _LOCK:
+        hit = _CACHE.get(key)
+        if hit is not None and now - hit[0] <= CACHE_SECONDS:
+            return hit[1]
+        flight = _FLIGHTS.get(key)
+        leader = flight is None
+        if leader:
+            flight = _FLIGHTS[key] = Future()
+    if not leader:
+        return flight.result()
+    try:
+        value = compute()
+    except BaseException as exc:
+        with _LOCK:
+            _FLIGHTS.pop(key, None)
+        flight.set_exception(exc)
+        raise
+    with _LOCK:
+        if len(_CACHE) > 16:
+            _CACHE.clear()
+        _CACHE[key] = (now, value)
+        _FLIGHTS.pop(key, None)
+    flight.set_result(value)
+    return value
+
+
 def build(start: date, end: date, runner, actor: str, now: float | None = None) -> dict:
     now = time.time() if now is None else now
     today = datetime.fromtimestamp(now, VN).date()
@@ -356,16 +483,7 @@ def build(start: date, end: date, runner, actor: str, now: float | None = None) 
         store = v7_zalo_chat.get_store()
     except v7_zalo_chat.ChatError:
         return {"unavailable": True, "zalo": zalo}
-    key = (start, end, store.token())
-    with _LOCK:
-        cached = _CACHE.get(key)
-    if cached is None or now - cached[0] > CACHE_SECONDS:
-        cached = (now, _core(store, start, end, runner, actor, today))
-        with _LOCK:
-            if len(_CACHE) > 16:
-                _CACHE.clear()
-            _CACHE[key] = cached
-    core = cached[1]
+    core = _single_flight((start, end, store.token()), now, lambda: _core(store, start, end, runner, actor, today))
     last_ms = max((row["last_message_at"] or 0 for row in store.conversations()), default=0) or None
     return {"unavailable": False, "from": start.isoformat(), "to": end.isoformat(), "today": today.isoformat(), "zalo": zalo,
             "bundle_at": store.report.get("built_at") if isinstance(store.report.get("built_at"), str) else None, "last_message_at": last_ms, **core}
@@ -374,22 +492,30 @@ def build(start: date, end: date, runner, actor: str, now: float | None = None) 
 def _core(store, start: date, end: date, runner, actor: str, today: date) -> dict:
     start_ms = int(datetime.combine(start, datetime.min.time(), VN).timestamp() * 1000)
     end_ms = int(datetime.combine(end + timedelta(1), datetime.min.time(), VN).timestamp() * 1000)
+    failed: set[str] = set()
+    sources = Sources(runner, actor, today, failed)
     holder: dict = {}
 
     def directory_of() -> Directory:
         if "directory" not in holder:
-            customers = v7_api_sheet.with_display_names(runner.run("list_customers", {}, actor)).get("customers", [])
-            fleet = runner.run("doixe_get_tong", {"thang": None}, actor).get("danh_muc") or {}
-            holder["directory"] = Directory(customers, fleet.get("xe") or [], fleet.get("nguoi") or [])
+            customers = v7_api_sheet.with_display_names(sources.read("directory", "list_customers", {})).get("customers", [])
+            fleet = sources.read("directory", "doixe_get_tong", {"thang": None}).get("danh_muc")
+            fleet = fleet if isinstance(fleet, dict) else {}
+            holder["directory"] = Directory(_dicts(customers), _dicts(fleet.get("xe")), _dicts(fleet.get("nguoi")))
         return holder["directory"]
 
-    items = collect(store, directory_of, start_ms, end_ms)
-    directory = directory_of() if store.conversations() else None
+    # Một giới hạn số nhóm cho cả tin chat và dấu: nhóm có tin mới nhất trước.
+    everything = store.conversations()
+    conversations = everything[:MAX_CONVERSATIONS]
+    items = collect(store, directory_of, start_ms, end_ms, conversations)
     if items:
-        reconcile(items, directory, Sources(runner, actor, today), today)
-    items += _marks(store, runner, actor, start, end, directory, {item["message_id"] for item in items}) if directory else []
+        reconcile(items, directory_of(), sources, today)
+    marks, hidden = _marks(conversations, sources, start, end, directory_of(), {item["message_id"] for item in items},
+                           {item["ledger_ref"]["pid"] for item in items if item.get("ledger_ref") and item["ledger_ref"].get("pid")}) if conversations else ([], 0)
+    items += marks
     items.sort(key=lambda item: (item["day"], item["sent_at"] or 0), reverse=True)
-    return {"items": [_public(item) for item in items], "totals": totals(items),
+    return {"items": [_public(item) for item in items], "totals": totals(items), "sources_failed": sorted(failed), "marks_hidden": hidden,
+            "conversations_skipped": len(everything) - len(conversations),
             "counts": {code: sum(item["status"] == code for item in items) for code in STATUSES}}
 
 
