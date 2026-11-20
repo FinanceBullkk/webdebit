@@ -282,6 +282,20 @@ document.addEventListener("pointermove", e => {
 document.addEventListener("pointerout", e => { if (!e.relatedTarget || !e.relatedTarget.closest || !e.relatedTarget.closest("[data-tip]")) tipEl.hidden = true; });
 document.addEventListener("click", () => { tipEl.hidden = true; });
 
+// ===== Sáng / Tối / Theo máy (nhat-ky-theme.js đã áp lựa chọn trước khi vẽ trang) =====
+(() => {
+  const theme = window.nkTheme; if (!theme) return;
+  const MODES = [["light", "Sáng"], ["dark", "Tối"], ["auto", "Theo máy"]];
+  const paint = () => $("mode").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === theme.get()));
+  MODES.forEach(([id, name]) => {
+    const b = btn("", name); b.dataset.mode = id;
+    if (id === "auto") tip(b, "Theo cài đặt sáng/tối của máy");
+    b.addEventListener("click", () => { theme.set(id); paint(); });   // màu đều là biến CSS nên không cần vẽ lại
+    $("mode").append(b);
+  });
+  paint();
+})();
+
 // ===== Tự cập nhật: đọc GET /api/v7/nhat-ky mỗi 60 giây khi tab đang mở =====
 const POLL_MS = 60_000;
 let seen = null, toastTimer = null, failed = false;

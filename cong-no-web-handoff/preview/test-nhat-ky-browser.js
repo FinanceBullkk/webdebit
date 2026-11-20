@@ -98,6 +98,28 @@ test('Nhật ký công việc: tuần, bảng mảng × tuần, từng ngày l�
   assert.equal(await page.locator('#offPct').innerText(), '25%');
 }));
 
+test('Nhật ký công việc: Sáng / Tối / Theo máy, nhớ lựa chọn sau khi tải lại', () => withPage({}, async page => {
+  await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
+  const theme = () => page.evaluate(() => document.documentElement.dataset.nkTheme);
+  const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'light' });
+  assert.equal(await theme(), 'light');
+  assert.equal(await page.locator('#mode button[aria-pressed="true"]').innerText(), 'Theo máy');
+  await page.emulateMedia({ colorScheme: 'dark' });   // Theo máy: máy đổi sang tối thì trang đổi theo
+  await page.waitForFunction(() => document.documentElement.dataset.nkTheme === 'dark', null, { timeout: 3000 });
+  assert.equal(await bg(), 'rgb(13, 17, 23)');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.locator('#mode button', { hasText: /^Tối$/ }).click();
+  assert.equal(await theme(), 'dark');
+  await page.reload();
+  await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
+  assert.equal(await theme(), 'dark', 'lựa chọn Tối còn sau khi tải lại dù máy đang sáng');
+  assert.equal(await page.locator('#mode button[aria-pressed="true"]').innerText(), 'Tối');
+  await page.locator('#mode button', { hasText: 'Sáng' }).click();
+  assert.equal(await theme(), 'light');
+  assert.equal(await bg(), 'rgb(233, 236, 240)');
+}));
+
 test('Nhật ký công việc: máy chủ lỗi thì báo, tự đọc lại khi tab quay lại; không cuộn ngang ở 1280 và 390', async () => {
   await withPage({ down: true }, async (page, shared) => {
     await page.locator('#error:not([hidden])').waitFor();

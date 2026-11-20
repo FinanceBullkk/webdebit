@@ -24,6 +24,13 @@
 .nk .live.warn i { background: var(--warning) }
 @keyframes nk-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--credit) 55%, transparent) } 100% { box-shadow: 0 0 0 8px transparent } }
 
+/* Sáng / Tối / Theo máy */
+.nk-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface) }
+.nk-mode button { border: 0; background: none; padding: 3px 10px; font-size: 13px; font-weight: 600; color: var(--ink-3); cursor: pointer }
+.nk-mode button + button { border-left: 1px solid var(--line) }
+.nk-mode button:hover { color: var(--ink); background: var(--head) }
+.nk-mode button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink) }
+
 /* Bố cục: cột chính (tuần + từng ngày) và cột phải 300px (đang làm tiếp + giờ làm) */
 .nk-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; max-width: 1240px }
 .nk-main, .nk-rail { display: grid; gap: 20px; min-width: 0; align-content: start }
@@ -127,7 +134,7 @@
 .nk .wd small { font-size: 12px; color: var(--ink-3); font-weight: 600 }
 
 /* Chú thích nổi, báo thay đổi mới */
-.nk .tooltip { position: fixed; z-index: 30; pointer-events: none; background: var(--ink); color: #fff; font-size: 13px; line-height: 1.4; padding: 6px 9px; border-radius: 6px; max-width: 300px; box-shadow: 0 8px 24px #1f293733 }
+.nk .tooltip { position: fixed; z-index: 30; pointer-events: none; background: var(--tip-bg, var(--ink)); color: #fff; font-size: 13px; line-height: 1.4; padding: 6px 9px; border-radius: 6px; max-width: 300px; box-shadow: 0 8px 24px #1f293733 }
 .nk .toast { position: fixed; z-index: 25; right: 16px; bottom: 16px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--credit); border-radius: 8px; padding: 10px 14px; box-shadow: 0 8px 24px #1f293733; font-size: 14px; display: flex; gap: 10px; align-items: center; max-width: calc(100vw - 32px) }
 .nk .toast b { color: var(--credit) }
 .nk .flash { animation: nk-flash 1.2s ease-out }
@@ -142,7 +149,9 @@
   .nk-next, .nk-hours, .nk-week, .nk-feed { width: 100% }
 }
 @media (max-width: 600px) {
-  .nk-matrix tbody th { width: 118px; max-width: 118px }
+  .nk-matrix tbody th { width: 112px; min-width: 112px; max-width: 112px }
+  .nk-matrix { border-spacing: 3px 3px }
+  .nk-matrix .wk { padding: 2px 0; font-size: 12px }
   .nk-matrix .old { display: none }
   .nk-matrix .lane { padding: 1px 2px; gap: 6px }
   .nk-matrix .lt small, .nk-matrix .last-h, .nk-matrix td.last, .nk-matrix tfoot td:last-child { display: none }
@@ -154,3 +163,42 @@
   .nk-day .items li.cont .lname { display: none }
   .nk-day .count { margin-left: 0 }
 }
+
+/* ===== Chế độ tối (20/11/2026), theo bảng màu GitHub dark. Chỉ trang này: nhat-ky-theme.js đặt data-nk-theme trên <html>.
+   Màu mảng là cột tối của cùng bảng màu phân loại, đã kiểm trên nền thẻ #151b23. Bảng nhiệt và giờ làm đảo chiều:
+   ít/trong giờ là tối gần nền, nhiều/ngoài giờ là sáng. ===== */
+html[data-nk-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d1117; --surface: #151b23; --line: #3d444d; --line-soft: #262c36; --head: #1b222c; --zebra: #161c24;
+  --ink: #f0f6fc; --ink-2: #c9d1d9; --ink-3: #9198a1;
+  --accent: #4493f8; --accent-ink: #79b8ff; --accent-soft: #172b45;
+  --critical: #f85149; --critical-soft: #2d1517; --warning: #d29922; --warning-soft: #2e2410; --credit: #3fb950; --credit-soft: #12261a;
+  --shadow: 0 0 0 transparent; --tip-bg: #3d444d;
+}
+html[data-nk-theme="dark"] .nk {
+  --l1: #3987e5; --l2: #d95926; --l3: #199e70; --l4: #c98500; --l5: #d55181; --l6: #0ca30c;
+  --h-in: #64768f; --h-early: #3987e5; --h-late: #79b8ff; --h-weekend: #cde2fb;
+}
+html[data-nk-theme="dark"] .nk-matrix .h1 { background: #104281; color: #f0f6fc }
+html[data-nk-theme="dark"] .nk-matrix .h2 { background: #256abf; color: #fff }
+html[data-nk-theme="dark"] .nk-matrix .h3 { background: #5598e7; color: #0d1117 }
+html[data-nk-theme="dark"] .nk-matrix .h4 { background: #9ec5f4; color: #0d1117 }
+html[data-nk-theme="dark"] .nk-matrix .h5 { background: #cde2fb; color: #0d1117 }
+html[data-nk-theme="dark"] .nk-matrix .h0 { color: #3d444d }
+html[data-nk-theme="dark"] .nk-matrix .hc.on { outline-color: #f0f6fc }
+html[data-nk-theme="dark"] .nk-day .when .tag { color: #9ecbff }
+html[data-nk-theme="dark"] #error { background: var(--critical-soft); border-color: #6e2b2b; color: #ffb3ad }
+/* Thanh đầu trang, dải thẻ Quản trị và menu trái đặt màu cứng trong app-nav.css */
+html[data-nk-theme="dark"] .page.app-page > .page-head.topbar { background: #010409; border-bottom-color: #262c36; color: var(--ink) }
+html[data-nk-theme="dark"] .admin-tabs { background: #010409; border-bottom-color: #262c36 }
+html[data-nk-theme="dark"] .admin-tabs a { color: #9198a1 }
+html[data-nk-theme="dark"] .admin-tabs a:hover { background: #151b23; color: #f0f6fc }
+html[data-nk-theme="dark"] .admin-tabs a.active { background: #172b45; color: #79b8ff; border-bottom-color: #4493f8 }
+html[data-nk-theme="dark"] .app-nav { background: #010409; border-right: 1px solid #262c36 }
+@media (max-width: 760px) { html[data-nk-theme="dark"] .app-nav:not(.menu-open) { background: transparent; border-right: 0 } }
+html[data-nk-theme="dark"] .app-nav nav a:hover, html[data-nk-theme="dark"] .app-nav .search:hover { background: #151b23 }
+html[data-nk-theme="dark"] .app-nav nav a.active { background: #1f3a5f }
+html[data-nk-theme="dark"] .app-nav .search:focus-within { background: #010409 }
+html[data-nk-theme="dark"] .app-nav .search #customer-results { background: #151b23; border-color: #3d444d }
+html[data-nk-theme="dark"] .app-nav .search #customer-results a { color: #f0f6fc; border-bottom-color: #262c36 }
+html[data-nk-theme="dark"] .app-nav .search #customer-results a:hover, html[data-nk-theme="dark"] .app-nav .search #customer-results a:focus { background: #172b45 }
