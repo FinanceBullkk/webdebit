@@ -19,10 +19,18 @@ Người làm và quản lý mở web công nợ là thấy việc đã đưa l�
 
 ## Giao diện
 
-Theo trang hồ sơ GitHub, mọi kiểu nằm dưới `.nk`: cột trái (avatar, số liệu, huy hiệu 18 ngày liền / % ngoài giờ / ngày cuối tuần, Đang làm tiếp); tab Tổng quan (Hôm nay, Việc lớn, lưới đóng góp + chọn tháng, Theo tuần, Giờ làm) và Cây công việc; ngăn kéo chi tiết ngày. Bộ lọc chung mảng/ngày/tuần/ô giờ; mỗi hộp không tự lọc theo chiều của nó.
+Bản tin theo ngày (chọn A, 20/11/2026), dùng `cong-no-theme.css` và `.card` như các trang Quản trị; luật riêng nằm dưới `.nk`. Thứ tự đọc trong khung 1280×560:
+
+1. **Khối tuần** (luôn ở đầu): tuần mới nhất hoặc tuần đang chọn, số thay đổi và số ngày làm, tuần trước, mảng làm nhiều nhất; **bảng nhiệt mảng × tuần** (8 tuần gần nhất, màn hẹp 5 tuần): một sắc xanh theo số thay đổi, số in trong ô, chấm màu và mô tả việc lớn dưới tên mảng, cột "Gần nhất". Bấm tên mảng, tuần hoặc ô để lọc.
+2. **Từng ngày**: mới nhất trước, 7 ngày một lượt ("Xem thêm"), mỗi ngày tiêu đề tóm tắt, số thay đổi và giờ đầu–cuối, câu lời thường gom theo mảng; danh sách thay đổi kỹ thuật thu gọn (mở sẵn khi lọc giờ hoặc khi ngày chưa có tóm tắt).
+3. **Cột phải**: Đang làm tiếp; **Giờ làm**: % ngoài giờ hành chính, thanh chia bốn nhóm (trong giờ, sáng sớm trước 8h, buổi tối từ 17h30, thứ Bảy/Chủ nhật) có số, biểu đồ cột theo giờ trong ngày (chồng theo nhóm, nền nhạt 8h–17h30, bấm cột để lọc giờ) và theo thứ trong tuần.
+
+Bộ lọc chung mảng/tuần/giờ, chip bỏ từng lọc, Esc xóa hết; mỗi khối không tự lọc theo chiều của nó. Màu sáu mảng là sáu ô đầu bảng màu phân loại đã kiểm bằng công cụ kiểm bảng màu (phân biệt được cho người mù màu), tên mảng luôn in cạnh chấm màu. Màn dưới 1012px một cột: tuần → đang làm tiếp → từng ngày → giờ làm.
+
+**Sáng / Tối / Theo máy** (20/11/2026): ba nút ở đầu trang, mặc định Theo máy (`prefers-color-scheme`, đổi theo khi máy đổi), lựa chọn lưu `localStorage` `nk-theme`. `nhat-ky-theme.js` nạp trong `<head>` đặt `data-nk-theme` trên `<html>` trước khi vẽ để không nháy trắng (CSP không cho script inline). Màu tối theo GitHub dark (nền `#0d1117`, thẻ `#151b23`); đổi token của `cong-no-theme.css` và màu cứng của thanh đầu trang, dải thẻ Quản trị, menu trái chỉ trên trang này. Màu mảng dùng cột tối của cùng bảng màu (đã kiểm trên nền thẻ); bảng nhiệt và giờ làm đảo chiều (ít/trong giờ tối gần nền, nhiều/ngoài giờ sáng), chữ trong ô đạt từ 5:1, cột giờ đạt từ 3:1 với nền.
 
 ## Kiểm
 
 - `tests/test_v7_nhat_ky.py`: chia mảng, mẫu không đếm, nhịp đọc với GitHub và Claude giả, ETag, tóm tắt chỉ viết lại sau 30 phút, bỏ câu trả lời sai, không key thì không gọi Claude, nạp bản khởi đầu, hết lượt thì chờ, route và trang được phục vụ.
-- `preview/test-nhat-ky-browser.js`: trang với API giả, bỏ PR nhật ký triển khai, lọc chéo, chi tiết ngày, tab cây, lỗi máy chủ rồi đọc lại, không cuộn ngang 1280/390, menu vẫn chín mục.
+- `preview/test-nhat-ky-browser.js`: trang với API giả, bỏ PR nhật ký triển khai, khối tuần và bảng mảng × tuần, từng ngày lời thường, lọc mảng và giờ, Esc xóa lọc, % ngoài giờ, lỗi máy chủ rồi đọc lại, không cuộn ngang 1280/390, thẻ Nhật ký trong dải Quản trị; Theo máy đổi theo máy, Tối nhớ sau khi tải lại, Sáng trả nền sáng.
 - Trên `hao` sau triển khai: `GET /api/v7/nhat-ky` có `checked_at` mới, `store.json` được tạo, ngày hôm nay có tóm tắt.
