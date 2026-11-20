@@ -204,4 +204,39 @@ test('trực tiếp: nhật ký job theo giờ systemd; đang chạy một dòng
   assert.equal(M.jobEvent({ id: 'x', name: 'X', state: 'unknown', started: null }), null);
 });
 
+// ZALO-AGENT-01: bốn câu thường của nhóm "Máy Zalo", suy từ mã và số của máy chủ, không có chữ tự do.
+const zalo = (over = {}, processors = [{ id: 'bundle', state: 'ok', lag: 0, minutes: null, error: null }]) => ({
+  state: 'ok', at: at(8, 4), silent_minutes: 1, selected_groups: 2, identity: 'attached', quiet_minutes: 1, processors, push_error: null, ...over,
+});
+const texts = view => view.rows.map(row => `${row.name}: ${row.text}`);
+
+test('Máy Zalo: chưa có file báo về thì một câu, không dòng nào, không phải lỗi', () => {
+  for (const missing of [undefined, null, { state: 'missing' }]) {
+    const view = M.zaloLines(missing);
+    assert.deepEqual([view.head, view.rows, view.tone], ['Chưa có máy Zalo báo về', [], 'off']);
+  }
+});
+
+test('Máy Zalo: bốn trạng thái, mỗi bộ xử lý một dòng câu thường', () => {
+  const ok = M.zaloLines(zalo({}, [{ id: 'bundle', state: 'ok' }, { id: 'insurance', state: 'catching_up', lag: 1, minutes: 1 }]));
+  assert.deepEqual(texts(ok), ['Gói chat: Đang chạy, kịp tin mới', 'Bảo hiểm: Đang đuổi kịp tin mới']);
+  assert.deepEqual([ok.tone, ok.head], ['ok', 'Máy Zalo báo lúc 08:04 · 2 nhóm đã chọn']);
+  const waiting = M.zaloLines(zalo({ identity: 'waiting_for_zalo' }));
+  assert.deepEqual([texts(waiting), waiting.tone], [['Gói chat: Zalo chưa mở trên máy Zalo'], 'warn']);
+  const slow = M.zaloLines(zalo({}, [{ id: 'bundle', state: 'slow', lag: 4, minutes: 12 }]));
+  assert.deepEqual([texts(slow), slow.tone], [['Gói chat: Chậm 12 phút'], 'warn']);
+  const silent = M.zaloLines(zalo({ state: 'silent', at: at(8, 5) }));
+  assert.deepEqual([texts(silent), silent.tone], [['Gói chat: Không nghe máy Zalo từ 08:05'], 'bad']);
+});
+
+test('Máy Zalo: im lặng mà không còn biết bộ xử lý nào thì một dòng chung; lỗi đẩy thêm một dòng; chưa chọn nhóm thì nói rõ', () => {
+  const lost = M.zaloLines({ state: 'silent', at: null, processors: [], selected_groups: null });
+  assert.deepEqual([texts(lost), lost.head], [['Máy Zalo: Không nghe máy Zalo'], 'Máy Zalo không báo được']);
+  const push = M.zaloLines(zalo({ push_error: 'ssh_failed' }));
+  assert.deepEqual(texts(push), ['Gói chat: Đang chạy, kịp tin mới', 'Đẩy lên máy chủ: Gặp lỗi, mã: ssh_failed']);
+  assert.equal(push.tone, 'bad');
+  assert.match(M.zaloLines(zalo({ selected_groups: 0 })).head, /chưa chọn nhóm nào$/);
+  assert.deepEqual(texts(M.zaloLines(zalo({}, [{ id: 'money_images', state: 'error', error: 'ocr_failed' }]))), ['Ảnh chuyển khoản: Gặp lỗi, mã: ocr_failed']);
+});
+
 console.log('may-chay-model: OK');

@@ -272,6 +272,31 @@ const MayChayModel = (() => {
     return { ...fromTrace({ ...common, finished_at: iso(base + 450), different: 1, books: 239, counts: { KHOP: 238 }, customers: { 0: customer }, segments: segs(list) }), drill: kind === 'two' ? 'Hai tổ hợp cùng khớp' : 'Đọc lại không khớp' };
   }
 
-  return { ORDER, NAMES, BEAT, idleLine, todayMoney, jobEvent, duration, RESULT, resultOf, secOfDay, clockOf, hhmm, money, millions, fromTrace, fromCounts, fromRow, slotKind, byDay, stageNow, stationInfo, gateMarks, sentence, logLines, withNames, taskCustomer, drill };
+  // ZALO-AGENT-01: nhóm "Máy Zalo", mỗi bộ xử lý một dòng câu thường. `zalo` là phần `zalo` của /api/v7/machine (chỉ mã, số, giờ).
+  // Thứ tự ưu tiên của một dòng: không nghe máy > Zalo chưa mở > lỗi > chậm > đang đuổi kịp > bình thường.
+  const ZALO_NAMES = { bundle: 'Gói chat', insurance: 'Bảo hiểm', money_images: 'Ảnh chuyển khoản' };
+  const TONE_RANK = { ok: 0, warn: 1, bad: 2 };
+  function zaloLines(zalo) {
+    if (!zalo || zalo.state === 'missing') return { tone: 'off', head: 'Chưa có máy Zalo báo về', rows: [] };
+    const silent = zalo.state === 'silent';
+    const lost = zalo.at ? `Không nghe máy Zalo từ ${hhmm(zalo.at)}` : 'Không nghe máy Zalo';
+    const rows = (zalo.processors ?? []).map(item => {
+      let text = 'Đang chạy, kịp tin mới', tone = 'ok';
+      if (silent) { text = lost; tone = 'bad'; }
+      else if (zalo.identity === 'waiting_for_zalo') { text = 'Zalo chưa mở trên máy Zalo'; tone = 'warn'; }
+      else if (item.state === 'error') { text = `Gặp lỗi, mã: ${item.error}`; tone = 'bad'; }
+      else if (item.state === 'slow') { text = item.minutes === null ? 'Chậm, chưa xong lần nào' : `Chậm ${item.minutes} phút`; tone = 'warn'; }
+      else if (item.state === 'catching_up') text = 'Đang đuổi kịp tin mới';
+      return { id: item.id, name: ZALO_NAMES[item.id] ?? item.id, text, tone };
+    });
+    if (silent && !rows.length) rows.push({ id: 'agent', name: 'Máy Zalo', text: lost, tone: 'bad' });
+    if (!silent && zalo.push_error) rows.push({ id: 'push', name: 'Đẩy lên máy chủ', text: `Gặp lỗi, mã: ${zalo.push_error}`, tone: 'bad' });
+    const tone = rows.reduce((worst, row) => (TONE_RANK[row.tone] > TONE_RANK[worst] ? row.tone : worst), 'ok');
+    const groups = zalo.selected_groups === null || zalo.selected_groups === undefined ? ''
+      : zalo.selected_groups === 0 ? ' · chưa chọn nhóm nào' : ` · ${zalo.selected_groups} nhóm đã chọn`;
+    return { tone, head: zalo.at ? `Máy Zalo báo lúc ${hhmm(zalo.at)}${groups}` : 'Máy Zalo không báo được', rows };
+  }
+
+  return { ORDER, NAMES, BEAT, zaloLines, idleLine, todayMoney, jobEvent, duration, RESULT, resultOf, secOfDay, clockOf, hhmm, money, millions, fromTrace, fromCounts, fromRow, slotKind, byDay, stageNow, stationInfo, gateMarks, sentence, logLines, withNames, taskCustomer, drill };
 })();
 if (typeof module !== 'undefined') module.exports = MayChayModel;

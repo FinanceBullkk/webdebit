@@ -96,7 +96,15 @@ function ledgerRoute(world, req, url, body, json) {
 }
 
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, world = null } = {}) {
+// `live`: dòng đến sau (ZALO-AGENT-01) theo thứ tự đến: tin mới, tin tới muộn, tin sửa (cùng message_id), tin xóa (deleted: true).
+// Test đẩy thêm vào mảng này để giả máy Zalo gửi lên; token `abcd1234:N` là số dòng đã đọc. `control.prefix` đổi = gói đã dựng lại.
+const sorted = rows => rows.map((row, index) => [row, index]).sort((a, b) => (a[0].timestamp_ms - b[0].timestamp_ms) || (a[1] - b[1])).map(item => item[0]);
+function withLive(base, live) {
+  const rows = new Map(base.map(row => [row.message_id, row]));
+  for (const row of live) rows.set(row.message_id, row);
+  return sorted([...rows.values()]);
+}
+function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, world = null, live = [], control = { prefix: 'abcd1234' } } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (drop.has(url.pathname)) { req.socket.destroy(); return; }
@@ -124,7 +132,15 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
         let page = Number(url.searchParams.get('page') ?? 0);
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const q = fold(url.searchParams.get('q') ?? '');
-        const rows = id === GROUP ? groupRows : id === CONV_B ? [msg('x1', false, DAY, 'Khuyến mãi hôm nay')] : ALL;
+        const rows = withLive(id === GROUP ? groupRows : id === CONV_B ? [msg('x1', false, DAY, 'Khuyến mãi hôm nay')] : ALL, id === CONV_B ? [] : live);
+        if (url.searchParams.has('since')) {   // A3: mọi dòng đến sau token, theo thứ tự đến
+          const [prefix, offset] = url.searchParams.get('since').split(':');
+          if (prefix !== control.prefix) return json(200, { conversation_id: id, reset: true, token: `${control.prefix}:${live.length}` });
+          const fresh = live.slice(Number(offset));
+          const chosen = fresh.slice(0, limit);
+          return json(200, { conversation_id: id, messages: chosen, since: url.searchParams.get('since'), token: `${control.prefix}:${Number(offset) + chosen.length}`,
+            reset: false, total: rows.length, has_more: fresh.length > limit, latest_ms: rows.at(-1)?.timestamp_ms ?? null });
+        }
         const selected = q ? rows.filter(m => m.body_text && fold(m.body_text).includes(q)) : rows;
         const focus = url.searchParams.get('message');
         if (focus) {
@@ -135,7 +151,7 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
         const end = Math.max(selected.length - page * limit, 0);
         const start = Math.max(end - limit, 0);
         return json(200, { conversation_id: id, messages: selected.slice(start, end), total: selected.length, page, limit,
-          pages: Math.ceil(selected.length / limit), has_older: start > 0, query: url.searchParams.get('q') ?? '', ...(focus ? { focus } : {}) });
+          pages: Math.ceil(selected.length / limit), has_older: start > 0, query: url.searchParams.get('q') ?? '', token: `${control.prefix}:${live.length}`, ...(focus ? { focus } : {}) });
       }
       return json(404, { error: 'NOT_FOUND' });
     }
@@ -147,7 +163,7 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
   });
 }
 
-async function withPage(options, fn, { query = '', viewport = { width: 1280, height: 720 } } = {}) {
+async function withPage(options, fn, { query = '', viewport = { width: 1280, height: 720 }, clock = false } = {}) {
   const server = makeServer(options);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await launchShared();
@@ -156,6 +172,7 @@ async function withPage(options, fn, { query = '', viewport = { width: 1280, hei
     const tab = await context.newPage();
     const logs = [];
     tab.on('console', message => logs.push(message.text()));
+    if (clock) await tab.clock.install();   // đồng hồ giả từ đầu: nhịp 5 giây của trang chỉ chạy khi test gọi runFor
     await tab.goto(`http://127.0.0.1:${server.address().port}/zalo-chat.html${query}`);
     await fn(tab, logs);
   } finally {
@@ -498,4 +515,171 @@ test('Đánh dấu (G4): bỏ dấu và bỏ gắn sổ bắt buộc lý do; đi
     const height = await page.locator('.msg[data-id="g116"] .mark-btn').evaluate(node => node.getBoundingClientRect().height);
     assert.ok(height >= 26, `nút Đánh dấu đủ lớn để chạm (${height}px)`);
   }, { viewport: { width: 375, height: 812 } });
+});
+
+// ZALO-AGENT-01 (A3): tin mới tự hiện. Đồng hồ giả: trang hỏi `since=` theo nhịp 5 giây, test điều khiển bằng runFor.
+const afterRequests = requests => requests.filter(item => item.includes('&since='));
+const lastStamp = rows => rows.at(-1).timestamp_ms;
+// Đồng hồ của trang là đồng hồ giả (rAF cũng đứng): chờ điều kiện ở phía Node bằng timer thật, không dùng waitForFunction.
+async function until(check, what) {
+  for (let i = 0; i < 300; i += 1) {
+    if (await check()) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.fail('không thấy: ' + what);
+}
+const groupMsg = (i, own, text) => msg(`g${i}`, own, DAY + i * 60_000, text, { sender_name: own ? 'Hào' : 'Mẫu', media: [], deleted: false });
+
+test('Chat Zalo tự cập nhật: đang ở đáy thì tin mới nối vào cuối và cuộn theo, hỏi đúng token since=', async () => {
+  const requests = [];
+  const live = [];
+  await withPage({ requests, live }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="m7"]').waitFor();
+    assert.deepEqual(afterRequests(requests), [], 'chưa tới 5 giây thì chưa hỏi');
+    live.push(msg('m8', false, lastStamp(ALL) + 5000, 'Em vừa chuyển rồi anh'));
+    await page.clock.runFor(5000);
+    await page.locator('.msg[data-id="m8"]').waitFor();
+    assert.match(await page.locator('.msg[data-id="m8"] .body').innerText(), /Em vừa chuyển rồi anh/);
+    assert.equal(afterRequests(requests).length, 1);
+    assert.ok(afterRequests(requests)[0].includes('since=abcd1234%3A0'), 'hỏi từ token lúc mở hội thoại');
+    assert.equal(await page.locator('#new-pill').isHidden(), true, 'đang ở đáy: không cần nút');
+    assert.equal(await page.locator('#messages').evaluate(box => box.scrollHeight - box.scrollTop - box.clientHeight < 5), true, 'cuộn theo tin mới');
+    assert.match(await page.locator('#subtitle').innerText(), /8 tin · đang hiện 8/);
+    // Lần hỏi kế: tin đã có thì không nối lại.
+    await page.clock.runFor(5000);
+    await until(() => afterRequests(requests).length === 2, 'lượt hỏi thứ hai');
+    assert.equal(await page.locator('.msg').count(), 8);
+    assert.equal(await page.locator('.msg[data-id="m8"]').count(), 1);
+  }, { clock: true });
+});
+
+test('Chat Zalo tự cập nhật: đang đọc tin cũ thì không bị kéo xuống, hiện nút "N tin mới", bấm nút hoặc cuộn xuống đáy thì hết nút', async () => {
+  const live = [];
+  await withPage({ bundled: true, live }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g119"]').waitFor();
+    const box = page.locator('#messages');
+    await box.evaluate(node => { node.scrollTop = 0; });
+    live.push(groupMsg(120, false, 'Tin mới một'), groupMsg(121, true, 'Tin mới hai'));
+    await page.clock.runFor(5000);
+    await page.locator('#new-pill').waitFor({ state: 'visible' });
+    assert.match(await page.locator('#new-pill').innerText(), /^2 tin mới/);
+    assert.equal(await box.evaluate(node => node.scrollTop), 0, 'vị trí đang đọc giữ nguyên');
+    assert.equal(await page.locator('.msg[data-id="g121"]').count(), 1, 'tin mới đã nối vào cuối khung');
+    live.push(groupMsg(122, false, 'Tin mới ba'));
+    await page.clock.runFor(5000);
+    await page.locator('#new-pill', { hasText: /^3 tin mới/ }).waitFor();
+    await page.locator('#new-pill').click();
+    assert.equal(await page.locator('#new-pill').isHidden(), true);
+    assert.equal(await box.evaluate(node => node.scrollHeight - node.scrollTop - node.clientHeight < 5), true, 'bấm nút thì xuống đáy');
+    // Cuộn lên đọc tiếp rồi cuộn tay xuống đáy cũng xóa nút.
+    await box.evaluate(node => { node.scrollTop = 0; });
+    live.push(groupMsg(123, false, 'Tin mới bốn'));
+    await page.clock.runFor(5000);
+    await page.locator('#new-pill').waitFor({ state: 'visible' });
+    await box.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await page.locator('#new-pill').waitFor({ state: 'hidden' });
+  }, { clock: true });
+});
+
+test('Chat Zalo tự cập nhật: tab ẩn thì ngừng hỏi, hiện lại thì hỏi ngay; chưa mở hội thoại hoặc đang tìm thì không hỏi', async () => {
+  const requests = [];
+  const live = [];
+  await withPage({ requests, live }, async page => {
+    await page.clock.runFor(10_000);
+    assert.deepEqual(afterRequests(requests), [], 'chưa mở hội thoại thì không hỏi tin mới');
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="m7"]').waitFor();
+    const setHidden = hidden => page.evaluate(value => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, hidden);
+    await setHidden(true);
+    live.push(msg('m8', false, lastStamp(ALL) + 5000, 'Tin khi tab ẩn'));
+    await page.clock.runFor(30_000);
+    assert.deepEqual(afterRequests(requests), [], 'tab ẩn: không hỏi');
+    await setHidden(false);
+    await page.locator('.msg[data-id="m8"]').waitFor();
+    assert.equal(afterRequests(requests).length, 1, 'hiện lại: hỏi ngay một lượt');
+    await page.locator('#message-search').fill('cont');
+    await page.clock.runFor(300);   // hết nhịp chờ gõ của ô tìm
+    await page.locator('#subtitle', { hasText: /^1 tin khớp/ }).waitFor();
+    const asked = afterRequests(requests).length;
+    live.push(msg('m9', false, lastStamp(ALL) + 9000, 'cont thêm'));
+    await page.clock.runFor(10_000);
+    assert.equal(afterRequests(requests).length, asked, 'đang tìm trong hội thoại: không hỏi, không nối tin vào kết quả tìm');
+  }, { clock: true });
+});
+
+test('Chat Zalo tự cập nhật: nút "N tin mới" ở điện thoại 390px đủ lớn để chạm, nằm gọn trong khung tin, không tràn ngang', async () => {
+  const live = [];
+  await withPage({ bundled: true, live }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g119"]').waitFor();
+    await page.locator('#messages').evaluate(node => { node.scrollTop = 0; });
+    live.push(groupMsg(120, false, 'Tin mới'));
+    await page.clock.runFor(5000);
+    await page.locator('#new-pill').waitFor({ state: 'visible' });
+    const pill = await page.locator('#new-pill').boundingBox();
+    assert.ok(pill.height >= 40, `nút đủ cao để chạm (${pill.height}px)`);
+    const pane = await page.locator('.detail-pane').boundingBox();
+    assert.ok(pill.x >= pane.x && pill.x + pill.width <= pane.x + pane.width, 'nút nằm gọn trong khung tin');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang');
+  }, { clock: true, viewport: { width: 390, height: 780 } });
+});
+
+test('Chat Zalo tự cập nhật: tin tới muộn vào đúng chỗ thời gian, tin bị sửa và bị xóa được thay tại chỗ', async () => {
+  const live = [];
+  await withPage({ live }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="m7"]').waitFor();
+    // Máy Zalo mở lại sau khi tắt đêm: đọc bù một tin giờ cũ hơn mọi tin đang hiện, sửa m2, xóa m4, rồi tin mới nhất.
+    live.push(msg('m0', false, DAY + 500, 'Tin tới muộn, giờ rất cũ'),
+      msg('m2', false, DAY + 2000, 'Dạ em xem rồi, sửa lại'),
+      msg('m4', true, DAY + 86_400_000, null, { body_kind: 'missing', body_text: null, deleted: true }),
+      msg('m8', false, lastStamp(ALL) + 5000, 'Tin mới nhất'));
+    await page.clock.runFor(5000);
+    await page.locator('.msg[data-id="m8"]').waitFor();
+    assert.deepEqual(await page.locator('.msg').evaluateAll(nodes => nodes.map(n => n.dataset.id)), ['m0', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8']);
+    assert.match(await page.locator('.msg[data-id="m2"] .body').innerText(), /sửa lại/);
+    assert.equal(await page.locator('.msg[data-id="m2"] .body', { hasText: 'Dạ để em xem lại' }).count(), 0);
+    assert.match(await page.locator('.msg[data-id="m4"] .body').innerText(), /Tin đã bị thu hồi/);
+    assert.equal(await page.locator('.msg[data-id="m4"] .att').count(), 0, 'tin đã xóa không còn đính kèm');
+  }, { clock: true });
+});
+
+test('Chat Zalo tự cập nhật: tin tới muộn cũ hơn cả khung đang hiện (thuộc trang cũ) không chen vào khung, tổng tin vẫn tăng', async () => {
+  const live = [];
+  await withPage({ bundled: true, live }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g119"]').waitFor();
+    assert.equal(await page.locator('.msg').count(), 50);
+    live.push(msg('g-old', false, DAY + 5 * 60_000, 'Tin rất cũ tới muộn', { sender_name: 'Mẫu', media: [], deleted: false }));
+    await page.clock.runFor(5000);
+    await page.locator('#subtitle', { hasText: /^121 tin/ }).waitFor();
+    assert.equal(await page.locator('.msg').count(), 50, 'không chen vào khung đang hiện');
+    assert.equal(await page.locator('#new-pill').isHidden(), true);
+    assert.equal(await page.locator('.msg[data-id="g-old"]').count(), 0);
+  }, { clock: true });
+});
+
+test('Chat Zalo tự cập nhật: gói được dựng lại (token khác) thì trang tải lại hội thoại', async () => {
+  const requests = [];
+  const control = { prefix: 'abcd1234' };
+  const live = [];
+  await withPage({ requests, live, control }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="m7"]').waitFor();
+    const loads = () => requests.filter(item => item.includes('&page=0&limit=50')).length;
+    assert.equal(loads(), 1);
+    control.prefix = 'ffff0000';   // máy chủ đã nạp gói dựng lại
+    live.push(msg('m8', false, lastStamp(ALL) + 5000, 'Có sau khi dựng lại'));
+    await page.clock.runFor(5000);
+    await page.locator('.msg[data-id="m8"]').waitFor();
+    assert.equal(loads(), 2, 'tải lại trang mới nhất thay vì ghép');
+    await page.clock.runFor(5000);   // token mới đã nhận: lần hỏi sau không reset nữa
+    await until(() => afterRequests(requests).length === 2, 'lượt hỏi sau khi tải lại');
+    assert.equal(loads(), 2);
+  }, { clock: true });
 });
