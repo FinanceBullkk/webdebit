@@ -68,6 +68,23 @@ class LiveSync:
         value = (read_json(self.dir / "revision.json", {}) or {}).get("revision")
         return value if isinstance(value, int) and not isinstance(value, bool) else None
 
+    def head(self) -> tuple[int | None, float | None]:
+        """(revision, lúc live-sync ghi revision đó tính bằng giây) từ MỘT lần đọc `revision.json`: hai giá trị luôn cùng revision."""
+        data = read_json(self.dir / "revision.json", {}) or {}
+        revision, stamp = data.get("revision"), data.get("message_publish_epoch_ms")
+        return (revision if isinstance(revision, int) and not isinstance(revision, bool) else None,
+                stamp / 1000 if isinstance(stamp, int) and not isinstance(stamp, bool) else None)
+
+    def added_ids(self, after: int, upto: int) -> set[str]:
+        """`message_id` mới thêm (không tính sửa, xóa) trong revision (after, upto], chỉ cho số đo chặng `zalo`: thiếu file thì
+        bỏ qua, không bắt dựng lại (`changed_ids` đã kiểm việc đó)."""
+        ids: set[str] = set()
+        for number in range(after + 1, upto + 1):
+            change = read_json(self.dir / f"changes-{number}.json")
+            if isinstance(change, dict):
+                ids.update(mid for mid in change.get("added") or [] if isinstance(mid, str))
+        return ids
+
     def revision_at(self) -> str | None:
         stamp = (read_json(self.dir / "revision.json", {}) or {}).get("message_publish_epoch_ms")
         if isinstance(stamp, int) and not isinstance(stamp, bool):

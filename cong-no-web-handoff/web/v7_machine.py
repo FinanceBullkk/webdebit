@@ -8,6 +8,7 @@ từ Sheet hay Zalo, để câu lệnh lừa nằm trong dữ liệu không có 
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -72,6 +73,10 @@ ZALO_SLOW_SHOW = 120    # chậm dưới 2 phút chỉ là đang đuổi kịp
 ZALO_PROCESSORS = ("bundle", "insurance", "money_images")   # chỉ các bộ xử lý này được hiện, theo thứ tự này
 ZALO_IDENTITY = ("attached", "waiting_for_zalo", "reprobing", "unknown")
 ZALO_CODE = re.compile(r"^[a-z_]{1,40}$")
+# Độ trễ từng chặng (giây, p50/p95 theo cửa sổ 60 phút và 24 giờ), khuôn ở tools/zalo_agent/latency.py: chỉ nhận đúng các tên này.
+ZALO_STAGES = ("zalo", "agent", "build", "push", "total")
+ZALO_WINDOWS = ("hour", "day")
+ZALO_SECONDS_MAX = 10_000_000
 
 
 def base_dir() -> Path:
@@ -236,6 +241,36 @@ def _count(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
+def _seconds(value: Any) -> float | None:
+    """Số giây của độ trễ: số hữu hạn từ 0 tới ZALO_SECONDS_MAX, còn lại None (không tin chữ hay số lạ từ máy Zalo)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= ZALO_SECONDS_MAX:
+        return None
+    return value
+
+
+def _latency(value: Any) -> dict[str, dict[str, dict[str, Any]]]:
+    """Độ trễ từng chặng máy Zalo báo: chỉ cửa sổ và chặng đã biết, mỗi chặng `n` (số lượt) và `p50`, `p95` (giây hoặc None)."""
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for window in ZALO_WINDOWS:
+        stages = value.get(window) if isinstance(value, dict) else None
+        if not isinstance(stages, dict):
+            continue
+        out[window] = {stage: {"n": _count(item.get("n")), "p50": _seconds(item.get("p50")), "p95": _seconds(item.get("p95"))}
+                       for stage in ZALO_STAGES if isinstance(item := stages.get(stage), dict)}
+    return out
+
+
+def _drain(item: dict[str, Any], now: float) -> dict[str, Any]:
+    """Hàng chờ đọc ảnh (`money_images`): số ảnh chờ, số ảnh xong trong 60 phút, và số phút hàng chờ đứng = phút từ mốc muộn hơn
+    trong (`pending_since`, `last_done_at`); None khi không còn ảnh chờ hoặc agent cũ chưa báo `pending_since`."""
+    counts = item.get("counts") if isinstance(item.get("counts"), dict) else {}
+    drain = item.get("drain") if isinstance(item.get("drain"), dict) else {}
+    pending, waited = _count(counts.get("pending")), _minutes_since(drain.get("pending_since"), now)
+    done = _minutes_since(drain.get("last_done_at"), now)
+    stalled = None if not pending or waited is None else waited if done is None else min(waited, done)
+    return {"pending": pending, "done_1h": _count(drain.get("done_1h")), "stalled_minutes": stalled}
+
+
 def _minutes_since(text: Any, now: float) -> int | None:
     at = _aware(text)
     return None if at is None else max(int((now - at.timestamp()) // 60), 0)
@@ -259,7 +294,7 @@ def zalo(now: float | None = None) -> dict[str, Any]:
     now = time.time() if now is None else now
     path = Path(os.getenv("WEBDEBIT_ZALO_AGENT_STATUS") or ZALO_STATUS)
     silent: dict[str, Any] = {"state": "silent", "at": None, "silent_minutes": None, "selected_groups": None, "identity": "unknown",
-                              "quiet_minutes": None, "processors": [], "push_error": None, "push_error_minutes": None}
+                              "quiet_minutes": None, "processors": [], "push_error": None, "push_error_minutes": None, "latency": {}}
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -285,7 +320,8 @@ def zalo(now: float | None = None) -> dict[str, Any]:
         lag, error = _count(item.get("lag_revisions")), _code(item.get("error"))
         late = _minutes_since(item.get("last_ok_at"), now)
         state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
-        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "error_minutes": _error_minutes(item, error, now)})
+        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "error_minutes": _error_minutes(item, error, now),
+                     **(_drain(item, now) if key == "money_images" else {})})
     push = data.get("push") if isinstance(data.get("push"), dict) else {}
     silent_for = max(now - at.timestamp(), 0)
     quiet = _minutes_since(live.get("identity_since"), now)
@@ -295,7 +331,7 @@ def zalo(now: float | None = None) -> dict[str, Any]:
             "silent_minutes": int(silent_for // 60), "selected_groups": _count(data.get("selected_groups")), "identity": identity,
             # Số phút `identity` đã giữ giá trị hiện tại (`identity_since`); bản agent cũ chưa ghi thì lấy phút từ lần live-sync thấy thay đổi cuối.
             "quiet_minutes": quiet, "processors": rows, "push_error": _code(push.get("error")),
-            "push_error_minutes": _error_minutes(push, _code(push.get("error")), now)}
+            "push_error_minutes": _error_minutes(push, _code(push.get("error")), now), "latency": _latency(data.get("latency"))}
 
 
 def now_view(now: float | None = None) -> dict[str, Any]:

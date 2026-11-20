@@ -25,6 +25,7 @@ from pathlib import Path
 import zalo_web_bundle as wb
 
 from .. import cursor as cursors
+from .. import latency as latencies
 from .. import push as pusher
 from ..source import LiveSync, read_json
 
@@ -97,7 +98,7 @@ class BundleProcessor:
 
     def step(self) -> dict:
         now = self.clock()
-        revision = self.live.revision()
+        revision, published = self.live.head()   # một lần đọc: lúc live-sync ghi đúng revision này (số đo độ trễ)
         current = self.load()
         have = current.get("revision") if current else None
         if revision is None:
@@ -115,7 +116,7 @@ class BundleProcessor:
             return self.result("idle", have)
         wechat, offset = (self.overlay.rows_after((current or {}).get("wechat_bytes", 0)) if self.overlay and not reason else ([], 0))
         try:
-            pending = self.rebuild(reason, revision, selection, now) if reason else self.delta(current, ids, revision, now, wechat, offset)
+            pending = self.rebuild(reason, revision, selection, now) if reason else self.delta(current, ids, revision, now, wechat, offset, published)
         except wb.BundleError:
             return self.result("idle", have, "build_failed")
         if pending is None:   # revision mới nhưng không có tin nào của nhóm đã chọn: tiến con trỏ, không đẩy gì
@@ -139,11 +140,18 @@ class BundleProcessor:
         return {"revision": revision, "baseline_sha256": self.live.baseline_sha256(), "selection_sha256": cursors.selection_sha256(selection),
                 "data_dir": report["data_dir"], "delta_bytes": 0, "delta_lines": 0, "built_at": cursors.now_iso(now), "reason": reason, **wechat}
 
-    def delta(self, current: dict, ids: set[str], revision: int, now: float, wechat: list[dict] = (), offset: int = 0) -> dict | None:
+    def delta(self, current: dict, ids: set[str], revision: int, now: float, wechat: list[dict] = (), offset: int = 0,
+              published: float | None = None) -> dict | None:
         source = wb.Source(self.live.dir)
         rows = self.live.rows_for(ids, {cid for cid in self.live.selection() if cid in source.conversations})
         if not rows and not wechat:
             return None
+        timing = None
+        if rows:   # mốc độ trễ (latency.py) chỉ khi có tin Zalo: lượt chỉ có tin WeChat không gắn với revision vừa ghi
+            added = self.live.added_ids(current["revision"], revision) if published is not None else set()
+            zalo = [round(published - int(row["timestamp"]) / 1000, 1) for row in rows
+                    if row.get("message_id") in added and not row.get("deleted") and str(row.get("timestamp")).isdigit()]
+            timing = {"published": published, "picked": now, "zalo": zalo[:latencies.PER_STEP]}
         directory = self.out / current["data_dir"]
         path = directory / DELTA
         if path.is_file() and path.stat().st_size > current["delta_bytes"]:
@@ -184,6 +192,8 @@ class BundleProcessor:
         pending.update(revision=revision, delta_bytes=path.stat().st_size, delta_lines=current["delta_lines"] + len(lines), reason="delta")
         if self.overlay:
             pending["wechat_bytes"] = offset
+        if timing:   # nằm trong `pending` của con trỏ: chết giữa lượt đẩy thì lần gửi lại vẫn đo từ đúng mốc cũ
+            pending["timing"] = {**timing, "built": self.clock()}
         report = read_json(self.out / wb.REPORT)
         wb.write_atomic(self.out / wb.REPORT, wb.dump({**report, "delta_bytes": pending["delta_bytes"],
                                                        "delta_lines": pending["delta_lines"], "revision": revision}))
@@ -209,6 +219,10 @@ class BundleProcessor:
                 sent = pusher.push(self.plan(pending["data_dir"]), run=self.run)["bytes"]
             except pusher.PushError:
                 return self.result("retry", current.get("revision"), "push_failed", reason=pending.get("reason"))
-        done = {key: value for key, value in {**current, **pending}.items() if key != "pending"}
+        pushed = self.clock()   # ssh trả về sau khi `export-report.json` đã `mv` vào chỗ trên `hao`: lúc hao áp gói
+        done = {key: value for key, value in {**current, **pending}.items() if key not in ("pending", "timing")}
         self.save(done, now)
-        return self.result("rebuild" if pending.get("reason") != "delta" else "delta", done["revision"], sent=sent, reason=pending.get("reason"))
+        result = self.result("rebuild" if pending.get("reason") != "delta" else "delta", done["revision"], sent=sent, reason=pending.get("reason"))
+        if not self.dry_run and isinstance(pending.get("timing"), dict):   # --dry-run không tới hao: không có mẫu
+            result["samples"] = latencies.stages(pending["timing"], pushed)
+        return result

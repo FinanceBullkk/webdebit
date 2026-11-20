@@ -41,6 +41,7 @@ from test_zalo_web_bundle import (  # noqa: E402
 )
 from zalo_agent import __main__ as agent_main  # noqa: E402
 from zalo_agent import cursor as cursors  # noqa: E402
+from zalo_agent import latency as latencies  # noqa: E402
 from zalo_agent import push as pusher  # noqa: E402
 from zalo_agent import source as source_module  # noqa: E402
 from zalo_agent import status as status_file  # noqa: E402
@@ -394,6 +395,30 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.out.glob("data-*")), built)
         self.assertEqual(self.remote_report()["data_dir"], built[0])
 
+    def test_delta_push_measures_each_stage_and_a_retry_counts_the_wait(self):
+        self.assertNotIn("samples", self.processor.step())   # dựng đầy đủ: không có mẫu độ trễ
+
+        def clock():   # mỗi lần đọc đồng hồ trôi nửa giây: bắt đầu dựng, dựng xong, đẩy xong
+            self.now += 0.5
+            return self.now
+        processor = self.make(clock=clock)
+        fresh = {**self.message(), "timestamp": str(int((self.now - 2) * 1000))}
+        self.publish(added=[fresh])   # live-sync ghi revision lúc self.now
+        result = processor.step()
+        self.assertEqual(result["action"], "delta")
+        self.assertEqual(result["samples"], {"zalo": [2.0], "agent": [0.5], "build": [0.5], "push": [0.5], "total": [1.5]})
+        self.publish(updated=[{**fresh, "body": "tin bịa đã sửa"}], added=[{**self.message(cid=OTHER), "timestamp": str(int((self.now - 1) * 1000))}])
+        self.assertEqual(processor.step()["samples"]["zalo"], [])   # tin sửa và tin nhóm chưa chọn không là mẫu chặng zalo
+
+        def broken(host, command, stdin=None):
+            raise pusher.PushError("ssh đứt")
+        self.publish(added=[{**self.message(), "timestamp": str(int((self.now - 1) * 1000))}])
+        self.assertNotIn("samples", self.make(clock=clock, run=broken).step())   # chưa tới hao: chưa có mẫu
+        self.now += 60                                                           # lùi 60 giây rồi ssh về lại
+        result = processor.step()                                                 # đẩy lại đúng `pending` đã lưu, đo từ mốc cũ
+        self.assertEqual(result["samples"], {"zalo": [1.0], "agent": [0.5], "build": [0.5], "push": [61.0], "total": [62.0]})
+        self.assertNotIn("timing", cursors.load(self.root / "state", "bundle"))   # mốc chỉ sống trong `pending`
+
 
 @unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn shell phía máy chủ")
 class PushTest(unittest.TestCase):
@@ -702,6 +727,21 @@ class AgentCycleTest(unittest.TestCase):
         self.assertEqual(len(self.remote.calls), calls)
         self.assertEqual(sorted(path.name for path in (self.root / "state").iterdir()), ["agent.lock"])   # không con trỏ, status.json, identity.json
 
+    def test_status_carries_stage_latency_and_ocr_drain_as_numbers_only(self):
+        agent = self.agent()
+        status = agent.cycle(force_status=True)
+        self.assertEqual((set(status["latency"]), set(status["latency"]["hour"])), ({"hour", "day"}, set(latencies.STAGES)))
+        self.assertEqual(status["latency"]["hour"]["total"], {"n": 0, "p50": None, "p95": None})   # dựng đầy đủ không có mẫu
+        agent.latency.record({"total": [4.0, 6.0]}, NOW)
+        self.assertEqual(agent.cycle(force_status=True)["latency"]["day"]["total"], {"n": 2, "p50": 4.0, "p95": 6.0})
+        self.assertTrue((self.root / "state" / latencies.FILE).is_file())
+        stamp = cursors.now_iso(NOW)
+        composed = status_file.compose(None, NOW, "abc1234", 1, LiveSync(self.src), {"money_images": {
+            "action": "idle", "revision": 1, "error": None, "drain": {"done_1h": 3, "pending_since": "hôm qua", "last_done_at": stamp, "x": "chữ"}}},
+            None, None, ("attached", stamp))
+        self.assertEqual(composed["processors"]["money_images"]["drain"], {"done_1h": 3, "pending_since": None, "last_done_at": stamp})
+        self.assertNotIn("latency", composed)
+
     def test_one_agent_at_a_time_and_stale_lock_file_never_blocks(self):
         agent, other = self.agent(), self.agent()
         self.assertIsNotNone(agent.cycle(force_status=True))
@@ -866,6 +906,44 @@ class AgentCycleTest(unittest.TestCase):
         self.assertEqual(json.loads(done.stdout.decode("utf-8"))["processors"]["bundle"]["error"], None)
         self.assertFalse((self.root / "state" / "status.json").exists())   # --dry-run không lưu trạng thái
         self.assertTrue((self.root / "logs" / "agent.log").is_file())
+
+
+class LatencyTest(unittest.TestCase):
+    """Độ trễ từng chặng (latency.py): p50/p95 theo hạng gần nhất, hai cửa sổ, mẫu sống qua lần chạy lại, số lạ bị bỏ."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name) / "state"
+
+    def test_percentiles_by_nearest_rank_per_window_and_old_samples_drop(self):
+        latency = latencies.Latency(self.state)
+        latency.record({"total": list(range(1, 21))}, NOW - 7200)   # 2 giờ trước: chỉ vào cửa sổ ngày
+        latency.record({"total": [100.0]}, NOW - 60)
+        summary = latency.summary(NOW)
+        self.assertEqual(summary["day"]["total"], {"n": 21, "p50": 11.0, "p95": 20.0})
+        self.assertEqual(summary["hour"]["total"], {"n": 1, "p50": 100.0, "p95": 100.0})
+        self.assertEqual(summary["hour"]["zalo"], {"n": 0, "p50": None, "p95": None})
+        later = NOW + 86400 - 3600
+        latency.record({"push": [1]}, later)                            # mẫu quá 24 giờ rơi khỏi file
+        self.assertEqual(latency.summary(later)["day"]["total"], {"n": 1, "p50": 100.0, "p95": 100.0})
+
+    def test_samples_survive_restart_bad_values_drop_and_dry_run_writes_nothing(self):
+        latency = latencies.Latency(self.state)
+        latency.record({"agent": [2.04, -3, float("nan"), True, "9", 1e9], "unknown": [5]}, NOW)   # lệch đồng hồ về 0
+        self.assertEqual(latency.summary(NOW)["hour"]["agent"], {"n": 2, "p50": 0.0, "p95": 2.0})
+        self.assertEqual(latencies.Latency(self.state).summary(NOW), latency.summary(NOW))
+        (self.state / latencies.FILE).write_text("{hỏng", encoding="utf-8")
+        self.assertEqual(latencies.Latency(self.state).summary(NOW)["hour"]["agent"]["n"], 0)
+        dry = Path(self.tmp.name) / "dry"
+        latencies.Latency(dry, persist=False).record({"total": [1]}, NOW)
+        self.assertFalse(dry.exists())
+
+    def test_stages_from_saved_marks(self):
+        timing = {"published": 1000.0, "picked": 1004.0, "built": 1005.5, "zalo": [2.5, 3.0, "x"]}
+        self.assertEqual(latencies.stages(timing, 1009.0), {"zalo": [2.5, 3.0], "build": [1.5], "push": [3.5], "agent": [4.0], "total": [9.0]})
+        self.assertEqual(latencies.stages({"picked": 1004.0, "built": 1005.5}, 1009.0), {"zalo": [], "build": [1.5], "push": [3.5]})
+        self.assertEqual(latencies.stages({"published": True}, 1009.0), {"zalo": []})
 
 
 if __name__ == "__main__":

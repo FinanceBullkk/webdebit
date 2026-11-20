@@ -242,6 +242,20 @@ Hiện ở trang Thu chi (một dòng nhỏ dưới tiêu đề) và trong `summ
 
 Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ `poller-identity.json` của live-sync (`attached`, `waiting_for_zalo`, `reprobing`).
 
+**Độ trễ từng chặng** (21/11/2026, `zalo_agent/latency.py`), giây theo đồng hồ máy có Zalo:
+
+| Chặng | Từ → tới | Mẫu |
+| --- | --- | --- |
+| `zalo` | tin gửi (`timestamp` của Zalo) → live-sync ghi revision có tin đó (`message_publish_epoch_ms`) | mỗi tin **mới thêm** của nhóm đã chọn (không tính tin sửa, tin xóa) |
+| `agent` | live-sync ghi revision → bộ xử lý `bundle` bắt đầu dựng phần thêm (nhịp 1 giây, gom 3 giây, chờ lùi sau lỗi) | mỗi lượt đẩy phần thêm có tin Zalo |
+| `build` | bắt đầu dựng → dựng xong (đọc `changes-N`, quét `messages.jsonl`, ghi delta, ảnh mới) | như trên |
+| `push` | dựng xong → `hao` áp gói (ssh trả về sau khi `export-report.json` đã `mv` vào chỗ) | như trên |
+| `total` | live-sync ghi revision → `hao` áp gói | như trên |
+
+Mốc nằm trong `pending.timing` của con trỏ `bundle` nên lượt đẩy lỗi rồi gửi lại vẫn đo từ đúng mốc cũ (gồm cả thời gian chờ); dựng đầy đủ và `--dry-run` không có mẫu. Mẫu giữ 24 giờ (tối đa 2.000 mỗi chặng) ở `<state>/latency.json`, p50/p95 theo hạng gần nhất cho hai cửa sổ: `hour` (60 phút, cho phép kiểm) và `day` (24 giờ, cho tiêu chí bước Chuyển). Số âm do hai đồng hồ lệch thành 0.
+
+**Tốc độ xả hàng chờ đọc ảnh:** `money_images` báo `drain` = số ảnh rời hàng chờ OCR (đọc xong hoặc bỏ sau 3 lần) trong 60 phút qua, lúc hàng chờ từ rỗng sang có ảnh, lúc ảnh gần nhất xong. Chỉ nhớ trong tiến trình: chạy lại agent thì đo lại từ lúc khởi động.
+
 **Ở `hao`:**
 
 - `v7_machine.py` thêm nhóm **"Máy Zalo"** vào tab Máy chạy, mỗi bộ xử lý một dòng, câu thường:
@@ -253,7 +267,9 @@ Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ `poll
   - `status.json` cũ quá 15 phút → "máy Zalo im lặng";
   - `waiting_for_zalo` quá 15 phút (tính từ `identity_since`) → "Zalo chưa mở";
   - một bộ xử lý chậm quá 15 phút → "chậm";
-  - một bộ xử lý hoặc `push` báo `error` liên tục quá 15 phút → "lỗi" kèm mã ngắn.
+  - một bộ xử lý hoặc `push` báo `error` liên tục quá 15 phút → "lỗi" kèm mã ngắn;
+  - tin mới lên web chậm: `latency.hour.total` có ít nhất 3 lượt và p95 quá 5 phút (mục tiêu 30 giây) → "tin mới lên web chậm". Chặng `zalo` không xét: tin đọc bù sau khi máy tắt qua đêm luôn dài và không do agent;
+  - hàng chờ đọc ảnh đứng: còn ảnh chờ, bộ xử lý không báo lỗi (lỗi đã có cảnh báo riêng), và quá 15 phút kể từ mốc muộn hơn trong (`pending_since`, `last_done_at`) không ảnh nào xong → "đọc ảnh chuyển khoản đứng". Bắt được tiến trình OCR chết lặp lại (bộ xử lý nghỉ tới 1 giờ mà không có mã lỗi).
 - Báo qua kênh email có sẵn ([`CANH-BAO-01`](../docs/decisions/canh-bao-01.md)). Hết lỗi thì có email "đã ổn".
 
 Thay A4 của spec Thu chi: `pushed_at` trong `export-report.json` không cần nữa vì `status.json` mang đủ.
@@ -301,6 +317,8 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 - **Thiếu file** (chưa bật agent): tab Máy chạy hiện "Chưa có máy Zalo báo về", máy canh im.
 - **File đọc lỗi, `schema` khác 1, hoặc `at` cũ quá 15 phút**: "Không nghe máy Zalo từ …"; máy canh báo theo Phần 6. Không báo lỗi trang.
 - Bộ xử lý chưa có thì không có khóa; `hao` chỉ hiện các khóa có mặt.
+- `latency` (21/11/2026): `{"hour": {<chặng>: {"n", "p50", "p95"}}, "day": {…}}`, đủ năm chặng `zalo`, `agent`, `build`, `push`, `total` ([định nghĩa](#phần-6-nhịp-tim-từng-chặng)); `n` là số nguyên, `p50` và `p95` là giây (một chữ số thập phân), chưa có mẫu trong cửa sổ thì `n` 0 và hai số kia `null`. `hao` chỉ nhận cửa sổ và chặng đã biết, số hữu hạn từ 0 tới 10⁷; agent cũ chưa có khóa thì phép kiểm độ trễ im.
+- `processors.money_images.drain` (21/11/2026): `{"done_1h": <int>, "pending_since": <giờ hoặc null>, "last_done_at": <giờ hoặc null>}`; số ảnh chờ vẫn ở `counts.pending`. Thiếu `pending_since` (agent cũ) thì `hao` không tính hàng chờ đứng.
 
 **Trang hỏi tin mới theo thứ tự đến** (thay `after=<timestamp>` của A3, chỉnh 20/11/2026 sau review PR-2): `GET /api/v7/zalo/messages?conversation=…&since=<token>` trả mọi dòng của hội thoại đến sau `token` (thêm, sửa, xóa) kèm `token` mới. `token` do server cấp (gắn với `bundle_sha256` và vị trí đã đọc trong delta); token của gói cũ thì trả `{reset: true}` và trang tải lại hội thoại. Lý do: khi máy Zalo mở lại sau một đêm, live-sync đọc bù hàng trăm tin có giờ gửi cũ hơn tin mới nhất trang đang hiện; lọc theo giờ gửi sẽ bỏ lỡ chúng.
 
@@ -437,6 +455,7 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   - kết quả Gemini sai khuôn bị loại.
 - [ ] PR-4: trên 20 ảnh của P0, OCR với ngưỡng T vẫn đúng 20/20; số ảnh phải gửi Gemini được báo trong chat.
 - [ ] PR-5: với dòng xác nhận giả, số đo tuần đúng theo engine; không chữ tự do nào vào `summary()`.
+- [x] Đo độ trễ từng chặng và tốc độ xả hàng chờ OCR (21/11/2026), test với dữ liệu bịa: `LatencyTest` (p50/p95 hạng gần nhất, hai cửa sổ, mẫu quá 24 giờ bị bỏ, sống qua lần chạy lại, số lạ bị bỏ, `--dry-run` không ghi file); `test_delta_push_measures_each_stage_and_a_retry_counts_the_wait` (năm chặng đúng từng mốc, tin sửa và nhóm chưa chọn không là mẫu `zalo`, đẩy lỗi chưa có mẫu, gửi lại tính cả thời gian chờ); `test_drain_counts_images_leaving_the_queue_and_when_the_queue_filled`; phía `hao`: `test_zalo_latency_and_ocr_drain_are_numbers_only`, `test_slow_delivery_p95_and_stalled_image_queue` (p95 quá 5 phút với ≥ 3 lượt thì báo, ít lượt hay đúng ngưỡng thì không; hàng chờ đứng 20 phút thì báo, đang lỗi thì chỉ báo lỗi).
 - [ ] Người dùng tự đi Luồng 1–2 (tắt Zalo 20 phút trong giờ làm, nhận email, mở lại, nhận email "đã ổn") và Luồng 3 trên trang Thu chi.
 
 ## Hoàn tác
