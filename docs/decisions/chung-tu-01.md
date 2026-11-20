@@ -21,6 +21,6 @@ Spec: [`specs/v7-dan-chung-tu.md`](../../specs/v7-dan-chung-tu.md); bản xem d�
 
 ĐÃ CHỐT luồng và phạm vi. Chưa code, chưa triển khai. Cách lưu ảnh (bảng PostgreSQL riêng) là đề xuất kỹ thuật trong spec; migration vẫn hỏi người dùng trước khi merge và chạy trên `hao`. Đọc số từ ảnh, Zalo OA/WeChat và đối chiếu sao kê ngân hàng CÒN MỞ, làm sau.
 
-**Cập nhật 20/11/2026:** mục 4 không còn áp dụng cho ảnh của nhóm Zalo đã chọn lên web: ảnh đó được gửi ra Gemini để đọc theo [`ANH-GEMINI-01`](anh-gemini-01.md). Ảnh dán vào phiếu thu vẫn giữ mục 4.
+**Cập nhật 20/11/2026:** mục 4 không còn áp dụng trọn cho ảnh của nhóm Zalo đã chọn lên web: ảnh đó đọc bằng OCR tại máy có Zalo, ảnh OCR đọc không chắc được gửi ra Gemini theo [`ANH-GEMINI-01`](anh-gemini-01.md). Ảnh dán vào phiếu thu vẫn giữ mục 4.
 
 **Cập nhật 29/10/2026:** backend (migration + hàm + API) ĐÃ TRIỂN KHAI trên `hao` bằng đợt tay, xem [nhật ký](../deploys/2026-10-29-bang-gia-chung-tu.md). Giao diện dán/xem/gỡ ảnh trên sổ khách ĐÃ CODE (`so-khach-v7-images-ui.js`, test trình duyệt giả); triển khai qua auto-deploy khi PR giao diện merge. CÒN MỞ: người dùng tự dán ảnh thật trên bản thử.

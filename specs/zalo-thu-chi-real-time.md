@@ -1,6 +1,6 @@
 # Zalo gần thời gian thực và thu chi đọc từ nhóm chat (ZALO-THU-CHI-01)
 
-Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q8 ở [cuối spec](#câu-hỏi-đã-chốt)). Chưa code; bước đầu là [P0](#p0-đo-trước-khi-code). Quyết định đi kèm: [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md).
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q8 ở [cuối spec](#câu-hỏi-đã-chốt)). Chưa code. [P0](#p0-đo-trước-khi-code) xong 20/11/2026 ([Bằng chứng](#bằng-chứng)). Quyết định đi kèm: [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md).
 
 Nguồn: sếp hỏi trong chat 19/11/2026: cần "một cái WeChat hoặc Zalo" để gửi phiếu thanh toán, thu chi vào đó, "để biết được tình hình thu chi thực tế để con bot nó có thể đọc được". Sau đó sếp nói rõ thêm: muốn một con bot add vào các nhóm chat. Người dùng chọn "Spec real-time + thu chi".
 
@@ -246,7 +246,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 ## Tiêu chí nghiệm thu
 
-- [ ] P0 xong, số đếm báo trong chat; người dùng chọn nhóm đưa lên web.
+- [x] P0 xong, số đếm báo trong chat; người dùng chọn nhóm đưa lên web (20/11/2026: giữ nhóm đang lên web, các nhóm khác không liên quan; nhóm Thu chi chờ lập).
 - [ ] Unit `watch` (dữ liệu giả, đồng hồ giả):
   - tin mới thuộc nhóm đã chọn vào `messages-delta.jsonl`, tin nhóm không chọn và chat riêng thì không;
   - ảnh tải ngay;
@@ -285,7 +285,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 | PR-1 | A1–A4: `watch`, delta, `after=`, tự cập nhật trang Chat Zalo, nhịp tim, máy canh | Không | Thay task 15 phút bằng tiến trình chạy nền trên máy có Zalo |
 | PR-2 | B1–B2: `v7_cash_chat.py`, route đọc, trang Thu chi chỉ xem | Không | — |
 | PR-3 | B3: bảng `cash_report_review`, hàm, nút xác nhận/sửa/loại | Có, ngoài đường tiền | Tự triển khai theo `DEPLOY-CLAUDE-01` |
-| PR-4 | B4: OCR ở máy có Zalo | Không | Tùy kết quả P0 và Q4 |
+| PR-4 | B4: OCR ở máy có Zalo (P0 đạt 20/20), Gemini cho ảnh OCR đọc không chắc theo [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md) | Không | Khóa API và địa chỉ proxy đặt trên máy có Zalo |
 
 - Agent: claude ([`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md)).
 - Review: opus cho PR-3 (DB, quyền), sonnet medium cho các PR còn lại.
@@ -315,7 +315,26 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 ## Bằng chứng
 
-Chưa có. Số đo dẫn ở đây lấy từ spec và nhật ký của ZALO-GROUP-01 (1/11/2026). P0 chưa chạy.
+**P0 (20/11/2026, chỉ đọc, chạy ở máy có Zalo).** Chỉ ghi số đếm; nội dung tin, chữ OCR và ảnh nằm ngoài repo, ở máy có Zalo.
+
+1. **Nhóm mang tin tiền (8 tuần):**
+   - Kho live-sync có 54 nhóm; khoảng 20 nhóm là nhóm công việc, còn lại là nhóm riêng.
+   - Ảnh chuyển khoản tập trung ở **nhóm kế toán đang lên web**: 21/22 ảnh dáng màn hình là ảnh chuyển khoản. Ngoài nhóm đó, mẫu chỉ thấy 5 ảnh chuyển khoản rải ở hai nhóm.
+   - Các nhóm nhiều ảnh nhất (tới khoảng 580 ảnh mỗi tuần) là ảnh cont, seal, nhiệt độ: 0 ảnh chuyển khoản trong mẫu.
+   - Tin chữ có số tiền (`\d+ ?(tr|triệu|k)`): chỉ một nhóm đáng kể, khoảng 15 tin mỗi tuần. Mẫu `thu|chi` mới có 4 tin.
+   - Người dùng xem danh sách và trả lời các nhóm đó không liên quan; giữ nhóm đang lên web, nhóm Thu chi (Q1) chờ lập.
+2. **Tải trên `hao` nếu đưa cả 20 nhóm công việc:**
+   - 20.158 tin, khoảng 28 MB chữ;
+   - `ChatStore` nạp lại 0,78 giây trên máy có Zalo (CPU `hao` nhanh hơn);
+   - ảnh đã lưu ở máy khoảng 2 GB toàn lịch sử, `/srv` còn trống khoảng 370 GB.
+
+   A2 không cần đọc gói từng phần.
+3. **OCR tại máy (easyocr, CPU):**
+   - Lọc theo dáng ảnh màn hình (cao ≥ 1,7 lần rộng), OCR 161 ảnh, nhận ra 26 ảnh chuyển khoản.
+   - 20 ảnh mới nhất đều đọc ra một số; người dùng tự chấm trên trang soát tại máy: **đúng 20/20** (ngưỡng 18/20), nên làm B4.
+   - Ảnh thường lấy ngẫu nhiên có 1 ảnh chuyển khoản, nên bộ lọc dáng ảnh có thể sót; PR-4 OCR mọi ảnh của nhóm đã chọn.
+   - Tốc độ: khoảng 7,5 giây mỗi ảnh với 6 luồng, 14 giây với 2 luồng.
+   - Người dùng đổi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md) sang OCR làm chính, Gemini khi cần.
 
 ## Câu hỏi đã chốt
 
@@ -325,7 +344,7 @@ Người dùng chốt cả tám câu theo đề xuất của Claude (chat 19/11/
 - **Q2 — Có bắt gõ theo mẫu không?** **Chốt:** **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
 - **Q3 — Ai xem trang Thu chi?** **Chốt:** mọi người vào được web, như các trang khác (Tailscale). Nếu nhóm Thu chi có lương hay chi riêng của sếp thì cần tách quyền; đó là việc lớn hơn, chưa có trong spec.
 - **Q4 — Đọc ảnh bằng gì?** **Chốt:** OCR ngay trên máy có Zalo, không gửi ảnh ra ngoài, giữ `CHUNG-TU-01`. Nếu P0 cho thấy OCR đọc kém mà sếp muốn dùng AI ngoài (ví dụ Claude đọc ảnh) thì phải sửa `CHUNG-TU-01` mục 4.
-  **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md): mọi ảnh của nhóm đã chọn gửi ra Gemini qua hai đường (proxy OAuth và API trả phí), hai kết quả khớp mới coi là máy đọc được. P0 mục 3 so OCR tại máy với hai đường Gemini trên cùng 20 ảnh.
+  **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md): OCR tại máy đọc mọi ảnh của nhóm đã chọn (P0: đúng 20/20); ảnh có dấu hiệu tiền mà OCR đọc không chắc mới gửi Gemini qua hai đường (proxy OAuth và API trả phí), hai kết quả khớp mới coi là máy đọc được.
 - **Q5 — Máy có Zalo có bật suốt giờ làm việc không?** Real-time chỉ đúng khi máy đó bật. **Chốt:** bật 7:00–20:00. Nếu không bảo đảm được thì cân nhắc một máy riêng luôn bật chỉ chạy Zalo PC.
 - **Q6 — Khoảng ngày đối chiếu.** **Chốt:** từ 1 ngày trước tới 3 ngày sau ngày báo, như dấu "Khách báo đã chuyển". Chi Đội xe có thể ghi muộn hơn (theo đợt hoàn), cần người nhập Đội xe xác nhận.
 - **Q7 — Có nối ngân hàng không?** Đây mới là nguồn "tiền thật". **Chốt:** **để sau**, spec riêng. Các dịch vụ báo biến động số dư như SePay, Casso cần cấp quyền đọc tài khoản ngân hàng, và chi phí chưa kiểm. Nối ngân hàng cần sếp quyết trong spec riêng.
