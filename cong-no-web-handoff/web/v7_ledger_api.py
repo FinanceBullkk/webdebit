@@ -37,6 +37,7 @@ import v7_insurance_queue
 import v7_machine
 import v7_month_missing
 import v7_month_report
+import v7_nhat_ky
 import v7_presence
 import v7_read_cache
 import v7_sheet_refresh
@@ -399,6 +400,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
             result = runner.run(function, payload, actor)
         return 200, v7_api_doixe.with_names(result, lambda login: v7_presence.display_name(login, names))
+    elif parts.path == "/api/v7/nhat-ky":
+        # NHAT-KY-01: PR đã merge của repo do luồng nền đọc từ GitHub, ngoài DB; vẫn sau xác thực danh tính.
+        if parts.query:
+            bad()
+        return 200, v7_nhat_ky.view()
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
@@ -880,6 +886,7 @@ def main() -> None:
     plain = ThreadingHTTPServer((args.host, args.port), Handler)
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm
+    v7_nhat_ky.journal().start()       # NHAT-KY-01: hỏi GitHub PR mới mỗi 5 phút
     if secure is not None:
         threading.Thread(target=secure.serve_forever, daemon=True).start()
     plain.serve_forever()

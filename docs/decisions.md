@@ -147,6 +147,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="zalo-thu-chi-01"></a>[ZALO-THU-CHI-01](decisions/zalo-thu-chi-01.md) | Thu chi từ nhóm Zalo: đọc nhóm đã chọn bằng đường ZALO-GROUP-01 (không dùng bot add vào nhóm), tin lên web trong 30 giây, trang Thu chi đọc mẫu `thu|chi|ứng`, đối chiếu chỉ đọc với phiếu thu và sổ Đội xe, không ghi tiền | Chốt 19/11/2026 (Q1–Q8 theo đề xuất); chưa code, bước đầu đo P0. [Spec](../specs/zalo-thu-chi-real-time.md) |
 | <a id="anh-gemini-01"></a>[ANH-GEMINI-01](decisions/anh-gemini-01.md) | Ảnh của nhóm Zalo đã chọn đọc bằng OCR tại máy; ảnh OCR đọc không chắc mới gửi Gemini (proxy OAuth và API trả phí, so hai kết quả); chỉ đọc, không ghi tiền; sửa CHUNG-TU-01 mục 4 cho đường Zalo | Chốt 20/11/2026 (sửa cùng ngày sau P0); chưa code |
 | <a id="zalo-agent-01"></a>[ZALO-AGENT-01](decisions/zalo-agent-01.md) | Máy có Zalo chạy một tiến trình nền có con trỏ theo revision, kênh đẩy chung lên hao, kết quả đọc ảnh có nguồn gốc, che thông tin trước khi gửi Gemini, số đo theo tuần, nhịp tim và email | Chốt 20/11/2026 (Q1–Q6 theo đề xuất); chưa code. [Spec](../specs/zalo-agent.md) |
+| <a id="nhat-ky-01"></a>[NHAT-KY-01](decisions/nhat-ky-01.md) | Trang Nhật ký công việc trên web (bố cục trang hồ sơ GitHub, chỉ xem): máy chủ tự đọc PR đã merge của repo mỗi 5 phút, Claude trên máy chủ viết tóm tắt ngày, lưu file ngoài DB; mục ở cuối menu trái | Chốt 20/11/2026. [Spec](../specs/nhat-ky-01.md) |
 
 ## Cập nhật khóa tháng 24/10/2026
 
