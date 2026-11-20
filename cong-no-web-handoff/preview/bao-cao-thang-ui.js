@@ -89,7 +89,8 @@
     const head = `<h2>Chuyến booking có, web chưa có <span class="muted">(${number(count)})</span></h2>`;
     if (!data || data.loading) return `${open}${head}<p class="loading">Đang xem máy giữ các chuyến này vì sao…</p></section>`;
     if (data.error) return `${open}${head}<p class="note bad">${esc(F.loadError('lý do'))} <button type="button" class="btn" id="retry-missing">Thử lại</button></p></section>`;
-    const todo = '<a href="/viec-can-lam.html">Việc cần làm</a>';
+    // QUYEN-01: người dùng không mở được Việc cần làm; việc này để quản lý xử lý.
+    const todo = globalThis.AppNav?.isAdmin() ?? true ? '<a href="/viec-can-lam.html">Việc cần làm</a>' : 'quản lý xử lý';
     const lines = data.rows.map(row => {
       const why = M.reasonOf(row.reason);
       const book = row.machine_book ?? null;
