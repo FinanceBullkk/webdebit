@@ -196,5 +196,156 @@ class RobustnessTest(MoneyBase):
             failing.result(timeout=10)
 
 
+STUBS = {
+    "numpy.py": "def asarray(value):\n    return value\n",
+    "torch.py": "def set_num_threads(count):\n    pass\n",
+    "PIL/__init__.py": ("class _Picture:\n    def __enter__(self):\n        return self\n    def __exit__(self, *args):\n        return False\n"
+               "    def convert(self, mode):\n        return self\nclass Image:\n    @staticmethod\n    def open(path):\n        return _Picture()\n"),
+    "easyocr.py": ("import os\nclass Reader:\n    def __init__(self, languages, gpu=False, verbose=False, download_enabled=True):\n"
+                   "        assert download_enabled is False\n        os.write(1, b'RAC native\\n')\n        print('rac python')\n"
+                   "    def readtext(self, image):\n        os.write(1, b'RAC native 2\\n')\n        print('rac python 2')\n"
+                   "        return [([[1.4, 2.6], [30.2, 2.0], [30.0, 20.0], [1.0, 20.6]], 'Giao dich', 0.7295)]\n"),
+    "easyocr_missing_model.py": "class Reader:\n    def __init__(self, *args, **kwargs):\n        raise FileNotFoundError('Missing model and downloads disabled')\n",
+}
+
+
+class RealChildTest(unittest.TestCase):
+    """`ocr_child.py` thật chạy với thư viện **giả** (không cần easyocr/torch/Pillow): kiểm giao thức, ép số nguyên, đường trả lời riêng."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.stubs = self.dir / "stubs"
+        self.stubs.mkdir()
+        for name, text in STUBS.items():
+            (self.stubs / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.stubs / name).write_text(text, encoding="utf-8")
+
+    def engine(self, easyocr="easyocr.py"):
+        if easyocr != "easyocr.py":
+            (self.stubs / "easyocr.py").write_text((self.stubs / easyocr).read_text(encoding="utf-8"), encoding="utf-8")
+        env = unittest.mock.patch.dict("os.environ", {"PYTHONPATH": str(self.stubs)})
+        env.start()
+        self.addCleanup(env.stop)
+        engine = ocr.EasyOcr(command=[sys.executable, "-X", "utf8", str(ocr.CHILD), "2"], timeout=30, work=str(self.dir / "tmp"))
+        self.addCleanup(engine.close)
+        return engine
+
+    def test_numpy_style_floats_become_plain_ints_and_stdout_noise_never_breaks_the_protocol(self):
+        engine = self.engine()
+        for _ in range(2):   # hai lượt: tiếng ồn ở stdout (kể cả ghi thẳng fd 1) xảy ra ở cả hai lượt
+            boxes = engine.read(Picture())
+            self.assertEqual(boxes, [{"b": [1, 2, 30, 21], "t": "Giao dich", "c": 0.73, "p": [[1, 3], [30, 2], [30, 20], [1, 21]]}])
+        self.assertTrue(all(type(value) is int for box in boxes for value in box["b"]))
+
+    def test_missing_model_is_reported_not_downloaded(self):
+        engine = self.engine("easyocr_missing_model.py")
+        with self.assertRaises(ocr.OcrUnavailable):
+            engine.read(Picture())
+
+    def test_malformed_request_line_gets_bad_request_and_the_child_keeps_serving(self):
+        engine = self.engine()
+        child = engine.spawn()
+        child.stdin.write(b"khong phai json\n")
+        child.stdin.flush()
+        self.assertEqual(json.loads(child.stdout.readline()), {"error": "bad_request"})
+        self.assertEqual(engine.read(Picture())[0]["t"], "Giao dich")
+
+
+class WorkDirTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def test_temp_pngs_live_in_the_agent_work_dir_and_leftovers_are_swept_at_startup(self):
+        work = self.dir / "tmp"
+        work.mkdir()
+        (work / "ocr-old.png").write_bytes(b"sot")
+        (work / "giu-lai.txt").write_text("khong phai png cua OCR", encoding="utf-8")
+        seen = self.dir / "seen.txt"
+        script = self.dir / "child.py"
+        script.write_text("import sys, json\nfor line in sys.stdin.buffer:\n    open(@SEEN@, 'w').write(json.loads(line)['path'])\n"
+                          "    sys.stdout.write(json.dumps({'boxes': []}) + '\\n'); sys.stdout.flush()\n".replace("@SEEN@", repr(str(seen))), encoding="utf-8")
+        engine = ocr.EasyOcr(command=[sys.executable, str(script)], work=str(work))
+        self.addCleanup(engine.close)
+        self.assertEqual(sorted(path.name for path in work.iterdir()), ["giu-lai.txt"])
+        engine.read(Picture())
+        self.assertEqual(Path(seen.read_text(encoding="utf-8")).parent, work)   # không phải %TEMP%
+        self.assertEqual(sorted(path.name for path in work.iterdir()), ["giu-lai.txt"])   # ảnh tạm được xóa sau khi đọc
+
+    def test_the_processors_default_engine_uses_a_tmp_dir_next_to_state(self):
+        from zalo_agent.processors.money_images import MoneyImagesProcessor
+        from zalo_agent.source import LiveSync
+        processor = MoneyImagesProcessor(LiveSync(self.dir), self.dir / "state", self.dir / "reads")
+        self.assertEqual(Path(processor.engine.work), self.dir / "tmp")
+        self.assertTrue((self.dir / "tmp").is_dir())
+
+    def test_atexit_is_registered_once_however_often_the_child_is_respawned(self):
+        script = self.dir / "child.py"
+        script.write_text("import sys\nsys.stdin.buffer.readline()\nsys.exit(1)\n", encoding="utf-8")
+        engine = ocr.EasyOcr(command=[sys.executable, str(script)], work=str(self.dir))
+        self.addCleanup(engine.close)
+        with unittest.mock.patch.object(ocr.atexit, "register") as register:
+            for _ in range(3):
+                with self.assertRaises(ocr.OcrFailure):
+                    engine.read(Picture())
+        self.assertEqual(register.call_count, 1)
+
+    def test_polygon_corners_are_kept_and_malformed_ones_are_rejected(self):
+        good = {"boxes": [{"b": [1, 2, 30, 40], "t": "x", "c": 0.9, "p": [[1, 2], [30, 2], [30, 40], [1, 40]]}]}
+        script = self.dir / "child.py"
+        for reply, ok in ((good, True), ({"boxes": [{**good["boxes"][0], "p": [[1, 2]]}]}, False), ({"boxes": [{**good["boxes"][0], "p": [[1, 2], [3, "x"], [1, 1], [2, 2]]}]}, False)):
+            script.write_text("import sys, json\nfor line in sys.stdin.buffer:\n    sys.stdout.write(json.dumps(@R@) + '\\n'); sys.stdout.flush()\n".replace("@R@", repr(reply)), encoding="utf-8")
+            engine = ocr.EasyOcr(command=[sys.executable, str(script)], work=str(self.dir))
+            self.addCleanup(engine.close)
+            if ok:
+                self.assertEqual(engine.read(Picture()), good["boxes"])
+            else:
+                with self.assertRaises(ocr.OcrFailure):
+                    engine.read(Picture())
+
+
+class BackoffTest(MoneyBase):
+    def test_wait_doubles_each_time_up_to_one_hour(self):
+        self.assertEqual([money_images.wait_for(60, n) for n in range(1, 9)], [60, 120, 240, 480, 960, 1920, 3600, 3600])
+
+    def test_a_dying_engine_is_retried_less_and_less_often(self):
+        engine = Crashy(ocr.OcrFailure("child_died"))
+        processor = self.make(engine=engine)
+        waits = []
+        for _ in range(5):
+            processor.step()
+            processor.step()
+            waits.append(processor.cool_until - self.now)
+            self.now = processor.cool_until + 1
+        self.assertEqual(waits[:3], [60, 120, 240])
+
+    def test_a_missing_engine_is_asked_less_and_less_often_and_reset_by_a_good_read(self):
+        engine = Crashy(ocr.OcrUnavailable("x"))
+        processor = self.make(engine=engine)
+        waits = []
+        for _ in range(4):
+            processor.step()
+            processor.step()
+            waits.append(processor.broken_until - self.now)
+            self.now = processor.broken_until + 1
+        self.assertEqual(waits, [60, 120, 240, 480])
+        engine.error = None
+        self.drain(processor)
+        self.assertEqual(processor.broken_failures, 0)
+
+    def test_failed_count_drops_when_the_ban_expires(self):
+        engine = Crashy(ocr.OcrFailure("child_died"))
+        processor = self.make(engine=engine)
+        for _ in range(16):
+            self.now = max(self.now, processor.cool_until) + 1
+            processor.step()
+        self.assertEqual(processor.counts()["failed"], 2)
+        self.now += money_images.FAILED_BAN + 1
+        self.assertEqual(processor.counts()["failed"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
