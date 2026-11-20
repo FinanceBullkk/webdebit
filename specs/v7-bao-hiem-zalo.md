@@ -1,6 +1,6 @@
 # V7: đối chiếu phí Bảo hiểm với giấy chứng nhận trong group Zalo
 
-Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q4 ở cuối spec); chưa code, chưa đụng `hao`. Quyết định đi kèm: [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md).
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q4 ở cuối spec), **điều chỉnh sau P0** cùng ngày ([mục riêng](#điều-chỉnh-sau-p0-đã-chốt-19112026)); đường đẩy và phía đọc đã chạy trên `hao` từ 19/11/2026, giao diện chưa làm. Quyết định đi kèm: [`BAO-HIEM-ZALO-01`](../docs/decisions/bao-hiem-zalo-01.md).
 
 <!-- du-lieu-gia: MAUU1234567 -->
 
@@ -39,7 +39,7 @@ Khi chuyển hẳn khỏi Sheet, câu "web tự ghi tiền theo giấy" sẽ đ�
 | Mã | Khi nào | Hiện ở | Ai làm gì |
 | --- | --- | --- | --- |
 | `DONE` | Chuyến có khoản Bảo hiểm bằng đúng số giấy | Không hiện; khoản có số giấy và nút Mở giấy | — |
-| `CLASSIFY` | Chuyến có đúng một khoản Khác/Phụ phí ban đầu bằng đúng số giấy, chưa có khoản Bảo hiểm | Không hiện | Máy đổi loại ([Q2](#câu-hỏi-đã-chốt)); tổng không đổi |
+| `CLASSIFY` | Chuyến có đúng một khoản Khác/Phụ phí ban đầu bằng đúng số giấy, chưa có khoản Bảo hiểm | Bảo hiểm cần xem (khi máy đổi loại còn hoãn) | Người đổi loại bằng nút sửa loại phí; sau này máy đổi loại ([Q2](#câu-hỏi-đã-chốt)); tổng không đổi |
 | `SHEET_MISSING` | Chuyến tìm được, web không có khoản nào bằng số giấy | Bảo hiểm cần xem | Người nhập ghi số vào cột `BẢO HIỂM` của tab khách; máy đối soát đưa lên, lượt sau thành `CLASSIFY` hoặc `DONE` |
 | `AMOUNT_DIFF` | Chuyến đã có khoản Bảo hiểm khác số giấy | Bảo hiểm cần xem | Xem lại Sheet hoặc giấy; không tự sửa |
 | `NO_BOOKING` | Giấy không có booking trong tin Zalo | Việc cần làm | Người xem; container và ngày chỉ là gợi ý, không gắn tự động |
@@ -83,7 +83,7 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
 
 ## Ghép và kế hoạch
 
-1. Giấy có `status` khác `ok`, `amount_vnd` NULL hoặc có `warnings` → `CERT_REVIEW`.
+1. Giấy có `status` khác `ok`, `amount_vnd` NULL hoặc có cảnh báo **không** bắt đầu bằng `info:` → `CERT_REVIEW`. Cảnh báo `info:` vẫn hiện kèm mục, không chặn (điều chỉnh sau P0).
 2. Không có booking → `NO_BOOKING`. Chỉ có booking mà không có container thì cũng là `NO_BOOKING`.
 3. Tìm chuyến theo mã chuyến (booking + container, viết hoa, bỏ khoảng trắng) trong mọi sổ, gồm chuyến web và dòng sổ gốc có booking. Không có → `NOT_FOUND`; hơn một → `AMBIGUOUS`. Không dùng cửa sổ ngày để chọn giữa nhiều chuyến.
 4. Một chuyến: so `amount_vnd` với các khoản hiệu lực của chuyến.
@@ -92,6 +92,7 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
    - Còn lại → `SHEET_MISSING`.
 5. Kế hoạch `CLASSIFY`: giữ mọi khoản khác, thay đúng khoản đó bằng một khoản Bảo hiểm cùng số, giữ ghi chú. Dòng sổ gốc: ô TOTAL không đổi vì tổng phụ phí không đổi (giống `MAY-PS-01`).
 6. Một chuyến không nhận hai giấy: hai giấy cùng ghép một chuyến → cả hai `AMBIGUOUS`.
+7. **Khớp theo container chỉ để hiện** (điều chỉnh sau P0): giấy ra `NO_BOOKING` hoặc `NOT_FOUND` ở bước 2–3 thì xét theo container trong mọi sổ (chuyến web và dòng sổ gốc). Có **đúng một** chuyến và tổng khoản Bảo hiểm hiệu lực của chuyến **bằng đúng** số giấy → `DONE` với `match: "container"`: gắn số giấy và nút Mở giấy, không ghi gì. Mọi trường hợp khác giữ trạng thái cũ; khớp theo container không bao giờ sinh `CLASSIFY`, `MONTH_LOCKED`, `SHEET_MISSING` hay `AMOUNT_DIFF`. Khớp ở bước 3 ghi `match: "booking"`.
 
 ## Giao tiếp frontend–backend (bước 5, ĐỀ XUẤT)
 
@@ -149,7 +150,39 @@ PR-1/PR-2: revert, không đụng dữ liệu. PR-3: tắt `insurance` trong `WE
 
 ## Bằng chứng
 
-Chưa có: spec đã chốt, chưa code. Số đếm ở bước 2 đo trên `insurance-snapshot.json` ở máy có Zalo ngày 19/11/2026, không phải dữ liệu `hao`.
+Số đếm ở bước 2 đo trên `insurance-snapshot.json` ở máy có Zalo ngày 19/11/2026, không phải dữ liệu `hao`.
+
+**P0 (19/11/2026, chỉ đọc):** 16 giấy so với 244 sổ trên `hao`, đọc qua `GET /api/v7/customers`, `/fee-types`, `/ledger?customer=`; không ghi gì. Theo luật bản chốt đầu: 1 `DONE`, 6 `SHEET_MISSING`, 6 `NO_BOOKING`, 3 `CERT_REVIEW`; `CLASSIFY`, `MONTH_LOCKED`, `AMOUNT_DIFF`, `NOT_FOUND`, `AMBIGUOUS` đều 0. Phát hiện:
+
+- 0/11.395 dòng `legacy_rows` trong JSON sổ có booking; chỉ chuyến web có (300/536). Giấy thuộc chuyến sổ gốc không ghép được theo booking.
+- Theo container, mỗi giấy có đúng một chuyến ứng viên; 5 giấy (`NO_BOOKING` hoặc `CERT_REVIEW`) đã có khoản Bảo hiểm bằng đúng số giấy.
+- 3 giấy `CERT_REVIEW` chỉ vì cảnh báo `info:` (số vận đơn không suy ra từ booking), là chuyện bình thường.
+- Giấy tháng 11 là chuyến chưa có phí nào, giấy tháng 10 đã đúng hoặc nằm ở sổ gốc, nên `CLASSIFY` = 0. Không khoản web nào bằng phí chưa VAT; 5 khoản Bảo hiểm đã có đều bằng tổng có VAT.
+- Booking trong Zalo và trên web cùng dạng; chỉ 2 giấy có số vận đơn trùng booking, nên vẫn không dùng số vận đơn.
+
+Số tiền, số giấy và container thật chỉ báo trong chat.
+
+## Điều chỉnh sau P0 (ĐÃ CHỐT 19/11/2026)
+
+Người dùng chọn cả ba đề xuất của Claude sau khi xem P0 (chat 19/11/2026):
+
+1. **Khớp theo container chỉ để hiện:** chỉ khi đúng một chuyến và khoản Bảo hiểm bằng đúng số giấy thì thành `DONE` (gắn giấy, không ghi); mọi việc khác vẫn theo booking + container ([bước 7](#ghép-và-kế-hoạch)).
+2. **Chỉ cảnh báo không phải `info:` mới chặn** ([bước 1](#ghép-và-kế-hoạch)).
+3. **Hoãn PR-3 (máy đổi loại) và cổng bật trên `hao`:** dữ liệu thật chưa có ca `CLASSIFY`, và từ [`TACH-PHI-TIEU-DE-01`](../docs/decisions/tach-phi-tieu-de-01.md) cột `BẢO HIỂM` của Sheet đã vào đúng loại. Trong thời gian hoãn, `CLASSIFY` và `MONTH_LOCKED` hiện trong "Bảo hiểm cần xem" với câu "Khoản Khác bằng đúng số giấy: đổi loại thành Bảo hiểm bằng nút sửa loại phí, tổng không đổi"; không đường nào ghi tiền. Làm PR-3 khi hàng chờ có ca `CLASSIFY` thật.
+
+## Tiến độ
+
+| Bước | PR / commit | Ngày | Trạng thái |
+| --- | --- | --- | --- |
+| Spec | FinanceBullkk/webdebit#526 | 19/11/2026 | Đã merge |
+| P0 đo | không có PR (chỉ đọc) | 19/11/2026 | Xong, kết quả ở [Bằng chứng](#bằng-chứng) |
+| Điều chỉnh sau P0 | FinanceBullkk/webdebit#530 | 19/11/2026 | Đã merge, `Deploy hao` xanh |
+| PR-1 đọc | FinanceBullkk/webdebit#531 (`ad35c6b`) | 19/11/2026 | Đã merge, `Deploy hao` xanh |
+| PR-2 giao diện | — | — | Chưa bắt đầu |
+| Phía máy Zalo | repo `zalo-audit-viewer`, nhánh `claude/bao-hiem-web` | 19/11/2026 | Đang chạy từ worktree, chưa gộp `main` của repo đó |
+| PR-3 máy đổi loại | — | — | Hoãn |
+| Cài đường đẩy trên `hao` (cổng B) | [nhật ký](../docs/deploys/2026-11-19-bao-hiem-zalo.md) | 19/11/2026 | ĐÃ TRIỂN KHAI, đã kiểm (hash, không tên/MST, PDF mở được, 16 giấy chia đủ) |
+| Người dùng đi hết luồng (cổng D) | — | — | Chờ PR-2 |
 
 ## Câu hỏi đã chốt
 

@@ -2329,6 +2329,10 @@ Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql` (
 
 Rollback: áp lại ba hàm từ bản migration liền trước (`2026-10-29-v7-bang-gia.sql` cho `apply_price_table`, `2026-10-28-v7-phu-phi-core-a.sql` cho `paste_trips`, `2026-10-22-v7-nhap-sheet.sql` cho `record_receipt`) rồi chạy lại các migration dựng ràng buộc event theo thứ tự tới `ps-fee`; hoặc restore dump trước nâng vào DB mới. Release app cũ còn trong `RELEASES_DIR`.
 
+## Giấy bảo hiểm Zalo — biến môi trường API (PR-1 chỉ đọc, BAO-HIEM-ZALO-01)
+
+Không có SQL, không có DDL. API đọc `WEBDEBIT_INSURANCE_SNAPSHOT_PATH` (mặc định `/srv/v7/insurance/insurance-web.json`, file `schema_version` 1 do máy có Zalo đẩy lên) và lấy PDF ở `pdf/<sha256>.pdf` cạnh file đó, hoặc ở `WEBDEBIT_INSURANCE_PDF_DIR`. Thiếu file, sai phiên bản hay sai hash thì `get_ledger` trả `insurance: {unavailable: true}` và sổ vẫn mở. Nhóm "Giấy bảo hiểm chưa có chuyến" của Việc cần làm chỉ có sau lượt nền đầu tiên đọc đủ mọi sổ. API cần quyền đọc thư mục đó (chỉ đọc). Hoàn tác: revert PR; chưa có dữ liệu nào bị ghi.
+
 ## Tách phụ phí theo bảng PS — migration + runner bản chụp (ĐÃ CHẠY trên hao 29/10/2026)
 
 Spec [`v7-phu-phi-tu-ps`](../specs/v7-phu-phi-tu-ps.md). Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql`

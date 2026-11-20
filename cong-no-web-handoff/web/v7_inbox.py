@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
+    INSURANCE_INDEX,
     SharedReads,
     cached_load,
     header_projection,
@@ -353,8 +354,10 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
 
 class Inbox:
     def __init__(self, project: Callable[[Any, dict, str], dict], snapshot_paths: Callable[[], tuple[str, ...]],
-                 sheet_status: Callable[[], dict] | None = None, clock: Callable[[], float] | None = None):
+                 sheet_status: Callable[[], dict] | None = None, clock: Callable[[], float] | None = None,
+                 insurance: Callable[[], dict] | None = None):
         self.project = project                  # ledger_projections
+        self.insurance = insurance              # BAO-HIEM-ZALO-01: giấy chưa có chuyến (chỉ đọc); ValueError khi chưa tính được
         self.snapshot_paths = snapshot_paths    # đọc lúc gọi để test vá được đường dẫn
         self.sheet_status = sheet_status or (lambda: {})
         self.clock = clock or (lambda: datetime.now(UTC).timestamp())
@@ -538,6 +541,7 @@ class Inbox:
                     books[customer_id] = book
                 with self.lock:
                     self.done += 1
+        INSURANCE_INDEX.mark_complete(set(customers))   # đọc đủ mọi sổ: khớp container và nhóm "giấy chưa có chuyến" tính được
         self._seed_log()   # trước các bước máy của lượt này, để RAM chưa có việc nào của lượt
         self._relock(shared)
         text, trips, prices, road, ps, headers = (auto_enabled(kind)
@@ -966,6 +970,10 @@ class Inbox:
                         with self.lock:
                             for result in results:
                                 self._apply(*result)
+        certs: dict[str, Any] = {"unavailable": True, "items": [], "count": 0}
+        if self.insurance is not None:
+            with contextlib.suppress(ValueError):   # thiếu bản chụp hoặc chưa đọc đủ mọi sổ: nhóm này chưa có, hộp vẫn trả
+                certs = self.insurance()
         with self.lock:
             if key is None and self.computed_at is None:
                 state = "unavailable"
@@ -999,6 +1007,7 @@ class Inbox:
             matched = (reconcile or {}).get("matched") or {}
             return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
                     "sheet_at": self.sheet_status().get("sheet_at"), "refreshing": self.running,
+                    "insurance": certs,
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),
                     "reconcile": None if reconcile is None else {**{k: v for k, v in reconcile.items() if k != "matched"},
                                                                   "matched_ids": sorted(int(key) for key in matched)},

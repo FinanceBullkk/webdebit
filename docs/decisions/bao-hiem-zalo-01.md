@@ -25,6 +25,14 @@ Lý do không cộng tiền: [`SONG-SONG-01`](song-song-01.md) và [`CHUYEN-HAN-
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 19/11/2026; chưa code, chưa triển khai. Chi tiết, trạng thái từng giấy, tiêu chí và thứ tự PR (P0 đo chỉ đọc trước) ở [spec](../../specs/v7-bao-hiem-zalo.md). Máy đổi loại bật bằng `WEBDEBIT_AUTO_SHEET` có `insurance`, mặc định tắt. Hết hiệu lực khi chuyển hẳn khỏi Sheet; khi đó xét Q4.
+ĐÃ CHỐT 19/11/2026. ĐÃ TRIỂN KHAI (hao, 19/11/2026): phía đọc (FinanceBullkk/webdebit#531) và đường đẩy giấy từ máy có Zalo ([nhật ký](../deploys/2026-11-19-bao-hiem-zalo.md)). ĐÃ KIỂM CHỨNG: hash bản gọn đúng, không tên hay mã số thuế trên `hao`, PDF mở được qua API, 16 giấy chia đủ vào sổ và Việc cần làm. Giao diện chưa làm; người dùng chưa đi luồng. Chi tiết, trạng thái từng giấy, tiêu chí và thứ tự PR ở [spec](../../specs/v7-bao-hiem-zalo.md). Hết hiệu lực khi chuyển hẳn khỏi Sheet; khi đó xét Q4.
+
+**Điều chỉnh sau P0 (người dùng chốt 19/11/2026, chat).** Bước đo chỉ đọc trên `hao` cho thấy dòng sổ gốc không có booking, 3/16 giấy bị chặn chỉ vì cảnh báo `info:`, và chưa có ca nào để máy đổi loại. Người dùng chọn ba đề xuất:
+
+1. Khớp theo container chỉ để gắn giấy khi đúng một chuyến có khoản Bảo hiểm bằng đúng số giấy; không ghi gì.
+2. Chỉ cảnh báo không phải `info:` mới chặn.
+3. Hoãn máy đổi loại (mục 2 ở trên): `CLASSIFY` hiện cho người đổi loại bằng nút sửa loại phí có sẵn; làm máy khi có ca thật.
+
+Chi tiết ở [mục điều chỉnh của spec](../../specs/v7-bao-hiem-zalo.md#điều-chỉnh-sau-p0-đã-chốt-19112026).
 
 Không đổi DB, quyền hay luật phân bổ. `hao` chỉ nhận bản gọn của giấy (số giấy, container, booking, số tiền, ngày, trạng thái) và PDF, không nhận tên hay mã số thuế.

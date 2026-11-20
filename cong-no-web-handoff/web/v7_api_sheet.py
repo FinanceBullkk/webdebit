@@ -26,6 +26,13 @@ from v7_api_validate import ApiError, bad, no_duplicates, positive_int
 from v7_detail_queue import load_detail_snapshot, project_details
 from v7_header_fees import project as project_headers
 from v7_header_fees import write_lines as header_lines
+from v7_insurance_queue import (
+    ContainerIndex,
+    cert_pdf,
+    load_insurance_snapshot,
+    orphan_items,
+    project_insurance,
+)
 from v7_price_queue import book_rows, load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
@@ -45,6 +52,9 @@ PS_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PS_SNAPSHOT_PATH", "/var/lib/webdebit-she
 RECEIPT_SNAPSHOT_PATH = os.getenv("WEBDEBIT_RECEIPT_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("receipts.json"))
 # SO-CHI-TIET-01: bảng chi tiết từ tab "CHI TIET ...", runner giá ghi cạnh prices.json; chưa có file thì sổ không có bảng chi tiết.
 DETAIL_SNAPSHOT_PATH = os.getenv("WEBDEBIT_DETAIL_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("details.json"))
+# BAO-HIEM-ZALO-01: bản gọn giấy bảo hiểm do máy có Zalo đẩy lên; PDF nằm ở `pdf/<sha256>.pdf` cạnh file (hoặc WEBDEBIT_INSURANCE_PDF_DIR).
+INSURANCE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_INSURANCE_SNAPSHOT_PATH", "/srv/v7/insurance/insurance-web.json")
+INSURANCE_INDEX = ContainerIndex()   # chuyến mọi sổ theo container, trong RAM; hộp việc nuôi và đánh dấu đủ
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
@@ -589,6 +599,34 @@ def ps_projection(runner: Psql, ledger: dict, actor: str, *, include_kept=False)
                       include_kept=include_kept)
 
 
+def insurance_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    """Giấy bảo hiểm của sổ này (chỉ đọc). Đọc bản chụp trước: thiếu/hỏng thì không chạm runner. Dữ liệu sai hình dạng là ValueError."""
+    snapshot = cached_load(load_insurance_snapshot, INSURANCE_SNAPSHOT_PATH)
+    fee_types = runner.run("get_fee_types", {}, actor).get("fee_types", [])
+    try:
+        return project_insurance(snapshot, ledger, fee_types, INSURANCE_INDEX)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("Insurance projection invalid") from exc
+
+
+def insurance_orphans() -> dict:
+    """Việc cần làm: giấy bảo hiểm chưa có chuyến. ValueError khi thiếu bản chụp hoặc chưa đọc đủ mọi sổ."""
+    snapshot = cached_load(load_insurance_snapshot, INSURANCE_SNAPSHOT_PATH)
+    try:
+        return orphan_items(snapshot, INSURANCE_INDEX)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("Insurance projection invalid") from exc
+
+
+def insurance_cert(sha256: str) -> bytes:
+    """PDF để Mở giấy: chỉ giấy có trong bản chụp hiện tại đúng hash và file trên đĩa băm đúng; còn lại 404."""
+    directory = os.getenv("WEBDEBIT_INSURANCE_PDF_DIR") or str(Path(INSURANCE_SNAPSHOT_PATH).parent / "pdf")
+    try:
+        return cert_pdf(cached_load(load_insurance_snapshot, INSURANCE_SNAPSHOT_PATH), sha256, directory)
+    except (ValueError, FileNotFoundError) as exc:
+        raise ApiError(404, "INSURANCE_CERT_NOT_FOUND", "Không có giấy bảo hiểm này.") from exc
+
+
 def approve_ps_fees(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     """Split every READY PS row of one customer; each target is one total-preserving command."""
     customer, version, digest, key, ledger = approve_request(raw, runner, actor)
@@ -950,6 +988,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
         ("sheet_prices", price_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("sheet_receipts", receipt_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("ps_fees", ps_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
+        ("insurance", insurance_projection, {"unavailable": True, "review": [], "done": [], "review_count": 0}),
         ("sheet_road", road_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}),
         ("sheet_details", detail_projection, {"unavailable": True, "rows": [], "months": {}}),
     )
