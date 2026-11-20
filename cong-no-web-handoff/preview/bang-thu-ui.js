@@ -235,7 +235,10 @@
     if (pending === 'unknown') {
       return `<span class="pill warn" id="pending" tabindex="0"${tipAttr(['Chưa kiểm được phiếu thu trên Sheet chờ ghi', 'Số ở đây có thể còn thiếu'])}>${ICON.sheet}Chưa kiểm được Sheet</span>`;
     }
-    return `<a class="pill warn" id="pending" href="/viec-can-lam.html"${tipAttr([`Còn ${count(pending.count)} trên Sheet chưa ghi vào web`, `${full(pending.amount)} · số ở đây có thể còn thiếu`, 'Bấm để mở Việc cần làm'])}>${ICON.sheet}${pending.count} · ${esc(short(pending.amount))}<span class="sr-only"> phiếu trên Sheet chưa ghi</span></a>`;
+    // QUYEN-01: người dùng không mở được Việc cần làm nên viên này chỉ để đọc.
+    const admin = globalThis.AppNav?.isAdmin() ?? true;
+    return (admin ? '<a class="pill warn" id="pending" href="/viec-can-lam.html"' : '<span class="pill warn" id="pending" tabindex="0"')
+      + `${tipAttr([`Còn ${count(pending.count)} trên Sheet chưa ghi vào web`, `${full(pending.amount)} · số ở đây có thể còn thiếu`, admin && 'Bấm để mở Việc cần làm'])}>${ICON.sheet}${pending.count} · ${esc(short(pending.amount))}<span class="sr-only"> phiếu trên Sheet chưa ghi</span>${admin ? '</a>' : '</span>'}`;
   }
   // TUONG-TAC-01: cột là nút lọc một ngày, bong bóng nằm dưới dải để không che số lớn. Dải luôn vẽ cả tháng, kể cả khi đang lọc.
   function stripPart(monthScoped, book, picked) {

@@ -16,6 +16,7 @@
   // Số rút gọn trên dải đầu và chip ("2,48 tỷ", "350 tr"); bảng ghi triệu không đơn vị (F.millions).
   const short = value => F.short(value, 'tr');
   const positive = value => String(value).replace(/^-/, '');
+  const admin = globalThis.AppNav?.isAdmin() ?? true;
   const tipAttr = lines => ` data-tip="${esc(lines.filter(Boolean).join('\n'))}"`;
   const svg = body => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   const ICON = {
@@ -88,7 +89,9 @@
     const credit = data.credit.customers ? short(positive(data.credit.total_vnd)) : null;
     // Chuyến chưa giá và khách trả thừa là số cả công ty, không tách theo lọc: ẩn khi đang lọc.
     const pills = `<span class="pill" tabindex="0"${tipAttr([`${people} khách đang nợ`])}>${ICON.people}${people}<span class="sr-only"> khách đang nợ</span></span>`
-      + (missing && !scoped ? `<a class="pill warn" id="missing-price" href="/viec-can-lam.html"${tipAttr([`${missing} chuyến chưa có đơn giá`, 'Chưa tính vào số Còn phải thu · bấm để mở Việc cần làm'])}>${ICON.tag}${missing}<span class="sr-only"> chuyến chưa giá</span></a>` : '')
+      // QUYEN-01: người dùng không mở được Việc cần làm nên viên này chỉ để đọc.
+      + (missing && !scoped ? (admin ? '<a class="pill warn" id="missing-price" href="/viec-can-lam.html"' : '<span class="pill warn" id="missing-price" tabindex="0"')
+        + `${tipAttr([`${missing} chuyến chưa có đơn giá`, `Chưa tính vào số Còn phải thu${admin ? ' · bấm để mở Việc cần làm' : ''}`])}>${ICON.tag}${missing}<span class="sr-only"> chuyến chưa giá</span>${admin ? '</a>' : '</span>'}` : '')
       + (credit && !scoped ? `<span class="pill credit" id="credit" tabindex="0"${tipAttr([`${data.credit.customers} khách trả thừa ${credit}`, 'Tính riêng, không trừ vào số Còn phải thu'])}>${ICON.wallet}${esc(credit)}<span class="sr-only"> khách trả thừa</span></span>` : '');
     const head = `<span class="lbl" id="h-owe">Còn phải thu${scopeTag('tier', 'Số của dải đầu chỉ tính khách trong phạm vi lọc')}</span><div class="owe-row"><b class="big-money" tabindex="0"${tipAttr(['Còn phải thu', F.full(total)])}>${esc(short(total))}</b>${pills}</div>`;
     if (!debt) return `${head}<p class="empty">Chưa tải được phần quá hạn. Bấm Làm mới để thử lại.</p>`;
