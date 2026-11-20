@@ -77,7 +77,8 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             "lag_revisions": max(0, revision - have) if isinstance(revision, int) and isinstance(have, int) else None,
             "last_ok_at": now_iso(now) if error is None else (before.get(name) or {}).get("last_ok_at"),
             "error": error,
-            "error_since": error_since(before.get(name), error, now)}
+            "error_since": error_since(before.get(name), error, now),
+            **({"messages": result["messages"]} if isinstance(result.get("messages"), int) and not isinstance(result["messages"], bool) else {})}
         counts = {key: value for key, value in (result.get("counts") or {}).items()
                   if CODE.fullmatch(key) and isinstance(value, int) and not isinstance(value, bool)}
         if counts:   # chỉ số đếm của bộ xử lý (money_images: read, pending, review, failed), không chữ tự do

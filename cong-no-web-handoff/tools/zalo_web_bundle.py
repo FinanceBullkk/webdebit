@@ -309,7 +309,7 @@ class Media:
 
 
 def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl, max_fetch: int = 300,
-          now: float | None = None, max_age_days: int | None = None) -> dict:
+          now: float | None = None, max_age_days: int | None = None, keep_conversations=()) -> dict:
     chosen = [cid for cid in source.selection() if cid in source.conversations]
     if not chosen:
         raise BundleError("chưa chọn group nào: chạy `add` trước")
@@ -380,8 +380,9 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
     old = sorted(path for path in out.glob("data-*") if path.is_dir() and path.name != data_name)
     for index, path in enumerate(old):
         # Giữ lượt trước cho server đang đọc dở, trừ khi nó còn hội thoại vừa bị bỏ chọn: bỏ chọn là rời gói ngay.
+        # `keep_conversations`: hội thoại của nguồn khác còn được chọn (WeChat) nhưng không nằm trong kho Zalo này.
         previous = {row.get("conversation_id") for row in read_json(path / "conversations.json", [])}
-        if index < len(old) - (KEEP_DATA_DIRS - 1) or not previous <= set(chosen):
+        if index < len(old) - (KEEP_DATA_DIRS - 1) or not previous <= {*chosen, *keep_conversations}:
             shutil.rmtree(path, ignore_errors=True)
     # Ảnh cũng vậy: chỉ giữ file mà các lượt còn giữ dùng tới.
     keep = set(media.items)

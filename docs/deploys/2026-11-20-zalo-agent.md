@@ -46,13 +46,27 @@
 - Gốc: test `test_media_and_users_replaced_in_place_reach_new_delta_messages` (PR-2) ghi lại `export-report.json` cùng cỡ chỉ vài mili giây sau lần trước. `v7_zalo_chat` nhận biết gói đổi bằng `(mtime, cỡ)`, nên trên Windows hai lần ghi cùng nhịp đồng hồ thì không thấy đổi. Đo trên `msi`: 14/200 cặp ghi liền nhau cho cùng `(mtime, cỡ)`.
 - Sửa: nhận biết bằng băm nội dung `export-report.json`, kèm test ép cùng cỡ và cùng giờ.
 
+## Bật đường bảo hiểm trong agent (12:39)
+
+Người dùng bấm "Đồng ý bật" sau khi FinanceBullkk/webdebit#548 và #549 lên `main` (`c1cbee6`).
+
+- Chờ `ZaloInsurancePush` xong lượt đang chạy rồi **tắt** (không xóa); lượt cuối 12:37, thành công.
+- Dừng agent cũ, chạy tay `run --once --insurance-target hao:/srv/v7/insurance`: đẩy 20.480 byte (chỉ bản gọn, PDF đã đủ trên `hao`), không lỗi.
+- Sửa task `ZaloAgent` thêm `--insurance-target hao:/srv/v7/insurance` (mặc định của code là tắt), khởi động lại.
+- Kiểm:
+  - `/srv/v7/insurance`: 22 dòng, 22 PDF, 0 mục sai nhóm, giữ setgid, không sót `.incoming`;
+  - một giấy qua web: 200 `application/pdf`, băm khớp;
+  - `status.json`: `agent_version` `c1cbee6`, bộ xử lý `bundle` và `insurance` không lỗi, nhịp tim mỗi phút;
+  - tab Máy chạy: "Bảo hiểm — Đang chạy, kịp tin mới".
+- Ghi nhận: một reviewer đã tạm `git checkout` nhánh khác trong `D:\webdebit\repo` (thư mục agent chạy code) quanh lúc khởi động lại; đã kiểm agent chạy đúng `c1cbee6` và checkout về `main`. Từ đó brief cho reviewer cấm checkout ở thư mục này.
+- Log agent cho thấy gói chat đã đẩy theo phần thêm lúc 11:11 và 11:12 (tin mới trong nhóm).
+
 ## CÒN MỞ
 
 - Đo một ngày làm việc: tin mới lên web trong 30 giây (p95), khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp (tiêu chí bước Chuyển).
 - `--dry-run` không nên lưu con trỏ.
-- PR-3: chuyển đường đẩy bảo hiểm vào agent rồi tắt `ZaloInsurancePush` (hỏi người dùng trước khi tắt).
 
 ## Rollback
 
-- Máy có Zalo: `Disable-ScheduledTask ZaloAgent`, `Enable-ScheduledTask WebdebitZaloSync`. Gói trên `hao` vẫn đọc được vì thiếu phần thêm thì chỉ đọc gói gốc.
+- Máy có Zalo: `Disable-ScheduledTask ZaloAgent`, `Enable-ScheduledTask WebdebitZaloSync`, `Enable-ScheduledTask ZaloInsurancePush`. Chỉ lùi phần bảo hiểm: bỏ `--insurance-target` khỏi task `ZaloAgent` rồi bật lại `ZaloInsurancePush`. Gói trên `hao` vẫn đọc được vì thiếu phần thêm thì chỉ đọc gói gốc.
 - `hao`: `/srv/v7/zalo-agent` xóa được; thiếu `status.json` thì tab Máy chạy hiện "Chưa có máy Zalo báo về", máy canh im.
