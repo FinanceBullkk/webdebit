@@ -5,6 +5,8 @@ import os
 import re
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -53,12 +55,17 @@ def receipt(rid, customer, name, day, amount, source="web"):
 class FakeRunner:
     """Chỉ các hàm đọc mà trang Thu chi được phép gọi; hàm lạ thì nổ để test thấy ngay."""
 
-    def __init__(self, receipts=(), marks=(), voided=(), ung=(), chang=()):
+    def __init__(self, receipts=(), marks=(), voided=(), ung=(), chang=(), fail=(), slow=0.0):
         self.receipts, self.marks, self.voided, self.ung, self.chang = list(receipts), list(marks), list(voided), list(ung), list(chang)
+        self.fail, self.slow = set(fail), slow
         self.calls = []
 
     def run(self, function, payload, actor, **_):
         self.calls.append((function, payload))
+        if function in self.fail:
+            raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.")
+        if function == "list_customers" and self.slow:
+            time.sleep(self.slow)
         if function == "list_customers":
             return {"customers": [{"id": 1, "name": "KHACH A"}, {"id": 2, "name": "KHACH B"}, {"id": 3, "name": "KHACH C"}, {"id": 4, "name": "KHACH D"},
                                   {"id": 5, "name": "KHACH E"}, {"id": 6, "name": "AN"}, {"id": 7, "name": "AN LONG"}]}
@@ -112,9 +119,17 @@ class ReadPatternTests(unittest.TestCase):
                 self.assertEqual(cash.read_report(text)["amount_vnd"], expected)
 
     def test_unreadable_amount_is_none_not_zero(self):
-        for text in ("thu 50 khach a", "chi 500 dầu", "thu 12/11 50tr", "chi 2,5,5tr", "thu 0k", "chi 2.5555k", "thu 99999999999999999tr"):
+        for text in ("thu 50 khach a", "chi 500 dầu", "thu 12/11 50tr", "chi 2,5,5tr", "thu 0k", "chi 2.5555k", "thu 99999999999999999tr",
+                     "chi 1 triệu 2 cho Hùng", "chi 2 tr 5", "thu 1tr 500", "thu 1.200 000", "chi 50tr 15.11",   # số rời sau đơn vị: không đoán
+                     "chi -500k", "chi: -500k", "thu-50tr", "chi –500k", "chi −500k"):   # dấu trừ dính vào số: không thành khoản dương
             with self.subTest(text):
                 self.assertIsNone(cash.read_report(text)["amount_vnd"])
+
+    def test_dash_with_space_and_dates_after_the_amount_still_read(self):
+        for text, expected in {"chi - 500k xăng": 500_000, "thu 50tr 20/11 khách a": 50_000_000, "thu 50tr 15-11": 50_000_000, "chi 800k 12345 xe": 800_000,
+                               "chi 2tr 4 xe": None, "chi 1k5 3 xe": None}.items():
+            with self.subTest(text):
+                self.assertEqual(cash.read_report(text)["amount_vnd"], expected)
 
     def test_not_a_report(self):
         for text in ("chi tiết thế nào", "thu xếp giúp em", "hôm nay thu 50tr", "chiều nay 5tr", "", "thu", "ứng dụng 5tr"):
@@ -134,7 +149,8 @@ class TargetTests(unittest.TestCase):
         [{"id": 1, "name": "KHACH A", "display_name": "Anh Ba", "aliases": ["chị Hai"]}, {"id": 2, "name": "KHACH B"}, {"id": 6, "name": "AN"},
          {"id": 7, "name": "AN LONG"}, {"id": 8, "name": "CÔNG TY 陈氏"}, {"id": 9, "name": "KHACH A MỚI"}],
         [{"id": 10, "bien_so": "51C-123.45"}, {"id": 12, "bien_so": "43C-999.45"}, {"id": 11, "bien_so": "29H-678.90"}],
-        [{"id": 20, "ten": "Bình", "dang_dung": True}, {"id": 21, "ten": "Bình An", "dang_dung": True}, {"id": 22, "ten": "Cường", "dang_dung": False}])
+        [{"id": 20, "ten": "Bình", "dang_dung": True}, {"id": 21, "ten": "Bình An", "dang_dung": True}, {"id": 22, "ten": "Cường", "dang_dung": False},
+         {"id": 23, "ten": "Vi", "dang_dung": True}])
 
     def target(self, text):
         report = cash.read_report(text)
@@ -155,14 +171,26 @@ class TargetTests(unittest.TestCase):
         self.assertEqual((both["kind"], both["ambiguous"]), (None, True))
 
     def test_vehicle_by_last_four_or_five_digits(self):
-        for text in ("chi 2tr5 dầu xe 12345", "chi 2tr5 dầu 2345", "chi 2tr5 dầu xe 123.45", "chi 2tr5 dầu xe 51C-123.45"):
+        for text in ("chi 2tr5 dầu xe 12345", "chi 2tr5 dầu xe 2345", "chi 2tr5 dầu xe 123.45", "chi 2tr5 dầu xe 51C-123.45", "chi 2tr5 dầu 51c-12345",
+                     "chi 2tr5 dầu 51C12345", "chi 2tr5 dầu bks 12345", "chi 2tr5 dầu biển số 123.45"):
             with self.subTest(text):
                 self.assertEqual((self.target(text)["kind"], self.target(text)["id"]), ("xe", 10))
 
     def test_vehicle_ambiguous_or_unknown_gets_no_target(self):
         self.assertIsNone(self.target("chi 2tr5 dầu xe 3945")["kind"])   # không xe nào
-        self.assertIsNone(self.target("chi 2tr5 dầu xe 99945 va 12345")["kind"])   # hai xe
+        self.assertIsNone(self.target("chi 2tr5 dầu xe 99945 xe 12345")["kind"])   # hai xe
         self.assertIsNone(self.target("chi 2tr5 dầu xe 123")["kind"])   # dưới 4 số
+
+    def test_dates_years_and_bare_numbers_are_not_plates(self):
+        for text in ("chi 2tr5 dầu 12345", "chi 2tr5 dầu 20/11 2345", "chi 2tr5 15.11", "chi 2tr5 dầu năm 2026", "chi 2tr5 dầu 20.11.2026", "chi 2tr5 dầu 2345 lít",
+                     "chi 2tr5 dầu 20tr 2345"):
+            with self.subTest(text):
+                self.assertIsNone(self.target(text)["kind"])
+
+    def test_names_of_two_letters_do_not_match_by_themselves(self):
+        self.assertIsNone(self.target("ứng 3tr vi")["kind"])   # tên "Vi" quá ngắn, trùng từ thường
+        self.assertIsNone(self.target("thu 5tr an")["kind"])   # sổ "AN" quá ngắn
+        self.assertEqual(self.target("thu 5tr an long")["id"], 7)
 
     def test_driver_by_name_only_when_exactly_one(self):
         self.assertEqual((self.target("ứng 3tr tài xế bình an")["kind"], self.target("ứng 3tr tài xế bình an")["id"]), ("tai_xe", 21))
@@ -304,6 +332,103 @@ class BuildTests(CashChatCase):
         self.assertEqual((mark["source"], mark["status"], mark["ledger_ref"]["pid"], mark["target"]["label"]), ("mark", "RECORDED", "PH-7", "KHACH A"))
         self.assertEqual(next(item for item in body["items"] if item["amount_vnd"] == 1_000_000)["status"], "MISSING")
         self.assertEqual(next(item for item in found.values() if item["message_id"] == "samemsg")["source"], "chat")
+
+    def test_matching_is_maximum_not_greedy_in_both_orders(self):
+        """Khoản muộn chỉ có một dòng ứng viên, khoản sớm có hai: khoản sớm không được lấy mất dòng chung rồi để khoản muộn trỏ vào dòng đã ghép."""
+        early, late = row("early", at(5), "thu 5tr khách a"), row("late", at(12), "thu 5tr khách a")   # cửa sổ sớm 2–12/11, muộn 9–19/11
+        body = self.get([early, late], FakeRunner(receipts=[receipt(1, 1, "KHACH A", 10, 5_000_000), receipt(2, 1, "KHACH A", 3, 5_000_000)]))
+        self.assertEqual({item["message_id"]: (item["status"], item["ledger_ref"]["id"], item["shared"]) for item in body["items"]},
+                         {"early": ("RECORDED", 2, False), "late": ("RECORDED", 1, False)})
+        body = self.get([early, late], FakeRunner(receipts=[receipt(1, 1, "KHACH A", 10, 5_000_000), receipt(2, 1, "KHACH A", 18, 5_000_000)]))
+        self.assertEqual({item["message_id"]: (item["status"], item["ledger_ref"]["id"], item["shared"]) for item in body["items"]},
+                         {"early": ("RECORDED", 1, False), "late": ("RECORDED", 2, False)})
+
+    def test_no_complete_matching_puts_the_whole_group_to_the_person(self):
+        rows = [row(f"r{index}", at(10, 9 + index), "thu 5tr khách a") for index in range(3)]
+        body = self.get(rows, FakeRunner(receipts=[receipt(1, 1, "KHACH A", 10, 5_000_000), receipt(2, 1, "KHACH A", 11, 5_000_000)]))
+        self.assertEqual([(item["status"], item["shared"]) for item in body["items"]], [("AMOUNT_DIFF", True)] * 3)
+
+    def test_a_failing_source_never_breaks_the_page_or_claims_missing(self):
+        old = [row("old", at(10), "thu 5tr khách a"), row("fee", at(10), "chi 1tr xe 12345"), row("unk", at(10), "thu 9tr"), row("ok", at(10), "thu 50 khach a")]
+        body = self.get(old, FakeRunner(fail={"get_receipt_book"}))
+        self.assertEqual(self.statuses(body), {"old": "WAITING", "fee": "MISSING", "unk": "UNKNOWN_TARGET", "ok": "NO_AMOUNT"})
+        self.assertEqual(body["sources_failed"], ["receipt"])
+        self.assertEqual({item["message_id"] for item in body["items"] if item["unchecked"]}, {"old"})
+        body = self.get(old, FakeRunner(fail={"doixe_get_so"}))
+        self.assertEqual(self.statuses(body), {"old": "MISSING", "fee": "WAITING", "unk": "UNKNOWN_TARGET", "ok": "NO_AMOUNT"})
+        self.assertEqual((body["sources_failed"], {item["message_id"] for item in body["items"] if item["unchecked"]}), (["fleet"], {"fee"}))
+        body = self.get(old, FakeRunner(fail={"list_customers"}))
+        self.assertEqual(body["sources_failed"], ["directory"])
+        self.assertTrue(all(item["unchecked"] for item in body["items"] if item["status"] == "UNKNOWN_TARGET"))
+        self.assertEqual(self.get(old, FakeRunner(fail={"get_marks"}))["sources_failed"], ["marks"])
+        self.assertEqual(self.get(old)["sources_failed"], [])
+
+    def test_null_and_malformed_source_rows_are_skipped_not_counted_as_zero(self):
+        runner = FakeRunner(receipts=[dict(receipt(1, 1, "KHACH A", 19, 5_000_000), amount_vnd=None), dict(receipt(2, 1, "KHACH A", 19, 5_000_000), date="bậy"),
+                                      dict(receipt(3, 1, "KHACH A", 19, 5_000_000), customer_id=None), receipt(4, 1, "KHACH A", 19, 5_000_000)],
+                            ung=[{"id": 1, "ngay": None, "so_tien_vnd": "3000000", "huy": None}, {"id": 2, "ngay": "2026-11-19", "so_tien_vnd": None, "huy": None},
+                                 {"id": 3, "ngay": "2026-11-19", "so_tien_vnd": "3000000", "huy": None}],
+                            chang=[{"id": 9, "ngay": None, "dong": [{"id": 1, "phi": {"dau": "1000000"}}]},
+                                   {"id": 10, "ngay": "2026-11-19", "nguoi_tra_id": 20,
+                                    "dong": [{"id": 2, "phi": {"dau": None, "nang": "abc", "cau": "2500000"}}, {"id": None, "phi": {"dau": "2500000"}}, "bậy"]}])
+        body = self.get([row("t", at(19), "thu 5tr khách a"), row("u", at(19), "ứng 3tr bình"), row("c", at(19), "chi 2tr5 xe 12345")], runner)
+        by = {item["message_id"]: item for item in body["items"]}
+        self.assertEqual((by["t"]["ledger_ref"]["id"], by["u"]["ledger_ref"]["id"], by["c"]["ledger_ref"]["loai_phi"]), (4, 3, "cau"))
+        self.assertEqual(body["sources_failed"], [])
+
+        class Broken(FakeRunner):
+            def run(self, function, payload, actor, **_):
+                return ["không phải dict"]
+        broken = self.get([row("t", at(19), "thu 5tr khách a")], Broken())
+        self.assertEqual((broken["items"][0]["status"], broken["items"][0]["unchecked"]), ("UNKNOWN_TARGET", True))
+
+    def test_mark_and_chat_report_of_the_same_receipt_count_once(self):
+        mark = {"id": 1, "kind": "paid_claim", "status": "received", "customer_id": 1, "amount_vnd": "50000000", "on_date": "2026-11-19", "conversation_id": GROUP,
+                "message_id": "other-msg", "message_at": "2026-11-19T10:00:00+07:00", "message_sender": "Lan", "message_excerpt": "đã chuyển", "receipt_pid": "PH-1"}
+        runner = FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 50_000_000)],
+                            marks=[mark, {**mark, "id": 2, "message_id": "third", "receipt_pid": "PH-1"},
+                                   {**mark, "id": 3, "message_id": "free", "receipt_pid": "PH-77", "amount_vnd": "1000000"},
+                                   {**mark, "id": 4, "message_id": "free2", "receipt_pid": "PH-77", "amount_vnd": "1000000"}])
+        body = self.get([row("chat", at(19), "thu 50tr khách a")], runner)
+        self.assertEqual(sorted((item["source"], item["amount_vnd"]) for item in body["items"]), [("chat", 50_000_000), ("mark", 1_000_000)])
+        # Ba dấu bị ẩn: hai dấu cùng phiếu PH-1 với khoản chat, một dấu thứ hai của phiếu PH-77. Phiếu chỉ cộng một lần.
+        self.assertEqual((body["totals"]["thu_vnd"], body["totals"]["thu_count"], body["marks_hidden"]), (51_000_000, 2, 3))
+
+    def test_concurrent_requests_build_once(self):
+        write_bundle(self.dir, [row("a", at(19), "thu 5tr khách a")])
+        chat._STORE, chat._STORE_DIR = None, None
+        cash._CACHE.clear()
+        runner = FakeRunner(slow=0.3)
+        results = []
+        workers = [threading.Thread(target=lambda: results.append(cash.handle_get("", runner, "tester", NOW))) for _ in range(6)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        self.assertEqual(len(results), 6)
+        self.assertEqual(sum(name == "list_customers" for name, _ in runner.calls), 1)
+        self.assertEqual(len({json.dumps(result["items"]) for result in results}), 1)
+
+    def test_one_conversation_limit_applies_to_reports_and_marks_alike(self):
+        rows = [row("new", at(19), "thu 5tr khách a"), row("old", at(18), "thu 5tr khách a", cid=OTHER)]
+        runner = FakeRunner()
+        with patch.object(cash, "MAX_CONVERSATIONS", 1):
+            body = self.get(rows, runner)
+        self.assertEqual(([item["message_id"] for item in body["items"]], body["conversations_skipped"]), (["new"], 1))
+        self.assertEqual([payload["conversation_id"] for name, payload in runner.calls if name == "get_marks"], [GROUP])
+        self.assertEqual(self.get(rows)["conversations_skipped"], 0)
+
+    def test_chosen_behaviours(self):
+        """Hành vi chủ ý (đổi thì phải đổi test): chi khớp từng dòng phí chứ không khớp tổng; ứng cho xe không có tài xế là chưa rõ;
+        "chi lương tài xế …" có người nên ghép sổ Đội xe; cửa sổ ngày của khoản chat tính từ ngày tin."""
+        two_lines = [{"id": 70, "ngay": "2026-11-18", "da_bo": False, "nguoi_tra_id": 20, "dong": [{"id": 80, "phi": {"dau": "1000000", "nang": "1500000"}}]}]
+        body = self.get([row("sum", at(18), "chi 2tr5 dầu xe 12345"), row("line", at(18), "chi 1tr5 nâng xe 12345"), row("nodriver", at(18), "ứng 3tr xe 67890"),
+                         row("wage", at(18), "chi 3tr lương tài xế bình"), row("office", at(18), "chi 3tr lương tháng 11")], FakeRunner(chang=two_lines))
+        # 2tr5 không khớp dòng phí nào (1tr + 1tr5 là hai dòng): không ghép theo tổng. Sau khi "line" lấy dòng 1tr5, dòng 1tr còn lại là dòng duy nhất
+        # nên hai khoản chi 2tr5 và 3tr đều hiện "lệch" so với nó và cùng `shared` (người xem chọn).
+        self.assertEqual(self.statuses(body), {"sum": "AMOUNT_DIFF", "line": "RECORDED", "nodriver": "UNKNOWN_TARGET", "wage": "AMOUNT_DIFF", "office": "NO_LEDGER"})
+        self.assertEqual([(item["ledger_vnd"], item["shared"]) for item in body["items"] if item["message_id"] in ("sum", "wage")], [(1_000_000, True)] * 2)
+        self.assertEqual(next(item for item in body["items"] if item["message_id"] == "wage")["target"]["kind"], "tai_xe")
 
     def test_unavailable_when_no_bundle(self):
         with patch.object(chat, "EXPORT_DIR", str(self.dir / "khong-co")):
