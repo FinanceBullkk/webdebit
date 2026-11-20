@@ -1,8 +1,8 @@
 (() => {
 'use strict';
 // NHAT-KY-01 (specs/nhat-ky-01.md): Nhật ký công việc dạng bản tin theo ngày (chọn A, 20/11/2026). Chỉ đọc GET /api/v7/nhat-ky.
-// Thứ tự đọc: tuần này mấy thay đổi và mảng nào đang chạy (bảng mảng × tuần) → từng ngày bằng lời thường → giờ làm.
-// Bộ lọc chung: mảng, tuần, giờ. Mỗi khối không tự lọc theo chiều của chính nó để vẫn thấy và đổi được lựa chọn.
+// Thứ tự đọc: tuần này mấy thay đổi và mảng nào đang chạy (lưới ô ngày từng mảng) → dòng thời gian từng ngày → giờ làm.
+// Ít chữ (20/11 chiều): ô không in số, câu lời thường chỉ hiện khi bấm dòng mảng. Bộ lọc chung: mảng, tuần, ngày, giờ. Mỗi khối không tự lọc theo chiều của chính nó để vẫn thấy và đổi được lựa chọn.
 // Không đếm là việc: PR chỉ ghi nhật ký/trạng thái triển khai và PR bot nâng thư viện (máy chủ đã lọc, lọc lại cho chắc)
 const NOISE = /^(Nhật ký|docs\(deploys?\)|docs: .*(triển khai|hao)|Record .*deployment)|[Bb]ump |chore\(deps/;
 function clean(d) {
@@ -24,7 +24,7 @@ const LANE = Object.fromEntries(LANES.map(l => [l.id, l]));
 const laneOfArea = a => LANE[a] || LANES.find(l => l.areas.includes(a)) || LANE["an-toan"];
 const WD = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
 const WD_SHORT = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
-const MAX_WEEKS = 8, PAGE = 7;
+const MAX_WEEKS = 6, PAGE = 7;
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -53,90 +53,98 @@ const kindOf = (k, c) => isWeekend(k) ? "weekend" : mins(c) < 480 ? "early" : mi
 const vnDay = back => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(Date.now() - back * 86_400_000);
 const dayTag = k => k === vnDay(0) ? "Hôm nay" : k === vnDay(1) ? "Hôm qua" : "";
 
-// Bộ lọc chung. lane: mảng; week: thứ Hai đầu tuần (yyyy-mm-dd); hour: 0–23
-let F = { lane: null, week: null, hour: null };
+// Bộ lọc chung. lane: mảng; week: thứ Hai đầu tuần (yyyy-mm-dd); day: yyyy-mm-dd; hour: 0–23
+let F = { lane: null, week: null, day: null, hour: null };
 let G = {}, shown = PAGE;
+const open = new Set();   // dòng mảng đang bung trong từng ngày: "ngày|mảng"
 function pass(k, c, skip = []) {
   if (F.lane && !skip.includes("lane") && c[2] !== F.lane) return false;
   if (F.week && !skip.includes("week") && wk(k) !== F.week) return false;
+  if (F.day && !skip.includes("day") && k !== F.day) return false;
   if (F.hour != null && !skip.includes("hour") && hourOf(c) !== F.hour) return false;
   return true;
 }
-const anyFilter = () => F.lane || F.week || F.hour != null;
+const anyFilter = () => F.lane || F.week || F.day || F.hour != null;
 const rows = skip => G.dates.flatMap(k => DATA.days[k].changes.filter(c => pass(k, c, skip)).map(c => [k, c]));
 function setF(patch) {
   for (const d in patch) F[d] = F[d] === patch[d] ? null : patch[d];
+  if (patch.day && F.day) F.week = null;
+  if (patch.week && F.week) F.day = null;
   shown = PAGE; render();
 }
-const clearF = () => { F = { lane: null, week: null, hour: null }; shown = PAGE; render(); };
+const clearF = () => { F = { lane: null, week: null, day: null, hour: null }; shown = PAGE; render(); };
 
 function derive() {
   const dates = Object.keys(DATA.days).sort(), last = dates[dates.length - 1];
   const weeks = []; for (let w = wk(dates[0]); w <= wk(last); w = addDays(w, 7)) weeks.push(w);
   if (F.week && !weeks.includes(F.week)) F.week = null;
-  G = { dates, last, weeks, shownWeeks: weeks.slice(-MAX_WEEKS), highlight: {} };
-  (DATA.highlights || []).forEach(h => { const l = laneOfArea(h.area); if (!G.highlight[l.id]) G.highlight[l.id] = h; });
+  if (F.day && !DATA.days[F.day]) F.day = null;
+  G = { dates, last, weeks, gridWeeks: weeks.slice(-MAX_WEEKS) };
 }
 
-// ===== Khối 1: tuần đang xem + bảng mảng × tuần =====
+// ===== Khối 1: tuần đang xem + lưới ô vuông theo ngày cho từng mảng (kiểu lịch đóng góp GitHub) =====
 function renderWeek() {
-  const cur = F.week || wk(G.last), prev = addDays(cur, -7), end = addDays(cur, 6);
-  const inWeek = w => rows(["week"]).filter(([k]) => wk(k) === w);
+  const cur = F.week || wk(F.day || G.last), prev = addDays(cur, -7), end = addDays(cur, 6);
+  const inWeek = w => rows(["week", "day"]).filter(([k]) => wk(k) === w);
   const now = inWeek(cur), before = inWeek(prev), days = w => new Set(inWeek(w).map(([k]) => k)).size;
   $("weekTitle").textContent = `Tuần ${dm(parse(cur))} – ${dm(parse(end))}`;
   $("weekAside").textContent = cur === wk(vnDay(0)) ? "tuần này" : F.week ? "tuần đã chọn" : "tuần gần nhất";
   const sum = $("weekSum"); sum.replaceChildren();
   const big = el("div", "nk-big"); const n = el("b", "num", nf(now.length)); n.id = "weekNum";
-  big.append(n, el("span", null, `thay đổi${F.lane ? " " + LANE[F.lane].name : ""}${F.hour != null ? ` lúc ${F.hour}h` : ""} trong ${days(cur)} ngày làm`));
+  big.append(n, el("span", null, `thay đổi${F.lane ? " " + LANE[F.lane].name : ""}${F.hour != null ? ` lúc ${F.hour}h` : ""} · ${days(cur)} ngày làm`));
   sum.append(big);
-  const facts = el("ul", "nk-facts");
-  if (G.weeks.includes(prev)) facts.append(el("li", null, before.length ? `Tuần trước: ${nf(before.length)} thay đổi trong ${days(prev)} ngày` : "Tuần trước: chưa có"));
-  const top = LANES.map(l => [l, now.filter(([, c]) => c[2] === l.id).length]).sort((a, b) => b[1] - a[1])[0];
-  if (top && top[1] && !F.lane) { const li = el("li"); li.append("Làm nhiều nhất: ", dot(top[0].color), el("b", null, top[0].name), ` (${nf(top[1])})`); facts.append(li); }
-  sum.append(facts);
+  if (G.weeks.includes(prev)) {
+    const p = before.length, delta = el("span", "nk-delta" + (p && now.length >= p ? " up" : ""));
+    delta.textContent = p ? `${now.length >= p ? "▲" : "▼"} ${nf(Math.abs(now.length - p))} so tuần trước` : "tuần trước chưa có";
+    tip(delta, `Tuần trước: ${nf(p)} thay đổi trong ${days(prev)} ngày`); sum.append(delta);
+  }
 
-  // Bảng nhiệt một màu: hàng là mảng (chấm màu = danh tính), cột là tuần, số trong ô là số thay đổi
-  const ws = G.shownWeeks, cell = (lane, w) => rows(["lane", "week"]).filter(([k, c]) => c[2] === lane && wk(k) === w).length;
-  const counts = LANES.map(l => ws.map(w => cell(l.id, w))), max = Math.max(1, ...counts.flat());
-  const level = v => v ? Math.min(5, 1 + Math.floor(v / max * 4.999)) : 0;
-  const t = $("matrix"); t.replaceChildren();
-  const hr = el("tr"); hr.append(el("th", "lane-h", "Mảng"));
-  const old = j => j < ws.length - 5 ? "old" : "";   // màn hẹp chỉ hiện 5 tuần gần nhất
+  // Mỗi mảng một hàng ô ngày; đậm nhạt một sắc theo số thay đổi, không in số (di chuột để xem). Hàng đầu là cả hệ thống.
+  const ws = G.gridWeeks, cal = $("cal"); cal.replaceChildren();
+  const today = vnDay(0), cnt = {};
+  rows(["lane", "week", "day"]).forEach(([k, c]) => { cnt[`${c[2]}|${k}`] = (cnt[`${c[2]}|${k}`] || 0) + 1; cnt[`*|${k}`] = (cnt[`*|${k}`] || 0) + 1; });
+  const laneMax = Math.max(1, ...Object.entries(cnt).filter(([key]) => !key.startsWith("*")).map(([, v]) => v));
+  const allMax = Math.max(1, ...Object.entries(cnt).filter(([key]) => key.startsWith("*")).map(([, v]) => v));
+  const level = (v, mx) => v ? Math.min(4, Math.ceil(v / mx * 4)) : 0;
+  const old = j => j < ws.length - 3 ? " old" : "";   // màn hẹp chỉ hiện 3 tuần gần nhất
+  // Hàng tiêu đề: nhãn tuần bấm được
+  const head = el("div", "cal-row cal-head"); head.append(el("span", "cal-lab"));
+  const wrapH = el("div", "cal-weeks");
   ws.forEach((w, j) => {
-    const th = el("th", old(j)), b = btn("wk" + (F.week === w ? " on" : F.week ? " dim" : ""), dm(parse(w)));
+    const b = btn("cal-wk" + old(j) + (F.week === w ? " on" : ""), dm(parse(w)));
     b.setAttribute("aria-pressed", F.week === w); tip(b, `Xem tuần từ ${dm(parse(w))}`);
-    b.addEventListener("click", () => setF({ week: w })); th.append(b); hr.append(th);
+    b.addEventListener("click", () => setF({ week: w })); wrapH.append(b);
   });
-  hr.append(el("th", "last-h", "Gần nhất"));
-  const thead = el("thead"); thead.append(hr);
-  const tbody = el("tbody");
-  LANES.forEach((l, i) => {
-    const tr = el("tr", F.lane && F.lane !== l.id ? "dim" : ""), th = el("th"), b = btn("lane" + (F.lane === l.id ? " on" : ""));
-    const h = G.highlight[l.id], txt = el("span", "lt");
-    txt.append(el("b", null, l.name)); if (h && h.text) txt.append(el("small", null, h.text));
-    b.append(dot(l.color), txt); b.setAttribute("aria-pressed", F.lane === l.id);
-    tip(b, h ? `${h.title}\n${h.text || ""}` : l.name);
-    b.addEventListener("click", () => setF({ lane: l.id })); th.append(b); tr.append(th);
-    counts[i].forEach((v, j) => {
-      const td = el("td", old(j)), w = ws[j];
-      if (v) {
-        const c = btn(`hc h${level(v)}` + (F.lane === l.id && F.week === w ? " on" : "") + (F.week && F.week !== w ? " dim" : ""), nf(v));
-        tip(c, `${l.name}, tuần ${dm(parse(w))}: ${v} thay đổi`); c.setAttribute("aria-label", `${l.name}, tuần ${dm(parse(w))}: ${v} thay đổi`);
-        c.addEventListener("click", () => { F.lane = F.lane === l.id && F.week === w ? null : l.id; F.week = F.lane ? w : null; shown = PAGE; render(); });
-        td.append(c);
-      } else td.append(el("span", "hc h0", "·"));
-      tr.append(td);
+  head.append(wrapH, el("span", "cal-n", "Tuần"));
+  cal.append(head);
+  const row = (id, name, color) => {
+    const r = el("div", "cal-row" + (id === "*" ? " all" : "") + (F.lane && id !== "*" && F.lane !== id ? " dim" : ""));
+    const lab = id === "*" ? el("span", "cal-lab", name) : btn("cal-lab lane" + (F.lane === id ? " on" : ""));
+    if (id !== "*") { lab.append(dot(color), el("span", null, name)); lab.setAttribute("aria-pressed", F.lane === id); lab.addEventListener("click", () => setF({ lane: id })); }
+    const wrap = el("div", "cal-weeks");
+    ws.forEach((w, j) => {
+      const g = el("div", "cal-wk7" + old(j) + (F.week && F.week !== w ? " dim" : ""));
+      for (let i = 0; i < 7; i++) {
+        const k = addDays(w, i), v = cnt[`${id}|${k}`] || 0, label = `${id === "*" ? "Cả hệ thống" : name} · ${WD_SHORT[i]} ${dm(parse(k))}: ${v ? nf(v) + " thay đổi" : "không có"}`;
+        if (k > today || k > G.last && !v) { g.append(el("i", "sq fut")); continue; }
+        const s = btn(`sq q${level(v, id === "*" ? allMax : laneMax)}` + (F.day === k ? " sel" : ""));
+        tip(s, label); s.setAttribute("aria-label", label);
+        if (v) s.addEventListener("click", () => { if (id !== "*") F.lane = F.day === k && F.lane === id ? null : id; setF({ day: k }); });
+        else s.disabled = true;
+        g.append(s);
+      }
+      wrap.append(g);
     });
-    const lastK = [...G.dates].reverse().find(k => DATA.days[k].changes.some(c => c[2] === l.id));
-    const ago = lastK ? Math.round((parse(G.last) - parse(lastK)) / 86_400_000) : null;
-    tr.append(el("td", "last" + (ago > 7 ? " stale" : ""), lastK ? (dayTag(lastK) || dm(parse(lastK))) : "—"));
-    tbody.append(tr);
-  });
-  const tf = el("tr", "total"); tf.append(el("th", null, "Tổng"));
-  ws.forEach((w, j) => tf.append(el("td", `num ${old(j)}` + (F.week && F.week !== w ? " dim" : ""), nf(counts.reduce((n, r) => n + r[j], 0)))));
-  tf.append(el("td"));
-  const tfoot = el("tfoot"); tfoot.append(tf);
-  t.append(thead, tbody, tfoot);
+    const tot = ws.includes(cur) ? Object.entries(cnt).filter(([key]) => key.startsWith(id + "|") && wk(key.slice(id.length + 1)) === cur).reduce((a, [, v]) => a + v, 0) : 0;
+    r.append(lab, wrap, el("b", "cal-n num" + (tot ? "" : " zero"), tot ? nf(tot) : "·"));
+    return r;
+  };
+  cal.append(row("*", "Tất cả"));
+  LANES.forEach(l => cal.append(row(l.id, l.name, l.color)));
+  const leg = el("div", "cal-leg"); leg.append(el("span", null, "Ít"));
+  for (let i = 0; i <= 4; i++) leg.append(el("i", `sq q${i}`));
+  leg.append(el("span", null, "Nhiều"));
+  cal.append(leg);
 }
 
 // ===== Đang làm tiếp =====
@@ -157,50 +165,55 @@ function renderFilterBar() {
   };
   if (F.lane) chip({ lane: F.lane }, LANE[F.lane].name, LANE[F.lane].color);
   if (F.week) chip({ week: F.week }, `Tuần ${dm(parse(F.week))}`);
+  if (F.day) chip({ day: F.day }, `${WD_SHORT[(parse(F.day).getDay() + 6) % 7]} ${dm(parse(F.day))}`);
   if (F.hour != null) chip({ hour: F.hour }, `${F.hour}h–${F.hour + 1}h`);
   const clr = btn("link", "Xóa lọc"); clr.addEventListener("click", clearF); bar.append(clr);
 }
 
-// ===== Khối 2: từng ngày, mới nhất trước, bằng lời thường =====
+// ===== Khối 2: dòng thời gian kiểu GitHub. Mỗi ngày: tiêu đề + mỗi mảng một thanh dài theo số thay đổi;
+// câu lời thường và tên thay đổi chỉ hiện khi bấm dòng mảng =====
 function renderFeed() {
   const days = [...G.dates].reverse().filter(k => DATA.days[k].changes.some(c => pass(k, c)));
-  const list = F.week ? days : days.slice(0, shown), feed = $("feed");
+  const list = F.week || F.day ? days : days.slice(0, shown), feed = $("feed");
   feed.replaceChildren();
   $("feedTitle").textContent = anyFilter() ? `Từng ngày · ${nf(rows([]).length)} thay đổi khớp lọc` : "Từng ngày";
-  if (!list.length) feed.append(el("p", "nk-empty", "Không có thay đổi nào khớp lọc."));
+  if (!list.length) { feed.append(el("p", "nk-empty", "Không có thay đổi nào khớp lọc.")); }
+  const per = k => LANES.map(l => [l, DATA.days[k].changes.filter(c => c[2] === l.id && pass(k, c))]).filter(([, cs]) => cs.length);
+  const max = Math.max(1, ...list.flatMap(k => per(k).map(([, cs]) => cs.length)));
+  const tl = el("div", "tl");
   list.forEach(k => {
-    const d = parse(k), day = DATA.days[k], ch = day.changes, hit = ch.filter(c => pass(k, c));
-    const art = el("article", "nk-day"); art.dataset.day = k;
-    const when = el("div", "when"), tag = dayTag(k);
-    when.append(el("b", null, WD_SHORT[(d.getDay() + 6) % 7]), el("span", "num", dm(d)));
-    if (tag) when.append(el("span", "tag", tag));
-    const body = el("div", "body"), head = el("div", "dhead");
+    const d = parse(k), day = DATA.days[k], hit = day.changes.filter(c => pass(k, c)), tag = dayTag(k);
+    const art = el("article", "tl-day"); art.dataset.day = k;
+    const head = el("div", "tl-head"), when = el("b", "tl-when num", `${WD_SHORT[(d.getDay() + 6) % 7]} ${dm(d)}`);
+    head.append(el("span", "tl-node"), when);
+    if (tag) head.append(el("span", "tag", tag));
     head.append(el("h3", DATA.headlines[k] ? null : "muted", DATA.headlines[k] || "Các thay đổi trong ngày"),
-      el("span", "count num", anyFilter() ? `${hit.length}/${ch.length} thay đổi` : `${ch.length} thay đổi · ${ch[0][6]}–${ch[ch.length - 1][6]}`));
-    body.append(head);
-    // Câu cùng mảng đứng liền nhau theo thứ tự mảng, nhãn mảng chỉ in ở câu đầu nhóm
-    const items = (day.items || []).map(([a, txt], i) => [laneOfArea(a), txt, i]).filter(([l]) => !F.lane || l.id === F.lane)
-      .sort((a, b) => LANES.indexOf(a[0]) - LANES.indexOf(b[0]) || a[2] - b[2]);
-    if (items.length) {
-      const ul = el("ul", "items");
-      items.forEach(([l, txt], i) => {
-        const li = el("li", i && items[i - 1][0] === l ? "cont" : ""), lab = el("span", "lname");
-        if (!li.className) lab.append(dot(l.color), document.createTextNode(l.name));
-        li.append(lab, el("span", "txt", txt)); ul.append(li);
-      });
-      body.append(ul);
-    } else if (F.lane || !(day.items || []).length) {
-      body.append(el("p", "muted note", F.lane ? `Tóm tắt ngày không nhắc riêng ${LANE[F.lane].name}; xem danh sách thay đổi bên dưới.` : "Chưa có tóm tắt lời thường cho ngày này."));
-    }
-    const det = el("details", "tech"); det.open = F.hour != null || !items.length;
-    det.append(el("summary", null, anyFilter() && hit.length < ch.length ? `Danh sách thay đổi (${hit.length} khớp lọc)` : `Danh sách thay đổi (${ch.length})`));
-    const ol = el("ol");
-    [...(anyFilter() ? hit : ch)].reverse().forEach(c => {
-      const li = el("li"); li.append(el("span", "t num", c[6]), dot(LANE[c[2]].color), el("span", null, c[1])); ol.append(li);
+      tip(el("span", "count num", `${nf(hit.length)}`), `${hit.length} thay đổi, ${hit[0][6]}–${hit[hit.length - 1][6]}`));
+    const ul = el("ul", "tl-lanes");
+    per(k).sort((a, b) => b[1].length - a[1].length).forEach(([l, cs]) => {
+      const id = `${k}|${l.id}`, isOpen = open.has(id) || !!F.lane || F.hour != null;
+      const li = el("li"), b = btn("tl-lane"); b.setAttribute("aria-expanded", isOpen);
+      const name = el("span", "tl-name"); name.append(dot(l.color), el("span", null, l.name));
+      const track = el("span", "tl-track"), bar = el("i"); bar.style.width = `${Math.max(3, cs.length / max * 100)}%`; bar.style.background = l.color; track.append(bar);
+      b.append(name, track, el("b", "num", nf(cs.length)), el("span", "chev", "›"));
+      b.addEventListener("click", () => { open.has(id) ? open.delete(id) : open.add(id); renderFeed(); });
+      li.append(b);
+      if (isOpen) {
+        const more = el("div", "tl-more");
+        const items = (day.items || []).filter(([a]) => laneOfArea(a) === l).map(([, t]) => t);
+        if (items.length) { const u = el("ul", "says"); items.forEach(t => u.append(el("li", null, t))); more.append(u); }
+        const o = el("ol", "prs");
+        [...cs].reverse().forEach(c => { const x = el("li"); x.append(el("span", "t num", c[6]), el("span", null, c[1])); o.append(x); });
+        // Có câu lời thường thì tên thay đổi kỹ thuật thu lại một dòng; chưa có câu thì hiện luôn
+        if (items.length) { const det = el("details", "tech"); det.append(el("summary", null, `Xem ${nf(cs.length)} thay đổi kỹ thuật`), o); more.append(det); }
+        else more.append(o);
+        li.append(more);
+      }
+      ul.append(li);
     });
-    det.append(ol); body.append(det);
-    art.append(when, body); feed.append(art);
+    art.append(head, ul); tl.append(art);
   });
+  feed.append(tl);
   const more = $("more"), rest = days.length - list.length;
   more.hidden = rest <= 0;
   more.textContent = `Xem thêm ${Math.min(PAGE, rest)} ngày (còn ${rest})`;
@@ -211,7 +224,7 @@ $("more").addEventListener("click", () => { shown += PAGE; renderFeed(); });
 function renderHours() {
   const rs = rows(["hour"]), box = $("hours"), tot = rs.length;
   box.replaceChildren();
-  $("hoursScope").textContent = F.week ? `tuần ${dm(parse(F.week))}` : "cả kỳ";
+  $("hoursScope").textContent = F.day ? dm(parse(F.day)) : F.week ? `tuần ${dm(parse(F.week))}` : "cả kỳ";
   if (!tot) { box.append(el("p", "muted", "Chưa có thay đổi.")); return; }
   const by = Object.fromEntries(KIND.map(x => [x.id, 0])); rs.forEach(([k, c]) => by[kindOf(k, c)]++);
   const off = tot - by.in;
