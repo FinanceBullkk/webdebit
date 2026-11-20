@@ -17,7 +17,8 @@ USER_PAGES = frozenset({
 })
 # API chỉ trang quản lý gọi: Máy chạy, Đội xe, Nhật ký công việc. API mà trang người dùng cần (company-info cho
 # debit note, inbox cho việc Sheet trong Sổ khách…) vẫn mở cho mọi login được vào.
-ADMIN_API_PREFIXES = ("/api/v7/machine", "/api/v7/doixe", "/api/v7/nhat-ky", "/api/v7/admin")   # admin: QUYEN-02
+ADMIN_API_PREFIXES = ("/api/v7/machine", "/api/v7/doixe", "/api/v7/nhat-ky", "/api/v7/admin",   # admin: QUYEN-02
+                      "/api/v7/cash-chat")   # ZALO-THU-CHI-01: có số chi và ứng của Đội xe, cùng quyền với Đội xe
 
 FORBIDDEN_MESSAGE = "Mục này chỉ dành cho quản lý."
 _HTML_OPEN = b'<html lang="vi"'

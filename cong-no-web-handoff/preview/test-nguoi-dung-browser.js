@@ -94,14 +94,14 @@ const rowOf = (page, login) => page.locator(`#users .nd-row[data-login="${login}
 const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 const openMenu = (page, name) => page.getByRole('button', { name: `Thao tác với ${name}` }).click();
 
-test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ sáu thẻ, dòng cố định và dòng của mình không đổi được', () => withPage({}, async page => {
+test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ bảy thẻ, dòng cố định và dòng của mình không đổi được', () => withPage({}, async page => {
   await page.locator('#users .nd-row').first().waitFor();
   const menu = (await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]);
   assert.deepEqual(menu, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Quản trị']);
   assert.equal((await page.locator('.app-nav nav a.active').innerText()).split('\n')[0], 'Quản trị');
   assert.equal(await page.locator('.app-nav nav a.active').getAttribute('href'), '/viec-can-lam.html');
   const tabs = page.locator('nav.admin-tabs a');
-  assert.deepEqual((await tabs.allInnerTexts()).map(text => text.replace(/\d+$/, '').trim()), ['Việc cần làm', 'Máy chạy', 'Đội xe', 'Thông tin cty', 'Nhật ký', 'Người dùng']);
+  assert.deepEqual((await tabs.allInnerTexts()).map(text => text.replace(/\d+$/, '').trim()), ['Việc cần làm', 'Máy chạy', 'Đội xe', 'Thông tin cty', 'Thu chi', 'Nhật ký', 'Người dùng']);
   assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Người dùng');
   // Dải thẻ nằm ngay trên thanh đầu trang, không đè.
   const strip = await page.locator('nav.admin-tabs').boundingBox(), head = await page.locator('.page-head.topbar').boundingBox();
