@@ -27,7 +27,7 @@ from zalo_agent.source import LiveSync
 REPO = Path(__file__).resolve().parents[3]
 STATUS_EVERY = 60     # giây: nhịp tim tối thiểu khi không có gì đổi
 SETTLE = 3            # giây: gom các revision liên tiếp rồi mới xử lý
-LOCK_STALE = 2 * 3600
+MAX_BACKOFF = 15 * 60  # giây
 
 
 class Agent:
@@ -46,73 +46,95 @@ class Agent:
         self.failures = 0
         self.push_ok_at = None
         self.push_error = None
+        self.lock_handle = None
 
-    def lock(self):
+    def lock(self) -> bool:
+        """Khóa của hệ điều hành trên handle mở suốt đời tiến trình: tiến trình chết (kể cả bị giết, máy khởi động lại) thì
+        hệ điều hành tự nhả. File `agent.lock` còn sót không chặn ai."""
+        if self.lock_handle is not None:
+            return True
         self.state.mkdir(parents=True, exist_ok=True)
-        path = self.state / "agent.lock"
+        handle = open(self.state / "agent.lock", "a+b")  # noqa: SIM115  (giữ mở suốt đời tiến trình)
         try:
-            if path.is_file() and time.time() - path.stat().st_mtime > LOCK_STALE:
-                path.unlink()
-            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-        except FileExistsError:
-            return None
-        return path
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return False
+        self.lock_handle = handle
+        return True
 
-    def cycle(self, force_status: bool = False) -> dict | None:
-        """Một lượt: chạy từng bộ xử lý, ghi `status.json` (và đẩy) khi có đổi hoặc đủ một phút."""
-        lock = self.lock()
-        if lock is None:
+    def release(self) -> None:
+        if self.lock_handle is not None:
+            self.lock_handle.close()
+            self.lock_handle = None
+
+    def cycle(self, force_status: bool = False, run_steps: bool = True) -> dict | None:
+        """Một lượt: chạy từng bộ xử lý (trừ khi `run_steps` False: chỉ nhịp tim, dùng lúc lùi sau lỗi), ghi `status.json`
+        và đẩy khi có đổi hoặc đủ một phút."""
+        if not self.lock():
             return None
-        try:
-            results = {}
-            for processor in self.processors:
-                try:
-                    results[processor.name] = processor.step()
-                except Exception as exc:  # noqa: BLE001  (một bộ xử lý lỗi không được làm chết cả agent)
-                    saved = cursors.load(self.state, processor.name)
-                    results[processor.name] = {"action": "idle", "revision": (saved or {}).get("revision"), "error": "unexpected"}
-                    self.log.error("%s: %s", processor.name, type(exc).__name__)
-            now = self.clock()
-            for name, result in results.items():
-                if result["action"] != "idle" or result["error"] != (self.last.get(name) or {}).get("error"):
-                    self.log.info("%s: %s revision=%s bytes=%s error=%s", name, result["action"], result["revision"],
-                                  result.get("bytes_sent"), result["error"])
-            changed = {name: (r["action"], r["revision"], r["error"]) for name, r in results.items()} != \
-                {name: (r["action"], r["revision"], r["error"]) for name, r in self.last.items()}
-            self.last = results
-            if not (force_status or changed or now - self.last_status_at >= STATUS_EVERY):
-                return None
-            identity = self.live.identity()
-            status = status_file.compose(status_file.load(self.state), now, self.version, len(self.live.selection()), self.live,
-                                         results, self.push_ok_at, self.push_error,
-                                         (identity, status_file.track_identity(self.state, identity, now)))
-            data = status_file.write(self.state, status)
-            self.last_status_at = now
-            if not self.dry_run:
-                try:
-                    status_file.push_status(self.status_target, data, self.run)
-                    self.push_ok_at, self.push_error = cursors.now_iso(now), None
-                except pusher.PushError:
-                    self.push_error = "push_failed"
-            return status
-        finally:
-            lock.unlink(missing_ok=True)
+        results = dict(self.last)
+        for processor in self.processors if run_steps else ():
+            try:
+                results[processor.name] = processor.step()
+            except Exception as exc:  # noqa: BLE001  (một bộ xử lý lỗi không được làm chết cả agent)
+                saved = cursors.load(self.state, processor.name)
+                results[processor.name] = {"action": "idle", "revision": (saved or {}).get("revision"), "error": "unexpected"}
+                self.log.error("%s: %s", processor.name, type(exc).__name__)
+        now = self.clock()
+        for name, result in results.items():
+            if result["action"] != "idle" or result["error"] != (self.last.get(name) or {}).get("error"):
+                self.log.info("%s: %s revision=%s bytes=%s error=%s", name, result["action"], result["revision"],
+                              result.get("bytes_sent"), result["error"])
+        changed = {name: (r["action"], r["revision"], r["error"]) for name, r in results.items()} != \
+            {name: (r["action"], r["revision"], r["error"]) for name, r in self.last.items()}
+        self.last = results
+        if not (force_status or changed or now - self.last_status_at >= STATUS_EVERY):
+            return None
+        identity = self.live.identity()
+        status = status_file.compose(status_file.load(self.state), now, self.version, len(self.live.selection()), self.live,
+                                     results, self.push_ok_at, self.push_error,
+                                     (identity, status_file.track_identity(self.state, identity, now)))
+        data = status_file.write(self.state, status)
+        self.last_status_at = now
+        if not self.dry_run:
+            try:
+                status_file.push_status(self.status_target, data, self.run)
+                self.push_ok_at, self.push_error = cursors.now_iso(now), None
+            except pusher.PushError:
+                self.push_error = "push_failed"
+        return status
 
     def wants_work(self) -> bool:
         return any(processor.wants_work() for processor in self.processors)
 
     def forever(self, interval: float = 1.0) -> None:
         while True:
-            now = self.clock()
-            if now >= self.retry_at and self.wants_work():
-                self.sleep(SETTLE)
-                self.cycle()
-                failed = any(result["error"] for result in self.last.values())
-                self.failures = self.failures + 1 if failed else 0
-                self.retry_at = now + (min(60, 2 ** self.failures) if failed else 0)
+            if self.clock() < self.retry_at:
+                self.cycle(run_steps=False)   # đang lùi sau lỗi: không chạm máy chủ ngoài nhịp tim mỗi phút
             else:
-                self.cycle()   # nhịp tim: chỉ ghi và đẩy khi đủ một phút
+                if self.wants_work():
+                    self.sleep(SETTLE)
+                self.cycle()
+                if any(result["error"] for result in self.last.values()):
+                    self.failures += 1
+                    delay = backoff(self.failures)
+                    self.retry_at = self.clock() + delay
+                    self.log.warning("lỗi lần %d liên tiếp: lùi %d giây", self.failures, delay)
+                else:
+                    self.failures, self.retry_at = 0, 0.0
             self.sleep(interval)
+
+
+def backoff(failures: int) -> int:
+    """Giây chờ sau lần lỗi thứ `failures` liên tiếp: 60, 120, 240, … tối đa 15 phút."""
+    return min(MAX_BACKOFF, 60 * 2 ** (failures - 1))
 
 
 def configure_logging(root: Path) -> logging.Logger:

@@ -2,6 +2,11 @@
 
 `revision.json` ghi sau cùng, nên đọc nó TRƯỚC rồi mới đọc `changes-N.json` và `messages.jsonl`: nếu `messages.jsonl`
 đã mới hơn `R` thì không sao, lượt sau xử lý lại phần dư và mọi thứ đẩy đi đều idempotent theo `message_id`.
+
+Windows: `open()` của Python không cho file bị thay khi đang mở. Đã đo (20/11/2026): mở bằng `CreateFileW` đủ cờ chia sẻ
+(READ|WRITE|DELETE) vẫn cho đổi tên file đi nhưng KHÔNG cho `os.replace` đè lên nó (WinError 5), nên không có cách mở nào
+tránh được. `live_sync.py` bọc `os.replace` của `messages.jsonl` bằng `_retry_io` (60 lần, nghỉ tới 0,5 giây) và agent chỉ
+giữ file mở khoảng 0,25 giây mỗi lượt quét, nên hai bên không chặn nhau.
 """
 from __future__ import annotations
 
@@ -16,7 +21,8 @@ VN = timezone(timedelta(hours=7))
 SELECTION = "web-groups.json"
 CONVERSATION_ID = re.compile(r"[0-9a-f]{64}")
 # `message_id` nằm trong 400 byte đầu mỗi dòng (đo 20/11/2026: byte 92). Trích bằng regex rồi tra tập hợp: 0,26 giây
-# cho 131 MB; lặp `id in dòng` cho 446 id mất 43 giây, nên không dùng.
+# cho 131 MB; lặp `id in dòng` cho 446 id mất 43 giây, nên không dùng. Dòng không khớp trong 400 byte đầu thì rơi về
+# json.loads (đúng nhưng chậm); sau json.loads luôn kiểm lại khóa cấp trên cùng (tin trích dẫn có khóa lồng cùng tên).
 ID_AT_HEAD = re.compile(rb'"message_id": ?"([^"]{1,128})"')
 HEAD = 400
 IDENTITIES = ("attached", "waiting_for_zalo", "reprobing")
@@ -88,13 +94,13 @@ class LiveSync:
         rows = []
         with (self.dir / "messages.jsonl").open("rb") as stream:
             for raw in stream:
-                found = ID_AT_HEAD.search(raw, 0, HEAD)
-                if not found or found.group(1) not in wanted:
+                heads = [found.group(1) for found in ID_AT_HEAD.finditer(raw, 0, HEAD)]
+                if heads and wanted.isdisjoint(heads):
                     continue
                 try:
                     row = json.loads(raw)
                 except ValueError:
                     continue
-                if row.get("conversation_id") in conversations:
+                if isinstance(row, dict) and row.get("message_id") in ids and row.get("conversation_id") in conversations:
                     rows.append(row)
         return rows

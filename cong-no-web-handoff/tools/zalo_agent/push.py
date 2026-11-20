@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import re
 import shlex
 import subprocess
@@ -91,10 +92,19 @@ class Plan:
 
 
 def ssh_run(host: str, command: str, stdin=None) -> str:
-    # Chạy theo lịch bằng pythonw: không mở cửa sổ console cho ssh.exe.
-    done = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", host, command],
-                          stdin=stdin, capture_output=True, check=False, timeout=1800,
-                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    """Lượt hỏi (không stdin) tối đa 120 giây; lượt gửi tar thêm 1 giây mỗi 100 KB, tối đa 30 phút. Mọi lỗi chạy ssh
+    (quá giờ, thiếu ssh.exe) đổi thành PushError để vòng lặp của agent không chết."""
+    size = os.fstat(stdin.fileno()).st_size if stdin is not None else 0
+    options = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"]
+    try:
+        # Chạy theo lịch bằng pythonw: không mở cửa sổ console cho ssh.exe.
+        done = subprocess.run(["ssh", *options, host, command], stdin=subprocess.DEVNULL if stdin is None else stdin,
+                              capture_output=True, check=False, timeout=min(1800, 120 + size // 100_000),
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except subprocess.TimeoutExpired:
+        raise PushError(f"ssh {host} quá thời gian") from None
+    except OSError as exc:
+        raise PushError(f"không chạy được ssh: {type(exc).__name__}") from None
     if done.returncode != 0:
         raise PushError(f"ssh {host} lỗi (mã {done.returncode}): {done.stderr.decode('utf-8', 'replace').strip()[:300]}")
     return done.stdout.decode("utf-8", "replace")
@@ -112,7 +122,7 @@ def validate(plan: Plan) -> tuple[str, str]:
     if len(set(names)) != len(names) or plan.final.rel in names or "/" in plan.final.rel:
         raise PushError("kế hoạch đẩy có file trùng tên hoặc file chốt không nằm thẳng trong thư mục đích")
     if not all(REL.fullmatch(rel) and ".." not in rel for rel in [*names, plan.final.rel]) or \
-            not all(PATTERN.fullmatch(pattern) for pattern in plan.prune):
+            not all(PATTERN.fullmatch(pattern) and ".." not in pattern for pattern in plan.prune):
         raise PushError("tên file hoặc mẫu dọn trong kế hoạch đẩy không hợp lệ")
     return match["host"], match["path"].rstrip("/")
 
@@ -147,8 +157,10 @@ def push(plan: Plan, run=ssh_run) -> dict:
         send = [item for item in plan.files
                 if sizes.get(item.rel) != item.size() or (not item.immutable and shas.get(item.rel) != item.sha256())]
         planned = set(keep) | {plan.final.rel}
-        stale = any(fnmatchcase(unit(rel, pattern), pattern) and unit(rel, pattern) not in
-                    {unit(known, pattern) for known in planned} for rel in sizes for pattern in plan.prune)
+        known = {pattern: {unit(name, pattern) for name in planned} for pattern in plan.prune}
+        # Glob của shell bỏ qua tên bắt đầu bằng dấu chấm còn fnmatch thì không: bỏ chúng khi so.
+        stale = any(fnmatchcase(unit(rel, pattern), pattern) and not unit(rel, pattern).rsplit("/", 1)[-1].startswith(".")
+                    and unit(rel, pattern) not in known[pattern] for rel in sizes for pattern in plan.prune)
         if not send and not stale and shas.get(plan.final.rel) == plan.final.sha256():
             return {"sent": [], "bytes": 0, "skipped": True}
     else:

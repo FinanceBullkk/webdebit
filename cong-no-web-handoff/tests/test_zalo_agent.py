@@ -6,6 +6,7 @@ Dữ liệu bịa trong thư mục tạm (kho live-sync giả, máy chủ giả 
 import contextlib
 import hashlib
 import io
+import itertools
 import json
 import os
 import shlex
@@ -14,9 +15,11 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -329,6 +332,8 @@ class AgentTest(unittest.TestCase):
             "selection_changed": lambda: wb.Source(self.src).save_selection([GROUP, OTHER]),
             "nightly": lambda: setattr(self, "now", (datetime.fromtimestamp(NOW, VN) + timedelta(days=1)).replace(hour=4).timestamp()),
             "data_dir_missing": lambda: shutil.rmtree(next(self.out.glob("data-*"))),
+            "report_mismatch": lambda: (self.out / wb.REPORT).write_text(json.dumps({"data_dir": "data-khac"}), encoding="utf-8"),
+            "delta_short": lambda: (next(self.out.glob("data-*")) / "messages-delta.jsonl").write_bytes(b""),
         }
         for reason, change in cases.items():
             with self.subTest(reason=reason):
@@ -438,6 +443,14 @@ class PushTest(unittest.TestCase):
         self.assertEqual(sorted(path.relative_to(self.dir).as_posix() for path in self.dir.rglob("*") if path.is_file()),
                          ["data-2/a", "export-report.json", "media/x.jpg"])
 
+    def test_dotfiles_on_server_are_not_stale_because_shell_globs_skip_them(self):
+        files = [("data-1/a", b"1", True), ("media/x.jpg", b"i", True)]
+        pusher.push(self.plan(files), run=self.remote)
+        (self.dir / "media" / ".partial").write_bytes(b"x")   # fnmatch khớp, glob của shell thì không: không được coi là thừa
+        applies = self.remote.applies()
+        self.assertTrue(pusher.push(self.plan(files), run=self.remote)["skipped"])
+        self.assertEqual(self.remote.applies(), applies)
+
     def test_final_only_plan_always_sends_and_keeps_other_files(self):
         (self.remote.dirs[STATUS_REMOTE] / "other").write_text("giữ", encoding="utf-8")
         target = "fake:" + STATUS_REMOTE
@@ -454,11 +467,41 @@ class PushTest(unittest.TestCase):
                pusher.Plan(self.target, (), pusher.Item("sub/status.json", b"1")), pusher.Plan(self.target, (), pusher.Item("../x", b"1")),
                pusher.Plan(self.target, (pusher.Item("a", b"1"), pusher.Item("a", b"2")), item),
                pusher.Plan(self.target, (pusher.Item("a b", b"1"),), item), pusher.Plan(self.target, (), item, ("a b",)),
-               pusher.Plan(self.target, (), item, ("$(id)",))]
+               pusher.Plan(self.target, (), item, ("$(id)",)), pusher.Plan(self.target, (), item, ("media/..",))]
         for plan in bad:
             with self.subTest(target=plan.target), self.assertRaises(pusher.PushError):
                 pusher.push(plan, run=self.remote)
         self.assertEqual(self.remote.calls, [])
+
+
+class SshRunTest(unittest.TestCase):
+    def run_with(self, stdin=None, effect=None):
+        with patch.object(pusher.subprocess, "run", side_effect=effect or (lambda *a, **k: subprocess.CompletedProcess(a, 0, b"ra", b""))) as run:
+            out = pusher.ssh_run("hao", "echo", stdin)
+        return out, run.call_args
+
+    def test_errors_become_push_error_so_the_agent_loop_survives(self):
+        for effect in (subprocess.TimeoutExpired("ssh", 120), FileNotFoundError("ssh.exe"), PermissionError("ssh.exe")):
+            with self.subTest(effect=type(effect).__name__), self.assertRaises(pusher.PushError):
+                self.run_with(effect=effect)
+        with self.assertRaises(pusher.PushError):
+            self.run_with(effect=lambda *a, **k: subprocess.CompletedProcess(a, 255, b"", "lỗi".encode()))
+
+    def test_keepalive_options_short_timeout_for_questions_and_size_based_for_uploads(self):
+        out, call = self.run_with()
+        command = call.args[0]
+        self.assertEqual(out, "ra")
+        for option in ("ServerAliveInterval=15", "ServerAliveCountMax=4", "BatchMode=yes", "ConnectTimeout=20"):
+            self.assertIn(option, command)
+        self.assertEqual((call.kwargs["timeout"], call.kwargs["stdin"]), (120, subprocess.DEVNULL))   # lượt hỏi: không stdin
+        with tempfile.TemporaryFile() as spool:
+            spool.write(b"x" * 5_000_000)
+            spool.flush()
+            _, call = self.run_with(spool)
+            self.assertEqual((call.kwargs["timeout"], call.kwargs["stdin"] is spool), (170, True))   # 120 + 50 giây cho 5 MB
+            spool.write(b"x" * 400_000_000)
+            spool.flush()
+            self.assertEqual(self.run_with(spool)[1].kwargs["timeout"], 1800)                        # trần 30 phút
 
 
 class SourceStatusTest(unittest.TestCase):
@@ -476,6 +519,19 @@ class SourceStatusTest(unittest.TestCase):
         self.assertEqual([item["message_id"] for item in self.live.rows_for(wanted, {GROUP, OTHER, PRIVATE})], ["m1", "o1", "p1"])
         self.assertEqual(self.live.rows_for(set(), {GROUP}), [])
         self.assertEqual(self.live.rows_for(wanted, set()), [])
+
+    def test_rows_for_long_prefix_nested_keys_and_ids_past_the_head(self):
+        def line(top, prefix="", nested=None):
+            body = {"quote": {"message_id": nested}} if nested else {}
+            return json.dumps({"source_candidate_id": prefix, **body, "message_id": top, "conversation_id": GROUP}) + "\n"
+        with (self.src / "messages.jsonl").open("w", encoding="utf-8") as stream:
+            stream.write(line("w-long", prefix="s" * 250))                    # tiền tố dài, id vẫn trong 400 byte đầu
+            stream.write(line("w-far", prefix="s" * 900))                     # id nằm sau 400 byte: rơi về json.loads
+            stream.write(line("other", nested="w-nested"))                    # khóa lồng của tin trích dẫn khớp trước: kiểm lại cấp trên
+            stream.write(line("w-nested", prefix="s" * 10))                   # tin thật có cùng id đó vẫn được lấy
+            stream.write("không phải json\n")
+        found = [item["message_id"] for item in self.live.rows_for({"w-long", "w-far", "w-nested"}, {GROUP})]
+        self.assertEqual(found, ["w-long", "w-far", "w-nested"])
 
     def test_changed_ids_gathers_all_kinds_and_demands_rebuild_on_gap(self):
         for number, change in ((88, {"added": ["a"]}), (89, {"updated": ["b"], "deleted": ["c"]}), (91, {"added": ["z"]})):
@@ -550,8 +606,10 @@ class AgentCycleTest(unittest.TestCase):
         (self.src / "poller-identity.json").write_text(json.dumps({"status": "attached"}), encoding="utf-8")
 
     def agent(self, **kwargs):
-        return agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote,
+        agent = agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote,
                                 clock=lambda: NOW, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None, **kwargs)
+        self.addCleanup(agent.release)
+        return agent
 
     def test_cycle_pushes_bundle_and_heartbeat_and_dry_run_pushes_nothing(self):
         status = self.agent().cycle(force_status=True)
@@ -567,13 +625,70 @@ class AgentCycleTest(unittest.TestCase):
         quiet.cycle(force_status=True)
         self.assertEqual(len(self.remote.calls), calls)
 
-    def test_one_agent_at_a_time(self):
-        agent = self.agent()
-        held = agent.lock()
-        self.assertIsNotNone(held)
-        self.assertIsNone(agent.cycle(force_status=True))   # lượt khác đang chạy: bỏ qua, không lỗi
-        held.unlink()
+    def test_one_agent_at_a_time_and_stale_lock_file_never_blocks(self):
+        agent, other = self.agent(), self.agent()
         self.assertIsNotNone(agent.cycle(force_status=True))
+        self.assertIsNone(other.cycle(force_status=True))   # agent kia đang giữ khóa: bỏ qua, không lỗi
+        agent.release()
+        self.assertIsNotNone(other.cycle(force_status=True))
+        other.release()
+        # File khóa sót của tiến trình đã chết (cũ nhiều giờ) không được chặn: khóa là của hệ điều hành, không phải của file.
+        lock = self.root / "state" / "agent.lock"
+        lock.write_text("tiến trình đã chết", encoding="utf-8")
+        os.utime(lock, (NOW - 86400, NOW - 86400))
+        revived = self.agent()
+        self.assertIsNotNone(revived.cycle(force_status=True))
+        revived.release()
+
+    def test_lock_is_released_when_the_holding_process_is_killed(self):
+        code = ("import sys, time; sys.path.insert(0, sys.argv[1]);"
+                "from zalo_agent.__main__ import Agent; from zalo_agent.source import LiveSync; from pathlib import Path;"
+                "agent = Agent(LiveSync(Path(sys.argv[2])), Path(sys.argv[3]), 'fake:/a', 'fake:/b');"
+                "print(agent.lock(), flush=True); time.sleep(120)")
+        holder = subprocess.Popen([sys.executable, "-I", "-c", code, str(ROOT / "tools"), str(self.src), str(self.root)],
+                                  stdout=subprocess.PIPE)
+        self.addCleanup(holder.stdout.close)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), b"True")
+        mine = self.agent()
+        self.assertFalse(mine.lock())                       # tiến trình khác còn sống: không giành được
+        holder.kill()
+        holder.wait()
+        for _ in range(40):                                  # hệ điều hành nhả khóa ngay khi đóng handle của tiến trình đã chết
+            if mine.lock():
+                break
+            time.sleep(0.1)
+        self.assertIsNotNone(mine.lock_handle)               # bị giết giữa lượt: file khóa sót không chặn
+        mine.release()
+
+    def test_backoff_after_errors_does_not_hammer_the_server(self):
+        self.assertEqual([agent_main.backoff(n) for n in range(1, 8)], [60, 120, 240, 480, 900, 900, 900])
+
+        class Stop(Exception):
+            pass
+        clock = {"t": NOW}
+
+        def sleep(seconds):
+            clock["t"] += seconds
+            if clock["t"] > NOW + 1000:
+                raise Stop
+
+        def broken(host, command, stdin=None):
+            raise pusher.PushError("ssh không tới được hao")
+        agent = agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=broken,
+                                 clock=lambda: clock["t"], sleep=sleep, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
+        self.addCleanup(agent.release)
+        steps = []
+        original = agent.processors[0].step
+        agent.processors[0].step = lambda: (steps.append(clock["t"] - NOW), original())[1]
+        with self.assertRaises(Stop):
+            agent.forever()
+        self.assertLessEqual(len(steps), 6)                     # 1000 giây lỗi liên tục: vài lần thử, không phải ~1000
+        self.assertGreaterEqual(len(steps), 4)
+        gaps = [later - earlier for earlier, later in itertools.pairwise(steps)]
+        self.assertEqual(gaps[:3], [63, 123, 243])             # 3 giây gom + 60, 120, 240 giây lùi
+        self.assertEqual(agent.last["bundle"]["error"], "push_failed")
 
     def test_command_line_runs_under_isolated_python(self):
         done = subprocess.run([sys.executable, "-X", "utf8", "-I", str(ROOT / "tools" / "zalo_agent"), "run", "--once", "--dry-run",

@@ -48,12 +48,24 @@ class BundleProcessor:
     def result(self, action: str, revision: int | None, error: str | None = None, sent: int = 0, reason: str | None = None) -> dict:
         return {"action": action, "revision": revision, "error": error, "bytes_sent": sent, "reason": reason}
 
+    def damaged(self, current: dict) -> str | None:
+        """Gói cục bộ không còn khớp con trỏ (thư mục dữ liệu mất, báo cáo trỏ chỗ khác, delta ngắn hơn đã ghi): dựng lại."""
+        directory = self.out / current["data_dir"]
+        if not directory.is_dir():
+            return "data_dir_missing"
+        if (read_json(self.out / wb.REPORT, {}) or {}).get("data_dir") != current["data_dir"]:
+            return "report_mismatch"
+        path = directory / DELTA
+        if (path.stat().st_size if path.is_file() else 0) < current["delta_bytes"]:
+            return "delta_short"
+        return None
+
     def wants_work(self) -> bool:
         """Rẻ (vài file nhỏ): có revision mới, lượt chưa đẩy xong, hoặc phải dựng lại. Vòng lặp chỉ gom 3 giây khi True."""
         revision, selection, current = self.live.revision(), self.live.selection(), cursors.load(self.state, NAME)
         if revision is None or not selection:
             return False
-        if current is None or current.get("pending") or revision != current["revision"] or not (self.out / current["data_dir"]).is_dir():
+        if current is None or current.get("pending") or revision != current["revision"] or self.damaged(current):
             return True
         return cursors.rebuild_reason(current, revision, self.live.baseline_sha256(), selection, self.clock()) is not None
 
@@ -70,8 +82,8 @@ class BundleProcessor:
         if not selection:
             return self.result("idle", have)
         reason, ids = cursors.decide(current, revision, self.live.baseline_sha256(), selection, now, self.live)
-        if current and not (self.out / current["data_dir"]).is_dir():
-            reason = "data_dir_missing"
+        if current and not reason:
+            reason = self.damaged(current)
         if reason is None and revision == have:
             return self.result("idle", have)
         try:
@@ -139,7 +151,7 @@ class BundleProcessor:
         items = []
         for directory in sorted(path for path in self.out.glob("data-*") if path.is_dir()):
             for path in sorted(directory.iterdir()):
-                if path.is_file():
+                if path.is_file() and ".tmp-" not in path.name:
                     mutable = directory.name == data_dir and path.name in MUTABLE
                     items.append(pusher.Item(f"{directory.name}/{path.name}", path, immutable=not mutable))
         for path in sorted((self.out / "media").glob("*")):
