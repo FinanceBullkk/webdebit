@@ -90,11 +90,12 @@ async function withPage(options, fn, viewport = { width: 1265, height: 560 }) {
     server.close();
   }
 }
-const rowOf = (page, login) => page.locator(`tr[data-login="${login}"]`);
+const rowOf = (page, login) => page.locator(`#users .nd-row[data-login="${login}"]`);
 const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+const openMenu = (page, name) => page.getByRole('button', { name: `Thao tác với ${name}` }).click();
 
-test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ sáu thẻ, bảng có dòng cố định và dòng của mình không có nút', () => withPage({}, async page => {
-  await page.locator('.nd-table').waitFor();
+test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ sáu thẻ, dòng cố định và dòng của mình không đổi được', () => withPage({}, async page => {
+  await page.locator('#users .nd-row').first().waitFor();
   const menu = (await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]);
   assert.deepEqual(menu, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Quản trị']);
   assert.equal((await page.locator('.app-nav nav a.active').innerText()).split('\n')[0], 'Quản trị');
@@ -106,11 +107,20 @@ test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ sáu 
   const strip = await page.locator('nav.admin-tabs').boundingBox(), head = await page.locator('.page-head.topbar').boundingBox();
   assert.ok(strip.height <= 41 && head.y >= strip.y + strip.height - 1, `dải ${JSON.stringify(strip)} đầu trang ${JSON.stringify(head)}`);
   const boss = rowOf(page, BOSS);
-  assert.match(await boss.innerText(), /Bạn/);
-  assert.equal(await boss.locator('button').count(), 0);
-  assert.match(await rowOf(page, 'lan.ketoan@example.test').innerText(), /Lan\s+Sửa tên\s+lan\.ketoan@example\.test\s+Nhân viên/);
-  assert.equal(await page.locator('#user-count').innerText(), '(3)');
-  assert.match(await page.locator('#history').innerText(), /Cho lan\.ketoan@example\.test vào làm Nhân viên \(tên Lan\)/);
+  assert.match(await boss.innerText(), /boss\s*Bạn[\s\S]*Quản lý/);
+  assert.equal(await boss.locator('button, select').count(), 0);
+  const lan = rowOf(page, 'lan.ketoan@example.test');
+  assert.match(await lan.locator('.nd-who').innerText(), /^L\s+Lan\s+lan\.ketoan@example\.test$/);
+  assert.equal(await lan.locator('select').inputValue(), 'user');
+  assert.equal(await page.locator('#user-count').innerText(), '3 người · 1 quản lý');
+  // Lịch sử là câu ngắn: chính mình ghi "Bạn", login còn trong danh sách hiện tên gọi.
+  assert.match(await page.locator('#history').innerText(), /Bạn cho Lan vào làm Nhân viên/);
+  // Một trục: cột Vai trò thẳng hàng giữa dòng khóa và dòng có ô chọn, nội dung căn trái theo dải thẻ.
+  const lockedBox = await boss.locator('.nd-box').boundingBox(), selectBox = await lan.locator('select').boundingBox();
+  assert.equal(Math.round(lockedBox.x), Math.round(selectBox.x));
+  assert.equal(Math.round(lockedBox.width), Math.round(selectBox.width));
+  const card = await page.locator('.nd-card').first().boundingBox();
+  assert.ok(card.x < strip.x + 40, `thẻ ${card.x} lệch xa dải thẻ ${strip.x}`);
   assert.ok(await noSideScroll(page));
   // Số "sổ còn việc" lên cả mục Quản trị và thẻ Việc cần làm.
   await page.locator('#todo-badge:not([hidden])').waitFor();
@@ -118,84 +128,113 @@ test('Người dùng: menu bảy mục có Quản trị sáng, dải thẻ sáu 
   if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'nguoi-dung-1280.png') });
 }));
 
-test('Người dùng: cho vào login vừa bị chặn, đổi vai trò, bỏ quyền phải hỏi lại, Thôi thì không gửi gì', () => withPage({ slowReload: true }, async (page, state) => {
-  await page.locator('#denied-box:not([hidden])').waitFor();
-  await page.locator('#denied li', { hasText: 'la@example.test' }).getByRole('button', { name: 'Cho vào (nhân viên)' }).click();
+test('Người dùng: cho vào login xin vào, đổi vai trò ở ô chọn, bỏ quyền qua nút ⋯ phải hỏi lại, Thôi thì không gửi gì', () => withPage({ slowReload: true }, async (page, state) => {
+  const request = page.locator('#denied .nd-row', { hasText: 'la@example.test' });
+  await request.waitFor();
+  assert.match(await request.innerText(), /Xin vào sổ · 3 lần/);
+  await request.getByRole('button', { name: 'Cho la@example.test vào làm Nhân viên' }).click();
   await page.locator('#flash', { hasText: 'Đã cho la@example.test vào làm Nhân viên.' }).waitFor();
-  assert.equal(await page.locator('#denied-box').isHidden(), true);
+  assert.equal(await page.locator('#denied .nd-row').count(), 0);
   assert.deepEqual(state.posts.at(-1), { action: 'add', login: 'la@example.test', role: 'user', version: 2 });
   await rowOf(page, 'la@example.test').waitFor();
 
-  await rowOf(page, 'lan.ketoan@example.test').getByRole('button', { name: 'Đổi thành Quản lý' }).click();
+  await rowOf(page, 'lan.ketoan@example.test').locator('select').selectOption('admin');
   await page.locator('#flash', { hasText: 'Đã đổi Lan thành Quản lý.' }).waitFor();
-  assert.match(await rowOf(page, 'lan.ketoan@example.test').innerText(), /Quản lý/);
+  assert.equal(await rowOf(page, 'lan.ketoan@example.test').locator('select').inputValue(), 'admin');
+  assert.deepEqual(state.posts.at(-1), { action: 'role', login: 'lan.ketoan@example.test', role: 'admin', version: 3 });
 
+  // Nút ⋯: Escape và bấm ra ngoài đều đóng menu, không gửi gì.
   const posts = state.posts.length;
-  await rowOf(page, 'lan.ketoan@example.test').getByRole('button', { name: 'Bỏ quyền vào' }).click();
-  assert.match(await page.locator('tr.confirm').innerText(), /Bỏ quyền vào của Lan \(lan\.ketoan@example\.test\)\? Họ sẽ không mở được sổ nữa\./);
-  await page.locator('tr.confirm').getByRole('button', { name: 'Thôi' }).click();
+  await openMenu(page, 'Lan');
+  await page.getByRole('menuitem', { name: 'Sửa tên gọi' }).waitFor();
+  if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'nguoi-dung-menu.png') });
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.nd-menu').count(), 0);
+  await openMenu(page, 'Lan');
+  await page.locator('#history-title').click();
+  assert.equal(await page.locator('.nd-menu').count(), 0);
+
+  await openMenu(page, 'Lan');
+  await page.getByRole('menuitem', { name: 'Bỏ quyền vào' }).click();
+  const confirm = page.locator('.nd-row.confirm');
+  assert.match(await confirm.innerText(), /Bỏ quyền vào của Lan \(lan\.ketoan@example\.test\)\? Họ sẽ không mở được sổ nữa\./);
+  await confirm.getByRole('button', { name: 'Thôi' }).click();
   assert.equal(state.posts.length, posts);
-  await rowOf(page, 'lan.ketoan@example.test').getByRole('button', { name: 'Bỏ quyền vào' }).click();
-  await page.locator('tr.confirm').getByRole('button', { name: 'Bỏ quyền' }).click();
+  await openMenu(page, 'Lan');
+  await page.getByRole('menuitem', { name: 'Bỏ quyền vào' }).click();
+  await page.locator('.nd-row.confirm').getByRole('button', { name: 'Bỏ quyền' }).click();
   await page.locator('#flash', { hasText: 'Đã bỏ quyền vào của Lan.' }).waitFor();
   assert.equal(await rowOf(page, 'lan.ketoan@example.test').count(), 0);
-  assert.match(await page.locator('#history').innerText(), /Bỏ quyền vào của lan\.ketoan@example\.test \(trước là Quản lý\)/);
+  assert.match(await page.locator('#history').innerText(), /Bạn bỏ quyền vào của lan\.ketoan \(trước là Quản lý\)/);
 }));
 
-test('Người dùng: thêm người kiểm dạng login trước khi gửi, đặt tên; trùng thì báo câu của máy chủ', () => withPage({ slowReload: true }, async (page, state) => {
-  await page.locator('.nd-table').waitFor();
+test('Người dùng: hộp thoại Thêm người kiểm dạng login trước khi gửi, đặt tên; trùng thì báo câu của máy chủ trong hộp', () => withPage({ slowReload: true }, async (page, state) => {
+  await page.locator('#users .nd-row').first().waitFor();
+  await page.locator('#add-open').click();
+  assert.equal(await page.locator('#add-dialog').evaluate(node => node.open), true);
   await page.locator('#add-login').fill('khong co a cong');
   await page.locator('#add-submit').click();
-  assert.match(await page.locator('#error').innerText(), /ten@mien/);
+  assert.match(await page.locator('#add-error').innerText(), /ten@mien/);
+  if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'nguoi-dung-them.png') });
   assert.equal(await page.locator('#add-login').getAttribute('aria-invalid'), 'true');
   assert.equal(state.posts.length, 0);
   await page.locator('#add-login').fill('moi@example.test');
+  assert.equal(await page.locator('#add-error').isHidden(), true);
   await page.locator('#add-name').fill('Hoa');
   await page.locator('input[name="add-role"][value="admin"]').check();
   await page.locator('#add-submit').click();
   await page.locator('#flash', { hasText: 'Đã cho moi@example.test vào làm Quản lý.' }).waitFor();
   assert.deepEqual(state.posts.at(-1), { action: 'add', login: 'moi@example.test', role: 'admin', name: 'Hoa', version: 2 });
+  assert.equal(await page.locator('#add-dialog').evaluate(node => node.open), false);
+  // Mở lại thì ô trống; login trùng thì câu của máy chủ hiện trong hộp, hộp vẫn mở.
+  await page.locator('#add-open').click();
   assert.equal(await page.locator('#add-login').inputValue(), '');
-  assert.equal(await page.locator('#error').isHidden(), true);
   await page.locator('#add-login').fill('moi@example.test');
   await page.locator('#add-submit').click();
-  await page.locator('#error', { hasText: 'Login này đã có trong danh sách.' }).waitFor();
-  // Sửa tên tại dòng, Enter để lưu.
-  await rowOf(page, 'moi@example.test').getByRole('button', { name: 'Đặt tên gọi cho moi@example.test' }).click();
-  await page.locator('.nd-name input').fill('Hoa kế toán');
-  await page.locator('.nd-name input').press('Enter');
+  await page.locator('#add-error', { hasText: 'Login này đã có trong danh sách.' }).waitFor();
+  assert.equal(await page.locator('#add-dialog').evaluate(node => node.open), true);
+  await page.locator('#add-dialog').getByRole('button', { name: 'Thôi' }).click();
+  assert.equal(await page.locator('#add-dialog').evaluate(node => node.open), false);
+  // Sửa tên qua nút ⋯, Enter để lưu.
+  await openMenu(page, 'Hoa');
+  await page.getByRole('menuitem', { name: 'Sửa tên gọi' }).click();
+  await page.locator('.nd-rename input').fill('Hoa kế toán');
+  await page.locator('.nd-rename input').press('Enter');
   await page.locator('#flash', { hasText: 'Đã lưu tên gọi của moi@example.test.' }).waitFor();
   assert.match(await rowOf(page, 'moi@example.test').innerText(), /Hoa kế toán/);
 }));
 
 test('Người dùng: bản cũ thì đọc lại và nói rõ; đọc lỗi có Thử lại; máy chủ chưa bật thì chỉ xem', async () => {
   await withPage({ stale: true }, async page => {
-    await page.locator('.nd-table').waitFor();
-    await rowOf(page, 'lan.ketoan@example.test').getByRole('button', { name: 'Đổi thành Quản lý' }).click();
+    await page.locator('#users .nd-row').first().waitFor();
+    await rowOf(page, 'lan.ketoan@example.test').locator('select').selectOption('admin');
     await page.locator('#error', { hasText: 'Danh sách vừa được người khác đổi' }).waitFor();
-    assert.match(await rowOf(page, 'lan.ketoan@example.test').innerText(), /Nhân viên/);
+    assert.equal(await rowOf(page, 'lan.ketoan@example.test').locator('select').inputValue(), 'user');
   });
   await withPage({ readFails: true }, async (page, state) => {
     await page.locator('#error', { hasText: 'Máy chủ bận.' }).waitFor();
     state.readFails = false;
     await page.locator('#retry').click();
-    await page.locator('.nd-table').waitFor();
+    await page.locator('#users .nd-row').first().waitFor();
     assert.equal(await page.locator('#error').isHidden(), true);
   });
   await withPage({ data: { configured: false, denied: [] } }, async page => {
-    await page.locator('.nd-table').waitFor();
-    assert.equal(await page.locator('#add-box').isHidden(), true);
-    assert.equal(await page.locator('.nd-table button').count(), 0);
-    assert.match(await page.locator('#users').innerText(), /chỉ xem/);
+    await page.locator('#users .nd-row').first().waitFor();
+    assert.equal(await page.locator('#add-open').isHidden(), true);
+    assert.equal(await page.locator('#users button, #users select').count(), 0);
+    assert.match(await page.locator('#users-note').innerText(), /chỉ xem/);
   });
 });
 
-test('Người dùng: điện thoại 390px không cuộn ngang, login dài xuống dòng', () => withPage({}, async page => {
-  await page.locator('.nd-table').waitFor();
+test('Người dùng: điện thoại 390px không cuộn ngang, login dài xuống dòng, hộp thoại vừa màn', () => withPage({}, async page => {
+  await page.locator('#users .nd-row').first().waitFor();
   assert.ok(await noSideScroll(page));
-  const long = rowOf(page, 'mot-login-rat-dai-cua-nhan-vien-moi-vao-lam@example-company-domain.test').locator('td.login');
+  const long = rowOf(page, 'mot-login-rat-dai-cua-nhan-vien-moi-vao-lam@example-company-domain.test').locator('.sub');
   assert.ok((await long.boundingBox()).width <= 390);
   if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'nguoi-dung-390.png'), fullPage: true });
+  await page.locator('#add-open').click();
+  const box = await page.locator('#add-dialog').boundingBox();
+  assert.ok(box.x >= 0 && box.x + box.width <= 390, JSON.stringify(box));
 }, { width: 390, height: 800 }));
 
 test('Dải thẻ Quản trị có trên các màn quản lý, không có trên trang làm sổ', () => withPage({ page: '/thong-tin-cty.html' }, async (page, _state, base) => {

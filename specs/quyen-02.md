@@ -19,19 +19,26 @@ viên vẫn thấy sáu mục như QUYEN-01, không có Quản trị.
 **Dải thẻ.** Đầu mỗi màn quản lý, ngay trên thanh đầu trang, có một dải cao 40px: Việc cần làm (số) · Máy chạy · Đội
 xe · Thông tin cty · Nhật ký · Người dùng. Thẻ của màn đang mở được tô. Bấm thẻ là sang màn đó.
 
-**Người dùng** (`/nguoi-dung.html`, chỉ quản lý), từ trên xuống:
+**Người dùng** (`/nguoi-dung.html`, chỉ quản lý). Bố cục làm lại 20/11/2026 theo trang canvas "Người dùng (Quản trị)"
+(người dùng chê bản đầu lộn xộn, chọn qua bốn vòng trên canvas): một trục căn trái theo dải thẻ, rộng tối đa 920px, hai
+thẻ cùng khuôn, từ trên xuống:
 
-1. **Vừa bị chặn** (chỉ hiện khi có): login Tailscale đã thử mở sổ mà không có quyền, kể từ lần khởi động gần nhất của
-   máy chủ. Mỗi dòng có login, lần cuối, số lần, và hai nút "Cho vào (nhân viên)", "Bỏ qua". Bỏ qua chỉ ẩn trên trang.
-2. **Ai được vào sổ**: bảng gồm Tên gọi, Login, Vai trò (Quản lý / Nhân viên), Thêm bởi. Mỗi dòng có nút đổi vai
-   trò và nút "Bỏ quyền vào". Bấm "Bỏ quyền vào" thì hỏi lại ngay tại dòng: "Bỏ quyền vào của X? Họ sẽ không mở được
-   sổ nữa", kèm nút Bỏ quyền và Thôi. Login đặt cố định trên máy chủ ghi "Cố định trên máy chủ" và không có nút. Dòng
-   của chính mình ghi "Bạn" và không có nút.
-3. **Thêm người**: Login Tailscale, Tên gọi (không bắt buộc), Vai trò (mặc định Nhân viên), nút Thêm.
-4. **Lịch sử**: 30 dòng mới nhất, mỗi dòng gồm lúc, ai làm, việc gì, trước → sau.
+1. **Thành viên** (đầu thẻ: số người · số quản lý, nút "Thêm người"). Cột cố định: Người | Vai trò 168px | ⋯ 44px.
+   - **Dòng xin vào** ở đầu thẻ (chỉ hiện khi có): login Tailscale đã thử mở sổ mà không có quyền, kể từ lần khởi động
+     gần nhất của máy chủ, kèm số lần và lần cuối; hai nút "Bỏ qua" (chỉ ẩn trên trang) và "Cho vào" (làm Nhân viên).
+   - **Mỗi người một dòng**: chữ cái đầu, tên gọi (không có thì phần trước @), login bên dưới. Vai trò đổi ngay ở ô
+     chọn. Nút ⋯ mở "Sửa tên gọi" (sửa tại dòng, Enter để lưu) và "Bỏ quyền vào"; bỏ quyền hỏi lại ngay tại dòng: "Bỏ
+     quyền vào của X? Họ sẽ không mở được sổ nữa", kèm Thôi và Bỏ quyền. Login cố định trên máy chủ và dòng của chính
+     mình (ghi "Bạn") hiện vai trò trong ô mờ cùng cỡ, không đổi được, không có ⋯; ô cố định có ổ khóa.
+2. **Lịch sử thay đổi**: câu ngắn "Bạn đổi vai trò Lan: Nhân viên → Quản lý" và giờ bên phải; 5 dòng mới nhất, "Xem
+   thêm" ra đủ 30. Người làm là chính mình ghi "Bạn"; người làm không có @ (lúc chuyển từ cấu hình máy chủ) ghi "Hệ
+   thống". Login còn trong danh sách hiện tên gọi, rê chuột thấy login đủ.
 
-Sau mỗi thao tác, trang hiện một dòng báo tại chỗ ("Đã cho X vào làm nhân viên") rồi đọc lại danh sách. Có thay đổi
-có hiệu lực ngay ở yêu cầu tiếp theo, không cần restart.
+**Thêm người** là hộp thoại: Login Tailscale, Tên gọi (không bắt buộc), Vai trò (hai ô chọn có mô tả, mặc định Nhân
+viên), Thôi và Thêm người. Login sai dạng hoặc máy chủ từ chối thì câu lỗi hiện ngay dưới ô login, hộp vẫn mở.
+
+Sau mỗi thao tác, trang đọc lại danh sách rồi hiện câu báo nhỏ ở đáy màn ("Đã cho X vào làm Nhân viên."), tự tắt sau 4
+giây. Thay đổi có hiệu lực ngay ở yêu cầu tiếp theo, không cần restart.
 
 ## Dữ liệu và an toàn
 
@@ -47,7 +54,7 @@ có hiệu lực ngay ở yêu cầu tiếp theo, không cần restart.
 ## Trạng thái
 
 Đang tải; lỗi đọc (câu ngắn và nút Thử lại); máy chủ chưa bật quản lý trên web (`configured: false`, chỉ xem danh
-sách cố định, khối Thêm người ẩn); ghi lỗi (câu theo mã: đã có, bản cũ thì đọc lại, cố định, chính mình); login dài
+sách cố định, nút Thêm người ẩn); ghi lỗi (câu theo mã: đã có, bản cũ thì đọc lại, cố định, chính mình); login dài
 thì xuống dòng, không tràn ngang ở 1280 và 390.
 
 ## Kiểm
