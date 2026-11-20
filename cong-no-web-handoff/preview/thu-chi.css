@@ -1,0 +1,95 @@
+/* ZALO-THU-CHI-01 PR-2: trang Thu chi, chỉ xem, chỉ quản lý. Một cột tối đa 1100px: cảnh báo tuổi dữ liệu Zalo (khi cần) → hai khối
+   Hôm nay / khoảng đang xem → chip lọc → danh sách theo ngày. Khung thấy thật 1280×560: khối số và danh sách thấy cùng lúc.
+   Điện thoại 390px: mỗi khoản thành một thẻ ba dòng. Màu theo cong-no-theme.css. */
+html:has(body.tc){background:#f3f5f8}
+body.tc{background:#f3f5f8;font-size:14px}
+.tc [hidden]{display:none!important}
+.tc svg{flex:none;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.tc .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.tc .page.app-page{padding:20px 28px 32px}
+.tc .page.app-page > .page-head.topbar{margin:-20px -28px 16px;gap:10px}
+.tc .live-controls{display:flex;align-items:center;gap:10px}
+.tc-range{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-weight:600}
+.tc-range select{height:40px;padding:0 8px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;font-weight:600;cursor:pointer}
+.tc-zalo{color:var(--ink-3);font-size:13px;font-variant-numeric:tabular-nums}
+.tc-zalo.stale{color:var(--warning);font-weight:700}
+.tc .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
+.tc .icon-btn{width:40px;padding:0;color:var(--accent-ink)}
+.tc #error{max-width:1100px;margin:0 0 12px;padding:10px 14px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-weight:600}
+.tc #error button{margin-left:10px}
+.tc-warn{max-width:1100px;margin:0 0 12px;padding:10px 14px;border:1px solid #f0d49b;border-radius:8px;background:var(--warning-soft);color:var(--warning);font-weight:600}
+.tc-newpill{position:sticky;top:12px;z-index:5;display:block;margin:0 auto 10px;min-height:40px;padding:0 18px;border:1px solid var(--accent);border-radius:20px;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 2px 8px #1f293740;cursor:pointer}
+#thu-chi{max-width:1100px;display:flex;flex-direction:column;gap:14px}
+.tc .loading,.tc .empty{margin:0;padding:16px;border:1px dashed var(--line);border-radius:var(--radius);background:#fff;color:var(--ink-2)}
+
+/* Hai khối số: Hôm nay và khoảng đang xem. Thu, chi, ứng một hàng; chưa vào sổ và lệch số là hai chip có số. */
+.tc-band{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.tc-card{padding:12px 16px;border-radius:12px;background:#fff;border:1px solid #dce5ef;box-shadow:var(--shadow)}
+.tc-card h2{margin:0 0 6px;font-size:14px;font-weight:700;color:var(--ink-2)}
+.tc-figs{display:flex;flex-wrap:wrap;gap:6px 22px}
+.tc-fig{display:flex;flex-direction:column;min-width:0}
+.tc-fig b{font-size:22px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tc-fig small{color:var(--ink-3);font-size:12.5px}
+.tc-fig.thu b{color:var(--credit)}
+.tc-fig.chi b{color:var(--critical)}
+.tc-fig.ung b{color:var(--warning)}
+.tc-flags{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.tc-pill{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border:1px solid #d7dce3;border-radius:16px;background:#fff;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tc-pill.warn{background:#fdf0d8;border-color:#f1dfb8;color:var(--warning)}
+.tc-pill.zero{color:var(--ink-3);font-weight:600}
+
+/* Chip lọc. */
+.tc-filters{display:flex;flex-wrap:wrap;gap:8px}
+.tc-chip{min-height:40px;padding:0 14px;border:1px solid #c9d0d8;border-radius:20px;background:#fff;font-weight:600;cursor:pointer;white-space:nowrap}
+.tc-chip b{margin-left:4px;font-variant-numeric:tabular-nums}
+.tc-chip[aria-pressed="true"]{background:#e4eefb;border-color:var(--accent);color:var(--accent-ink)}
+
+/* Danh sách theo ngày: đầu ngày có tổng, mỗi khoản một hàng lưới. */
+.tc-day{border:1px solid var(--line);border-radius:var(--radius);background:#fff;overflow:hidden}
+.tc-day > header{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:8px 14px;background:var(--head);border-bottom:1px solid var(--line)}
+.tc-day h3{margin:0;font-size:15px}
+.tc-day .sums{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums}
+.tc-row{display:grid;grid-template-columns:52px minmax(0,1.1fr) 56px 120px minmax(0,1.4fr) minmax(0,1.6fr) auto;gap:4px 14px;align-items:start;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
+.tc-row:last-child{border-bottom:0}
+.tc-row.is-new{animation:tc-new 8s ease-out}
+@keyframes tc-new{from{background:#fff1b8}to{background:#fff}}
+@media (prefers-reduced-motion:reduce){.tc-row.is-new{animation:none;background:#fffbe8}}
+.tc-time{color:var(--ink-3);font-variant-numeric:tabular-nums}
+.tc-who{min-width:0}
+.tc-who b,.tc-who small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-who small,.tc-text{color:var(--ink-3);font-size:12.5px}
+.tc-kind{display:inline-block;min-width:44px;padding:1px 8px;border-radius:10px;font-size:12.5px;font-weight:800;text-align:center}
+.tc-kind.thu{background:var(--credit-soft);color:var(--credit)}
+.tc-kind.chi{background:var(--critical-soft);color:var(--critical)}
+.tc-kind.ung{background:var(--warning-soft);color:var(--warning)}
+.tc-amt{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tc-amt .dash{color:var(--ink-3);font-weight:600}
+.tc-target{min-width:0;overflow-wrap:anywhere}
+.tc-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-status b{display:block}
+.tc-status small{display:block;color:var(--ink-3);font-size:12.5px}
+.tc-status.ok b{color:var(--credit)}
+.tc-status.warn b{color:var(--critical)}
+.tc-status.wait b{color:var(--ink-2)}
+.tc-status a{color:var(--accent-ink);font-weight:600}
+.tc-status a:hover{text-decoration:underline}
+.tc-side{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.tc-thumbs{display:flex;gap:4px}
+.tc-thumbs img{display:block;width:40px;height:40px;border-radius:6px;object-fit:cover;border:1px solid var(--line)}
+.tc-thumbs span{align-self:center;color:var(--ink-3);font-size:12.5px}
+.tc-open{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;color:var(--accent-ink);font-weight:700;white-space:nowrap}
+.tc-open:hover{background:var(--accent-soft)}
+
+@media (max-width:1000px){
+  .tc-row{grid-template-columns:52px minmax(0,1fr) auto;grid-template-areas:"time who amt" "kind target target" "status status side"}
+  .tc-time{grid-area:time}.tc-who{grid-area:who}.tc-amt{grid-area:amt}
+  .tc-kind-cell{grid-area:kind}.tc-target{grid-area:target}.tc-status{grid-area:status}.tc-side{grid-area:side}
+}
+@media (max-width:700px){
+  .tc .page.app-page{padding:16px 16px 28px}
+  .tc .page.app-page > .page-head.topbar{margin:-16px -16px 12px}
+  .tc-band{grid-template-columns:1fr}
+  .tc-fig b{font-size:20px}
+  .tc-day > header{padding:8px 12px}
+  .tc-row{padding:10px 12px;gap:4px 10px}
+}

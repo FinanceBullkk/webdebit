@@ -54,29 +54,70 @@ async function withPage(state, fn, { viewport = { width: 1280, height: 800 } } =
   }
 }
 
-test('Nhật ký công việc: hôm nay, thẻ ghim, lịch, lọc chéo theo mảng, bỏ PR nhật ký triển khai, mở chi tiết ngày', () => withPage({}, async page => {
+test('Nhật ký công việc: tuần, bảng mảng × tuần, từng ngày lời thường, lọc chéo, bỏ PR nhật ký triển khai', () => withPage({}, async page => {
   await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
-  assert.match(await page.locator('#todayHead').innerText(), /20\/11 · Điều độ xe$/);
-  assert.equal(await page.locator('#todayNum').innerText(), '2');   // PR "Nhật ký triển khai" không đếm
+  assert.equal(await page.locator('#weekTitle').innerText(), 'Tuần 16/11 – 22/11');
+  assert.equal(await page.locator('#weekNum').innerText(), '4');   // PR "Nhật ký triển khai" không đếm
   assert.match(await page.locator('#liveTxt').innerText(), /Trực tiếp · GitHub lúc 20\/11\/2026 09:30/);
-  assert.equal(await page.locator('#pins .pin').count(), 2);
-  assert.match(await page.locator('#pmeta').innerText(), /4 thay đổi/);
-  assert.equal(await page.locator('#cg button.sq').count(), 2);
   assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Nhật ký');   // QUYEN-02: thẻ trong dải Quản trị
   assert.equal(await page.locator('.app-nav nav a').count(), 6, 'năm trang làm sổ + Quản trị');
+  assert.equal(await page.locator('#matrix tbody tr').count(), 6, 'sáu mảng');
+  assert.match(await page.locator('#matrix').innerText(), /Chi phí, thu cước\./, 'mô tả việc lớn nằm dưới tên mảng');
+  assert.match(await page.locator('#next').innerText(), /Đội xe: điều độ/);
 
-  await page.locator('#pins .pin').first().click();   // thẻ Đội xe: lọc cả trang
-  assert.match(await page.locator('#fbar').innerText(), /Đang xem 2 thay đổi/);
+  // Từng ngày: mới nhất trước, câu lời thường hiện sẵn, danh sách kỹ thuật thu gọn
+  assert.deepEqual(await page.locator('.nk-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-20', '2026-11-18']);
+  const first = page.locator('.nk-day').first();
+  assert.match(await first.locator('h3').innerText(), /^Điều độ xe$/);
+  assert.match(await first.locator('.items').innerText(), /Phân công xe theo booking\./);
+  assert.equal(await first.locator('details.tech').evaluate(d => d.open), false);
+  assert.match(await first.locator('.count').innerText(), /^2 thay đổi/);
+
+  // Bấm tên mảng Đội xe: cả trang lọc theo
+  await page.locator('#matrix .lane', { hasText: 'Đội xe' }).click();
   assert.match(await page.locator('#fbar').innerText(), /Đội xe/);
-  await page.locator('#fbar .link', { hasText: 'Xóa lọc' }).click();
-  assert.equal(await page.locator('#fbar').isHidden(), true);
+  assert.match(await page.locator('#feedTitle').innerText(), /2 thay đổi khớp lọc/);
+  assert.equal(await page.locator('#weekNum').innerText(), '2');
+  assert.doesNotMatch(await page.locator('.nk-day').first().innerText(), /Khách mới có nhãn Mới/);
 
-  await page.locator('#todayLink .link').click();
-  await page.locator('#detail.open').waitFor();
-  assert.match(await page.locator('#detail').innerText(), /Phân công xe theo booking\./);
+  // Thêm lọc giờ bằng cột 22h của biểu đồ giờ: chỉ ngày 18/11 còn, danh sách kỹ thuật mở sẵn
+  await page.locator('#matrix .lane', { hasText: 'Đội xe' }).click();   // bấm lại là bỏ lọc mảng
+  assert.equal(await page.locator('#fbar .fchip').count(), 0);
+  await page.locator('.hist rect.pick').nth(2).click();   // các cột có dữ liệu: 8h, 9h, 10h, 22h
+  assert.match(await page.locator('#fbar').innerText(), /10h–11h/);
+  await page.locator('#fbar .link', { hasText: 'Xóa lọc' }).click();
+  await page.locator('.hist rect.pick').nth(3).click();
+  assert.match(await page.locator('#fbar').innerText(), /22h–23h/);
+  assert.deepEqual(await page.locator('.nk-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-18']);
+  assert.equal(await page.locator('.nk-day details.tech').evaluate(d => d.open), true);
+  assert.match(await page.locator('.nk-day .tech').innerText(), /Sổ khách: phiếu thu gọn/);
   await page.keyboard.press('Escape');
-  await page.locator('.tab', { hasText: 'Cây công việc' }).click();
-  assert.equal(await page.locator('#tree .row').count(), 2);
+  assert.equal(await page.locator('#fbar .fchip').count(), 0);
+
+  // Giờ làm: 1/4 thay đổi ngoài giờ (22:30)
+  assert.equal(await page.locator('#offPct').innerText(), '25%');
+}));
+
+test('Nhật ký công việc: Sáng / Tối / Theo máy, nhớ lựa chọn sau khi tải lại', () => withPage({}, async page => {
+  await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
+  const theme = () => page.evaluate(() => document.documentElement.dataset.nkTheme);
+  const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'light' });
+  assert.equal(await theme(), 'light');
+  assert.equal(await page.locator('#mode button[aria-pressed="true"]').innerText(), 'Theo máy');
+  await page.emulateMedia({ colorScheme: 'dark' });   // Theo máy: máy đổi sang tối thì trang đổi theo
+  await page.waitForFunction(() => document.documentElement.dataset.nkTheme === 'dark', null, { timeout: 3000 });
+  assert.equal(await bg(), 'rgb(13, 17, 23)');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.locator('#mode button', { hasText: /^Tối$/ }).click();
+  assert.equal(await theme(), 'dark');
+  await page.reload();
+  await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
+  assert.equal(await theme(), 'dark', 'lựa chọn Tối còn sau khi tải lại dù máy đang sáng');
+  assert.equal(await page.locator('#mode button[aria-pressed="true"]').innerText(), 'Tối');
+  await page.locator('#mode button', { hasText: 'Sáng' }).click();
+  assert.equal(await theme(), 'light');
+  assert.equal(await bg(), 'rgb(233, 236, 240)');
 }));
 
 test('Nhật ký công việc: máy chủ lỗi thì báo, tự đọc lại khi tab quay lại; không cuộn ngang ở 1280 và 390', async () => {
