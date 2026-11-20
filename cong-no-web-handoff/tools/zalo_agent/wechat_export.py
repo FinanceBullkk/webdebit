@@ -17,6 +17,8 @@ chữ thông báo), không bao giờ ra XML, URL, khóa CDN hay mã; tiền tố
 from __future__ import annotations
 
 import argparse
+import contextlib
+import hashlib
 import html
 import json
 import re
@@ -25,12 +27,15 @@ import time
 from pathlib import Path
 
 PAGE = 200
-MAX_PER_RUN = 20000   # trần an toàn cho một lượt; chạm trần thì lượt sau đọc tiếp từ con trỏ (chậm, không mất)
-WINDOW_CAP = 2000
+REQUEST_BUDGET = 2000  # tổng số tin MỚI tối đa mỗi yêu cầu, chia đều các nhóm (sàn 100/nhóm): yêu cầu luôn xong trong timeout và
+                       # con trỏ luôn tiến; tồn nhiều thì lượt sau đọc tiếp từ con trỏ (chậm, không mất)
+WINDOW_CAP = 1000
 MAX_BODY = 4000
 MAX_CARD = 500
-URL = re.compile(r"(?:https?|ftp)://\S+", re.IGNORECASE)
-PREFIX = re.compile(r"^([A-Za-z][\w@.\-]{2,63}):\n")
+URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.\-]{1,19}://\S*")   # mọi scheme: http, weixin, wxp…
+TAG = re.compile(r"<[^>]{0,400}>")
+PLACEHOLDER = re.compile(r"\$\{[^}]*\}")
+PREFIX = re.compile(r"^([A-Za-z0-9][\w@.\-]{2,63}):\n")
 XMLISH = re.compile(r"<\s*/?\s*(?:msg|sysmsg|appmsg|revokemsg)\b", re.IGNORECASE)
 REFER = re.compile(r"<refermsg>.*?</refermsg>", re.DOTALL)
 REVOKE = re.compile(r"revokemsg|撤回|recalled a message|recalled", re.IGNORECASE)
@@ -49,13 +54,16 @@ def tag(xml: str, name: str) -> str:
 
 
 def scrub(text: str) -> str:
-    text = " ".join(URL.sub(" ", html.unescape(text)).split())
-    return text[:MAX_CARD]
+    """Bỏ thẻ (kể cả `<_wc_custom_link_ href=…>`, giữ chữ bên trong), URL mọi scheme và chỗ giữ `${…}`; gọn khoảng trắng."""
+    text = PLACEHOLDER.sub(" ", URL.sub(" ", TAG.sub(" ", html.unescape(text))))
+    return " ".join(text.split())[:MAX_CARD]
 
 
 def strip_prefix(text: str, sender: str = "") -> str:
+    """Bỏ tiền tố `<id>:\n` của tin nhóm người khác gửi: id là mã người gửi, hoặc trông như mã (có chữ số, `_` hay `@`: `wxid_…`,
+    id tùy chỉnh `abc123`). Một chữ thường như "Ghi chú:" không bị coi là mã."""
     found = PREFIX.match(text)
-    if found and (found.group(1) == sender or found.group(1).startswith("wxid_")):
+    if found and (found.group(1) == sender or re.search(r"[0-9_@]", found.group(1))):
         return text[found.end():]
     return text
 
@@ -70,8 +78,8 @@ def clean_content(kind, content: str, sender: str = "") -> str:
         parts = [scrub(tag(xml, name)) for name in ("title", "des")]
         return " · ".join(part for part in parts if part)
     if kind == "系统消息":
-        if XMLISH.search(text):
-            return scrub(tag(text, "replacemsg"))
+        if XMLISH.search(text):   # thông báo vào nhóm, "vỗ"…: chữ nằm ở replacemsg hoặc mẫu `template` (bỏ chỗ giữ ${…})
+            return scrub(tag(text, "replacemsg") or tag(text, "template"))
         return scrub(text)
     return ""
 
@@ -91,11 +99,11 @@ def key(row: dict) -> tuple:
     return (row.get("local_id"), row.get("sort_seq"))
 
 
-def read_group(db, username: str, cursor: dict | None, first_limit: int) -> list[dict]:
+def read_group(db, username: str, cursor: dict | None, first_limit: int, limit: int = REQUEST_BUDGET) -> list[dict]:
     """Tin mới của một nhóm, cũ trước mới sau.
 
-    Có con trỏ: đọc TĂNG DẦN bằng `get_new_messages(since_seq)` của upstream, nhiều trang, tới hết (trần MAX_PER_RUN, lượt sau đọc
-    tiếp), nên tồn bao nhiêu cũng không mất. `since_seq` lùi một để thấy tin cùng `sort_seq` đến muộn; `is_new` lọc phần đã thấy.
+    Có con trỏ: đọc TĂNG DẦN bằng `get_new_messages(since_seq)` của upstream, nhiều trang, tới hết hoặc tới `limit` (lượt sau đọc
+    tiếp từ con trỏ), nên tồn bao nhiêu cũng không mất. `since_seq` lùi một để thấy tin cùng `sort_seq` đến muộn; `is_new` lọc phần đã thấy.
     Lần đầu (chưa có con trỏ): `first_limit` tin gần nhất."""
     seq = (cursor or {}).get("sort_seq")
     if not isinstance(seq, int):
@@ -112,7 +120,7 @@ def read_group(db, username: str, cursor: dict | None, first_limit: int) -> list
     out: list[dict] = []
     seen: set = set()
     since = seq - 1
-    while len(out) < MAX_PER_RUN:
+    while len(out) < limit:
         page = db.get_new_messages(username, since_seq=since, limit=PAGE)
         for row in page:
             if is_new(row, cursor) and key(row) not in seen:
@@ -124,7 +132,7 @@ def read_group(db, username: str, cursor: dict | None, first_limit: int) -> list
         if not isinstance(last, int):
             break
         since = last - 1 if last - 1 > since else last   # tiến ít nhất một; cả trang cùng sort_seq thì bỏ phần dư đồng seq
-    return out
+    return out[:limit]   # cắt đúng ngân sách: con trỏ theo tin cuối đã phát, phần còn lại (kể cả cùng sort_seq) là "mới" ở lượt sau
 
 
 def read_window(db, username: str, hours: float, now: float) -> list[dict]:
@@ -164,6 +172,29 @@ def export_image(tools, username: str, local_id: int, directory: str) -> str | N
     return Path(path).name if path else None
 
 
+def fingerprint(item: dict) -> str:
+    """Dấu vân tay của một bản ghi đầu ra (loại, chữ đã làm sạch, người gửi, cờ thu hồi): cửa sổ đọc lại chỉ cần so cái này."""
+    text = json.dumps([item.get("type"), item.get("content"), item.get("sender"), bool(item.get("revoked"))], ensure_ascii=True)
+    return hashlib.sha256(text.encode("ascii")).hexdigest()[:16]
+
+
+def stale(row: dict, nicks: dict) -> bool:
+    """Người gửi chưa tra được (thành viên mới vào sau khi tiến trình mở DB, bộ nhớ đệm của upstream cũ)."""
+    if row.get("sender_id") == 2 or row.get("type") == "系统消息":
+        return False
+    return not row.get("sender_username") or row["sender_username"] not in nicks
+
+
+def refresh(db) -> dict:
+    """Đặt lại bộ nhớ đệm người gửi và biệt danh của upstream (`_sender_id_index`, `nickname_map`), rồi trả bảng biệt danh mới."""
+    with contextlib.suppress(Exception):
+        db._sender_id_cache = None
+    try:
+        return db.nickname_map(refresh=True)
+    except TypeError:
+        return db.nickname_map()
+
+
 def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None, window: bool = False) -> dict:
     sender = row.get("sender_username") or ""
     is_self = row.get("sender_id") == 2
@@ -171,7 +202,7 @@ def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None,
     raw = row.get("content") if isinstance(row.get("content"), str) else ""
     out = {"kind": "message", "username": username, "local_id": row.get("local_id"), "sort_seq": row.get("sort_seq"),
            "create_time": row.get("create_time"), "type": kind, "is_self": is_self,
-           "sender": "" if is_self else sender, "sender_name": "" if is_self else (nicks.get(sender) or sender),
+           "sender": "" if is_self else sender, "sender_name": "" if is_self else (nicks.get(sender) or ""),   # không bao giờ wxid thô
            "content": clean_content(kind, raw, sender), "image": None}
     if window:
         out["window"] = True
@@ -179,6 +210,7 @@ def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None,
         out["revoked"] = True   # chỉ cờ; chữ gốc không ra ngoài
     if tools and images_dir and kind == "图片" and isinstance(row.get("local_id"), int):
         out["image"] = export_image(tools, username, row["local_id"], images_dir)
+    out["fp"] = fingerprint(out)
     return out
 
 
@@ -199,26 +231,37 @@ def cmd_read(db, request: dict) -> int:
     first = request.get("first_limit") if isinstance(request.get("first_limit"), int) else 5000
     hours = request.get("window_hours") if isinstance(request.get("window_hours"), int | float) else 0
     images_dir = request.get("images_dir") if isinstance(request.get("images_dir"), str) else None
+    sent = request.get("known_fp") if isinstance(request.get("known_fp"), dict) else {}   # {username: {"local_id:sort_seq": fp}}
     nicks = db.nickname_map()
     tools = image_tools(db) if images_dir else None
-    counts = {"messages": 0, "images": 0, "missing_groups": 0, "window": 0}
-    for username, cursor in sorted(groups.items()):
-        if username not in known:
-            counts["missing_groups"] += 1
-            continue
-        have = cursor if isinstance(cursor, dict) else None
-        fresh = read_group(db, username, have, first)
-        seen = {key(row) for row in fresh}
+    counts = {"messages": 0, "images": 0, "missing_groups": 0, "window": 0, "window_same": 0}
+    present = [username for username, _ in sorted(groups.items()) if username in known]
+    counts["missing_groups"] = len(groups) - len(present)
+    quota = max(100, REQUEST_BUDGET // max(1, len(present)))   # chia ngân sách tin mới cho các nhóm: mọi yêu cầu đều tiến
+    refreshed = False
+    for username in present:
+        have = groups[username] if isinstance(groups[username], dict) else None
+        for attempt in (0, 1):
+            fresh = read_group(db, username, have, first, quota)
+            seen = {key(row) for row in fresh}
+            late = read_window(db, username, hours, time.time()) if hours > 0 and (have or {}).get("sort_seq") else []
+            late = [row for row in late if key(row) not in seen]
+            if attempt == 0 and not refreshed and any(stale(row, nicks) for row in [*fresh, *late]):
+                nicks, refreshed = refresh(db), True   # người mới vào nhóm: đọc lại với bộ nhớ đệm người gửi mới
+                continue
+            break
         for row in fresh:
             item = record(nicks, username, row, tools, images_dir)
             counts["messages"] += 1
             counts["images"] += bool(item["image"])
             emit(item)
-        if hours > 0 and (have or {}).get("sort_seq"):
-            for row in read_window(db, username, hours, time.time()):
-                if key(row) not in seen:
-                    counts["window"] += 1
-                    emit(record(nicks, username, row, None, None, window=True))
+        for row in late:
+            item = record(nicks, username, row, None, None, window=True)
+            if (sent.get(username) or {}).get(f"{item['local_id']}:{item['sort_seq']}") == item["fp"]:
+                counts["window_same"] += 1   # đã có đúng bản này: không gửi lại nội dung qua ống
+                continue
+            counts["window"] += 1
+            emit(item)
     emit({"kind": "end", **counts, "image_keys": bool(tools)})
     return 0
 

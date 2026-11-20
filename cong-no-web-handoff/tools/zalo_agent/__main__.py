@@ -49,7 +49,8 @@ class Agent:
         if overlay:   # WECHAT-01: nguồn thứ hai, chỉ khi bật `--wechat`; tiến trình con chạy ở luồng nền nên không làm chậm bundle
             self.processors.append(wechat_source.WeChatProcessor(
                 overlay, self.state, python=wechat["python"], pilot=wechat["pilot"], interval=wechat.get("interval", wechat_source.INTERVAL),
-                images=wechat.get("images", False), run=wechat.get("run") or wechat_source.Session(), dry_run=dry_run, clock=clock))
+                images=wechat.get("images", False), run=wechat.get("run") or wechat_source.Session(), dry_run=dry_run, clock=clock,
+                background=wechat.get("background", True)))
         if insurance_target:   # không đích thì không có bộ xử lý (và không có khóa trong status.json)
             self.processors.append(InsuranceProcessor(live, self.state, self.root / "insurance", insurance_target,
                                                       snapshot=insurance_snapshot, store=insurance_store, run=run, dry_run=dry_run, clock=clock))

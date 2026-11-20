@@ -408,12 +408,19 @@ class ExportTest(unittest.TestCase):
 
     def test_a_backlog_of_three_thousand_is_read_in_full_across_pages_and_the_cursor_follows(self):
         db = self.Db([(USER, NAME)], total=3000)
-        rows = export.read_group(db, USER, {"sort_seq": 1000, "tail": [1]}, 100)
-        self.assertEqual([r["local_id"] for r in rows], list(range(2, 3001)))   # không mất tin nào dù tồn > 2000
+        got, cursor = [], {"sort_seq": 1000, "tail": [1]}
+        for _ in range(5):   # mỗi yêu cầu tối đa REQUEST_BUDGET tin mới; con trỏ tiến theo tin cuối nên cộng lại không mất tin nào
+            rows = export.read_group(db, USER, cursor, 100)
+            self.assertLessEqual(len(rows), export.REQUEST_BUDGET)
+            if not rows:
+                break
+            got += rows
+            cursor = {"sort_seq": rows[-1]["sort_seq"], "tail": [rows[-1]["local_id"]]}
+        self.assertEqual([r["local_id"] for r in got], list(range(2, 3001)))   # không mất tin nào dù tồn > 2000
         again = export.read_group(db, USER, {"sort_seq": 3_000_000, "tail": [3000]}, 100)
         self.assertEqual(again, [])
         with unittest.mock.patch.object(export, "PAGE", 100):   # trang đầy ngay ranh giới: không lặp vô hạn, không trùng
-            rows = export.read_group(db, USER, {"sort_seq": 1000, "tail": [1]}, 100)
+            rows = export.read_group(db, USER, {"sort_seq": 1000, "tail": [1]}, 100, limit=10_000)
         self.assertEqual([r["local_id"] for r in rows], list(range(2, 3001)))
 
     def test_clean_content_keeps_only_readable_text_never_urls_keys_or_ids(self):
@@ -447,7 +454,7 @@ class ExportTest(unittest.TestCase):
             export.cmd_read(db, {"groups": {USER: {}, "wxid_khong_co@chatroom": {}}, "first_limit": 50})
         self.assertEqual(set(db.touched), {USER})
         tools.assert_not_called()
-        self.assertEqual(lines[-1], {"kind": "end", "messages": 7, "images": 0, "missing_groups": 1, "window": 0, "image_keys": False})
+        self.assertEqual(lines[-1], {"kind": "end", "messages": 7, "images": 0, "missing_groups": 1, "window": 0, "window_same": 0, "image_keys": False})
         self.assertEqual(lines[0]["sender_name"], "Khách A")
         self.assertNotIn("wxid", json.dumps([line for line in lines if line["kind"] == "end"]))
 
@@ -705,6 +712,150 @@ class SessionTest(unittest.TestCase):
         code, output = self.session(sys.executable, str(self.pilot), "groups", {}, 60)
         self.assertEqual((code, [g["name"] for g in wc.parse(output)]), (0, ["Nhóm"]))
         self.assertIsNone(self.session.proc)
+
+
+class RoundTwoExportTest(unittest.TestCase):
+    Db = ExportTest.Db
+
+    class Stale(ExportTest.Db):
+        """Upstream giữ `_sender_id_cache` và `nickname_map` trong bộ nhớ: người mới vào nhóm sau khi mở DB chưa có trong đó."""
+
+        def __init__(self):
+            super().__init__([(USER, NAME)], total=2)
+            self._sender_id_cache = {}   # còn cũ
+            self.fresh_nicks = False
+
+        def get_messages(self, username, limit=20, offset=0):
+            rows = super().get_messages(username, limit, offset)
+            return [{**row, "sender_username": "" if self._sender_id_cache is not None else "wxid_moi1",
+                     "content": ("abc123:\n" if self._sender_id_cache is None else "") + row["content"]} for row in rows]
+
+        def nickname_map(self, refresh=False):
+            self.fresh_nicks = self.fresh_nicks or refresh
+            return {"wxid_moi1": "Người mới"} if self.fresh_nicks else {}
+
+    def run_read(self, db, request):
+        lines = []
+        with unittest.mock.patch.object(export, "emit", lines.append):
+            export.cmd_read(db, request)
+        return lines
+
+    def test_stale_sender_cache_is_reset_and_the_group_reread_so_new_members_get_names(self):
+        db = self.Stale()
+        lines = self.run_read(db, {"groups": {USER: {}}, "first_limit": 10})
+        messages = [line for line in lines if line["kind"] == "message"]
+        self.assertIsNone(db._sender_id_cache)
+        self.assertEqual({(m["sender"], m["sender_name"]) for m in messages}, {("wxid_moi1", "Người mới")})
+        self.assertEqual([m["content"] for m in messages], ["tin 1", "tin 2"])   # tiền tố id tùy chỉnh bị bỏ sau khi đọc lại
+
+    def test_prefix_of_any_id_like_token_is_dropped_but_plain_words_are_kept(self):
+        self.assertEqual(export.clean_content("文本", "abc123:\nThu 5 triệu"), "Thu 5 triệu")
+        self.assertEqual(export.clean_content("文本", "wxid_xyz:\nThu 5 triệu"), "Thu 5 triệu")
+        self.assertEqual(export.clean_content("文本", "Ghi:\nThu 5 triệu"), "Ghi:\nThu 5 triệu")
+        self.assertEqual(export.clean_content("文本", "Ghi:\nThu 5 triệu", "Ghi"), "Thu 5 triệu")
+
+    def test_system_text_loses_every_scheme_tag_and_placeholder(self):
+        text = 'Bạn xem <_wc_custom_link_ href="weixin://findfriend/verifycontact">liên kết</_wc_custom_link_> weixin://abc/def ftp://x.example.test/y'
+        self.assertEqual(export.clean_content("系统消息", text), "Bạn xem liên kết")
+        join = '<sysmsg type="sysmsgtemplate"><sysmsgtemplate><content_template><template><![CDATA["${username}" vừa vào nhóm]]></template></content_template></sysmsgtemplate></sysmsg>'
+        cleaned = export.clean_content("系统消息", join)
+        self.assertIn("vừa vào nhóm", cleaned)
+        self.assertNotIn("$", cleaned)
+        self.assertEqual(export.clean_content("系统消息", '<sysmsg type="x"><a>mã</a></sysmsg>'), "")
+        row = wc.convert(msg(1, 1000, "", "系统消息", sender=""))[0]
+        self.assertEqual(row["body"], wc.NOTICE_LABEL)
+
+    def test_window_rows_the_parent_already_has_are_not_sent_again(self):
+        db = self.Db([(USER, NAME)], total=3)
+        request = {"groups": {USER: {"sort_seq": 3000, "tail": [3]}}, "window_hours": 6}
+        with unittest.mock.patch.object(export.time, "time", return_value=1_793_000_010.0):
+            first = self.run_read(db, request)
+            sent = {USER: {f"{m['local_id']}:{m['sort_seq']}": m["fp"] for m in first if m["kind"] == "message"}}
+            second = self.run_read(db, {**request, "known_fp": sent})
+            changed = {USER: {**sent[USER], "2:2000": "0" * 16}}   # một dòng đã khác: gửi lại đúng dòng đó
+            third = self.run_read(db, {**request, "known_fp": changed})
+        self.assertEqual((first[-1]["window"], first[-1]["window_same"]), (3, 0))
+        self.assertEqual((second[-1]["window"], second[-1]["window_same"], len(second)), (0, 3, 1))
+        self.assertEqual([m["local_id"] for m in third if m["kind"] == "message"], [2])
+
+    def test_the_request_budget_is_shared_across_groups_so_one_request_always_finishes(self):
+        groups = [(f"wxid_g{i}@chatroom", f"Nhóm {i}") for i in range(3)]
+        db = self.Db(groups, total=3000)
+        lines = self.run_read(db, {"groups": {u: {"sort_seq": 1000, "tail": [1]} for u, _ in groups}})
+        per_group = {}
+        for line in lines:
+            if line["kind"] == "message":
+                per_group[line["username"]] = per_group.get(line["username"], 0) + 1
+        self.assertEqual(sorted(per_group.values()), [666, 666, 666])
+        self.assertLessEqual(lines[-1]["messages"], export.REQUEST_BUDGET)
+
+
+class RoundTwoProcessorTest(WeChatBase):
+    def make_agent(self):
+        wechat = {"python": "py", "pilot": "p", "groups": str(self.selection.path), "run": self.db, "background": False}
+        agent = agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:/srv/v7/zalo-agent", run=self.remote,
+                                 clock=lambda: self.now, wechat=wechat, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
+        self.addCleanup(agent.release)
+        return agent
+
+    def test_an_unchanged_window_causes_no_poll_result_log_line_or_status_push(self):
+        agent = self.make_agent()
+        self.db.feed = [msg(1, 1000, "tin có sẵn")]
+        for _ in range(4):   # lượt đầu có dòng thật sự ghi, dựng gói, đẩy phần thêm: trạng thái đổi bình thường
+            self.now += 11
+            agent.cycle(force_status=True)
+        self.db.window = [msg(1, 1000, "tin có sẵn", window=True)]   # cửa sổ 6 giờ: mọi tin phát lại y nguyên mỗi lượt
+        pushes = self.remote.applies("/srv/v7/zalo-agent")
+        for _ in range(4):
+            self.now += 11
+            self.assertIsNone(agent.cycle())
+        self.assertEqual(self.remote.applies("/srv/v7/zalo-agent"), pushes)
+
+    def test_poll_is_reported_only_when_rows_were_really_written(self):
+        self.db.feed = [msg(1, 1000)]
+        self.assertEqual(self.poll()["action"], "poll")
+        self.db.window = [msg(1, 1000, window=True)]
+        self.assertEqual([self.poll()["action"] for _ in range(3)], ["idle", "idle", "idle"])
+        self.db.window = [msg(1, 1000, "đã sửa", window=True)]
+        self.assertEqual(self.poll()["action"], "poll")
+
+    def test_known_fingerprints_travel_with_the_next_request_and_expire_after_the_window(self):
+        self.now = 1_793_000_100.0   # cùng thời với giờ tin của msg()
+        self.db.feed = [msg(1, 1000, fp="f" * 16)]
+        self.poll()
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {USER: {"1:1000": "f" * 16}})
+        self.now += 8 * 3600   # quá cửa sổ 6 giờ cộng một giờ đệm: quên
+        self.processor.step()
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {})
+
+    def test_a_window_pass_never_overwrites_a_decoded_image_row(self):
+        self.processor = self.make_processor(images=True)
+        (self.store.dir / "incoming").mkdir(exist_ok=True)
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(JPEG)
+        self.db.feed = [msg(1, 1000, "", "图片", image="a.jpg")]
+        self.poll()
+        self.db.window = [msg(1, 1000, "", "图片", window=True)]   # cửa sổ không có ảnh giải mã
+        self.poll()
+        self.assertEqual([(row["body"], bool(row.get("media"))) for row in self.store.rows_after(0)[0]], [("Ảnh WeChat", True)])
+
+    def test_a_group_unselected_while_the_child_was_reading_is_neither_stored_nor_given_a_cursor(self):
+        self.processor.apply(None, [msg(1, 1000, "đến sau khi bỏ chọn")], {}, {})
+        self.assertEqual(self.store.rows_after(0), ([], 0))
+        self.assertEqual(self.processor.cursors, {})
+
+    def test_a_missing_sender_is_corrected_later_and_never_shown_as_a_raw_id(self):
+        self.db.feed = [msg(1, 1000, "tin", sender="")]
+        self.poll()
+        first = self.store.rows_after(0)[0][0]
+        self.assertIsNone(first["sender_id"])
+        self.db.window = [msg(1, 1000, "tin", sender="wxid_moi", name="", window=True)]   # tra ra id nhưng chưa có biệt danh
+        self.poll()
+        fixed = self.store.rows_after(0)[0][0]
+        self.assertIsNotNone(fixed["sender_id"])
+        names = json.loads((self.store.dir / "users.json").read_text(encoding="utf-8"))
+        self.assertEqual(names, {fixed["sender_id"]: wc.MEMBER_NAME})
+        self.assertNotIn("wxid", json.dumps([fixed, names]))
 
 
 if __name__ == "__main__":

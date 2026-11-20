@@ -39,6 +39,8 @@ KINDS = {"文本": 1, "图片": 2, "文件/链接/卡片": 19, "系统消息": -
 LABELS = {"图片": "Ảnh WeChat (chưa đọc được)", "语音": "[Ghi âm WeChat]", "视频": "[Video WeChat]", "位置": "[Vị trí WeChat]",
           "动画表情": "[Biểu tượng WeChat]", "音视频通话": "[Cuộc gọi WeChat]", "红包": "[Lì xì WeChat]"}
 UNKNOWN_LABEL = "[Tin WeChat loại lạ]"
+NOTICE_LABEL = "[Thông báo WeChat]"   # tin hệ thống không có chữ đọc được (vào nhóm, vỗ…)
+MEMBER_NAME = "Thành viên WeChat"     # người gửi chưa tra được tên: không bao giờ dùng wxid thô làm tên
 
 
 def sha(text: str) -> str:
@@ -73,14 +75,17 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
     mtype = KINDS.get(kind, 19) if isinstance(kind, str) else 19
     if kind == "图片":
         body = "Ảnh WeChat" if image else LABELS[kind]
-    elif kind in ("文本", "文件/链接/卡片", "系统消息"):
+    elif kind == "系统消息":
+        body = content.strip() or NOTICE_LABEL
+    elif kind in ("文本", "文件/链接/卡片"):
         body = content.strip() or UNKNOWN_LABEL
     else:
         body = LABELS.get(kind, UNKNOWN_LABEL) if isinstance(kind, str) else UNKNOWN_LABEL
     own = bool(item.get("is_self"))
     wxid = item.get("sender") if isinstance(item.get("sender"), str) else ""
     sid = SELF_ID if own else sender_id(wxid) if wxid else None
-    name = SELF_NAME if own else (item.get("sender_name") or wxid) if wxid else None
+    shown = (item.get("sender_name") or "").strip() if isinstance(item.get("sender_name"), str) else ""
+    name = SELF_NAME if own else (MEMBER_NAME if not shown or shown == wxid else shown) if wxid else None
     millis = str(stamp * 1000)
     row = {"message_id": message_id(username, local_id, seq), "conversation_id": conversation_id(username), "sender_id": sid,
            "timestamp": millis, "server_time": millis, "message_type": mtype, "status": 2 if own else 4, "body_state": None,
@@ -89,8 +94,9 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
 
 
 def trace(row: dict) -> dict:
-    """Dấu vết đủ để so một dòng với bản đã ghi: chữ ký (loại, chữ, đã xóa) và các trường cần cho dòng xóa."""
-    body = json.dumps([row.get("message_type"), row.get("body"), bool(row.get("deleted"))], ensure_ascii=False, sort_keys=True)
+    """Dấu vết đủ để so một dòng với bản đã ghi: chữ ký (loại, chữ, người gửi, đã xóa) và các trường cần cho dòng xóa. Có người gửi
+    để dòng gửi thiếu người (tra chưa ra) tự được sửa khi tra ra."""
+    body = json.dumps([row.get("message_type"), row.get("body"), row.get("sender_id"), bool(row.get("deleted"))], ensure_ascii=False, sort_keys=True)
     return {"sig": sha(body), "deleted": bool(row.get("deleted")), "sender_id": row.get("sender_id"), "message_type": row.get("message_type"), "status": row.get("status")}
 
 
@@ -340,6 +346,8 @@ class WeChatProcessor:
                  recheck_hours: float = RECHECK_HOURS):
         self.store, self.state, self.python, self.pilot = store, Path(state), python, pilot
         self.interval, self.first_limit, self.images, self.recheck_hours = interval, first_limit, images, recheck_hours
+        self.fps: dict[tuple, tuple[str, int]] = {}   # (nhóm, local_id, sort_seq) → (dấu vân tay, giờ tin): cửa sổ chỉ gửi nội dung khi khác
+        self.appended = 0                             # số dòng THẬT SỰ ghi ở lượt nhập gần nhất
         self.known: dict[str, dict] | None = None   # dấu vết bản cuối của mỗi mã tin trong log; nạp lười ở lượt nhập đầu
         self.run, self.clock, self.dry_run, self.background = run, clock, dry_run, background
         saved = read_json(self.state / f"{NAME}.json", {}) or {}
@@ -358,8 +366,14 @@ class WeChatProcessor:
         images = str(self.store.dir / "incoming") if self.images else None
         if images:
             Path(images).mkdir(exist_ok=True)
+        floor = self.clock() - (self.recheck_hours + 1) * 3600
+        self.fps = {key: value for key, value in self.fps.items() if value[1] >= floor}
+        known: dict[str, dict] = {}
+        for (username, local_id, seq), (fp, _) in self.fps.items():
+            if username in groups:
+                known.setdefault(username, {})[f"{local_id}:{seq}"] = fp
         return {"groups": {u: self.cursors.get(u) or {} for u in groups}, "first_limit": self.first_limit, "images_dir": images,
-                "window_hours": self.recheck_hours}
+                "window_hours": self.recheck_hours, "known_fp": known}
 
     def poll(self, groups: dict[str, str]) -> tuple[str | None, list[dict], dict]:
         """Chạy tiến trình con (có thể ở luồng nền). Trả (mã lỗi, các dòng tin, dòng `end`)."""
@@ -406,13 +420,16 @@ class WeChatProcessor:
         self.failures = self.failures + 1 if error else 0
         if error:
             self.next_at = now + min(MAX_BACKOFF, self.interval * 2 ** self.failures)
-        self.last = {"action": "idle" if error or not items else "poll", "revision": None, "error": error, "messages": self.total}
+        # "poll" (và thay đổi trạng thái) chỉ khi có dòng THẬT SỰ được ghi: cửa sổ đọc lại không làm log và đẩy status mỗi lượt
+        self.last = {"action": "poll" if not error and self.appended else "idle", "revision": None, "error": error, "messages": self.total}
 
     def ingest(self, items: list[dict], groups: dict[str, str]) -> str | None:
         if self.known is None:
             self.known = self.store.known()
-        rows, users, media, moved, staged = [], {}, {}, {}, {}   # staged: dấu vết chỉ nhớ sau khi nối log thành công
+        rows, users, media, moved, staged, seen_fp = [], {}, {}, {}, {}, {}   # staged: dấu vết chỉ nhớ sau khi nối log thành công
         for item in items:
+            if item.get("username") not in groups:   # nhóm vừa bỏ chọn giữa lượt đọc nền: không nhập, không trả con trỏ
+                continue
             image = None
             if item.get("image") and self.images:
                 image = self.read_image(item["image"])
@@ -426,6 +443,10 @@ class WeChatProcessor:
                 row["media"] = [image[0]]
             window = bool(item.get("window"))
             prior = staged.get(row["message_id"]) or self.known.get(row["message_id"])
+            if isinstance(item.get("fp"), str):
+                seen_fp[(item["username"], item["local_id"], item["sort_seq"])] = (item["fp"], item["create_time"])
+            if window and prior is not None and item.get("type") == "图片":
+                continue   # cửa sổ không dựng lại ảnh (không có khóa/ảnh): đừng ghi đè bản đã có `media`
             if window and prior is not None:
                 # Cửa sổ đọc lại: chỉ phát khi dòng đã đổi. WeChat thu hồi bằng cách biến dòng cũ thành tin hệ thống: dòng đó
                 # trở thành dòng xóa (giữ người gửi, loại tin cũ) và không bao giờ bị tin hệ thống ghi đè lại.
@@ -450,7 +471,9 @@ class WeChatProcessor:
                 moved[username] = {"sort_seq": seq, "tail": [*tail, local_id]}
         self.store.append(rows, users, media)
         self.known.update(staged)
-        self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **moved}
+        self.fps.update(seen_fp)
+        self.appended = len(rows)
+        self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **{u: c for u, c in moved.items() if u in groups}}
         self.total += len(rows)
         if not self.dry_run:
             cursors.save(self.state, NAME, {"groups": self.cursors, "messages": self.total}, self.clock())
