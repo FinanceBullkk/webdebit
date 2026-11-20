@@ -30,7 +30,7 @@ from test_zalo_web_bundle import (  # noqa: E402
     write_source,
 )
 from zalo_agent import __main__ as agent_main  # noqa: E402
-from zalo_agent import ocr, reads  # noqa: E402
+from zalo_agent import gemini, ocr, reads  # noqa: E402
 from zalo_agent.processors.money_images import MoneyImagesProcessor  # noqa: E402
 from zalo_agent.source import LiveSync  # noqa: E402
 
@@ -134,7 +134,8 @@ class MoneyBase(unittest.TestCase):
         self.engine = FakeEngine(script={JPEG_LOCAL: TRANSFER})
 
     def make(self, **kwargs):
-        args = {"engine": self.engine, "executor": Inline(), "prepare": prepare, "transcode": lambda data: JXL_AS_JPEG,
+        args = {"engine": self.engine, "executor": Inline(), "gemini": gemini.Gemini({}),   # gửi ra ngoài tắt, không đọc môi trường thật
+                "prepare": prepare, "transcode": lambda data: JXL_AS_JPEG,
                 "clock": lambda: self.now, "max_age_days": None, **kwargs}
         return MoneyImagesProcessor(self.live, self.root / "state", self.root / "reads", **args)
 
@@ -211,7 +212,7 @@ class ProcessorTest(MoneyBase):
         self.assertEqual((saved["engine"], saved["version"], saved["amount_vnd"], saved["bank"], saved["is_money"]), ("fake", "1.0+t", 1_500_000, "VIETCOMBANK", True))
         self.assertEqual(saved["size"], [100, 200])
         self.assertTrue(saved["boxes"])   # chữ OCR và ô chữ có trong kho (chỉ ở máy)
-        self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0})
+        self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0})
         self.assertEqual((result["action"], result["error"], result["revision"]), ("idle", None, self.feed.revision()))
         self.assertEqual(sorted(path.name for path in (self.root / "reads").iterdir()), sorted([SHA_LOCAL, SHA_JXL]))
 
@@ -316,7 +317,7 @@ class ProcessorTest(MoneyBase):
         (self.src / "web-groups.json").write_text(json.dumps({"conversations": []}), encoding="utf-8")
         processor = self.make()
         self.assertFalse(processor.wants_work())
-        self.assertEqual(processor.step()["counts"], {"read": 0, "pending": 0, "failed": 0, "review": 0})
+        self.assertEqual(processor.step()["counts"], {"read": 0, "pending": 0, "failed": 0, "review": 0, "asking": 0})
         self.assertEqual(self.engine.calls, [])
 
     def test_unsure_money_image_counts_as_review(self):
@@ -376,7 +377,7 @@ class AgentTest(MoneyBase):
         for _ in range(4):   # mỗi lượt thu một ảnh rồi nộp ảnh kế
             status = agent.cycle(force_status=True)
         entry = status["processors"]["money_images"]
-        self.assertEqual(entry["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0})
+        self.assertEqual(entry["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0})
         self.assertEqual((entry["error"], entry["revision"]), (None, 87))
         remote = json.loads((self.remote.dirs[STATUS_REMOTE] / "status.json").read_text(encoding="utf-8"))
         self.assertEqual(remote["processors"]["money_images"]["counts"]["read"], 2)
