@@ -189,7 +189,7 @@ Không thêm bảng DB, không mở cổng ghi mới trên `hao`, không đổi 
 
 - Phiếu thu đọc từ `sokhach.receipt` (bỏ phiếu đã hủy).
 - Chi và ứng đọc từ `doixe.dong`, `doixe.dong_phi`, `doixe.ung`.
-- Khoảng ngày (−1, +3) và luật "quá 3 ngày" lấy đúng như máy chấm dấu "Khách báo đã chuyển" của ZALO-GROUP-01, để hai chỗ không chấm khác nhau.
+- Khoảng ngày và luật "quá 3 ngày" lấy đúng như máy chấm dấu "Khách báo đã chuyển" của ZALO-GROUP-01, để hai chỗ không chấm khác nhau. **Sửa 20/11/2026 (PR-2):** spec ghi (−1, +3) nhưng `sokhach._mark_json` chấm phiếu từ báo−3 tới báo+7 và "chưa thấy" khi quá báo+3; code dùng đúng số của SQL (`MATCH_BEFORE`, `MATCH_AFTER`, `MISSING_AFTER` trong `web/v7_cash_chat.py`) và một test đọc file SQL để hai nơi không lệch. Bảng trạng thái và Q6 vì vậy đọc là "từ 3 ngày trước tới 7 ngày sau ngày báo".
 - Dấu "Khách báo đã chuyển" đã có (`contact_mark`) cũng hiện trong trang Thu chi như một khoản thu, không chép sang bảng khác.
 
 ### B3. Xác nhận và sửa (PR-3, có DB)
@@ -222,6 +222,15 @@ Chỉ đọc, chạy ở máy có Zalo, chỉ báo số đếm trong chat, khôn
 | `POST /api/v7/cash-chat/review` (PR-3) | `{message_id, action, value, reason, request_id}` → dòng đã ghi; lỗi `REASON_REQUIRED`, `MESSAGE_NOT_FOUND`, `TARGET_NOT_FOUND` |
 
 Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và được đếm riêng.
+
+**Khuôn đã code ở PR-2** (`web/v7_cash_chat.py`; `/api/v7/cash-chat` chỉ cho quản lý như Đội xe, vì có số chi và ứng của Đội xe):
+
+- Mặc định 7 ngày tới hôm nay (giờ VN), tối đa 93 ngày; `status=` nhận mã trạng thái cách nhau bằng dấu phẩy và chỉ lọc `items`, còn `totals` và `counts` tính trên cả khoảng.
+- Mỗi `item`: `message_id`, `conversation_id`, `conversation_name`, `sent_at` (ms), `day`, `sender_name`, `direction`, `amount_vnd` (số nguyên hoặc `null`), `text` (≤ 300 ký tự), `media`, `target {kind, id, label}`, `ambiguous`, `status`, `shared`, `ledger_ref`, `ledger_vnd`, `source` (`chat` hoặc `mark`).
+- `zalo_age_seconds` được thay bằng `zalo {state, at, silent_minutes, identity, quiet_minutes}` lấy từ `status.json` của máy Zalo (`v7_machine.zalo()`), cộng `bundle_at` (giờ dựng gói) và `last_message_at`: đủ để phân biệt "máy im", "Zalo chưa mở" và "ít tin".
+- `shared: true` khi một phiếu hoặc dòng sổ là ứng viên của hai khoản báo; cả hai hiện `AMOUNT_DIFF` (hoặc `SUGGEST`) cho người chọn.
+- Đọc DB chỉ qua hàm đọc có sẵn: `list_customers`, `doixe_get_tong`, `get_receipt_book` (theo tháng, gồm phiếu web chưa hủy và dòng thu sổ gốc), `doixe_get_so` (theo xe hoặc người, chỉ cho đối tượng đã gắn), `get_marks` (theo nhóm). Kết quả giữ 8 giây trong bộ nhớ vì trang hỏi vài giây một lần.
+- Chi hoặc ứng khớp một dòng phí (`dong_phi`) hoặc một lần ứng chưa hủy của Đội xe; chi không có xe/người mà có từ "lương", "văn phòng", "mặt bằng", "internet"… là `NO_LEDGER`, còn lại không rõ đối tượng là `UNKNOWN_TARGET`.
 
 ## Nguồn quyết định
 
