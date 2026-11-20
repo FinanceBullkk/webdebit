@@ -12,9 +12,11 @@ chỉ ứng với một khoản báo; hai khoản cùng ứng với một dòng 
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FlightTimeout
 from datetime import date, datetime, timedelta
 from fractions import Fraction
 from typing import Any
@@ -40,8 +42,13 @@ REPORT = re.compile(r"\s*(?P<verb>thu|chi|ung)(?![a-z])(?P<sep>[\s:.\-−–—]
 OFFICE = re.compile(r"(?<![a-z0-9])(luong|van phong|vpp|mat bang|thue nha|tien nha|internet)(?![a-z0-9])")
 # Biển số chỉ nhận khi có chữ cái của dãy biển (51C-123.45) hoặc đứng ngay sau "xe", "bks", "bs", "biển số": "15.11", "2026" không phải biển.
 PLATE = re.compile(r"(?<![a-z0-9])(?:\d{2}(?!tr|ty)[a-z]{1,2}[\s.\-]*|(?:xe|bks|bs|bien so)[\s:.\-]*(?:so\s*)?)(\d[\d.\-]*\d)(?![a-z])")
-# Số theo sau đơn vị rồi cách rồi vài chữ số ("1 triệu 2", "2 tr 5"): không đoán là số lẻ hay chữ khác. Ngày "20/11" và biển 4–5 số thì không dính.
-SPLIT_AMOUNT = re.compile(r"\s+\d{1,3}(?!\d)(?![/\-]\d)")
+# Số bị tách: sau đơn vị rồi cách rồi 1–3 chữ số đứng một mình ("1 triệu 2", "2 tr 5", "1 triệu 2 cho Hùng"): không đoán là số lẻ hay chữ khác.
+# Không phải số tách khi chữ số dính chữ cái (biển 51C-...), là ngày/tháng ("20/11") hoặc đứng trước danh từ đếm được ("5tr 30 cont", "800k 2 xe").
+COUNTED = r"cont|container|xe|bao|thung|kien|chuyen|lan|cai|chiec|con|cuon|bo|kg|tan|ngay|thang|bill|pallet"
+SPLIT_AMOUNT = re.compile(r"\s+\d{1,3}(?!\d)(?![a-z])(?![/\-]\d)(?!\s+(?:" + COUNTED + r")(?![a-z]))")
+FLIGHT_WAIT = 60.0   # người chờ lượt dựng của người khác tối đa chừng này giây rồi tự dựng, không treo luồng
+# Lỗi do dữ liệu lạ (cột thiếu, kiểu sai, ngày tràn): trang trả "chưa đọc được", không bao giờ 500.
+DATA_ERRORS = (KeyError, ValueError, TypeError, AttributeError, IndexError, ArithmeticError, OSError)
 MIN_NAME = 3   # tên (đã bỏ dấu) ngắn hơn thế không tự khớp: dễ trùng với từ thường
 _FLIGHTS: dict[tuple, Future] = {}
 _CACHE: dict[tuple, tuple[float, dict]] = {}
@@ -93,11 +100,16 @@ def _unique(found: dict[Any, str]) -> dict | None:
     return {"id": next(iter(found)), "label": next(iter(found.values()))} if len(found) == 1 else None
 
 
+def _texts(value: Any) -> list:
+    """Danh sách tên khác từ JSON: chỉ nhận mảng (chuỗi, số hay null thì bỏ, không tách thành từng ký tự)."""
+    return value if isinstance(value, list) else []
+
+
 class Directory:
     """Sổ khách, xe và người của Đội xe, tên đã bỏ dấu để khớp. Chỉ gắn đối tượng khi khớp đúng một."""
 
     def __init__(self, customers: list[dict], xe: list[dict], nguoi: list[dict]):
-        self.books = [(row["id"], row["name"], [fold for name in (row.get("name"), row.get("display_name"), *(row.get("aliases") or []))
+        self.books = [(row["id"], row["name"], [fold for name in (row.get("name"), row.get("display_name"), *_texts(row.get("aliases")))
                                                  if isinstance(name, str) and len(fold := v7_zalo_chat.fold(name).strip()) >= MIN_NAME])
                       for row in customers if isinstance(row.get("id"), int) and isinstance(row.get("name"), str)]
         self.xe = {row["id"]: row for row in xe if isinstance(row.get("id"), int) and isinstance(row.get("bien_so"), str)}
@@ -180,7 +192,7 @@ def _int(value: Any) -> int | None:
 def _day(value: Any) -> date | None:
     try:
         return date.fromisoformat(value) if isinstance(value, str) else None
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
 
 
@@ -307,6 +319,7 @@ def pair_exact(items: list[dict], rows_of, claimed: set) -> None:
         if owner is None:
             for item in members:
                 _settle(item, "AMOUNT_DIFF", cands[id(item)][0], shared=True)
+                claimed.update(row["key"] for row in cands[id(item)])   # dòng đang chờ người chọn thì không gán cho khoản khác nữa
             continue
         rows = {row["key"]: row for item in members for row in cands[id(item)]}
         for key, item in owner.items():
@@ -366,7 +379,8 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
                 item["status"], item["unchecked"] = "WAITING", True   # không đọc được sổ thì không kết luận "chưa vào sổ"
             else:
                 item["status"] = "MISSING" if today > item["day"] + timedelta(MISSING_AFTER) else "WAITING"
-        item["unchecked"] = item["unchecked"] or (item["status"] in ("UNKNOWN_TARGET", "NO_LEDGER") and "directory" in sources.failed)
+        item["unchecked"] = item["unchecked"] or (item["status"] in ("UNKNOWN_TARGET", "NO_LEDGER") and "directory" in sources.failed) \
+            or (item["status"] == "UNKNOWN_TARGET" and item["direction"] == "thu" and "receipt" in sources.failed)   # chưa kiểm được SUGGEST
 
 
 # ---- dựng kết quả ----
@@ -407,7 +421,9 @@ def _marks(conversations: list[dict], sources: Sources, start: date, end: date, 
             seen.add(pid)
             try:
                 sent = int(datetime.fromisoformat(mark["message_at"]).timestamp() * 1000) if isinstance(mark.get("message_at"), str) else None
-            except ValueError:
+            except (ValueError, OverflowError, OSError):
+                sent = None
+            if sent is not None and not 946_684_800_000 <= sent <= 4_102_444_800_000:   # ngoài 2000–2100 là giờ vô lý: bỏ giờ, giữ dấu
                 sent = None
             items.append({"message_id": mark.get("message_id"), "conversation_id": conversation["conversation_id"], "conversation_name": conversation["display_name"],
                           "sent_at": sent, "sender_name": mark.get("message_sender"), "direction": "thu", "amount_vnd": amount,
@@ -458,7 +474,10 @@ def _single_flight(key: tuple, now: float, compute) -> dict:
         if leader:
             flight = _FLIGHTS[key] = Future()
     if not leader:
-        return flight.result()
+        try:
+            return flight.result(timeout=FLIGHT_WAIT)
+        except FlightTimeout:
+            return compute()   # lượt kia quá lâu: tự dựng, không giữ kết quả
     try:
         value = compute()
     except BaseException as exc:
@@ -483,8 +502,12 @@ def build(start: date, end: date, runner, actor: str, now: float | None = None) 
         store = v7_zalo_chat.get_store()
     except v7_zalo_chat.ChatError:
         return {"unavailable": True, "zalo": zalo}
-    core = _single_flight((start, end, store.token()), now, lambda: _core(store, start, end, runner, actor, today))
-    last_ms = max((row["last_message_at"] or 0 for row in store.conversations()), default=0) or None
+    try:
+        core = _single_flight((start, end, store.token()), now, lambda: _core(store, start, end, runner, actor, today))
+        last_ms = max((row["last_message_at"] or 0 for row in store.conversations()), default=0) or None
+    except DATA_ERRORS as exc:
+        print(f"V7 thu chi: dữ liệu lạ ({type(exc).__name__}), trả chưa đọc được", file=sys.stderr, flush=True)   # chỉ tên lỗi, không chữ của tin
+        return {"unavailable": True, "reason": "UNREADABLE", "zalo": zalo}
     return {"unavailable": False, "from": start.isoformat(), "to": end.isoformat(), "today": today.isoformat(), "zalo": zalo,
             "bundle_at": store.report.get("built_at") if isinstance(store.report.get("built_at"), str) else None, "last_message_at": last_ms, **core}
 
@@ -498,7 +521,13 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
 
     def directory_of() -> Directory:
         if "directory" not in holder:
-            customers = v7_api_sheet.with_display_names(sources.read("directory", "list_customers", {})).get("customers", [])
+            try:
+                body = sources.read("directory", "list_customers", {})
+                rows = [row for row in _dicts(body.get("customers")) if isinstance(row.get("id"), int) and isinstance(row.get("name"), str)]   # một dòng lạ không làm mất cả danh sách
+                customers = v7_api_sheet.with_display_names({**body, "customers": rows}).get("customers", [])
+            except DATA_ERRORS:
+                customers = []
+                failed.add("directory")
             fleet = sources.read("directory", "doixe_get_tong", {"thang": None}).get("danh_muc")
             fleet = fleet if isinstance(fleet, dict) else {}
             holder["directory"] = Directory(_dicts(customers), _dicts(fleet.get("xe")), _dicts(fleet.get("nguoi")))
