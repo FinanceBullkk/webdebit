@@ -239,14 +239,15 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 {"schema": 1, "at": "2026-11-20T08:04:00+07:00", "agent_version": "<sha commit>", "selected_groups": 1,
  "live_sync": {"revision": 1129, "revision_at": "2026-11-20T08:03:51+07:00", "identity": "attached",
                "identity_since": "2026-11-20T08:03:10+07:00"},
- "processors": {"bundle": {"revision": 1129, "lag_revisions": 0, "last_ok_at": "…", "error": null}},
- "push": {"last_ok_at": "…", "error": null}}
+ "processors": {"bundle": {"revision": 1129, "lag_revisions": 0, "last_ok_at": "…", "error": null, "error_since": null}},
+ "push": {"last_ok_at": "…", "error": null, "error_since": null}}
 ```
 
 - `identity` ∈ `attached`, `waiting_for_zalo`, `reprobing`, `unknown`; lấy từ `poller-identity.json` của live-sync.
 - `identity_since`: lúc `identity` đổi sang giá trị hiện tại (agent tự ghi nhận). `hao` đo "Zalo chưa mở quá 15 phút" bằng trường này; thiếu thì dùng `revision_at`.
 - `live_sync.revision` và `revision_at` là `null` khi agent không đọc được `revision.json`.
 - `error` là mã ngắn `[a-z_]{1,40}` hoặc `null`, không chữ tự do.
+- `error_since` (có ở mỗi bộ xử lý và ở `push`): lúc `error` chuyển từ `null` sang có lỗi. Giữ nguyên mốc khi mã lỗi đổi sang mã khác mà vẫn lỗi; về `null` khi lần chạy kế thành công. Agent nhớ trong `status.json` ở thư mục trạng thái nên chạy lại không mất mốc. `hao` đo "lỗi liên tục quá 15 phút" bằng `now - error_since` (không dùng `last_ok_at`: lỗi ngay từ đầu thì không có `last_ok_at`, còn lỗi thoáng qua sau nhiều giờ im lặng thì báo ngay); thiếu thì coi như mới lỗi.
 - Giờ là ISO 8601 có `+07:00`.
 - **Thiếu file** (chưa bật agent): tab Máy chạy hiện "Chưa có máy Zalo báo về", máy canh im.
 - **File đọc lỗi, `schema` khác 1, hoặc `at` cũ quá 15 phút**: "Không nghe máy Zalo từ …"; máy canh báo theo Phần 6. Không báo lỗi trang.

@@ -50,10 +50,19 @@ def track_identity(state: Path, identity: str, now: float) -> str:
     return now_iso(now)
 
 
+def error_since(before: dict | None, error: str | None, now: float) -> str | None:
+    """Lúc `error` chuyển từ null sang có lỗi: giữ mốc cũ khi vẫn lỗi (kể cả đổi sang mã khác), null khi hết lỗi.
+    Mốc nằm trong status.json lượt trước, file này ở `<state>` nên chạy lại agent không mất."""
+    if error is None:
+        return None
+    kept = (before or {}).get("error_since")
+    return kept if (before or {}).get("error") is not None and isinstance(kept, str) else now_iso(now)
+
+
 def compose(previous: dict | None, now: float, version: str, selected: int, live, results: dict[str, dict],
             push_ok_at: str | None, push_error: str | None, identity: tuple[str, str]) -> dict:
     """`live`: LiveSync. `results`: kết quả `step()` từng bộ xử lý. `identity`: (giá trị, lúc đổi sang giá trị đó).
-    `last_ok_at` giữ giá trị lượt trước khi lượt này lỗi."""
+    `last_ok_at` giữ giá trị lượt trước khi lượt này lỗi; `error_since` xem `error_since()`."""
     before = (previous or {}).get("processors", {}) if isinstance((previous or {}).get("processors"), dict) else {}
     revision = live.revision()
     processors = {}
@@ -64,12 +73,15 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             "revision": have,
             "lag_revisions": max(0, revision - have) if isinstance(revision, int) and isinstance(have, int) else None,
             "last_ok_at": now_iso(now) if error is None else (before.get(name) or {}).get("last_ok_at"),
-            "error": error}
+            "error": error,
+            "error_since": error_since(before.get(name), error, now)}
     failed = next((item["error"] for item in processors.values() if item["error"] == "push_failed"), None)
+    push_failure = code(failed or push_error)
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
             "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},
             "processors": processors,
-            "push": {"last_ok_at": push_ok_at or ((previous or {}).get("push") or {}).get("last_ok_at"), "error": code(failed or push_error)}}
+            "push": {"last_ok_at": push_ok_at or ((previous or {}).get("push") or {}).get("last_ok_at"), "error": push_failure,
+                     "error_since": error_since((previous or {}).get("push"), push_failure, now)}}
 
 
 def write(state: Path, status: dict) -> bytes:

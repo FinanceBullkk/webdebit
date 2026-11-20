@@ -559,9 +559,9 @@ class SourceStatusTest(unittest.TestCase):
         self.assertEqual(first["at"], "2026-11-01T09:26:40+07:00")
         self.assertEqual(first["live_sync"], {"revision": 87, "revision_at": None, "identity": "attached",
                                               "identity_since": "2026-11-01T09:00:00+07:00"})
-        self.assertEqual(set(first["processors"]["bundle"]), {"revision", "lag_revisions", "last_ok_at", "error"})
+        self.assertEqual(set(first["processors"]["bundle"]), {"revision", "lag_revisions", "last_ok_at", "error", "error_since"})
         self.assertEqual((first["processors"]["bundle"]["revision"], first["processors"]["bundle"]["lag_revisions"]), (80, 7))
-        self.assertEqual(first["push"], {"last_ok_at": None, "error": None})
+        self.assertEqual(first["push"], {"last_ok_at": None, "error": None, "error_since": None})
         failed = {"bundle": {"action": "retry", "revision": 80, "error": "Lỗi: mạng đứt tới 100.1.2.3"}}
         second = status_file.compose(first, NOW + 60, "abc1234", 1, self.live, failed, "2026-11-01T09:26:40+07:00", None, ("attached", "x"))
         self.assertEqual(second["processors"]["bundle"]["error"], "unexpected")                       # chữ tự do bị thay bằng mã
@@ -569,6 +569,54 @@ class SourceStatusTest(unittest.TestCase):
         self.assertNotIn("100.1.2.3", json.dumps(second))
         self.assertEqual(status_file.compose(second, NOW, "v", 0, self.live, {"bundle": {"revision": 80, "error": "push_failed"}}, None, None,
                                                 ("unknown", "x"))["push"]["error"], "push_failed")
+
+    def test_error_since_marks_when_the_error_started_not_when_it_last_changed(self):
+        state, status = Path(self.tmp.name) / "state", None
+        stamps = []
+
+        def run(offset, error, push_error=None):
+            nonlocal status
+            status = status_file.compose(status_file.load(state), NOW + offset, "v", 1, self.live,
+                                         {"bundle": {"revision": 80, "error": error}}, None, push_error, ("attached", "x"))
+            status_file.write(state, status)          # như agent: lượt sau đọc lại status.json của lượt trước
+            stamps.append((status["processors"]["bundle"]["error"], status["processors"]["bundle"]["error_since"],
+                           status["push"]["error"], status["push"]["error_since"]))
+
+        run(0, None)
+        run(60, None)
+        run(120, "push_failed", "push_failed")     # bật lỗi: mốc là lúc này, không phải last_ok_at
+        run(180, "push_failed", "push_failed")     # vẫn lỗi: giữ mốc
+        run(600, "build_failed", "push_failed")    # đổi sang mã lỗi khác mà vẫn lỗi: giữ mốc
+        run(900, None, None)                       # lần chạy kế thành công: về null
+        run(960, "no_revision", None)              # lỗi lại: mốc mới
+        at = status_file.now_iso
+        self.assertEqual(stamps, [
+            (None, None, None, None), (None, None, None, None),
+            ("push_failed", at(NOW + 120), "push_failed", at(NOW + 120)),
+            ("push_failed", at(NOW + 120), "push_failed", at(NOW + 120)),
+            ("build_failed", at(NOW + 120), "push_failed", at(NOW + 120)),
+            (None, None, None, None),
+            ("no_revision", at(NOW + 960), None, None)])
+
+    def test_error_since_survives_agent_restart_and_error_from_the_first_run(self):
+        def failing(host, command, stdin=None):
+            raise pusher.PushError("hao không tới được")
+        times = {"t": NOW}
+        root = Path(self.tmp.name) / "agent"
+        wb.Source(self.src).save_selection([GROUP])
+        make = lambda: agent_main.Agent(LiveSync(self.src), root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=failing,  # noqa: E731
+                                        clock=lambda: times["t"], fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
+        first = make()
+        self.addCleanup(first.release)
+        began = first.cycle(force_status=True)["processors"]["bundle"]
+        self.assertEqual((began["error"], began["last_ok_at"], began["error_since"]), ("push_failed", None, status_file.now_iso(NOW)))   # lỗi từ đầu vẫn có mốc
+        first.release()
+        times["t"] = NOW + 7200                                       # chạy lại hai giờ sau, vẫn lỗi
+        again = make()
+        self.addCleanup(again.release)
+        status = again.cycle(force_status=True)
+        self.assertEqual(status["processors"]["bundle"]["error_since"], status_file.now_iso(NOW))
+        self.assertEqual(status["push"]["error_since"], status_file.now_iso(NOW))
 
     def test_identity_since_changes_only_when_identity_changes_and_survives_restart(self):
         state = Path(self.tmp.name) / "state"
