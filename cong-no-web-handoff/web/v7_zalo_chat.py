@@ -123,12 +123,13 @@ def shape_attachment(meta: object) -> dict | None:
             "media_items": items}
 
 
-def report_stamp(directory: Path) -> tuple[int, int] | None:
+def report_stamp(directory: Path) -> str | None:
+    """Dấu nhận biết gói đổi: băm nội dung `export-report.json` (vài trăm byte). Không dùng (mtime, cỡ): trên Windows hai lần
+    ghi liền nhau có thể cùng nhịp đồng hồ và cùng cỡ (revision 2 → 3), nên thay đổi bị bỏ qua (CI windows 20/11/2026)."""
     try:
-        info = (directory / "export-report.json").stat()
+        return hashlib.sha256((directory / "export-report.json").read_bytes()).hexdigest()
     except OSError:
         return None
-    return info.st_mtime_ns, info.st_size
 
 
 def read_optional(path: Path) -> dict:
