@@ -54,43 +54,57 @@ async function withPage(state, fn, { viewport = { width: 1280, height: 800 } } =
   }
 }
 
-test('Nhật ký công việc: tuần, bảng mảng × tuần, từng ngày lời thường, lọc chéo, bỏ PR nhật ký triển khai', () => withPage({}, async page => {
+test('Nhật ký công việc: tuần, lưới ô ngày từng mảng, dòng thời gian, lọc chéo, bỏ PR nhật ký triển khai', () => withPage({}, async page => {
   await page.locator('body[data-loaded]').waitFor({ state: 'attached' });
   assert.equal(await page.locator('#weekTitle').innerText(), 'Tuần 16/11 – 22/11');
   assert.equal(await page.locator('#weekNum').innerText(), '4');   // PR "Nhật ký triển khai" không đếm
   assert.match(await page.locator('#liveTxt').innerText(), /Trực tiếp · GitHub lúc 20\/11\/2026 09:30/);
   assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Nhật ký');   // QUYEN-02: thẻ trong dải Quản trị
   assert.equal(await page.locator('.app-nav nav a').count(), 6, 'năm trang làm sổ + Quản trị');
-  assert.equal(await page.locator('#matrix tbody tr').count(), 6, 'sáu mảng');
-  assert.match(await page.locator('#matrix').innerText(), /Chi phí, thu cước\./, 'mô tả việc lớn nằm dưới tên mảng');
   assert.match(await page.locator('#next').innerText(), /Đội xe: điều độ/);
 
-  // Từng ngày: mới nhất trước, câu lời thường hiện sẵn, danh sách kỹ thuật thu gọn
-  assert.deepEqual(await page.locator('.nk-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-20', '2026-11-18']);
-  const first = page.locator('.nk-day').first();
-  assert.match(await first.locator('h3').innerText(), /^Điều độ xe$/);
-  assert.match(await first.locator('.items').innerText(), /Phân công xe theo booking\./);
-  assert.equal(await first.locator('details.tech').evaluate(d => d.open), false);
-  assert.match(await first.locator('.count').innerText(), /^2 thay đổi/);
+  // Lưới: hàng Tất cả + sáu mảng, ô không in số, số bên phải là tuần đang xem
+  const laneRow = name => page.locator('#cal .cal-row', { has: page.locator('button.cal-lab', { hasText: name }) });
+  assert.equal(await page.locator('#cal .cal-row:not(.cal-head):not(.all)').count(), 6, 'sáu mảng');
+  assert.equal((await page.locator('#cal .cal-wk7').first().innerText()).trim(), '', 'ô không in số');
+  assert.equal(await laneRow('Đội xe').locator('.cal-n').innerText(), '2');
+  assert.equal(await page.locator('#cal .all .cal-n').innerText(), '4');
 
-  // Bấm tên mảng Đội xe: cả trang lọc theo
-  await page.locator('#matrix .lane', { hasText: 'Đội xe' }).click();
+  // Dòng thời gian: mới nhất trước, mỗi mảng một thanh, câu lời thường chỉ hiện khi bấm
+  assert.deepEqual(await page.locator('.tl-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-20', '2026-11-18']);
+  const first = page.locator('.tl-day').first();
+  assert.match(await first.locator('h3').innerText(), /^Điều độ xe$/);
+  assert.equal(await first.locator('.tl-lane').count(), 2);
+  assert.equal(await page.locator('.tl-more').count(), 0, 'chưa bấm thì không có câu chữ');
+  await first.locator('.tl-lane', { hasText: 'Đội xe' }).click();
+  assert.match(await first.locator('.tl-more').innerText(), /Phân công xe theo booking\./);
+  assert.equal(await first.locator('.tl-more details.tech').evaluate(d => d.open), false, 'tên thay đổi kỹ thuật thu lại');
+  assert.doesNotMatch(await first.locator('.tl-more').innerText(), /Khách mới có nhãn Mới/, 'chỉ câu của mảng đã bấm');
+
+  // Bấm tên mảng Đội xe trong lưới: cả trang lọc theo, dòng mảng tự bung
+  await page.locator('#cal button.cal-lab', { hasText: 'Đội xe' }).click();
   assert.match(await page.locator('#fbar').innerText(), /Đội xe/);
   assert.match(await page.locator('#feedTitle').innerText(), /2 thay đổi khớp lọc/);
   assert.equal(await page.locator('#weekNum').innerText(), '2');
-  assert.doesNotMatch(await page.locator('.nk-day').first().innerText(), /Khách mới có nhãn Mới/);
+  assert.equal(await page.locator('.tl-day').first().locator('.tl-lane').count(), 1);
+  assert.equal(await page.locator('.tl-lane[aria-expanded="true"]').count(), 2);
+  await page.locator('#fbar .link', { hasText: 'Xóa lọc' }).click();
 
-  // Thêm lọc giờ bằng cột 22h của biểu đồ giờ: chỉ ngày 18/11 còn, danh sách kỹ thuật mở sẵn
-  await page.locator('#matrix .lane', { hasText: 'Đội xe' }).click();   // bấm lại là bỏ lọc mảng
+  // Bấm ô Sổ khách ngày 18/11: lọc mảng + ngày
+  await laneRow('Sổ khách').locator('button.sq:not([disabled])').first().click();
+  assert.match(await page.locator('#fbar').innerText(), /Sổ khách[\s\S]*T4 18\/11/);
+  assert.deepEqual(await page.locator('.tl-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-18']);
+  await page.keyboard.press('Escape');
   assert.equal(await page.locator('#fbar .fchip').count(), 0);
+
+  // Lọc giờ bằng cột 22h của biểu đồ giờ: chỉ ngày 18/11 còn, tên thay đổi hiện luôn (mảng chưa có câu tóm tắt)
   await page.locator('.hist rect.pick').nth(2).click();   // các cột có dữ liệu: 8h, 9h, 10h, 22h
   assert.match(await page.locator('#fbar').innerText(), /10h–11h/);
   await page.locator('#fbar .link', { hasText: 'Xóa lọc' }).click();
   await page.locator('.hist rect.pick').nth(3).click();
   assert.match(await page.locator('#fbar').innerText(), /22h–23h/);
-  assert.deepEqual(await page.locator('.nk-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-18']);
-  assert.equal(await page.locator('.nk-day details.tech').evaluate(d => d.open), true);
-  assert.match(await page.locator('.nk-day .tech').innerText(), /Sổ khách: phiếu thu gọn/);
+  assert.deepEqual(await page.locator('.tl-day').evaluateAll(ns => ns.map(n => n.dataset.day)), ['2026-11-18']);
+  assert.match(await page.locator('.tl-day .tl-more').innerText(), /Sổ khách: phiếu thu gọn/);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#fbar .fchip').count(), 0);
 
