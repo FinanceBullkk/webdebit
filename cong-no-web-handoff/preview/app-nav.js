@@ -31,7 +31,10 @@ globalThis.AppNav = (() => {
       + '<input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off">'
       + '<div id="customer-results" role="listbox" hidden></div></label>'
       + `<nav aria-label="Điều hướng chính">${PAGES.map(([id, href, label, paths]) => `<a${id === active ? ' class="active" aria-current="page"' : ''} href="${href}">`
-        + `${svg(paths)}${label}${id === 'viec-can-lam' ? '<span class="badge" id="todo-badge" hidden></span>' : ''}</a>`).join('')}</nav>`;
+        + `${svg(paths)}${label}${id === 'viec-can-lam' ? '<span class="badge" id="todo-badge" hidden></span>' : ''}</a>`).join('')}</nav>`
+      // NHAT-KY-01: ngoài khối chín mục (khung 1280×560 chỉ vừa chín mục), khung thấp thì chỉ hiện khi bấm ☰.
+      + `<div class="nav-extra"><a${active === 'nhat-ky' ? ' class="active" aria-current="page"' : ''} href="/nhat-ky-cong-viec.html">`
+      + `${svg('<circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M6 7v10M6 9c0 3 4 3 10 3"></path>')}Nhật ký công việc</a></div>`;
     root.querySelector('#nav-toggle').addEventListener('click', event => {
       const expanded = event.currentTarget.getAttribute('aria-expanded') !== 'true';
       event.currentTarget.setAttribute('aria-expanded', String(expanded));
