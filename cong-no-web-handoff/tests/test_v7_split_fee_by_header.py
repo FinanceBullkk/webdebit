@@ -151,11 +151,35 @@ class Plan(unittest.TestCase):
         result, _ = self.run_tool([trip(11, "FAKEU0000001", "2026-10-03", [fee_line(50, 1, 4500000)])], tab(row))
         self.assertEqual(result["status"], {"NO_NAMED": 1})
 
-    def test_negative_cell_is_left(self):
+    def test_negative_cell_becomes_giam_tru_and_total_stays(self):
+        # Bổ sung 20/11/2026: ô âm vào Giảm trừ (loại hệ thống, nhận số âm), ô dương vẫn theo tên cột; tổng giữ nguyên.
         row = trip_row(2, "FAKEU0000002", "03/10/2026", 85500000, H=2000000, K=-1500000)
-        result, _ = self.run_tool([trip(11, "FAKEU0000002", "2026-10-03", [fee_line(50, 1, 500000)])], tab(row), apply=True)
-        self.assertEqual(result["status"], {"SHEET_NEGATIVE": 1})
-        self.assertEqual(result["written"], 0)
+        result, runner = self.run_tool([trip(11, "FAKEU0000002", "2026-10-03", [fee_line(50, 1, 500000)])], tab(row), apply=True)
+        self.assertEqual(result["status"], {"READY": 1})
+        payload = next(p for c, p in runner.calls if c == "rewrite_trip_fees")
+        got = sorted((x["fee_type_id"], int(x["amount_vnd"])) for x in payload["lines"])
+        self.assertEqual(got, [(2, -1500000), (4, 2000000)])
+        self.assertEqual(sum(v for _, v in got), 500000)
+        self.assertEqual(runner.columns, [10, 4])   # Neo thêm cột; Giảm trừ là loại hệ thống, không có cột riêng
+
+    def test_negative_cell_in_named_column_is_still_giam_tru(self):
+        row = trip_row(2, "FAKEU0000002", "03/10/2026", 87000000, H=-1000000, I=3000000)
+        result, runner = self.run_tool([trip(11, "FAKEU0000002", "2026-10-03", [fee_line(50, 1, 2000000)])], tab(row), apply=True)
+        payload = next(p for c, p in runner.calls if c == "rewrite_trip_fees")
+        self.assertEqual(sorted((x["fee_type_id"], int(x["amount_vnd"])) for x in payload["lines"]), [(2, -1000000), (6, 3000000)])
+        self.assertEqual(result["written"], 1)
+
+    def test_already_split_with_giam_tru_is_done(self):
+        row = trip_row(2, "FAKEU0000002", "03/10/2026", 85500000, H=2000000, K=-1500000)
+        lines = [fee_line(1, 4, 2000000), fee_line(2, 2, -1500000)]
+        result, _ = self.run_tool([trip(11, "FAKEU0000002", "2026-10-03", lines)], tab(row))
+        self.assertEqual(result["status"], {"DONE": 1})
+
+    def test_only_unnamed_and_negative_cells_is_not_a_split(self):
+        row = trip_row(1, "FAKEU0000001", "03/10/2026", 88000000, K="4500000") | {"F": "-1500000"}
+        sheet = [("KHACH A", [(1, {"A": "THÁNG 10/2026"}), (2, {**HEADER, "F": ""}), (3, row)])]
+        result, _ = self.run_tool([trip(11, "FAKEU0000001", "2026-10-03", [fee_line(50, 1, 3000000)])], sheet)
+        self.assertEqual(result["status"], {"NO_NAMED": 1})
 
     def test_already_split_is_done(self):
         lines = [fee_line(1, 10, 3500000), fee_line(2, 4, 2000000), fee_line(3, 6, 4000000), fee_line(4, 7, 3365691)]

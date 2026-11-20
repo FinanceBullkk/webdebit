@@ -30,7 +30,7 @@ GENERATED_NOTES = {"migration: legacy fee", "migration: initial fee", GAP_NOTE}
 FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ",
              "can_hang": "Cân hàng", "local": "Local charge", "luu_bai": "Lưu bãi", "huy": "Phí hủy", "sua_bill": "Sửa bill"}
 FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
-LABELS = {"khac": "Khác", **FEE_NAMES}
+LABELS = {"khac": "Khác", "giam_tru": "Giảm trừ", **FEE_NAMES}
 REVIEW = ("MONTH_LOCKED", "TOTAL_DIFF", "WEB_NO_FEE", "AMBIGUOUS", "PS_SOURCE_ERROR", "PS_TYPO", "PS_BAD_AMOUNT",
           "TYPED_CONFLICT", "FEE_TYPE_MISSING", "NEED_HEALTH", "NEED_KD")
 # Dòng người trả lời được "Không thu, hết báo" (PS-HOI-01): có chuyến đích và là câu hỏi về tiền, không phải việc máy
@@ -55,6 +55,8 @@ def fee_type_ids(fee_types: list[dict]) -> dict[str, int | None]:
     by_name = {_name(t.get("name")): t["id"] for t in active if not t.get("system_key")}
     ids: dict[str, int | None] = {field: by_name.get(_name(name)) for field, name in {**FEE_NAMES, **FLAG_NAMES}.items()}
     ids["khac"] = next((t["id"] for t in active if t.get("system_key") == "other"), None)
+    # Ô âm trên tab khách (TACH-PHI-TIEU-DE-01, bổ sung 20/11/2026); bảng PS không có giảm trừ.
+    ids["giam_tru"] = next((t["id"] for t in active if t.get("system_key") == "discount"), None)
     ids["unclassified"] = {t["id"] for t in fee_types if isinstance(t, dict) and t.get("system_key") in UNCLASSIFIED}
     return ids
 

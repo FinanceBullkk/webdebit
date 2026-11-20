@@ -95,14 +95,13 @@ def fees_of(record: dict, header: dict[str, str], keys: dict[str, str]) -> dict:
         amount = loader.rounded(value)
         if amount is None:
             return {**row, "status": "SHEET_BAD_CELL"}
-        if amount < 0:
-            # Giảm trừ trên tab: loại có tên và Khác chỉ nhận số dương; lệnh ghi sẽ báo FEE_SIGN_INVALID và dừng cả sổ.
-            return {**row, "status": "SHEET_NEGATIVE"}
         if amount:
-            fees[field_of(header.get(col, ""))] += amount
+            # Ô âm là giảm trừ, ở cột nào cũng vậy: loại có tên và Khác chỉ nhận số dương (FEE_SIGN_INVALID), loại hệ thống
+            # Giảm trừ nhận số âm. Bổ sung 20/11/2026; trước đó cả dòng để nguyên (SHEET_NEGATIVE).
+            fees["giam_tru" if amount < 0 else field_of(header.get(col, ""))] += amount
     if sum(fees.values()) != total - unit:
         return {**row, "status": "SHEET_DIFF"}
-    if not set(fees) - {"khac"}:
+    if not set(fees) - {"khac", "giam_tru"}:
         return {**row, "status": "NO_NAMED"}
     combined = fees.pop("combined", None)
     return {**row, "fees": dict(fees), "combined_vnd": combined}
