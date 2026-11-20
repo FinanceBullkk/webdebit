@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import contextlib
 import io
 import json
 import math
@@ -230,10 +231,8 @@ class ChatStore:
             if stale is not None:
                 stale.add(previous[1])
             else:
-                try:
+                with contextlib.suppress(ValueError):
                     self.entries[previous[0]].remove(previous[1])
-                except ValueError:
-                    pass
         if source == DELTA and row.get("deleted") is True:
             return
         stamp = to_millis(row.get("timestamp")) or to_millis(row.get("server_time")) or 0
@@ -360,7 +359,7 @@ class ChatStore:
         if conversation_id not in self.by_id:
             raise ChatError(404, "CONVERSATION_NOT_FOUND", "Không có hội thoại này.")
         entries = self._snapshot(conversation_id)
-        start = bisect.bisect_right(entries, (after, float("inf")))
+        start = bisect.bisect_right(entries, (after, 1 << 62))   # offset nào cũng nhỏ hơn: tin đúng bằng `after` nằm trước điểm cắt
         chosen = entries[start:start + limit]
         streams: dict = {}
         try:

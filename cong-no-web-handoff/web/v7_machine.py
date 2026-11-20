@@ -64,6 +64,13 @@ JOBS = (
     {"id": "backup-offsite", "name": "Bản sao ngoài máy", "does": "Chuẩn bị bản kéo về", "unit": "v7-backup-offsite", "every": "Mỗi đêm", "late_after": 26 * 3600},
 )
 _jobs_cache: dict[str, Any] = {"at": 0.0, "rows": []}
+# ZALO-AGENT-01 Phần 6: máy có Zalo ghi `status.json` mỗi phút, đẩy lên đây. Chỉ có mã và số đếm.
+ZALO_STATUS = "/srv/v7/zalo-agent/status.json"
+ZALO_LATE = 900         # im lặng, chờ Zalo hay xử lý chậm quá 15 phút thì máy canh báo
+ZALO_SLOW_SHOW = 120    # chậm dưới 2 phút chỉ là đang đuổi kịp
+ZALO_PROCESSORS = ("bundle", "insurance", "money_images")   # chỉ các bộ xử lý này được hiện, theo thứ tự này
+ZALO_IDENTITY = ("attached", "waiting_for_zalo", "reprobing", "unknown")
+ZALO_CODE = re.compile(r"^[a-z_]{1,40}$")
 
 
 def base_dir() -> Path:
@@ -212,13 +219,77 @@ def _current_run(folder: Path, rows: list[dict[str, Any]], now: float) -> Any:
     return {**run, "state": "failed", "stage": None, "reason": "MAT_TIN_HIEU", "finished_at": datetime.fromtimestamp(changed, VN).isoformat(timespec="seconds")}
 
 
+def _aware(text: Any) -> datetime | None:
+    at = _when(text)
+    return at if at is not None and at.tzinfo is not None else None
+
+
+def _code(value: Any) -> str | None:
+    """Mã lỗi của máy Zalo: chỉ nhận đúng khuôn `[a-z_]{1,40}`, chữ khác coi như "error" để không có chữ tự do đi tiếp."""
+    if value is None:
+        return None
+    return value if isinstance(value, str) and ZALO_CODE.fullmatch(value) else "error"
+
+
+def _count(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
+def _minutes_since(text: Any, now: float) -> int | None:
+    at = _aware(text)
+    return None if at is None else max(int((now - at.timestamp()) // 60), 0)
+
+
+def zalo(now: float | None = None) -> dict[str, Any]:
+    """Máy Zalo báo về (ZALO-AGENT-01 Phần 6), đọc `status.json`. Không có file: `missing` (chưa bật máy Zalo, không phải lỗi).
+
+    File hỏng, `schema` khác 1 hoặc `at` cũ quá 15 phút: `silent`, vẫn trả các bộ xử lý lần báo cuối. Chỉ có mã, số và giờ:
+    bộ xử lý lạ bị bỏ, mã lỗi sai khuôn thành "error".
+    """
+    now = time.time() if now is None else now
+    path = Path(os.getenv("WEBDEBIT_ZALO_AGENT_STATUS") or ZALO_STATUS)
+    silent: dict[str, Any] = {"state": "silent", "at": None, "silent_minutes": None, "selected_groups": None, "identity": "unknown",
+                              "quiet_minutes": None, "processors": [], "push_error": None}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"state": "missing"}
+    except OSError:
+        return silent
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return silent
+    at = _aware(data.get("at")) if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("schema") != 1 or at is None:
+        return silent
+    live = data.get("live_sync") if isinstance(data.get("live_sync"), dict) else {}
+    identity = live.get("identity") if live.get("identity") in ZALO_IDENTITY else "unknown"
+    rows = []
+    reported = data.get("processors") if isinstance(data.get("processors"), dict) else {}
+    for key in ZALO_PROCESSORS:
+        item = reported.get(key)
+        if not isinstance(item, dict):
+            continue
+        lag, error = _count(item.get("lag_revisions")), _code(item.get("error"))
+        late = _minutes_since(item.get("last_ok_at"), now)
+        state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
+        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error})
+    push = data.get("push") if isinstance(data.get("push"), dict) else {}
+    silent_for = max(now - at.timestamp(), 0)
+    return {"state": "silent" if silent_for > ZALO_LATE else "ok", "at": at.astimezone(VN).isoformat(timespec="seconds"),
+            "silent_minutes": int(silent_for // 60), "selected_groups": _count(data.get("selected_groups")), "identity": identity,
+            # Phút từ lần live-sync thấy thay đổi cuối: hợp đồng chưa có "chờ Zalo từ lúc nào", đây là thước đo gần nhất.
+            "quiet_minutes": _minutes_since(live.get("revision_at"), now), "processors": rows, "push_error": _code(push.get("error"))}
+
+
 def now_view(now: float | None = None) -> dict[str, Any]:
     """Phần đổi nhanh, gọi 2 giây một lần khi tab đang mở."""
     now = time.time() if now is None else now
     folder = base_dir()
     rows = jobs(now)
     return {"now": datetime.fromtimestamp(now, VN).isoformat(timespec="seconds"), "run": _current_run(folder, rows, now),
-            "jobs": rows, "office": _office(folder, now)}
+            "jobs": rows, "office": _office(folder, now), "zalo": zalo(now)}
 
 
 def view(now: float | None = None) -> dict[str, Any]:
@@ -265,7 +336,17 @@ def summary(now: float | None = None) -> dict[str, Any]:
         "too_many_different": bool((last or {}).get("too_many")),
         "last_run_failed": isinstance(latest, dict) and latest.get("state") == "failed",
         "jobs": {job["id"]: job["state"] for job in jobs(now)},
+        "zalo": _zalo_summary(now),
     }
+
+
+def _zalo_summary(now: float) -> dict[str, Any]:
+    """Máy Zalo cho Hermes: chỉ mã trạng thái cố định và số phút, không chữ nào lấy từ máy Zalo."""
+    view = zalo(now)
+    if view["state"] == "missing":
+        return {"state": "missing"}
+    return {"state": view["state"], "identity": view["identity"], "silent_minutes": view["silent_minutes"],
+            "processors": {row["id"]: row["state"] for row in view["processors"]}}
 
 
 def _bad(message: str) -> ApiError:

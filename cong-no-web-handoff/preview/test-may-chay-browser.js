@@ -259,3 +259,58 @@ test('Máy chạy: bảng job hiện tình trạng, thiếu lịch là gạch; k
     .filter(el => el.getClientRects().length && el.getBoundingClientRect().height < 40).map(el => `${el.className}:${el.textContent.trim().slice(0, 20)}`));
   assert.deepEqual(low, []);
 }, { width: 420, height: 800 }));
+
+// ZALO-AGENT-01: nhóm "Máy Zalo". Máy chủ giả trả phần `zalo` đúng hợp đồng (mã, số, giờ); trang đổi thành câu thường.
+const zaloView = (over = {}, processors = [{ id: 'bundle', state: 'ok', lag: 0, minutes: null, error: null }]) => ({
+  state: 'ok', at: at(9, 39), silent_minutes: 1, selected_groups: 2, identity: 'attached', quiet_minutes: 1, processors, push_error: null, ...over,
+});
+const withZalo = zalo => ({ data: () => ({ ...base(), ...(zalo ? { zalo } : {}) }) });
+const zaloRows = page => page.locator('#zalo-rows li').allInnerTexts().then(rows => rows.map(row => row.replace(/\s+/g, ' ').trim()));
+const noOverflow = page => page.evaluate(() => {
+  const limit = document.documentElement.clientWidth;
+  return document.documentElement.scrollWidth <= limit ? [] : [...document.querySelectorAll('.zalo, .zalo *')]
+    .filter(node => node.getBoundingClientRect().right > limit + 1).map(node => `${node.tagName}:${node.textContent.slice(0, 30)}`);
+});
+
+for (const [name, viewport] of [['1280×720', { width: 1280, height: 720 }], ['390px', { width: 390, height: 780 }]]) {
+  test(`Máy chạy (${name}): nhóm "Máy Zalo" chưa có file báo về thì một câu, không lỗi trang`, () => withPage(withZalo(null), async page => {
+    assert.equal(await page.locator('#zalo-head').innerText(), 'Chưa có máy Zalo báo về');
+    assert.deepEqual(await zaloRows(page), []);
+    assert.deepEqual(await noOverflow(page), []);
+  }, viewport));
+
+  test(`Máy chạy (${name}): nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, mỗi bộ xử lý một dòng`, async () => {
+    await withPage(withZalo(zaloView({}, [{ id: 'bundle', state: 'ok', lag: 0, minutes: null, error: null },
+      { id: 'insurance', state: 'ok', lag: 0, minutes: null, error: null }])), async page => {
+      assert.equal(await page.locator('#zalo-head').innerText(), 'Máy Zalo báo lúc 09:39 · 2 nhóm đã chọn');
+      assert.deepEqual(await zaloRows(page), ['Gói chat Đang chạy, kịp tin mới', 'Bảo hiểm Đang chạy, kịp tin mới']);
+      assert.deepEqual(await noOverflow(page), []);
+    }, viewport);
+    await withPage(withZalo(zaloView({ identity: 'waiting_for_zalo' })), async page => {
+      assert.deepEqual(await zaloRows(page), ['Gói chat Zalo chưa mở trên máy Zalo']);
+      assert.deepEqual(await noOverflow(page), []);
+    }, viewport);
+    await withPage(withZalo(zaloView({}, [{ id: 'bundle', state: 'slow', lag: 4, minutes: 12, error: null }])), async page => {
+      assert.deepEqual(await zaloRows(page), ['Gói chat Chậm 12 phút']);
+      assert.deepEqual(await noOverflow(page), []);
+    }, viewport);
+    await withPage(withZalo(zaloView({ state: 'silent', at: at(8, 5), silent_minutes: 95 })), async page => {
+      assert.deepEqual(await zaloRows(page), ['Gói chat Không nghe máy Zalo từ 08:05']);
+      assert.match(await page.locator('#zalo-head').innerText(), /^Máy Zalo báo lúc 08:05/);
+      assert.deepEqual(await noOverflow(page), []);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+    }, viewport);
+  });
+}
+
+test('Máy chạy: nhóm "Máy Zalo" đổi theo lượt hỏi kế tiếp, không cần tải lại trang', () => {
+  let zalo = zaloView();
+  return withPage({ data: () => ({ ...base(), zalo }) }, async page => {
+    assert.deepEqual(await zaloRows(page), ['Gói chat Đang chạy, kịp tin mới']);
+    zalo = zaloView({ identity: 'waiting_for_zalo' });
+    await pollsApplied(page);
+    await page.locator('#zalo-rows li', { hasText: 'Zalo chưa mở trên máy Zalo' }).waitFor();
+    zalo = zaloView({ state: 'silent', at: at(9, 20) });
+    await page.locator('#zalo-rows li', { hasText: 'Không nghe máy Zalo từ 09:20' }).waitFor();
+  });
+});

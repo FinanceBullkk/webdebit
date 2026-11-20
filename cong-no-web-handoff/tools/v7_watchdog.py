@@ -7,7 +7,7 @@ Chạy trên hao dưới user runner (timer v7-watchdog, 15 phút một lần):
 
 Mỗi lượt kiểm tại chỗ, chỉ đọc: web còn trả lời, lượt đối soát còn mới và không báo lỗi ghi, bản chụp Sheet còn mới, nguồn booking
 còn chuyến mới, hộp việc của API còn tính được, các timer còn bật, sao lưu không lỗi, đĩa còn chỗ, và lưới an toàn trên sổ thật
-(`v7_safety_net.py`, LUOI-AN-TOAN-01; chỉ ghi file mốc của chính nó). Rồi báo về một check trên healthchecks.io: ổn thì ping
+(`v7_safety_net.py`, LUOI-AN-TOAN-01; chỉ ghi file mốc của chính nó) và máy Zalo còn báo nhịp tim (ZALO-AGENT-01, 7–20 giờ). Rồi báo về một check trên healthchecks.io: ổn thì ping
 thường, có việc thì ping /fail kèm danh sách.
 hao tắt hay mất mạng thì không còn ping và dịch vụ đó tự gửi email, nên không dùng Uptime Kuma nằm trên chính hao.
 
@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -215,9 +216,39 @@ def check_offsite_pulls(now: dt.datetime) -> list[str]:
     return v7_offsite_watch.check(now.timestamp())
 
 
+ZALO_HOURS = (7, 20)   # ZALO-AGENT-01: chỉ canh máy Zalo từ 7:00 tới trước 20:00 giờ VN (máy có thể tắt ban đêm)
+ZALO_PROCESSOR_NAMES = {"bundle": "gói chat", "insurance": "bảo hiểm", "money_images": "ảnh chuyển khoản"}
+
+
+def check_zalo(now: dt.datetime) -> list[str]:
+    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, hoặc một bộ xử lý chậm quá
+    15 phút. Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm. Không có file thì im: chưa bật máy Zalo. Dùng chung bộ đọc của
+    tab Máy chạy; import muộn như lưới an toàn (tools dùng được tầng web, không có chiều ngược lại)."""
+    if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
+        return []
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+    import v7_machine
+    view = v7_machine.zalo(now.timestamp())
+    if view["state"] == "missing" or view["selected_groups"] == 0:
+        return []
+    limit = v7_machine.ZALO_LATE // 60
+    if view["state"] == "silent":
+        since = f" từ {dt.datetime.fromisoformat(view['at']):%H:%M ngày %d/%m}" if view["at"] else ""
+        return [f"Máy Zalo im lặng{since}: không nhận được báo cáo nào quá {limit} phút."]
+    found = []
+    quiet = view["quiet_minutes"]
+    if view["identity"] == "waiting_for_zalo" and quiet is not None and quiet > limit:
+        found.append(f"Zalo chưa mở trên máy Zalo: không đọc được tin mới {quiet} phút.")
+    for row in view["processors"]:
+        if row["state"] == "slow" and row["minutes"] is not None and row["minutes"] > limit:
+            found.append(f"Máy Zalo xử lý {ZALO_PROCESSOR_NAMES[row['id']]} chậm {row['minutes']} phút ({row['lag']} lần thay đổi chưa xong).")
+    return found
+
+
 def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path, show: Callable = systemctl_show,
             safety: Callable[[dt.datetime], list[str]] = check_safety_net,
-            offsite: Callable[[dt.datetime], list[str]] = check_offsite_pulls) -> list[str]:
+            offsite: Callable[[dt.datetime], list[str]] = check_offsite_pulls,
+            zalo: Callable[[dt.datetime], list[str]] = check_zalo) -> list[str]:
     """Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
     checks: tuple[tuple[str, Callable[[], list[str]]], ...] = (
@@ -225,7 +256,7 @@ def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path,
         ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("nguồn chuyến", lambda: check_sources(snapshots, now.date())),
         ("hộp việc", lambda: check_inbox(healthz)), ("timer", lambda: check_units(show, moment)),
         ("đĩa", lambda: check_disks(DISKS)), ("lưới an toàn", lambda: safety(now)),
-        ("bản sao ngoài máy", lambda: offsite(now)))
+        ("bản sao ngoài máy", lambda: offsite(now)), ("máy Zalo", lambda: zalo(now)))
     found: list[str] = []
     for label, check in checks:
         try:
