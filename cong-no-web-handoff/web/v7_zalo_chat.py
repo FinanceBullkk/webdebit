@@ -11,8 +11,9 @@ cả file cho trình duyệt. Không ghi, không sửa file nguồn, không log 
 
 ZALO-AGENT-01: thư mục dữ liệu có thể kèm `messages-delta.jsonl` (chỉ nối thêm: tin thêm/sửa/xóa). `export-report.json`
 ghi `delta_bytes` = số byte hợp lệ; chỉ đọc tới đó, nên dòng đang ghi dở không bao giờ được đọc. Bản cuối cùng theo
-`message_id` thắng (gói gốc rồi tới phần thêm); dòng `deleted` trong phần thêm thì ẩn tin. Báo cáo đổi mà `data_dir` và
-`bundle_sha256` giữ nguyên thì chỉ đọc tiếp phần thêm; không thì lập chỉ mục lại ở luồng nền.
+`message_id` thắng (gói gốc rồi tới phần thêm); dòng `deleted` trong phần thêm hiện như tin `deleted: true` của bản dựng đầy đủ
+(giữ chỗ và người gửi, bỏ chữ và ảnh). Báo cáo đổi mà `data_dir` và `bundle_sha256` giữ nguyên thì chỉ đọc tiếp phần thêm và
+đọc lại `users.json`, `media.json` (có thể bị thay tại chỗ); không thì lập chỉ mục lại ở luồng nền.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import contextlib
+import hashlib
 import io
 import json
 import math
@@ -39,6 +41,7 @@ MAX_QUERY = 200
 CONVERSATION_ID = re.compile(r"[0-9a-f]{64}")
 MESSAGE_ID = re.compile(r"[0-9A-Za-z_-]{1,128}")
 MEDIA_ID = re.compile(r"[0-9a-f]{64}")
+SINCE_TOKEN = re.compile(r"[0-9a-f]{8}:[0-9]{1,15}")   # <8 ký tự băm của gói>:<byte của phần thêm đã đọc>
 DATA_DIR = re.compile(r"data-[0-9-]{1,40}")
 MEDIA_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4"}
 # Nhãn loại tin suy từ bản xuất 30/10/2026 (msgType của Zalo PC); loại lạ hiện "Loại N".
@@ -136,6 +139,15 @@ def read_optional(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def read_dict(path: Path) -> dict | None:
+    """Như read_optional nhưng phân biệt "không đọc được" (None: đang ghi dở, JSON hỏng) với một dict rỗng hợp lệ."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def load_report(directory: Path) -> dict:
     for name in ("export-report.json", "message-export-report.json"):
         try:
@@ -150,7 +162,7 @@ def delta_limit(report: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
-MAIN, DELTA = 0, 1   # nguồn của một dòng chỉ mục: messages.jsonl hay messages-delta.jsonl
+MAIN, DELTA, TOMBSTONE = 0, 1, 2   # nguồn của một dòng chỉ mục: messages.jsonl hay messages-delta.jsonl; cờ TOMBSTONE: tin đã bị xóa
 
 
 class ChatStore:
@@ -191,6 +203,10 @@ class ChatStore:
         # Bộ đếm tính trên các dòng đã đọc, không trừ lại khi một tin bị thay/ẩn (chỉ để hiện tóm tắt).
         self.body_missing = self.attachment_matched = self.attachment_unmatched = self.skipped = 0
         self.delta_offset = 0
+        # Thứ tự đến của phần thêm (cho `since=`): offset đầu dòng, hội thoại, mã tin, offset cuối dòng. Token gắn với gói đang đọc.
+        self.change_offsets: list[int] = []
+        self.changes: list[tuple[int, str, str, int]] = []
+        self.prefix = hashlib.sha256(f"{self.report.get('data_dir')}|{self.report.get('bundle_sha256')}".encode()).hexdigest()[:8]
         self.live = False                 # đã sắp xếp xong: từ đây thêm dòng bằng insort
         self._index()
         for entries in self.entries.values():
@@ -220,7 +236,8 @@ class ChatStore:
                 self.entries[cid] = [entry for entry in entries if entry not in stale]
 
     def _add(self, row: object, offset: int, length: int, source: int, stale: set | None = None) -> None:
-        """Nạp một dòng vào chỉ mục. Trùng mã tin thì dòng này thay dòng trước; phần thêm có `deleted` thì chỉ ẩn tin."""
+        """Nạp một dòng vào chỉ mục. Trùng mã tin thì dòng này thay dòng trước. Dòng `deleted` của phần thêm giữ chỗ và người gửi của
+        bản trước, chỉ đánh cờ TOMBSTONE: tin hiện giống hệt tin `deleted: true` của bản dựng đầy đủ."""
         if not isinstance(row, dict) or row.get("conversation_id") not in self.entries:
             self.skipped += 1
             return
@@ -234,9 +251,13 @@ class ChatStore:
                 with contextlib.suppress(ValueError):
                     self.entries[previous[0]].remove(previous[1])
         if source == DELTA and row.get("deleted") is True:
-            return
-        stamp = to_millis(row.get("timestamp")) or to_millis(row.get("server_time")) or 0
-        entry = (stamp, offset, length, mid, source)
+            source |= TOMBSTONE
+        if previous is not None and source & TOMBSTONE:
+            entry = (*previous[1][:4], previous[1][4] | TOMBSTONE)
+            stamp = entry[0]
+        else:
+            stamp = to_millis(row.get("timestamp")) or to_millis(row.get("server_time")) or 0
+            entry = (stamp, offset, length, mid, source)
         if self.live:
             bisect.insort(self.entries[cid], entry)
         else:
@@ -273,6 +294,9 @@ class ChatStore:
             except ValueError:
                 row = None
             self._add(row, offset, len(raw), DELTA)
+            if isinstance(row, dict) and row.get("conversation_id") in self.entries and isinstance(row.get("message_id"), str):
+                self.change_offsets.append(offset)
+                self.changes.append((offset, row["conversation_id"], row["message_id"], offset + len(raw)))
             offset += len(raw)
         self.delta_offset = offset
         self.message_count = sum(len(entries) for entries in self.entries.values())
@@ -289,13 +313,16 @@ class ChatStore:
                 or report.get("bundle_sha256") != self.report.get("bundle_sha256")
                 or delta_limit(report) < self.delta_offset):
             return False
-        users = read_optional(self.base / "users.json")
-        media = read_optional(self.base / "media.json")
+        users = read_dict(self.base / "users.json")
+        media = read_dict(self.base / "media.json")
         with self.lock:
-            self.user_names = {key: value for key, value in (users.get("users") or {}).items()
-                               if isinstance(key, str) and isinstance(value, str)}
-            self.media = {key: value for key, value in media.items()
-                          if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
+            # Đọc lỗi (đang ghi dở, JSON hỏng) thì giữ bản cũ; chỉ thay khi đọc được một dict hợp lệ.
+            if users is not None:
+                self.user_names = {key: value for key, value in (users.get("users") or {}).items()
+                                   if isinstance(key, str) and isinstance(value, str)}
+            if media is not None:
+                self.media = {key: value for key, value in media.items()
+                              if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
             self.read_delta(delta_limit(report))
             self.report, self.stamp = report, stamp
         return True
@@ -344,31 +371,61 @@ class ChatStore:
 
     def _read(self, streams: dict, entry: tuple[int, int, int, str, int]) -> dict:
         """Đọc đúng dòng của `entry`; mở file nguồn (gói gốc hoặc phần thêm) lần đầu cần tới."""
-        stream = streams.get(entry[4])
+        where = entry[4] & DELTA
+        stream = streams.get(where)
         if stream is None:
-            stream = streams[entry[4]] = (self.delta_path if entry[4] == DELTA else self.messages_path).open("rb")
+            stream = streams[where] = (self.delta_path if where else self.messages_path).open("rb")
         stream.seek(entry[1])
-        return json.loads(stream.read(entry[2]))
+        row = json.loads(stream.read(entry[2]))
+        if entry[4] & TOMBSTONE:   # như một dòng đã xóa của bản dựng đầy đủ: không nội dung, không ảnh
+            row = {**row, "deleted": True, "body": None, "attachment_metadata": None}
+            row.pop("media", None)
+        return row
 
-    def _snapshot(self, conversation_id: str) -> list:
+    def token(self) -> str:
+        return f"{self.prefix}:{self.delta_offset}"
+
+    def _snapshot(self, conversation_id: str) -> tuple[list, str]:
+        """Bản sao các dòng của hội thoại cùng token tại đúng lúc đó, để tin tới sau token không lọt giữa hai lần hỏi."""
         with self.lock:
-            return list(self.entries[conversation_id])
+            return list(self.entries[conversation_id]), self.token()
 
-    def messages_after(self, conversation_id: str, after: int, limit: int = DEFAULT_LIMIT) -> dict:
-        """Tin của hội thoại có thời điểm lớn hơn `after` (mili giây), cũ trước; quá `limit` thì `has_more` để hỏi tiếp."""
+    def messages_since(self, conversation_id: str, token: str, limit: int = DEFAULT_LIMIT) -> dict:
+        """Mọi tin của hội thoại đến (thêm, sửa, xóa) sau `token`, theo thứ tự đến, kèm token mới.
+
+        Token là vị trí trong phần thêm nên tin tới muộn (đọc bù sau khi máy Zalo tắt) hay tin cũ bị sửa/xóa cũng tới trang đang mở.
+        Token của gói khác (đã dựng lại) hoặc vượt phần đã đọc thì `reset`: trang tải lại hội thoại. Quá `limit` tin thì `has_more`.
+        """
         if conversation_id not in self.by_id:
             raise ChatError(404, "CONVERSATION_NOT_FOUND", "Không có hội thoại này.")
-        entries = self._snapshot(conversation_id)
-        start = bisect.bisect_right(entries, (after, 1 << 62))   # offset nào cũng nhỏ hơn: tin đúng bằng `after` nằm trước điểm cắt
-        chosen = entries[start:start + limit]
+        prefix, _, offset_text = token.partition(":")
+        offset = int(offset_text)
+        with self.lock:
+            if prefix != self.prefix or offset > self.delta_offset:
+                return {"conversation_id": conversation_id, "reset": True, "token": self.token()}
+            picked: dict[str, tuple] = {}
+            reached, more = self.delta_offset, False
+            for _, cid, mid, stop in self.changes[bisect.bisect_left(self.change_offsets, offset):]:
+                if cid != conversation_id or mid in picked:
+                    continue
+                if len(picked) >= limit:
+                    more = True
+                    break
+                found = self.latest.get(mid)
+                if found is not None and found[0] == conversation_id:
+                    picked[mid] = found[1]
+                    reached = stop   # nếu còn tin sau đó thì token dừng ngay sau tin cuối đã lấy
+            entries = self.entries[conversation_id]
+            total, latest_ms = len(entries), entries[-1][0] if entries else None
+            new_token = f"{self.prefix}:{reached if more else self.delta_offset}"
         streams: dict = {}
         try:
-            rows = [self.shape(self._read(streams, entry)) for entry in chosen]
+            rows = [self.shape(self._read(streams, entry)) for entry in sorted(picked.values())]
         finally:
             for stream in streams.values():
                 stream.close()
-        return {"conversation_id": conversation_id, "messages": rows, "after": after, "total": len(entries),
-                "has_more": start + limit < len(entries), "latest_ms": entries[-1][0] if entries else None}
+        return {"conversation_id": conversation_id, "messages": rows, "since": token, "token": new_token, "reset": False,
+                "total": total, "has_more": more, "latest_ms": latest_ms}
 
     def messages(self, conversation_id: str, page: int = 0, limit: int = DEFAULT_LIMIT, query: str = "",
                  focus: str = "") -> dict:
@@ -378,7 +435,7 @@ class ChatStore:
         """
         if conversation_id not in self.by_id:
             raise ChatError(404, "CONVERSATION_NOT_FOUND", "Không có hội thoại này.")
-        entries = self._snapshot(conversation_id)
+        entries, token = self._snapshot(conversation_id)
         if focus:
             position = next((index for index, entry in enumerate(entries) if entry[3] == focus), None)
             if position is None:
@@ -404,7 +461,7 @@ class ChatStore:
             for stream in streams.values():
                 stream.close()
         result = {"conversation_id": conversation_id, "messages": rows, "total": total, "page": page, "limit": limit,
-                  "pages": math.ceil(total / limit), "has_older": start > 0, "query": query.strip()}
+                  "pages": math.ceil(total / limit), "has_older": start > 0, "query": query.strip(), "token": token}
         if focus:
             result["focus"] = focus
         return result
@@ -508,20 +565,20 @@ def handle_get(path: str, query: str, directory: str | None = None) -> tuple[int
         rows = get_store(directory).conversations(values.get("q", "")[:MAX_QUERY])
         return 200, {"conversations": rows, "total": len(rows)}
     if path == "/api/v7/zalo/messages":
-        values = _query(query, {"conversation", "page", "limit", "q", "message", "after"})
+        values = _query(query, {"conversation", "page", "limit", "q", "message", "since"})
         conversation = values.get("conversation", "")
         page_text, limit_text = values.get("page", "0"), values.get("limit", str(DEFAULT_LIMIT))
         focus = values.get("message", "")
-        after = values.get("after", "")
+        since = values.get("since", "")
         if (not CONVERSATION_ID.fullmatch(conversation) or not page_text.isdigit() or not limit_text.isdigit()
                 or len(page_text) > 6 or len(limit_text) > 3
                 or not 0 <= int(page_text) <= MAX_PAGE or not 1 <= int(limit_text) <= MAX_LIMIT
                 or ("message" in values and (not MESSAGE_ID.fullmatch(focus) or values.get("q", "").strip()))
-                # after= là chế độ riêng: chỉ đi với conversation và limit, số nguyên mili giây không âm.
-                or ("after" in values and (not after.isdigit() or len(after) > 15 or {"page", "q", "message"} & set(values)))):
+                # since= là chế độ riêng: chỉ đi với conversation và limit, token đúng khuôn.
+                or ("since" in values and (not SINCE_TOKEN.fullmatch(since) or {"page", "q", "message"} & set(values)))):
             raise ChatError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
-        if "after" in values:
-            return 200, get_store(directory).messages_after(conversation, int(after), int(limit_text))
+        if "since" in values:
+            return 200, get_store(directory).messages_since(conversation, since, int(limit_text))
         return 200, get_store(directory).messages(conversation, int(page_text), int(limit_text),
                                                   values.get("q", "")[:MAX_QUERY], focus)
     raise ChatError(404, "NOT_FOUND", "Không có đường dẫn này.")

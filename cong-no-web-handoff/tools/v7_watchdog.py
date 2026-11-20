@@ -221,12 +221,15 @@ ZALO_PROCESSOR_NAMES = {"bundle": "gói chat", "insurance": "bảo hiểm", "mon
 
 
 def check_zalo(now: dt.datetime) -> list[str]:
-    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, hoặc một bộ xử lý chậm quá
-    15 phút. Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm. Không có file thì im: chưa bật máy Zalo. Dùng chung bộ đọc của
-    tab Máy chạy; import muộn như lưới an toàn (tools dùng được tầng web, không có chiều ngược lại)."""
+    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, một bộ xử lý chậm quá
+    15 phút, hoặc một bộ xử lý / việc đẩy lên báo lỗi quá 15 phút. Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm.
+    Không có file thì im: chưa bật máy Zalo. Dùng chung bộ đọc của tab Máy chạy; import muộn như lưới an toàn (tools dùng được
+    tầng web, không có chiều ngược lại)."""
     if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
         return []
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+    web = str(Path(__file__).resolve().parents[1] / "web")
+    if web not in sys.path:
+        sys.path.insert(0, web)
     import v7_machine
     view = v7_machine.zalo(now.timestamp())
     if view["state"] == "missing" or view["selected_groups"] == 0:
@@ -240,8 +243,13 @@ def check_zalo(now: dt.datetime) -> list[str]:
     if view["identity"] == "waiting_for_zalo" and quiet is not None and quiet > limit:
         found.append(f"Zalo chưa mở trên máy Zalo: không đọc được tin mới {quiet} phút.")
     for row in view["processors"]:
-        if row["state"] == "slow" and row["minutes"] is not None and row["minutes"] > limit:
-            found.append(f"Máy Zalo xử lý {ZALO_PROCESSOR_NAMES[row['id']]} chậm {row['minutes']} phút ({row['lag']} lần thay đổi chưa xong).")
+        name = ZALO_PROCESSOR_NAMES[row["id"]]
+        if row["error"] and row["ok_minutes"] is not None and row["ok_minutes"] > limit:
+            found.append(f"Máy Zalo: {name} lỗi {row['error']}, {row['ok_minutes']} phút chưa xong lần nào.")
+        elif row["state"] == "slow" and row["minutes"] is not None and row["minutes"] > limit:
+            found.append(f"Máy Zalo xử lý {name} chậm {row['minutes']} phút ({row['lag']} lần thay đổi chưa xong).")
+    if view["push_error"] and view["push_ok_minutes"] is not None and view["push_ok_minutes"] > limit:
+        found.append(f"Máy Zalo: đẩy lên máy chủ lỗi {view['push_error']}, {view['push_ok_minutes']} phút chưa đẩy được.")
     return found
 
 

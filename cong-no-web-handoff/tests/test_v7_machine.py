@@ -236,10 +236,26 @@ class MachineTests(unittest.TestCase):
         self.zalo_status.write_text("[1]", encoding="utf-8")
         self.assertEqual(machine.zalo()["state"], "silent")
 
+    def test_zalo_status_time_far_in_the_future_is_silent(self):
+        self.status(age=-4)
+        self.assertEqual(machine.zalo()["state"], "ok")
+        self.status(age=-6)
+        view = machine.zalo()
+        self.assertEqual((view["state"], view["at"]), ("silent", None))
+
+    def test_zalo_reports_how_long_since_the_last_good_run(self):
+        self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(40), "error": "push_failed"}}, push={"last_ok_at": ago(25), "error": "ssh_failed"})
+        view = machine.zalo()
+        self.assertEqual((view["processors"][0]["ok_minutes"], view["push_ok_minutes"], view["push_error"]), (40, 25, "ssh_failed"))
+
     def test_zalo_waiting_identity_and_quiet_minutes(self):
         self.status(identity="waiting_for_zalo", age=1)
         view = machine.zalo()
         self.assertEqual((view["identity"], view["quiet_minutes"]), ("waiting_for_zalo", 3))
+        self.status(identity="waiting_for_zalo", live_sync={"revision": 1, "revision_at": ago(300), "identity": "waiting_for_zalo", "identity_since": ago(7)})
+        self.assertEqual(machine.zalo()["quiet_minutes"], 7)                       # identity_since thắng revision_at
+        self.status(identity="waiting_for_zalo", live_sync={"revision": 1, "revision_at": ago(30), "identity": "waiting_for_zalo", "identity_since": "hỏng"})
+        self.assertEqual(machine.zalo()["quiet_minutes"], 30)                      # sai khuôn thì dùng revision_at
         self.status(identity="chữ lạ")
         self.assertEqual(machine.zalo()["identity"], "unknown")
 

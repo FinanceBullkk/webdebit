@@ -282,10 +282,11 @@ class ZaloTests(Base):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def report(self, now, *, age=1, groups=1, identity="attached", revision_age=1, processors=None, **extra):
+    def report(self, now, *, age=1, groups=1, identity="attached", revision_age=1, since_age=None, processors=None, **extra):
         stamp = lambda minutes: (now - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
         body = {"schema": 1, "at": stamp(age), "agent_version": "abc1234", "selected_groups": groups,
-                "live_sync": {"revision": 5, "revision_at": stamp(revision_age), "identity": identity},
+                "live_sync": {"revision": 5, "revision_at": stamp(revision_age), "identity": identity,
+                              **({} if since_age is None else {"identity_since": stamp(since_age)})},
                 "processors": processors if processors is not None else {"bundle": {"revision": 5, "lag_revisions": 0, "last_ok_at": stamp(1), "error": None}},
                 "push": {"last_ok_at": stamp(1), "error": None}, **extra}
         self.status.write_text(json.dumps(body), encoding="utf-8")
@@ -339,6 +340,19 @@ class ZaloTests(Base):
         self.report(ten, identity="reprobing", revision_age=90)
         self.assertEqual(dog.check_zalo(ten), [])
 
+    def test_identity_since_wins_over_revision_at_when_present(self):
+        ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
+        # Đêm vắng tin (tin cuối 3 giờ trước) mà Zalo mới tắt 5 phút: không báo sớm.
+        self.report(ten, identity="waiting_for_zalo", revision_age=180, since_age=5)
+        self.assertEqual(dog.check_zalo(ten), [])
+        self.report(ten, identity="waiting_for_zalo", revision_age=1, since_age=20)
+        self.assertEqual(dog.check_zalo(ten), ["Zalo chưa mở trên máy Zalo: không đọc được tin mới 20 phút."])
+        self.report(ten, identity="waiting_for_zalo", revision_age=40, since_age=None)   # agent cũ chưa ghi identity_since
+        self.assertEqual(len(dog.check_zalo(ten)), 1)
+        self.status.write_text(json.dumps({**json.loads(self.status.read_text(encoding="utf-8")),
+                                           "live_sync": {"revision": None, "revision_at": None, "identity": "waiting_for_zalo"}}), encoding="utf-8")
+        self.assertEqual(dog.check_zalo(ten), [])                    # không biết từ lúc nào thì không báo bừa
+
     def test_slow_processor_reports_after_15_minutes_only_while_behind(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
         self.report(ten, processors=self.slow(ten, 16))
@@ -347,6 +361,31 @@ class ZaloTests(Base):
         self.assertEqual(dog.check_zalo(ten), [])
         self.report(ten, processors=self.slow(ten, 120, lag=0))      # kịp tin (lag 0): lần ok cũ chỉ vì không có tin mới
         self.assertEqual(dog.check_zalo(ten), [])
+
+    def test_error_lasting_over_15_minutes_reports_but_a_fresh_one_does_not(self):
+        ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
+        stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        failing = lambda minutes: {"bundle": {"revision": 5, "lag_revisions": 0, "last_ok_at": stamp(minutes), "error": "push_failed"}}  # noqa: E731
+        self.report(ten, processors=failing(5))
+        self.assertEqual(dog.check_zalo(ten), [])                       # mới lỗi 5 phút: lỗi lẻ tự lành
+        self.report(ten, processors=failing(20))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: gói chat lỗi push_failed, 20 phút chưa xong lần nào."])
+        self.report(ten, push={"last_ok_at": stamp(30), "error": "ssh_failed"})
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: đẩy lên máy chủ lỗi ssh_failed, 30 phút chưa đẩy được."])
+        self.report(ten, push={"last_ok_at": stamp(30), "error": None})
+        self.assertEqual(dog.check_zalo(ten), [])
+        night = dt.datetime(2026, 11, 20, 22, 0, tzinfo=VN)
+        self.report(night, processors={"bundle": {"lag_revisions": 0, "last_ok_at": (night - dt.timedelta(minutes=60)).isoformat(), "error": "push_failed"}})
+        self.assertEqual(dog.check_zalo(night), [])                     # ngoài giờ làm việc
+
+    def test_status_time_in_the_future_counts_as_broken(self):
+        ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
+        self.report(ten, age=-4)                                        # lệch đồng hồ nhẹ: vẫn tin
+        self.assertEqual(dog.check_zalo(ten), [])
+        self.report(ten, age=-6)
+        found = dog.check_zalo(ten)
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0].startswith("Máy Zalo im lặng"))
 
     def test_alert_text_has_numbers_and_fixed_words_only(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)

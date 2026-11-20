@@ -67,6 +67,7 @@ _jobs_cache: dict[str, Any] = {"at": 0.0, "rows": []}
 # ZALO-AGENT-01 Phần 6: máy có Zalo ghi `status.json` mỗi phút, đẩy lên đây. Chỉ có mã và số đếm.
 ZALO_STATUS = "/srv/v7/zalo-agent/status.json"
 ZALO_LATE = 900         # im lặng, chờ Zalo hay xử lý chậm quá 15 phút thì máy canh báo
+ZALO_FUTURE = 300       # `at` ở tương lai quá chừng này giây thì coi như file hỏng
 ZALO_SLOW_SHOW = 120    # chậm dưới 2 phút chỉ là đang đuổi kịp
 ZALO_PROCESSORS = ("bundle", "insurance", "money_images")   # chỉ các bộ xử lý này được hiện, theo thứ tự này
 ZALO_IDENTITY = ("attached", "waiting_for_zalo", "reprobing", "unknown")
@@ -249,7 +250,7 @@ def zalo(now: float | None = None) -> dict[str, Any]:
     now = time.time() if now is None else now
     path = Path(os.getenv("WEBDEBIT_ZALO_AGENT_STATUS") or ZALO_STATUS)
     silent: dict[str, Any] = {"state": "silent", "at": None, "silent_minutes": None, "selected_groups": None, "identity": "unknown",
-                              "quiet_minutes": None, "processors": [], "push_error": None}
+                              "quiet_minutes": None, "processors": [], "push_error": None, "push_ok_minutes": None}
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -261,7 +262,8 @@ def zalo(now: float | None = None) -> dict[str, Any]:
     except ValueError:
         return silent
     at = _aware(data.get("at")) if isinstance(data, dict) else None
-    if not isinstance(data, dict) or data.get("schema") != 1 or at is None:
+    # `at` ở tương lai quá 5 phút (đồng hồ máy Zalo lệch) thì không tin được: coi như hỏng.
+    if not isinstance(data, dict) or data.get("schema") != 1 or at is None or at.timestamp() - now > ZALO_FUTURE:
         return silent
     live = data.get("live_sync") if isinstance(data.get("live_sync"), dict) else {}
     identity = live.get("identity") if live.get("identity") in ZALO_IDENTITY else "unknown"
@@ -274,13 +276,17 @@ def zalo(now: float | None = None) -> dict[str, Any]:
         lag, error = _count(item.get("lag_revisions")), _code(item.get("error"))
         late = _minutes_since(item.get("last_ok_at"), now)
         state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
-        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error})
+        rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "ok_minutes": late})
     push = data.get("push") if isinstance(data.get("push"), dict) else {}
     silent_for = max(now - at.timestamp(), 0)
+    quiet = _minutes_since(live.get("identity_since"), now)
+    if quiet is None:
+        quiet = _minutes_since(live.get("revision_at"), now)
     return {"state": "silent" if silent_for > ZALO_LATE else "ok", "at": at.astimezone(VN).isoformat(timespec="seconds"),
             "silent_minutes": int(silent_for // 60), "selected_groups": _count(data.get("selected_groups")), "identity": identity,
-            # Phút từ lần live-sync thấy thay đổi cuối: hợp đồng chưa có "chờ Zalo từ lúc nào", đây là thước đo gần nhất.
-            "quiet_minutes": _minutes_since(live.get("revision_at"), now), "processors": rows, "push_error": _code(push.get("error"))}
+            # Số phút `identity` đã giữ giá trị hiện tại (`identity_since`); bản agent cũ chưa ghi thì lấy phút từ lần live-sync thấy thay đổi cuối.
+            "quiet_minutes": quiet, "processors": rows, "push_error": _code(push.get("error")),
+            "push_ok_minutes": _minutes_since(push.get("last_ok_at"), now)}
 
 
 def now_view(now: float | None = None) -> dict[str, Any]:

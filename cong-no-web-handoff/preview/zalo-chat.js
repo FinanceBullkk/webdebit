@@ -11,7 +11,7 @@
   // page: trang cũ nhất đã tải; newest: trang mới nhất đã tải (khác 0 khi mở thẳng một tin bằng ?m=).
   const state = {
     conversations: [], filter: '', selected: null, messages: [], total: 0, page: 0, newest: 0, hasOlder: false,
-    query: '', request: 0, loading: false, focus: null, ready: false,
+    query: '', request: 0, loading: false, focus: null, ready: false, token: null,
   };
   const MEDIA = '/api/v7/zalo/media/';
   const chat = $('chat');
@@ -490,6 +490,7 @@
       const top = box.scrollTop;
       if (fresh) {
         state.ready = true;   // từ đây trang có thể hỏi tin mới (poll)
+        state.token = data.token ?? null;
         resetUnseen();
         state.page = state.newest = data.page;
         state.hasOlder = data.has_older;
@@ -498,10 +499,12 @@
       } else if (mode === 'older') {
         state.page = data.page;
         state.hasOlder = data.has_older;
-        state.messages = data.messages.concat(state.messages);
+        const known = new Set(state.messages.map(item => item.message_id));   // tin tới muộn làm trang lệch một tin: bỏ tin trùng
+        state.messages = data.messages.filter(item => !known.has(item.message_id)).concat(state.messages);
       } else {
         state.newest = data.page;
-        state.messages = state.messages.concat(data.messages);
+        const known = new Set(state.messages.map(item => item.message_id));
+        state.messages = state.messages.concat(data.messages.filter(item => !known.has(item.message_id)));
       }
       paintMessages();
       const target = state.focus && fresh ? box.querySelector('.msg.focus') : null;
@@ -548,9 +551,10 @@
     if (marks.size && state.selected === id) repaintKeep();
   }
 
-  // ZALO-AGENT-01 (A3): trang đang hiện thì hỏi tin mới 5 giây một lần (`after=`), tab ẩn thì ngừng. Người đang đọc tin cũ
-  // (cuộn lên khỏi đáy) không bị kéo xuống: tin mới nối vào cuối, hiện nút "N tin mới"; bấm nút hoặc cuộn xuống đáy thì thôi.
-  // Chỉ hỏi khi đang ở trang mới nhất và không tìm; sửa/xóa tin cũ hiện khi mở lại hội thoại (after= chỉ trả tin mới hơn).
+  // ZALO-AGENT-01 (A3): trang đang hiện thì hỏi 5 giây một lần, tab ẩn thì ngừng. Máy chủ trả mọi tin đến sau `token` (thêm, sửa,
+  // xóa), nên tin tới muộn (máy Zalo đọc bù sau khi tắt), tin cũ bị sửa hay bị xóa cũng tới trang đang mở: tin đã hiện thì thay tại
+  // chỗ, tin mới vào đúng chỗ thời gian. Người đang đọc tin cũ (cuộn lên khỏi đáy) không bị kéo xuống: hiện nút "N tin mới".
+  // Chỉ hỏi khi đang ở trang mới nhất và không tìm. Gói đã dựng lại (`reset`) thì tải lại hội thoại.
   const POLL_MS = 5000;
   const NEAR_BOTTOM = 80;
   let pollTimer = null;
@@ -565,36 +569,61 @@
   }
   function resetUnseen() { unseen = 0; showUnseen(); }
 
-  function appendLive(rows) {
+  // Áp các tin đến sau token vào khung đang hiện. Tin cũ hơn cả khung (thuộc trang cũ chưa tải) thì bỏ qua: tải trang đó sẽ thấy.
+  function applyChanges(rows) {
     const box = $('messages');
     const follow = atBottom(box);
-    if (!state.messages.length) {
-      state.messages = rows;
-      paintMessages();
-    } else {
-      const previous = state.messages.at(-1);
-      box.insertAdjacentHTML('beforeend', messageParts(rows, previous.timestamp_ms ? dayKey(previous.timestamp_ms) : null, previous).join(''));
-      state.messages = state.messages.concat(rows);
+    const top = box.scrollTop;
+    const stamp = message => message.timestamp_ms ?? 0;
+    const tail = [];
+    const replaced = [];
+    let repaint = !state.messages.length;
+    let added = 0;
+    for (const row of rows) {
+      const at = state.messages.findIndex(item => item.message_id === row.message_id);
+      if (at >= 0) { state.messages[at] = row; replaced.push(row); continue; }
+      const last = state.messages.at(-1);
+      if (!last || stamp(row) >= stamp(last)) {
+        state.messages.push(row);
+        tail.push(row);
+        added += 1;
+      } else if (stamp(row) >= stamp(state.messages[0]) || !state.hasOlder) {
+        let index = state.messages.length;
+        while (index > 0 && stamp(state.messages[index - 1]) > stamp(row)) index -= 1;
+        state.messages.splice(index, 0, row);
+        repaint = true;
+        added += 1;
+      }
     }
-    if (follow) { box.scrollTop = box.scrollHeight; resetUnseen(); } else { unseen += rows.length; showUnseen(); }
+    if (repaint) paintMessages();
+    else {
+      for (const row of replaced) {
+        const node = box.querySelector(`.msg[data-id="${CSS.escape(row.message_id)}"]`);
+        if (node) node.outerHTML = renderMessage(row, node.classList.contains('first'));
+      }
+      if (tail.length) {
+        const previous = state.messages[state.messages.length - tail.length - 1];
+        box.insertAdjacentHTML('beforeend', messageParts(tail, previous?.timestamp_ms ? dayKey(previous.timestamp_ms) : null, previous ?? null).join(''));
+      }
+    }
+    if (follow) { box.scrollTop = box.scrollHeight; resetUnseen(); } else { box.scrollTop = top; unseen += added; showUnseen(); }
   }
 
   async function pollNew() {
-    if (polling || document.hidden || !state.ready || !state.selected || state.newest !== 0 || state.query.trim()) return;
+    if (polling || document.hidden || !state.ready || !state.selected || !state.token || state.newest !== 0 || state.query.trim()) return;
     polling = true;
     const selected = state.selected;
     const request = state.request;
     try {
       for (let more = true; more;) {
-        const after = state.messages.reduce((latest, message) => Math.max(latest, message.timestamp_ms ?? 0), 0);
-        const data = await json(`/api/v7/zalo/messages?${new URLSearchParams({ conversation: selected, after: String(after), limit: String(PAGE_LIMIT) })}`);
+        const data = await json(`/api/v7/zalo/messages?${new URLSearchParams({ conversation: selected, since: state.token, limit: String(PAGE_LIMIT) })}`);
         if (selected !== state.selected || request !== state.request || !state.ready) break;
-        const known = new Set(state.messages.map(message => message.message_id));
-        const fresh = data.messages.filter(message => !known.has(message.message_id));
-        more = data.has_more && fresh.length > 0;
+        if (data.reset) { state.ready = false; await loadPage(0); return; }
+        state.token = data.token;
         state.total = data.total;
-        if (!fresh.length) continue;
-        appendLive(fresh);
+        more = Boolean(data.has_more);
+        if (!data.messages.length) continue;
+        applyChanges(data.messages);
         const row = state.conversations.find(item => item.conversation_id === selected);
         if (row) { row.message_count = data.total; row.last_message_at = data.latest_ms ?? row.last_message_at; paintList(); }
         $('subtitle').textContent = `${number(data.total)} tin · đang hiện ${number(state.messages.length)}`;
