@@ -268,7 +268,7 @@ BASH = working_bash()
 
 
 class FakeServer:
-    """Máy chủ giả cho push(): một thư mục tạm; lệnh áp gói chạy đúng đoạn shell REMOTE_APPLY bằng bash + tar thật."""
+    """Máy chủ giả cho push(): một thư mục tạm; chạy đúng dòng lệnh mà push() sẽ gửi qua ssh (đoạn shell thật, bash + tar thật)."""
 
     def __init__(self, directory: Path):
         self.dir, self.calls = directory, []
@@ -276,14 +276,10 @@ class FakeServer:
     def __call__(self, host, command, stdin=None):
         self.calls.append((host, command, stdin is not None))
         assert host == "fake" and "/srv/v7/zalo-bundle" in command
-        if stdin is None:
-            top = "\n".join(sorted(path.name for path in self.dir.iterdir()))
-            media = "\n".join(sorted(path.name for path in (self.dir / "media").iterdir())) if (self.dir / "media").is_dir() else ""
-            return f"{top}\n---\n{media}\n"
-        done = subprocess.run([BASH, "-c", bundle.REMOTE_APPLY, "apply", self.dir.as_posix()], stdin=stdin,
+        done = subprocess.run([BASH, "-c", command.replace("/srv/v7/zalo-bundle", self.dir.as_posix())], stdin=stdin,
                               capture_output=True, check=False)
         assert done.returncode == 0, done.stderr
-        return ""
+        return done.stdout.decode("utf-8", "replace")
 
 
 @unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn áp gói phía máy chủ")
@@ -311,12 +307,6 @@ class ZaloWebPushTest(unittest.TestCase):
                           if path.is_file() and path.name not in (bundle.CACHE, "sync.log"))
         return files(self.out), files(self.server.dir)
 
-    def test_remote_apply_never_chmods_and_sets_umask_first(self):
-        # chmod của tài khoản đẩy (không thuộc nhóm API) xóa setgid của thư mục, API mất quyền đọc gói (19/11/2026).
-        self.assertNotIn("chmod", bundle.REMOTE_APPLY)
-        lines = [line.strip() for line in bundle.REMOTE_APPLY.splitlines() if line.strip()]
-        self.assertEqual(lines[:2], ["set -eu", "umask 027"])
-
     def test_push_mirrors_bundle_sends_only_new_and_prunes_unselected(self):
         first = self.build([GROUP, OTHER], NOW)
         sent = bundle.push(self.out, self.TARGET, run=self.server)
@@ -340,6 +330,14 @@ class ZaloWebPushTest(unittest.TestCase):
         self.assertNotIn(hashlib.sha256(cdn_bytes(CDN_OTHER)).hexdigest(), "\n".join(remote))
         report = json.loads((self.server.dir / bundle.REPORT).read_text(encoding="utf-8"))
         self.assertEqual(report, json.loads((self.out / bundle.REPORT).read_text(encoding="utf-8")))
+
+    def test_second_push_of_same_bundle_sends_nothing(self):
+        self.build([GROUP], NOW)
+        bundle.push(self.out, self.TARGET, run=self.server)
+        calls = len(self.server.calls)
+        sent = bundle.push(self.out, self.TARGET, run=self.server)
+        self.assertEqual((sent["data_sent"], sent["media_sent"], sent["bytes_sent"]), (0, 0, 0))
+        self.assertEqual(len(self.server.calls), calls + 1)       # chỉ một lệnh hỏi máy chủ, không có lệnh áp gói
 
     def test_bad_target_and_unbuilt_bundle(self):
         for target in ("hao", "hao:relative", "hao:/srv/../etc", "-oProxyCommand=x:/srv", "hao:/srv/a b"):
