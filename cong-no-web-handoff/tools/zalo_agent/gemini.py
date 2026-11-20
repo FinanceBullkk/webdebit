@@ -18,6 +18,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -50,6 +51,11 @@ class Route:
     headers: tuple = field(repr=False)   # chứa khóa: không bao giờ vào repr, log hay traceback
     style: str   # "openai" hoặc "gemini"
     model: str
+
+
+def loopback(url: str) -> bool:
+    """Địa chỉ ngay trên máy này: không bao giờ đi qua proxy ngoài."""
+    return urllib.parse.urlsplit(url).hostname in ("127.0.0.1", "localhost", "::1")
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -131,10 +137,12 @@ class Gemini:
     def __init__(self, env: dict | None = None, post=post_json):
         env = os.environ if env is None else env
         self.proxy = (env.get("ZALO_AGENT_EXTERNAL_PROXY") or "").strip()   # chỉ khi cấu hình rõ mới đi qua proxy; mặc định không dùng proxy hệ thống
-        self.post = post if post is not post_json or not self.proxy else (lambda url, headers, body: post_json(url, headers, body, proxy=self.proxy))
+        self.bad_proxy = bool(self.proxy) and not re.fullmatch(r"https?://[^\s/]+(?:/\S*)?", self.proxy)   # chỉ http(s)://; sai khuôn thì tắt hẳn
+        self.post = post if post is not post_json or not self.proxy else (
+            lambda url, headers, body: post_json(url, headers, body, proxy="" if loopback(url) else self.proxy))   # proxy 9router ở ngay máy này: đi thẳng
         self.model = (env.get("ZALO_AGENT_GEMINI_MODEL") or "").strip()
         self.routes: dict[str, Route] = {}
-        if (env.get("ZALO_AGENT_EXTERNAL") or "off").strip().lower() != "on" or not MODEL.fullmatch(self.model):
+        if (env.get("ZALO_AGENT_EXTERNAL") or "off").strip().lower() != "on" or not MODEL.fullmatch(self.model) or self.bad_proxy:
             return
         proxy, style, key = (env.get("ZALO_AGENT_GEMINI_PROXY") or "").strip().rstrip("/"), (env.get("ZALO_AGENT_GEMINI_PROXY_STYLE") or "openai").strip(), \
             (env.get("ZALO_AGENT_GEMINI_PROXY_KEY") or "").strip()

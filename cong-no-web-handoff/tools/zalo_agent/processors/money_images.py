@@ -18,8 +18,8 @@ trong kho như một lượt đọc (`gemini-proxy@<model>`, `gemini-api@<model>
 thử, đủ 3 lần thì `human`. Mỗi lần gửi ghi một dòng `sent.jsonl` (sha256, đường, giờ, kết quả hoặc mã lỗi).
 
 `hao` nhận qua `push.py` tới `reads_target` (đích rỗng = tắt): file nhỏ `money-reads.json` (xem `export_bytes`) và, cho mỗi ảnh đã có kết
-luận mà che được, ảnh đã che `redacted/<sha256 ảnh gốc>.jpg` (cùng luật che như trước khi gửi Gemini; ảnh không che được thì không có file,
-`hao` chỉ gửi chữ). Ảnh đã che nhớ ở `<root>/redacted/`; `redacted/*` không còn trong kết quả thì bị dọn trên `hao`. Mọi hội thoại trong danh
+luận mà che được, ảnh đã che `redacted-w1/<sha256 ảnh gốc>.jpg` (cùng luật che như trước khi gửi Gemini; ảnh không che được thì không có file,
+`hao` chỉ gửi chữ). Ảnh đã che nhớ ở `<root>/redacted-w1/`; `redacted/*` không còn trong kết quả thì bị dọn trên `hao`. Mọi hội thoại trong danh
 sách đã chọn đều được xử lý, nhóm hay chat riêng 1-1 (không lọc theo `is_group`).
 
 Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_revision`, `scan_failed`, `push_failed`. Ảnh hỏng (sai băm chỉ mục, không giải mã được)
@@ -97,7 +97,7 @@ class MoneyImagesProcessor:
         self.future = None
         self.broken_until = self.cool_until = 0.0
         self.engine_failures = self.broken_failures = 0
-        self.hidden_dir = self.reads.parent / "redacted"
+        self.hidden_dir = self.reads.parent / f"redacted-{redact.RULE}"   # phiên bản luật che nằm trong tên thư mục: đổi luật thì không dùng lại ảnh cũ
         self.export_scope = None
         self.export_dirty = True   # có gì đổi kể từ lần xuất trước (hoặc chưa xuất lần nào): chỉ khi đó mới dựng lại `money-reads.json`
 
@@ -105,6 +105,12 @@ class MoneyImagesProcessor:
     def state(self) -> dict:
         if self.cursor is None:
             self.cursor = {"todo": [], "members": {}, "canon": {}, "failed": {}, **(cursors.load(self.dir, NAME) or {})}
+            if self.cursor.get("redact_rule") != redact.RULE:   # luật che đã đổi: các quyết định "đã có ảnh che" cũ không còn đúng
+                for member in self.cursor["members"].values():
+                    member.pop("hidden", None)
+                    member.pop("hide_tries", None)
+                    member.pop("next_hide", None)
+                self.cursor["redact_rule"] = redact.RULE
         return self.cursor
 
     def save(self, now: float) -> None:
@@ -173,12 +179,13 @@ class MoneyImagesProcessor:
                 first, second = (found.get(name, {}) for name in gemini_module.ROUTES)
                 item.update({key: first.get(key) if first.get(key) == second.get(key) else None for key in ("amount_vnd", "txn_time", "bank")})
             items[sha] = item
-        return json.dumps({"schema": 1, "reads": items}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return json.dumps({"schema": 1, "redact": redact.RULE, "reads": items}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
     def redacted_files(self, members: dict) -> list[pusher.Item]:
         """Ảnh đã che đã dựng sẵn (ở luồng nền) của mọi ảnh trong tập xuất. Chỉ liệt kê file, không giải mã gì ở vòng chính."""
-        return [pusher.Item(f"redacted/{sha}.jpg", self.hidden_dir / f"{sha}.jpg", immutable=True)
-                for sha, member in sorted(members.items()) if member.get("by") is not None and member.get("hidden") is True]
+        return [pusher.Item(f"redacted-{redact.RULE}/{sha}.jpg", self.hidden_dir / f"{sha}.jpg", immutable=True)
+                for sha, member in sorted(members.items())
+                if member.get("by") is not None and member.get("hidden") is True and (self.hidden_dir / f"{sha}.jpg").is_file()]
 
     def export(self, now: float) -> str | None:
         """Đẩy `money-reads.json` và `redacted/*` khi có đổi (cờ bẩn, không dựng lại mỗi giây) hoặc mỗi giờ. Chỉ xuất khi `members` đúng với
@@ -201,7 +208,7 @@ class MoneyImagesProcessor:
             self.export_dirty, self.export_scope = False, scope
             return None
         try:
-            plan = pusher.Plan(self.reads_target, tuple(self.redacted_files(members)), pusher.Item(EXPORT, data), ("redacted/*",))
+            plan = pusher.Plan(self.reads_target, tuple(self.redacted_files(members)), pusher.Item(EXPORT, data), (f"redacted-{redact.RULE}/*", "redacted-*"))
             pusher.push(plan, run=self.run)
         except pusher.PushError:
             return "push_failed"

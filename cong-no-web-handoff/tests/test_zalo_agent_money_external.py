@@ -200,6 +200,19 @@ class GeminiTest(unittest.TestCase):
         with patch.dict(os.environ, {"HTTP_PROXY": dead, "http_proxy": dead, "HTTPS_PROXY": dead, "https_proxy": dead, "ALL_PROXY": dead}):
             self.assertEqual(gemini.post_json(base + "/ok", {}, {}), {"ok": True})
 
+    def test_the_configured_proxy_is_skipped_for_the_local_9router_and_a_malformed_one_disables_everything(self):
+        env = {"ZALO_AGENT_EXTERNAL": "on", "GEMINI_API_KEY": "k", "ZALO_AGENT_GEMINI_MODEL": "gm-1", "ZALO_AGENT_GEMINI_PROXY": "http://127.0.0.1:20128/v1",
+               "ZALO_AGENT_EXTERNAL_PROXY": "http://proxy.local:3128"}
+        body = json.dumps({"choices": [{"message": {"content": json.dumps(AGREE)}}], "candidates": [{"content": {"parts": [{"text": json.dumps(AGREE)}]}}]}).encode()
+        with patch.object(gemini, "open_url") as opened:
+            opened.return_value.__enter__.return_value.read.return_value = body
+            service = gemini.Gemini(env)
+            service.ask("gemini-proxy", MASKED)
+            service.ask("gemini-api", MASKED)
+        self.assertEqual([call.args[2] for call in opened.call_args_list], ["", "http://proxy.local:3128"])   # ngay máy này đi thẳng; Google đi qua proxy đã cấu hình
+        for bad in ("socks5://proxy.local:1080", "proxy.local:3128", "javascript:alert(1)", "http://", "ftp://x"):
+            self.assertFalse(gemini.Gemini({**env, "ZALO_AGENT_EXTERNAL_PROXY": bad}).ready, bad)
+
     def test_an_explicitly_configured_proxy_is_passed_to_the_call(self):
         env = {"ZALO_AGENT_EXTERNAL": "on", "GEMINI_API_KEY": "k", "ZALO_AGENT_GEMINI_MODEL": "gm-1", "ZALO_AGENT_EXTERNAL_PROXY": "http://proxy.local:3128"}
         with patch.object(gemini, "open_url") as opened:
@@ -211,13 +224,19 @@ class GeminiTest(unittest.TestCase):
 class RedactWhitelistTest(unittest.TestCase):
     """Danh sách trắng, hỏng thì che: chỉ ô chữ tách hết được thành nhãn/số tiền/ngày giờ đã biết mới được dán lại."""
 
-    SAFE = ("1.500.000 VND", "1,500,000", "+5,000,000VND", "2000000 đ", "500000 VND", "2.000.000₫", "Số tiền", "Số tiền:", "Thời gian", "Ngày", "Giờ",
-            "Giao dịch thành công", "Chuyển khoản thành công", "Vietcombank", "MB Bank", "Phí", "Phí giao dịch", "Mã giao dịch",
-            "19/11/2026", "15:02", "15:02:03", "15:02 19/11/2026", "Thời gian: 15:02 - 19/11/2026", "Số tiền: 1.500.000 VND")
+    SAFE = ("1.500.000 VND", "1,500,000", "+5,000,000VND", "2.000.000₫", "1.100 VND", "1.100 đ", "Số tiền", "Số tiền:", "Số tiền giao dịch", "Thời gian",
+            "Giao dịch thành công", "Chuyển khoản thành công", "Chuyển tiền thành công", "Vietcombank", "MB Bank", "Phí giao dịch", "Mã giao dịch",
+            "Phí:", "Giờ:", "Ngày:", "Ngày giao dịch", "19/11/2026", "15:02", "15:02:03", "15:02 19/11/2026", "Thời gian: 15:02 - 19/11/2026",
+            "Số tiền: 1.500.000 VND", "1.500.000 VNĐ", "1.500.000 VNÐ", "31/12/2100", "1/1/2000", "0:00")
     UNSAFE = ("Tên người nhận", "Tên tài khoản nhận", "Số tài khoản nhận", "Account name", "Người chuyển", "NGUYEN VAN A", "NGUYEN VAN", "A", "Nội dung",
               "ND: chuyen tien an trua", "0123 4567 8901", "0123-4567-8901", "0123456789", "0123456789012", "FT26323123456789",
               "TK 0071 +5,000,000VND ND: NGUYEN VAN A", "Số tiền 1.500.000 VND NGUYEN", "1.500.000 VND NGUYEN VAN A", "012.345.678",
-              "5000000", "Vietcombank 0123456789", "QR", "", "   ", "-", "Phi Van Nam", "Ngày sinh 01/01/1990 CCCD 012345678901")
+              "5000000", "Vietcombank 0123456789", "QR", "", "   ", "-", "Phi Van Nam", "Ngày sinh 01/01/1990 CCCD 012345678901",
+              # N2: một từ nhãn đứng riêng có thể là một dòng của tên
+              "PHÍ THÀNH CÔNG", "PHÍ", "Phí", "Giờ", "Ngày", "THÀNH CÔNG", "Thành Công", "Giao dịch", "Chuyển khoản", "Chuyển tiền",
+              # N5: số liền không dấu phân cách, số mã, ngày giờ không hợp lệ
+              "500000 VND", "2000000 đ", "123456789 VND", "1.500", "99.999", "1.500.000.000.000.000 VND", "32/01/2026", "15/13/2026", "01/01/1999",
+              "01/01/2101", "25:00", "12:60", "12:34:61", "19/11/26")
 
     def test_only_whitelisted_parts_are_safe(self):
         for text in self.SAFE:
@@ -226,46 +245,87 @@ class RedactWhitelistTest(unittest.TestCase):
             self.assertFalse(redact.safe(text), text)
 
     def test_amount_detection_needs_a_real_amount_not_a_label_or_a_date(self):
-        self.assertTrue(redact.holds_amount("Số tiền: 1.500.000 VND"))
-        self.assertTrue(redact.holds_amount("500000 VND"))
-        for text in ("Số tiền", "19/11/2026", "15:02", "Vietcombank"):
-            self.assertFalse(redact.holds_amount(text), text)
+        self.assertEqual(redact.amount_values("Số tiền: 1.500.000 VND"), [1_500_000])
+        self.assertEqual(redact.amount_values("1.100 VND"), [1100])
+        self.assertEqual(redact.amount_values("1.500.000 VNĐ"), [1_500_000])   # `Đ` hay `Ð` đều là đơn vị
+        self.assertEqual(redact.amount_values("1.500.000 VNÐ"), [1_500_000])
+        for text in ("Số tiền", "19/11/2026", "15:02", "Vietcombank", "500000 VND", "1.500", "0123456789"):
+            self.assertEqual(redact.amount_values(text), [], text)
 
     def test_matching_is_linear_on_hostile_text(self):
         import time
         started = time.time()
-        for text in ("1" * 4000 + "x", "so tien " * 800 + "x", "1.000" * 800 + "x", "  :" * 2000 + "x"):
+        for text in ("1" * 4000 + "x", "so tien " * 800 + "x", "1.000" * 800 + "x", "  :" * 2000 + "x", "1.000.000 " * 500 + "x"):
             self.assertFalse(redact.safe(text))
         self.assertLess(time.time() - started, 5)
 
+    def pasted_texts(self, boxes, amount=1_500_000):
+        return [item["t"] for item in redact.safe_boxes({"amount_vnd": amount, "boxes": boxes})]
+
+    def test_only_the_amount_the_ocr_read_is_pasted_fees_and_balances_stay_black(self):
+        boxes = [box(20, 20, 300, 60, "1.500.000 VND"), box(20, 120, 300, 160, "1.100 VND"), box(20, 220, 300, 260, "12,345,678VND"),
+                 box(20, 320, 300, 360, "Số tiền"), box(20, 420, 300, 460, "Số tiền 2.000.000 VND")]
+        self.assertEqual(self.pasted_texts(boxes), ["1.500.000 VND", "Số tiền"])
+        self.assertEqual(self.pasted_texts(boxes, amount=1100), ["1.100 VND", "Số tiền"])
+        self.assertEqual(self.pasted_texts(boxes, amount=None), ["Số tiền"])   # OCR không có số tiền: ô số tiền nào cũng đen
+
+    def test_a_real_amount_that_a_stray_symbol_broke_is_not_replaced_by_a_fee_or_balance(self):
+        # Ô số tiền thật bị dính ký tự lạ (`~`, `+` rời…) nên bị loại; phí và số dư không được "thế chỗ" để ảnh vẫn được gửi.
+        read = {"size": [100, 200], "amount_vnd": 1_500_000, "boxes": [box(0, 0, 90, 30, "~1.500.000 VND"), box(0, 40, 90, 70, "1.100 VND"),
+                                                                       box(0, 80, 90, 110, "12,345,678VND"), box(0, 120, 90, 150, "Số tiền")]}
+        self.assertEqual(self.pasted_texts(read["boxes"]), ["Số tiền"])
+        self.assertIsNone(redact.redact(b"anh", read, prepare))
+
+    def test_tilted_and_low_confidence_boxes_are_never_pasted(self):
+        straight = [[10, 10], [200, 10], [200, 50], [10, 50]]
+        skewed = [[10, 10], [200, 40], [200, 80], [10, 50]]   # cạnh trên nghiêng ~9 độ
+        sideways = [[10, 10], [200, 10], [230, 50], [40, 50]]  # cạnh trái nghiêng ~37 độ
+        ok = {**box(10, 10, 200, 50, "1.500.000 VND"), "p": straight}
+        self.assertEqual(self.pasted_texts([ok]), ["1.500.000 VND"])
+        for corners in (skewed, sideways):
+            self.assertEqual(self.pasted_texts([{**ok, "p": corners}]), [])
+        self.assertEqual(self.pasted_texts([box(10, 10, 200, 50, "1.500.000 VND", 0.49)]), [])
+        self.assertEqual(self.pasted_texts([box(10, 10, 200, 50, "1.500.000 VND", 0.5)]), ["1.500.000 VND"])
+        slight = [[10, 10], [200, 12], [200, 52], [10, 50]]   # ~0,6 độ: vẫn thẳng
+        self.assertEqual(self.pasted_texts([{**ok, "p": slight}]), ["1.500.000 VND"])
+
+    def test_a_safe_box_close_to_an_unsafe_box_is_not_pasted_not_even_one_pixel_beyond_the_padding(self):
+        amount = box(100, 100, 300, 140, "1.500.000 VND")
+        near = box(300 + redact.PAD, 100, 400, 140, "NGUYEN VAN A")   # khe hở PAD điểm ảnh: coi như chạm (luật xét chồng lấn với PAD + 1)
+        far = box(300 + redact.PAD + 1, 100, 400, 140, "NGUYEN VAN A")
+        self.assertEqual(self.pasted_texts([amount, near]), [])
+        self.assertEqual(self.pasted_texts([amount, far]), ["1.500.000 VND"])
+
     def test_a_safe_box_touching_an_unsafe_box_is_not_pasted(self):
-        read = {"boxes": [box(100, 100, 300, 140, "1.500.000 VND"), box(280, 110, 420, 150, "NGUYEN VAN A"), box(40, 300, 300, 340, "Số tiền")]}
-        self.assertEqual(redact.safe_boxes(read), [[40, 300, 300, 340]])   # số tiền dính tên: bỏ cả hai; nhãn rời vẫn được
-        self.assertEqual(redact.pasted(read), ([[40, 300, 300, 340]], False))
+        read = {"boxes": [box(100, 100, 300, 140, "1.500.000 VND"), box(280, 110, 420, 150, "NGUYEN VAN A"), box(40, 300, 300, 340, "Số tiền")],
+                "amount_vnd": 1_500_000}
+        self.assertEqual([item["b"] for item in redact.safe_boxes(read)], [[40, 300, 300, 340]])   # số tiền dính tên: bỏ cả hai; nhãn rời vẫn được
+        self.assertEqual(redact.pasted(read)[1], False)
 
     def test_nothing_is_sent_without_a_pasteable_amount_without_boxes_or_when_the_size_changed(self):
-        mixed = {"size": [100, 200], "boxes": [box(0, 0, 90, 30, "TK 0071 +5,000,000VND ND: NGUYEN VAN A"), box(0, 40, 90, 70, "Số tiền")]}
+        mixed = {"size": [100, 200], "amount_vnd": 5_000_000, "boxes": [box(0, 0, 90, 30, "TK 0071 +5,000,000VND ND: NGUYEN VAN A"), box(0, 40, 90, 70, "Số tiền")]}
         self.assertIsNone(redact.redact(b"anh", mixed, prepare))   # ô số tiền lẫn tên: che, không còn số tiền nào để gửi
-        self.assertIsNone(redact.redact(b"anh", {"boxes": [], "size": [100, 200]}, prepare))
-        self.assertIsNone(redact.redact(b"anh", {"size": [100, 200]}, prepare))
-        self.assertIsNone(redact.redact(b"anh", {"boxes": TRANSFER, "size": [100, 200]}, lambda data: (None, (999, 999))))   # đổi kích thước
+        self.assertIsNone(redact.redact(b"anh", {"boxes": [], "size": [100, 200], "amount_vnd": 1_500_000}, prepare))
+        self.assertIsNone(redact.redact(b"anh", {"size": [100, 200], "amount_vnd": 1_500_000}, prepare))
+        self.assertIsNone(redact.redact(b"anh", {"boxes": TRANSFER, "size": [100, 200]}, prepare))   # OCR không có số tiền
+        self.assertIsNone(redact.redact(b"anh", {"boxes": TRANSFER, "size": [100, 200], "amount_vnd": 1_500_000}, lambda data: (None, (999, 999))))   # đổi kích thước
 
 
 @unittest.skipUnless(Image, "cần Pillow (có ở máy có Zalo, không có trong venv của repo)")
 class RedactPixelsTest(unittest.TestCase):
     def scene(self):
-        """Biên lai giả 600x800: nhãn nhạy cảm kèm giá trị cạnh bên và bên dưới, tên xuống dòng, số tài khoản cách đôi, mã QR (không có ô OCR),
+        """Biên lai giả 600x920: nhãn nhạy cảm kèm giá trị cạnh bên và bên dưới, tên xuống dòng, số tài khoản cách đôi, mã QR (không có ô OCR),
         ô số tiền lẫn tên, cùng số tiền, nhãn, giờ, ngân hàng cần còn đọc được. Trả (ảnh JPEG, read, {tên: vùng})."""
-        image = Image.new("RGB", (600, 800), "white")
+        image = Image.new("RGB", (600, 920), "white")
         draw = ImageDraw.Draw(image)
         font = ImageFont.load_default(size=26)
         spots, boxes = {}, []
 
-        def put(name, x, y, text):
+        def put(name, x, y, text, confidence=0.95, corners=None):
             where = [int(value) for value in draw.textbbox((x, y), text, font=font)]
             draw.text((x, y), text, fill="black", font=font)
             spots[name] = where
-            boxes.append(box(*where, text))
+            boxes.append({**box(*where, text, confidence), **({"p": corners} if corners else {})})
 
         put("label_name", 20, 20, "Tên người nhận")
         put("name_beside", 300, 20, "NGUYEN VAN A")
@@ -290,9 +350,14 @@ class RedactPixelsTest(unittest.TestCase):
                 if (column // 10 + row // 10) % 3 == 0:
                     draw.rectangle([column, row, column + 9, row + 9], fill="black")
         spots["qr"] = list(qr)
+        put("other_amount", 300, 660, "2.500.000 VND")                 # số tiền khác giá trị đã đọc (phí, số dư…): phải đen
+        put("balance", 300, 700, "Số dư 12,345,678VND")
+        put("weak_label", 300, 740, "Thời gian", 0.3)                    # nhãn an toàn nhưng OCR không tin: đen
+        put("skewed_label", 300, 780, "Số tiền giao dịch", 0.9, [[300, 780], [480, 800], [480, 830], [300, 810]])   # nghiêng ~6-11 độ: đen
+        put("fee_word", 300, 840, "PHÍ THÀNH CÔNG")                      # tên toàn chữ nhãn: đen
         out = io.BytesIO()
         image.save(out, "JPEG", quality=95)
-        return out.getvalue(), {"size": [600, 800], "amount_vnd": 1_500_000, "boxes": boxes}, spots
+        return out.getvalue(), {"size": [600, 920], "amount_vnd": 1_500_000, "boxes": boxes}, spots
 
     @staticmethod
     def light(image, where):
@@ -306,7 +371,7 @@ class RedactPixelsTest(unittest.TestCase):
         self.assertEqual(pasted_count, 4)   # số tiền, nhãn số tiền, ngày giờ, tên ngân hàng
         result = Image.open(io.BytesIO(hidden))
         for name in ("label_name", "name_beside", "label_account", "name_below", "wrapped_1", "wrapped_2", "label_stk", "digits_1", "digits_2",
-                     "label_en", "name_en", "mixed", "note", "qr"):
+                     "label_en", "name_en", "mixed", "note", "qr", "other_amount", "balance", "weak_label", "skewed_label", "fee_word"):
             self.assertEqual(self.light(result, spots[name]), 0, name)   # đen kín, kể cả QR không có ô OCR nào
         for name in ("amount", "label_amount", "when", "bank"):
             self.assertGreater(self.light(result, spots[name]), 0.3, name)   # còn đọc được: nền trắng và nét chữ
@@ -447,7 +512,7 @@ class ExternalTest(MaskedBase):
         self.gemini.calls.clear()
         entry = reads.load(self.root / "reads", sha, "fake", self.engine.version)
         reads.save(self.root / "reads", sha, {**entry, "boxes": []})   # OCR không thấy ô chữ nào
-        (self.root / "redacted" / f"{sha}.jpg").unlink()               # bỏ ảnh đã che nhớ từ lần trước
+        (self.root / "redacted-w1" / f"{sha}.jpg").unlink()               # bỏ ảnh đã che nhớ từ lần trước
         self.assertEqual(processor.ask(sha, processor.state()["members"][sha])["status"], "no_image")
         self.assertEqual(self.gemini.calls, [])
 
@@ -527,8 +592,8 @@ class ExportTest(MaskedBase):
         processor = self.make()
         self.drain(processor)
         data = self.pushed()
-        self.assertEqual(set(data), {"schema", "reads"})
-        self.assertEqual(data["schema"], 1)
+        self.assertEqual(set(data), {"schema", "redact", "reads"})
+        self.assertEqual((data["schema"], data["redact"]), (1, "w1"))
         self.assertEqual(set(data["reads"]), {SHA_LOCAL, SHA_JXL})
         for item in data["reads"].values():
             self.assertEqual(set(item), {"by", "amount_vnd", "txn_time", "bank", "reads"})
@@ -588,25 +653,25 @@ class ExportTest(MaskedBase):
     def test_redacted_images_go_with_the_file_one_per_decided_image_and_are_pruned_when_no_longer_wanted(self):
         processor = self.make()
         self.drain(processor)
-        folder = self.remote.dirs[REMOTE_READS] / "redacted"
+        folder = self.remote.dirs[REMOTE_READS] / "redacted-w1"
         self.assertEqual(sorted(path.name for path in folder.iterdir()), sorted([f"{SHA_LOCAL}.jpg", f"{SHA_JXL}.jpg"]))
         self.assertTrue(all(path.read_bytes() == MASKED for path in folder.iterdir()))   # đúng ảnh đã che, không phải ảnh gốc
         (self.src / "web-groups.json").write_text(json.dumps({"conversations": []}), encoding="utf-8")
         processor.step()
-        self.assertEqual(list(folder.iterdir()), [])   # bỏ chọn hết: ảnh đã che cũ bị dọn khỏi hao
+        self.assertFalse(folder.exists())   # bỏ chọn hết: ảnh đã che cũ bị dọn khỏi hao
 
     def test_image_that_cannot_be_hidden_has_a_result_but_no_redacted_file(self):
         with patch.object(money_images.redact, "redact", lambda data, read, prep=None: None):
             processor = self.make()
             self.drain(processor)
         self.assertEqual(set(self.pushed()["reads"]), {SHA_LOCAL, SHA_JXL})
-        self.assertFalse((self.remote.dirs[REMOTE_READS] / "redacted").exists() and list((self.remote.dirs[REMOTE_READS] / "redacted").iterdir()))
+        self.assertFalse((self.remote.dirs[REMOTE_READS] / "redacted-w1").exists() and list((self.remote.dirs[REMOTE_READS] / "redacted-w1").iterdir()))
 
     def test_images_without_money_signals_have_no_redacted_file(self):
         self.engine.script[JXL_AS_JPEG] = [box(10, 10, 300, 40, "CONT 123 seal")]
         processor = self.make()
         self.drain(processor)
-        self.assertEqual([path.name for path in (self.remote.dirs[REMOTE_READS] / "redacted").iterdir()], [f"{SHA_LOCAL}.jpg"])
+        self.assertEqual([path.name for path in (self.remote.dirs[REMOTE_READS] / "redacted-w1").iterdir()], [f"{SHA_LOCAL}.jpg"])
 
     def test_private_one_to_one_chats_in_the_selection_are_read_like_groups(self):
         self.feed.add_image(PRIVATE, PRIVATE_IMAGE)
@@ -656,10 +721,10 @@ class ExportTest(MaskedBase):
         members = processor.state()["members"]
         members[SHA_JXL].pop("hidden")   # chưa biết có che được không
         self.assertEqual(set(json.loads(processor.export_bytes(members))["reads"]), {SHA_LOCAL})
-        self.assertEqual([item.rel for item in processor.redacted_files(members)], [f"redacted/{SHA_LOCAL}.jpg"])
+        self.assertEqual([item.rel for item in processor.redacted_files(members)], [f"redacted-w1/{SHA_LOCAL}.jpg"])
         processor.finish_job({"kind": "hide", "sha": SHA_JXL, "status": "unhideable"}, self.now)
         self.assertEqual(set(json.loads(processor.export_bytes(members))["reads"]), {SHA_LOCAL, SHA_JXL})   # có kết quả, không có ảnh che
-        self.assertEqual([item.rel for item in processor.redacted_files(members)], [f"redacted/{SHA_LOCAL}.jpg"])
+        self.assertEqual([item.rel for item in processor.redacted_files(members)], [f"redacted-w1/{SHA_LOCAL}.jpg"])
 
     def test_changing_the_engine_version_does_not_break_the_export(self):
         processor = self.make()
@@ -667,6 +732,22 @@ class ExportTest(MaskedBase):
         self.engine.version = "2.0+t"   # engine hoặc ANALYSIS đổi, ảnh cũ chưa đọc lại
         data = json.loads(processor.export_bytes(processor.state()["members"]))["reads"]
         self.assertEqual(data[SHA_JXL]["amount_vnd"], 1_500_000)   # dùng kết quả mới nhất có sẵn của cùng engine, không ném
+
+    def test_a_new_redaction_rule_never_reuses_images_hidden_by_the_old_one(self):
+        processor = self.make()
+        self.drain(processor)
+        old = self.remote.dirs[REMOTE_READS] / "redacted-w1"
+        self.assertEqual(len(list(old.iterdir())), 2)
+        self.assertEqual(self.pushed()["redact"], "w1")
+        with patch.object(money_images.redact, "RULE", "w2"):
+            newer = self.make()   # tiến trình mới, con trỏ từ đĩa, luật đã đổi
+            self.drain(newer)
+            self.assertTrue(all("hidden" in member for member in newer.state()["members"].values() if member["by"]))
+            self.assertEqual(self.pushed()["redact"], "w2")
+            self.assertEqual(sorted(path.name for path in (self.remote.dirs[REMOTE_READS] / "redacted-w2").iterdir()),
+                             sorted([f"{SHA_LOCAL}.jpg", f"{SHA_JXL}.jpg"]))
+            self.assertFalse(old.exists())   # thư mục theo luật cũ bị dọn khỏi hao
+            self.assertTrue((self.root / "redacted-w2" / f"{SHA_LOCAL}.jpg").is_file())
 
     def test_status_counts_carry_no_free_text_and_bundle_is_not_held_back(self):
         agent = agent_main.Agent(self.live, self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote, clock=lambda: self.now,
