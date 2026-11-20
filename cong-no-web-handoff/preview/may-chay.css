@@ -99,6 +99,18 @@
 .mc .jobs th,.mc .jobs td{padding:3px 8px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
 .mc .job-failed td:last-child,.mc .job-late td:last-child,.mc .job-off td:last-child{color:var(--critical);font-weight:600}
 .mc .job-running td:last-child{color:var(--accent-ink);font-weight:600}
+/* Máy Zalo (ZALO-AGENT-01): mỗi bộ xử lý một dòng câu thường; màu chỉ nhấn thêm, nghĩa nằm ở chữ. */
+.mc .zalo{margin-top:8px;padding:7px 8px;white-space:normal}
+.mc .zalo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.mc .zalo-head h2{font-size:13.5px;margin:0;font-weight:600}
+.mc .zalo-sub{font-size:13.5px;color:var(--ink-2)}
+.mc .zalo-bad{color:var(--critical);font-weight:600}
+.mc .zalo-warn{color:var(--warning);font-weight:600}
+.mc .zalo-rows{list-style:none;margin:4px 0 0;padding:0;font-size:13.5px}
+.mc .zr{display:flex;flex-wrap:wrap;gap:0 12px;padding:4px 0;border-bottom:1px solid var(--line-soft)}
+.mc .zr b{flex:0 0 9.5em;font-weight:600}
+.mc .zr-warn span{color:var(--warning);font-weight:600}
+.mc .zr-bad span{color:var(--critical);font-weight:600}
 /* Kiểm booking (KIEM-BOOKING-01): dòng trạng thái lượt, nút nhóm có số (nhóm đụng tiền trước), danh sách mở ngay dưới. */
 .mc .booking{margin-top:8px;padding:7px 8px;white-space:normal}
 .mc .bk-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}

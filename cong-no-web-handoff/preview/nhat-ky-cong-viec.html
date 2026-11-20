@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Nhật ký công việc: việc đã đưa lên hệ thống theo ngày, lời thường, đọc từ các thay đổi đã merge trên GitHub, tự cập nhật. Chỉ xem.">
+  <title>Công nợ HTH · Nhật ký công việc</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="app-nav.css">
+  <link rel="stylesheet" href="nhat-ky-cong-viec.css">
+  <script src="nhat-ky-theme.js"></script>
+</head>
+<body class="nk-page">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="nhat-ky"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Nhật ký công việc</h1>
+      <div class="live-controls nk"><div class="nk-mode" id="mode" role="group" aria-label="Giao diện"></div><span class="live" id="live"><i></i><span id="liveTxt">Đang tải…</span></span></div>
+    </div>
+    <div id="error" role="alert" hidden></div>
+    <div class="nk">
+      <div class="nk-grid">
+        <div class="nk-main">
+        <section class="card nk-week" aria-labelledby="weekTitle">
+          <div class="card-head"><h2 id="weekTitle">Đang tải…</h2><span class="aside" id="weekAside"></span></div>
+          <div class="nk-sum" id="weekSum"></div>
+          <div class="nk-matrix-wrap"><table class="nk-matrix" id="matrix" aria-label="Số thay đổi theo mảng và tuần"></table></div>
+          <p class="nk-hint">Bấm tên mảng, tuần hoặc một ô để xem riêng phần đó.</p>
+        </section>
+
+        <section class="nk-feed" aria-labelledby="feedTitle">
+          <div class="nk-feed-head"><h2 id="feedTitle">Từng ngày</h2><div class="fbar" id="fbar" aria-live="polite"></div></div>
+          <div id="feed"></div>
+          <button type="button" class="btn nk-more" id="more" hidden></button>
+        </section>
+        </div>
+        <aside class="nk-rail">
+        <section class="card nk-next" aria-labelledby="nextTitle">
+          <div class="card-head"><h2 id="nextTitle">Đang làm tiếp</h2></div>
+          <ul id="next"></ul>
+        </section>
+
+        <section class="card nk-hours" aria-labelledby="hoursTitle">
+          <div class="card-head"><h2 id="hoursTitle">Giờ làm</h2><span class="aside" id="hoursScope"></span></div>
+          <div id="hours"></div>
+        </section>
+        </aside>
+      </div>
+      <div class="tooltip" id="tooltip" hidden></div>
+      <div class="toast" id="toast" hidden role="status"></div>
+    </div>
+  </main>
+  <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="nhat-ky-cong-viec-ui.js"></script>
+</body>
+</html>

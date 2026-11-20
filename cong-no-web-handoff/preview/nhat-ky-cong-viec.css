@@ -1,0 +1,204 @@
+/* NHAT-KY-01: trang Nhật ký công việc dạng bản tin theo ngày (chọn A, 20/11/2026). Dùng token và .card của
+   cong-no-theme.css như các trang Quản trị khác; mọi luật riêng nằm dưới .nk.
+   Màu mảng: sáu ô đầu bảng màu phân loại đã kiểm bằng validate_palette.js (người mù màu phân biệt được cặp kề),
+   tên mảng luôn in cạnh chấm màu nên không dựa vào màu. Màu giờ làm: một sắc xanh đậm dần từ trong giờ tới cuối tuần. */
+.nk {
+  --l1: #2a78d6; --l2: #eb6834; --l3: #1baf7a; --l4: #eda100; --l5: #e87ba4; --l6: #008300;
+  --h-in: #c9d6e6; --h-early: #6da7ec; --h-late: #1c5cab; --h-weekend: #16324f;
+}
+.nk [hidden] { display: none !important }
+.nk .num { font-variant-numeric: tabular-nums }
+.nk .muted { color: var(--ink-3) }
+.nk .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none }
+.nk .link { border: 0; background: none; color: var(--accent-ink); cursor: pointer; padding: 0; font-size: 14px; font-weight: 600 }
+.nk .link:hover { text-decoration: underline }
+.nk .pick { cursor: pointer }
+.nk svg text { fill: var(--ink-3); font-size: 11px; font-family: inherit }
+
+/* Trực tiếp */
+.nk.live-controls .live, .nk .live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 2em; padding: 2px 10px 2px 8px; background: var(--surface) }
+.nk .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3) }
+.nk .live.on { color: var(--credit) }
+.nk .live.on i { background: var(--credit); animation: nk-pulse 2s ease-out infinite }
+.nk .live.warn { color: var(--warning) }
+.nk .live.warn i { background: var(--warning) }
+@keyframes nk-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--credit) 55%, transparent) } 100% { box-shadow: 0 0 0 8px transparent } }
+
+/* Sáng / Tối / Theo máy */
+.nk-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface) }
+.nk-mode button { border: 0; background: none; padding: 3px 10px; font-size: 13px; font-weight: 600; color: var(--ink-3); cursor: pointer }
+.nk-mode button + button { border-left: 1px solid var(--line) }
+.nk-mode button:hover { color: var(--ink); background: var(--head) }
+.nk-mode button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink) }
+
+/* Bố cục: cột chính (tuần + từng ngày) và cột phải 300px (đang làm tiếp + giờ làm) */
+.nk-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; max-width: 1240px }
+.nk-main, .nk-rail { display: grid; gap: 20px; min-width: 0; align-content: start }
+.nk .card { padding-bottom: 16px }
+.nk h2 { font-size: 16px }
+.nk-big { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.nk-big b { font-size: 30px; line-height: 1.1; font-weight: 700 }
+.nk-big span { color: var(--ink-2) }
+
+/* Khối tuần */
+.nk-sum { display: flex; align-items: baseline; gap: 8px 28px; flex-wrap: wrap; margin-bottom: 12px }
+.nk-facts { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px 22px; flex-wrap: wrap; color: var(--ink-2); font-size: 14px }
+.nk-facts li { display: inline-flex; align-items: center; gap: 6px }
+.nk-matrix-wrap { overflow-x: auto; margin: 0 -4px }
+.nk-matrix { border-collapse: separate; border-spacing: 4px 3px; width: 100% }
+.nk-matrix th, .nk-matrix td { padding: 0; font-weight: 400; text-align: center }
+.nk-matrix thead th { font-size: 13px; color: var(--ink-3); padding-bottom: 2px }
+.nk-matrix .lane-h, .nk-matrix .last-h { text-align: left; font-weight: 600 }
+.nk-matrix .last-h { text-align: right; padding-left: 8px; white-space: nowrap }
+.nk-matrix button { border: 0; cursor: pointer; font: inherit }
+.nk-matrix .wk { background: none; color: var(--ink-3); font-size: 13px; padding: 2px 4px; border-radius: 6px; width: 100% }
+.nk-matrix .wk:hover { background: var(--head); color: var(--ink) }
+.nk-matrix .wk.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700 }
+.nk-matrix tbody th { text-align: left; width: 34%; max-width: 260px }
+.nk-matrix .lane { display: flex; align-items: flex-start; gap: 8px; width: 100%; background: none; text-align: left; padding: 1px 6px; border-radius: 6px; color: var(--ink) }
+.nk-matrix .lane .dot { margin-top: 5px }
+.nk-matrix .lane:hover { background: var(--head) }
+.nk-matrix .lane.on { background: var(--accent-soft) }
+.nk-matrix .lt { display: grid; min-width: 0 }
+.nk-matrix .lt b { font-weight: 600; font-size: 14px; line-height: 1.3 }
+.nk-matrix .lt small { color: var(--ink-3); font-size: 12.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.nk-matrix .hc { display: grid; place-items: center; width: 100%; min-width: 34px; height: 30px; border-radius: 6px; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink) }
+.nk-matrix .h0 { color: var(--line); font-weight: 400 }
+.nk-matrix .h1 { background: var(--heat-2) }
+.nk-matrix .h2 { background: var(--heat-3) }
+.nk-matrix .h3 { background: var(--heat-4) }
+.nk-matrix .h4 { background: var(--accent-ink); color: #fff }
+.nk-matrix .h5 { background: var(--age-3); color: #fff }
+.nk-matrix button.hc:hover { outline: 2px solid var(--ink-2); outline-offset: -2px }
+.nk-matrix .hc.on { outline: 3px solid var(--ink); outline-offset: -3px }
+.nk-matrix .dim, .nk-matrix tr.dim .hc, .nk-matrix tr.dim .lane { opacity: .35 }
+.nk-matrix td.last { text-align: right; padding-left: 8px; font-size: 13px; color: var(--ink-2); white-space: nowrap }
+.nk-matrix td.last.stale { color: var(--ink-3) }
+.nk-matrix tfoot th { text-align: left; padding-left: 24px; font-size: 13px; color: var(--ink-3); font-weight: 600 }
+.nk-matrix tfoot td { font-size: 13px; font-weight: 700; color: var(--ink-2); padding-top: 2px }
+.nk-hint { margin: 8px 0 0; font-size: 13px; color: var(--ink-3) }
+
+/* Từng ngày */
+.nk-feed-head { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin: 4px 0 10px }
+.nk-feed-head h2 { margin: 0 }
+.nk .fbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center }
+.nk .fbar:empty { display: none }
+.nk .fchip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--accent); color: var(--accent-ink); background: var(--accent-soft); border-radius: 2em; padding: 2px 10px; font-size: 13.5px; font-weight: 600; cursor: pointer }
+.nk .fchip .x { font-size: 16px; line-height: 1 }
+.nk-day { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; box-shadow: var(--shadow); margin-bottom: 10px }
+.nk-day .when { display: grid; justify-items: start; align-content: start; gap: 2px; padding-top: 1px }
+.nk-day .when b { font-size: 20px; line-height: 1.1 }
+.nk-day .when span { color: var(--ink-2); font-size: 14px }
+.nk-day .when .tag { margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); border-radius: 2em; padding: 0 8px }
+.nk-day .dhead { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; margin-bottom: 8px }
+.nk-day h3 { margin: 0; font-size: 17px; line-height: 1.3 }
+.nk-day .count { margin-left: auto; font-size: 13px; color: var(--ink-3); white-space: nowrap }
+.nk-day .items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px }
+.nk-day .items li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: baseline }
+.nk-day .items li.cont { margin-top: -3px }
+.nk-day h3.muted { color: var(--ink-3); font-weight: 600 }
+.nk-day .lname { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--ink-2) }
+.nk-day .txt { line-height: 1.45 }
+.nk-day .note { margin: 0; font-size: 14px }
+.nk-day .tech { margin-top: 10px; font-size: 13.5px }
+.nk-day .tech summary { cursor: pointer; color: var(--ink-3); width: max-content; max-width: 100% }
+.nk-day .tech summary:hover { color: var(--ink) }
+.nk-day .tech ol { list-style: none; margin: 6px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line-soft); display: grid; gap: 4px }
+.nk-day .tech li { display: grid; grid-template-columns: 44px 10px minmax(0, 1fr); gap: 8px; align-items: baseline; color: var(--ink-2) }
+.nk-day .tech li .dot { width: 8px; height: 8px; align-self: start; margin-top: 7px }
+.nk-day .tech .t { color: var(--ink-3) }
+.nk-empty { padding: 24px; text-align: center; color: var(--ink-3); background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius) }
+.nk-more { display: block; margin: 4px auto 0 }
+
+/* Đang làm tiếp */
+.nk-next ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.nk-next li { position: relative; padding-left: 18px; line-height: 1.4 }
+.nk-next li::before { content: "→"; position: absolute; left: 0; color: var(--accent-ink); font-weight: 700 }
+
+/* Giờ làm */
+.nk-hours .nk-big b { font-size: 26px }
+.nk-hours .nk-big span { font-size: 13.5px }
+.nk-hours h3 { margin: 14px 0 6px; font-size: 13.5px; color: var(--ink-2) }
+.nk .split { display: flex; gap: 2px; height: 8px; margin: 10px 0 8px }
+.nk .split i { border-radius: 2px; min-width: 2px }
+.nk .kinds { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13.5px }
+.nk .kinds li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: center }
+.nk .hist { display: block; width: 100% }
+.nk .hist rect.on { fill: color-mix(in srgb, var(--ink) 8%, transparent) }
+.nk .hist rect.pick:hover { fill: color-mix(in srgb, var(--ink) 6%, transparent) }
+.nk-hours .cap { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-3) }
+.nk .wdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; align-items: end }
+.nk .wd { display: grid; justify-items: center; gap: 3px; font-size: 12px; color: var(--ink-2); min-height: 72px; align-content: end }
+.nk .wd i { width: 100%; max-width: 30px; border-radius: 3px 3px 0 0; background: var(--h-in) }
+.nk .wd.we i { background: var(--h-weekend) }
+.nk .wd small { font-size: 12px; color: var(--ink-3); font-weight: 600 }
+
+/* Chú thích nổi, báo thay đổi mới */
+.nk .tooltip { position: fixed; z-index: 30; pointer-events: none; background: var(--tip-bg, var(--ink)); color: #fff; font-size: 13px; line-height: 1.4; padding: 6px 9px; border-radius: 6px; max-width: 300px; box-shadow: 0 8px 24px #1f293733 }
+.nk .toast { position: fixed; z-index: 25; right: 16px; bottom: 16px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--credit); border-radius: 8px; padding: 10px 14px; box-shadow: 0 8px 24px #1f293733; font-size: 14px; display: flex; gap: 10px; align-items: center; max-width: calc(100vw - 32px) }
+.nk .toast b { color: var(--credit) }
+.nk .flash { animation: nk-flash 1.2s ease-out }
+@keyframes nk-flash { 0% { color: var(--credit) } 100% { color: inherit } }
+@media (prefers-reduced-motion: reduce) { .nk .live.on i, .nk .flash { animation: none } }
+
+/* Hẹp: một cột theo thứ tự đọc tuần → đang làm tiếp → từng ngày → giờ làm */
+@media (max-width: 1011px) {
+  .nk-grid { display: flex; flex-direction: column; gap: 16px }
+  .nk-main, .nk-rail { display: contents }
+  .nk-week { order: 1 } .nk-next { order: 2 } .nk-feed { order: 3 } .nk-hours { order: 4 }
+  .nk-next, .nk-hours, .nk-week, .nk-feed { width: 100% }
+}
+@media (max-width: 600px) {
+  .nk-matrix tbody th { width: 112px; min-width: 112px; max-width: 112px }
+  .nk-matrix { border-spacing: 3px 3px }
+  .nk-matrix .wk { padding: 2px 0; font-size: 12px }
+  .nk-matrix .old { display: none }
+  .nk-matrix .lane { padding: 1px 2px; gap: 6px }
+  .nk-matrix .lt small, .nk-matrix .last-h, .nk-matrix td.last, .nk-matrix tfoot td:last-child { display: none }
+  .nk-matrix .hc { min-width: 28px; height: 30px; font-size: 13px }
+  .nk-day { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px 14px }
+  .nk-day .when { display: flex; align-items: baseline; gap: 8px }
+  .nk-day .when b { font-size: 16px }
+  .nk-day .items li { grid-template-columns: minmax(0, 1fr); gap: 0 }
+  .nk-day .items li.cont .lname { display: none }
+  .nk-day .count { margin-left: 0 }
+}
+
+/* ===== Chế độ tối (20/11/2026), theo bảng màu GitHub dark. Chỉ trang này: nhat-ky-theme.js đặt data-nk-theme trên <html>.
+   Màu mảng là cột tối của cùng bảng màu phân loại, đã kiểm trên nền thẻ #151b23. Bảng nhiệt và giờ làm đảo chiều:
+   ít/trong giờ là tối gần nền, nhiều/ngoài giờ là sáng. ===== */
+html[data-nk-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d1117; --surface: #151b23; --line: #3d444d; --line-soft: #262c36; --head: #1b222c; --zebra: #161c24;
+  --ink: #f0f6fc; --ink-2: #c9d1d9; --ink-3: #9198a1;
+  --accent: #4493f8; --accent-ink: #79b8ff; --accent-soft: #172b45;
+  --critical: #f85149; --critical-soft: #2d1517; --warning: #d29922; --warning-soft: #2e2410; --credit: #3fb950; --credit-soft: #12261a;
+  --shadow: 0 0 0 transparent; --tip-bg: #3d444d;
+}
+html[data-nk-theme="dark"] .nk {
+  --l1: #3987e5; --l2: #d95926; --l3: #199e70; --l4: #c98500; --l5: #d55181; --l6: #0ca30c;
+  --h-in: #64768f; --h-early: #3987e5; --h-late: #79b8ff; --h-weekend: #cde2fb;
+}
+html[data-nk-theme="dark"] .nk-matrix .h1 { background: #104281; color: #f0f6fc }
+html[data-nk-theme="dark"] .nk-matrix .h2 { background: #256abf; color: #fff }
+html[data-nk-theme="dark"] .nk-matrix .h3 { background: #5598e7; color: #0d1117 }
+html[data-nk-theme="dark"] .nk-matrix .h4 { background: #9ec5f4; color: #0d1117 }
+html[data-nk-theme="dark"] .nk-matrix .h5 { background: #cde2fb; color: #0d1117 }
+html[data-nk-theme="dark"] .nk-matrix .h0 { color: #3d444d }
+html[data-nk-theme="dark"] .nk-matrix .hc.on { outline-color: #f0f6fc }
+html[data-nk-theme="dark"] .nk-day .when .tag { color: #9ecbff }
+html[data-nk-theme="dark"] #error { background: var(--critical-soft); border-color: #6e2b2b; color: #ffb3ad }
+/* Thanh đầu trang, dải thẻ Quản trị và menu trái đặt màu cứng trong app-nav.css */
+html[data-nk-theme="dark"] .page.app-page > .page-head.topbar { background: #010409; border-bottom-color: #262c36; color: var(--ink) }
+html[data-nk-theme="dark"] .admin-tabs { background: #010409; border-bottom-color: #262c36 }
+html[data-nk-theme="dark"] .admin-tabs a { color: #9198a1 }
+html[data-nk-theme="dark"] .admin-tabs a:hover { background: #151b23; color: #f0f6fc }
+html[data-nk-theme="dark"] .admin-tabs a.active { background: #172b45; color: #79b8ff; border-bottom-color: #4493f8 }
+html[data-nk-theme="dark"] .app-nav { background: #010409; border-right: 1px solid #262c36 }
+@media (max-width: 760px) { html[data-nk-theme="dark"] .app-nav:not(.menu-open) { background: transparent; border-right: 0 } }
+html[data-nk-theme="dark"] .app-nav nav a:hover, html[data-nk-theme="dark"] .app-nav .search:hover { background: #151b23 }
+html[data-nk-theme="dark"] .app-nav nav a.active { background: #1f3a5f }
+html[data-nk-theme="dark"] .app-nav .search:focus-within { background: #010409 }
+html[data-nk-theme="dark"] .app-nav .search #customer-results { background: #151b23; border-color: #3d444d }
+html[data-nk-theme="dark"] .app-nav .search #customer-results a { color: #f0f6fc; border-bottom-color: #262c36 }
+html[data-nk-theme="dark"] .app-nav .search #customer-results a:hover, html[data-nk-theme="dark"] .app-nav .search #customer-results a:focus { background: #172b45 }

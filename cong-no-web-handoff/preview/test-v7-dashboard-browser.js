@@ -36,7 +36,7 @@ const inboxBook = (id, extra = {}) => ({ customer_id: id, receipts: { ready: 0, 
   trips_new: 0, trips_check: { count: 0, reasons: {} }, text_diff: 0, prices: { ready: 0, review: 0 }, ps: { ready: 0, review: 0 }, ...extra });
 
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200, receiptPost = null, posted = [] } = {}) {
+function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200, receiptPost = null, posted = [], role } = {}) {
   return http.createServer((req, res) => {
     const route = req.url.split('?')[0];
     const file = path.join(__dirname, route.replace(/^\//, ''));
@@ -62,7 +62,8 @@ function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus =
     if (route === '/api/v7/inbox') return send(inboxStatus, 'application/json', value(inbox));   // hộp ngoại lệ P1
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
-    return send(200, type, fs.readFileSync(file));
+    const body = fs.readFileSync(file);   // QUYEN-01: máy chủ thật gắn data-role="user" cho login không phải quản lý
+    return send(200, type, role === 'user' && type === 'text/html' ? String(body).replace('<html lang="vi"', '<html lang="vi" data-role="user"') : body);
   });
 }
 
@@ -169,6 +170,16 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'dashboard-v7-quan-ly-no.png'), fullPage: true });
   }
+}));
+
+test('QUYEN-01: người dùng thấy số chuyến chưa giá nhưng không có link sang Việc cần làm', async () => withDashboard({ role: 'user' }, async page => {
+  const pill = page.locator('span#missing-price');
+  await pill.waitFor();
+  assert.equal(await page.locator('a[href="/viec-can-lam.html"]').count(), 0);
+  assert.equal(await pill.getAttribute('tabindex'), '0');
+  assert.doesNotMatch(await pill.getAttribute('data-tip'), /bấm để mở/);
+  assert.deepEqual((await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]),
+    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
 }));
 
 test('Tổng quan không có khách đang nợ: không bịa số', async () => withDashboard({
@@ -488,7 +499,7 @@ test('điện thoại 390px: menu thu về nút ☰, năm người online nằm 
   assert.deepEqual(table, { cells: ['who', 'num', 'num', 'go'], inside: true, wrap: true });
   assert.match((await page.locator('.owe-row .pill').first().innerText()).replace(/\s+/g, ' ').trim(), /^\d+ khách đang nợ$/);
   await page.locator('#nav-toggle').click();
-  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 9);
+  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 6);   // QUYEN-02
   await page.setViewportSize({ width: 1280, height: 720 });
   assert.equal(await page.locator('.dtable td.bar').first().isVisible(), true, 'màn rộng vẫn có thanh hạn trả');
   await page.locator('#nav-toggle').click();

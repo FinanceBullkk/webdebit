@@ -371,6 +371,30 @@ Thêm người: sửa dòng này rồi `sudo systemctl daemon-reload` và `sudo 
 nhận 403 `LOGIN_NOT_ALLOWED` và được ghi vào journal của unit (dòng `ACCESS-01: từ chối login …`), nên tra
 `journalctl -u <unit>` để biết cần thêm ai.
 
+**Danh sách quản lý ([`QUYEN-01`](decisions/quyen-01.md), từ 20/11/2026):** login trong danh sách này thấy mọi trang;
+login được vào mà không có ở đây chỉ thấy các trang làm sổ. Mỗi login quản lý phải có trong danh sách trên, không thì
+service từ chối khởi động. Không đặt thì ai được vào cũng là quản lý.
+
+```ini
+# /etc/systemd/system/<unit>.service.d/admin-logins.conf
+[Service]
+Environment=WEBDEBIT_ADMIN_LOGINS=<login1>
+```
+
+**Quản lý người dùng trên web ([`QUYEN-02`](decisions/quyen-02.md), từ 20/11/2026):** trang Người dùng ghi file
+`WEBDEBIT_ACCESS_FILE`. Login trong file cộng thêm vào hai danh sách trên; hai danh sách trên là đường cứu, web không sửa
+được. Thư mục phải có trước khi restart, chủ `v7app`, mode 700, và unit cần quyền ghi đúng thư mục đó:
+
+```ini
+# /etc/systemd/system/<unit>.service.d/access-file.conf
+[Service]
+Environment=WEBDEBIT_ACCESS_FILE=/var/lib/webdebit-sheet-sync/access/access.json
+ReadWritePaths=/var/lib/webdebit-sheet-sync/access
+```
+
+File hỏng thì API chỉ dùng hai danh sách cố định, trang báo hỏng, journal có dòng `QUYEN-02: file danh sách login hỏng`.
+Sửa hoặc xóa file rồi thử lại; không cần restart.
+
 ```bash
 sudo systemctl daemon-reload
 ```

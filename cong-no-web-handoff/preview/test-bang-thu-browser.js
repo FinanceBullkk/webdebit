@@ -50,7 +50,7 @@ const customers = [{ id: 7, name: 'SỔ A', commodity: 'Sầu riêng', transport
 const box = (id, ready, review, amount, extra) => ({ customer_id: id, receipts: { ready, review, amount_vnd: amount }, ...extra });
 const inboxReady = { state: 'ready', books: [box(7, 2, 0, '50000000'), box(8, 0, 1, '35000000'), box(9, 5, 0, '1000', { sheet_matched: true })] };
 
-function makeServer({ book, inbox = inboxReady, bookStatus = () => 200, customersStatus = () => 200, calls = [], customerRows = customers }) {
+function makeServer({ book, inbox = inboxReady, bookStatus = () => 200, customersStatus = () => 200, calls = [], customerRows = customers, role }) {
   return http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const route = url.pathname;
@@ -69,7 +69,9 @@ function makeServer({ book, inbox = inboxReady, bookStatus = () => 200, customer
     const file = path.join(__dirname, route.replace(/^\//, ''));
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
-    return send(200, type, fs.readFileSync(file));
+    // QUYEN-01: máy chủ thật gắn data-role="user" vào <html> cho login không phải quản lý.
+    const body = fs.readFileSync(file);
+    return send(200, type, role === 'user' && type === 'text/html' ? String(body).replace('<html lang="vi"', '<html lang="vi" data-role="user"') : body);
   });
 }
 
@@ -488,7 +490,7 @@ test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn:
   const overflow = await page.locator('tr.pay .note').last().evaluate(node => ({ height: node.closest('tr').getBoundingClientRect().height }));
   assert.ok(overflow.height <= 48, `dòng cao ${overflow.height}`);
   const links = page.locator('.app-nav nav a');
-  assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Việc cần làm', 'Máy chạy', 'Đội xe', 'Thông tin cty']);
+  assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Quản trị']);
   const last = await links.last().boundingBox();
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
   // Đo với font mặc định, rồi với font rộng hơn như máy không có Segoe UI.
@@ -549,15 +551,39 @@ test('Bảng thu: dữ liệu thử có băng báo', () => withPage({ book: () =
   assert.match(await page.locator('#demo-banner').innerText(), /Dữ liệu thử/);
 }));
 
-test('Menu riêng của Sổ khách cũng có Bảng thu, Máy chạy, Thông tin cty, Báo cáo tháng và chín mục lọt khung 1280×560', () => withPage({ book: byMonth }, async (page, base) => {
+test('Menu riêng của Sổ khách cũng có Bảng thu, Báo cáo tháng, Quản trị (QUYEN-02) và lọt khung 1280×560', () => withPage({ book: byMonth }, async (page, base) => {
   const html = fs.readFileSync(path.join(__dirname, 'so-khach-v7-live.html'), 'utf8');
   const order = [...html.match(/<nav aria-label="Điều hướng chính">.*?<\/nav>/s)[0].matchAll(/<span>([^<]+)<\/span>/g)].map(match => match[1]);
-  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Việc cần làm', 'Máy chạy', 'Đội xe', 'Thông tin cty']);
+  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Quản trị']);
   await page.goto(`${base}/test-fixture-none`);
   await page.setContent(`<!doctype html><link rel="stylesheet" href="${base}/so-khach-v7.css"><link rel="stylesheet" href="${base}/so-khach-v7-priority.css">${html.match(/<header class="topbar">.*?<\/header>/s)[0]}`);
   await page.waitForLoadState('load');
   const last = await page.locator('.topbar > nav a').last().boundingBox();
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
+}));
+
+test('QUYEN-01: người dùng chỉ thấy năm trang làm sổ, không số Việc cần làm; chip phiếu Sheet chỉ để đọc', () => withPage({ book: byMonth, role: 'user' }, async (page, base) => {
+  await page.locator('tr.pay').first().waitFor();
+  assert.equal(await page.locator('html').getAttribute('data-role'), 'user');
+  const texts = (await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]);
+  assert.deepEqual(texts, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+  assert.equal(await page.locator('.app-nav .nav-extra, #todo-badge').count(), 0);
+  const chip = page.locator('span#pending');
+  assert.equal(clean(await chip.innerText()), '3 · 85 tr phiếu trên Sheet chưa ghi');
+  assert.doesNotMatch(await chip.getAttribute('data-tip'), /Bấm để mở/);
+  assert.equal(await page.locator('a[href="/viec-can-lam.html"]').count(), 0);
+  // Menu viết sẵn của Sổ khách: app-nav bỏ các link quản lý khi trang là của người dùng.
+  const html = fs.readFileSync(path.join(__dirname, 'so-khach-v7-live.html'), 'utf8');
+  const ledger = await page.context().newPage();   // trang mới: CongNoFormat là const, không nạp lại trên cùng trang
+  const errors = [];
+  ledger.on('pageerror', error => errors.push(error.message));
+  await ledger.goto(`${base}/test-fixture-none`);
+  await ledger.setContent(`<!doctype html><html lang="vi" data-role="user"><body>${html.match(/<header class="topbar">.*?<\/header>/s)[0]}`
+    + `<script src="${base}/cong-no-format.js"></script><script src="${base}/app-nav.js"></script></body></html>`);
+  await ledger.waitForLoadState('load');
+  const order = [...await ledger.locator('.topbar > nav a span').allInnerTexts()];
+  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+  assert.deepEqual(errors, []);
 }));
 
 // ---- TUONG-TAC-01 ----

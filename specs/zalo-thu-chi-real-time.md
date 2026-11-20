@@ -1,6 +1,6 @@
 # Zalo gần thời gian thực và thu chi đọc từ nhóm chat (ZALO-THU-CHI-01)
 
-Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q8 ở [cuối spec](#câu-hỏi-đã-chốt)). Chưa code; bước đầu là [P0](#p0-đo-trước-khi-code). Quyết định đi kèm: [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md).
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 19/11/2026: "Chốt theo đề xuất" cho Q1–Q8 ở [cuối spec](#câu-hỏi-đã-chốt)). Chưa code. [P0](#p0-đo-trước-khi-code) xong 20/11/2026 ([Bằng chứng](#bằng-chứng)). Quyết định đi kèm: [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md).
 
 Nguồn: sếp hỏi trong chat 19/11/2026: cần "một cái WeChat hoặc Zalo" để gửi phiếu thanh toán, thu chi vào đó, "để biết được tình hình thu chi thực tế để con bot nó có thể đọc được". Sau đó sếp nói rõ thêm: muốn một con bot add vào các nhóm chat. Người dùng chọn "Spec real-time + thu chi".
 
@@ -138,6 +138,8 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
 
 ### Đề xuất: giữ gói file và kênh ssh, đổi bốn chỗ
 
+> **Thay ngày 20/11/2026:** [`ZALO-AGENT-01`](zalo-agent.md) (ĐÃ CHỐT) thay A1 và A4 bằng một tiến trình nền có con trỏ theo revision, kênh đẩy chung và `status.json`; A2 đổi thành "bản mới nhất theo `message_id` thắng; tin xóa hiện giống bản dựng đầy đủ"; A3 hỏi bằng con trỏ `since` theo thứ tự đến thay cho `after=<timestamp>`. A1 và A4 dưới đây giữ làm lịch sử; A2, A3 vẫn hiện hành với sửa đổi trên.
+
 Không thêm bảng DB, không mở cổng ghi mới trên `hao`, không đổi Tailscale. Cùng thư mục `/srv/v7/zalo-bundle` và cùng tài khoản ssh mà người dùng đã đồng ý ở G5.
 
 **A1. Máy có Zalo: `zalo_web_bundle.py watch`.**
@@ -187,7 +189,7 @@ Không thêm bảng DB, không mở cổng ghi mới trên `hao`, không đổi 
 
 - Phiếu thu đọc từ `sokhach.receipt` (bỏ phiếu đã hủy).
 - Chi và ứng đọc từ `doixe.dong`, `doixe.dong_phi`, `doixe.ung`.
-- Khoảng ngày (−1, +3) và luật "quá 3 ngày" lấy đúng như máy chấm dấu "Khách báo đã chuyển" của ZALO-GROUP-01, để hai chỗ không chấm khác nhau.
+- Khoảng ngày và luật "quá 3 ngày" lấy đúng như máy chấm dấu "Khách báo đã chuyển" của ZALO-GROUP-01, để hai chỗ không chấm khác nhau. **Sửa 20/11/2026 (PR-2):** spec ghi (−1, +3) nhưng `sokhach._mark_json` chấm phiếu từ báo−3 tới báo+7 và "chưa thấy" khi quá báo+3; code dùng đúng số của SQL (`MATCH_BEFORE`, `MATCH_AFTER`, `MISSING_AFTER` trong `web/v7_cash_chat.py`) và một test đọc file SQL để hai nơi không lệch. Bảng trạng thái và Q6 vì vậy đọc là "từ 3 ngày trước tới 7 ngày sau ngày báo".
 - Dấu "Khách báo đã chuyển" đã có (`contact_mark`) cũng hiện trong trang Thu chi như một khoản thu, không chép sang bảng khác.
 
 ### B3. Xác nhận và sửa (PR-3, có DB)
@@ -221,6 +223,19 @@ Chỉ đọc, chạy ở máy có Zalo, chỉ báo số đếm trong chat, khôn
 
 Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và được đếm riêng.
 
+**Khuôn đã code ở PR-2** (`web/v7_cash_chat.py`; `/api/v7/cash-chat` chỉ cho quản lý như Đội xe, vì có số chi và ứng của Đội xe):
+
+- Mặc định 7 ngày tới hôm nay (giờ VN), tối đa 93 ngày; `status=` nhận mã trạng thái cách nhau bằng dấu phẩy và chỉ lọc `items`, còn `totals` và `counts` tính trên cả khoảng.
+- Mỗi `item`: `message_id`, `conversation_id`, `conversation_name`, `sent_at` (ms), `day`, `sender_name`, `direction`, `amount_vnd` (số nguyên hoặc `null`), `text` (≤ 300 ký tự), `media`, `target {kind, id, label}`, `ambiguous`, `status`, `shared`, `ledger_ref`, `ledger_vnd`, `source` (`chat` hoặc `mark`).
+- `zalo_age_seconds` được thay bằng `zalo {state, at, silent_minutes, identity, quiet_minutes}` lấy từ `status.json` của máy Zalo (`v7_machine.zalo()`), cộng `bundle_at` (giờ dựng gói) và `last_message_at`: đủ để phân biệt "máy im", "Zalo chưa mở" và "ít tin".
+- `shared: true` khi một phiếu hoặc dòng sổ là ứng viên của hai khoản báo; cả hai hiện `AMOUNT_DIFF` (hoặc `SUGGEST`) cho người chọn.
+- **Không đoán số và đối tượng (review 20/11/2026):** đơn vị rồi cách rồi chữ số ("1 triệu 2", "2 tr 5") và dấu trừ dính vào số ("chi -500k") là `NO_AMOUNT`, còn gạch có khoảng trắng ("chi - 500k") là dấu ngăn và vẫn đọc 500.000 (chủ ý). "Số rời" chỉ tính khi 1–3 chữ số đứng một mình và không dính chữ cái, không là ngày, không đứng trước danh từ đếm được: "1 triệu 2", "2 tr 5" là `NO_AMOUNT`, còn "5tr 30 cont", "2tr 51C-123.45", "800k 2 xe" đọc 5 triệu, 2 triệu, 800 nghìn; biển số chỉ nhận khi có chữ cái của dãy biển (51C-123.45) hoặc đứng ngay sau "xe", "bks", "bs", "biển số" ("15.11", "2026" không phải biển); tên sổ hoặc người ngắn hơn 3 ký tự (bỏ dấu) không tự khớp.
+- **Ghép một-một cực đại:** trong mỗi nhóm khoản tranh chung dòng sổ, nếu có cách ghép đủ cho mọi khoản thì ghép (khoản sớm trước, dòng sớm trước); không đủ thì cả nhóm `shared`. Dấu "Khách báo đã chuyển" cùng tin hoặc cùng phiếu (`receipt_pid`) với một khoản chat bị ẩn (giữ khoản chat, tổng thu không cộng hai lần; `marks_hidden` đếm số dấu ẩn); cửa sổ ngày của dấu tính từ `on_date`, của khoản chat từ ngày tin.
+- **Nguồn hỏng không làm sập trang:** dòng có giá trị null hoặc sai khuôn bị bỏ (NULL không thành 0); một hàm đọc lỗi thì `sources_failed` ghi mã (`receipt`, `fleet`, `directory`, `marks`) và các khoản liên quan là `WAITING` kèm `unchecked: true` ("chưa đối chiếu được"), không bao giờ kết luận `MISSING` từ một nguồn không đọc được. Giới hạn 20 nhóm áp cho cả tin chat và dấu (`conversations_skipped`); nhiều người hỏi cùng lúc chỉ dựng một lượt. Nhóm `shared` giữ các dòng của nó khỏi khoản khác; thu chưa rõ sổ mà nguồn phiếu lỗi cũng là `unchecked`; dữ liệu lạ (cột sai kiểu, giờ vô lý, tên khác không phải mảng) bị bỏ hoặc cho `{unavailable: true, reason: "UNREADABLE"}` chứ không 500, và người chờ lượt dựng của người khác quá 60 giây thì tự dựng.
+- **Trang Thu chi (PR-2b, `thu-chi.html`):** thẻ "Thu chi" trong dải Quản trị, chỉ quản lý (cùng quyền route). Đầu trang hai khối Hôm nay và 7 ngày (thu, chi, ứng, chưa vào sổ, lệch số), chip lọc có số đếm, danh sách theo ngày với nút "Mở tin" (`/zalo-chat.html?c=&m=`) và ảnh chứng; chọn 7 hoặc 30 ngày. Hỏi lại 5 giây một lần khi tab hiện (lỗi liên tiếp thì giãn 10, 20, 30 giây), tab ẩn thì ngừng. Khoản mới nền vàng nhạt một lần; khi người dùng đang đọc (cuộn xuống hoặc tiêu điểm nằm trong danh sách) thì không vẽ lại mà hiện nút "Có N khoản mới, bấm để xem", bấm hoặc cuộn về đầu thì nhận. Nguồn sổ đọc lỗi thì có dòng cảnh báo và khoản liên quan ghi "Chưa đối chiếu được". Luôn hiện "Zalo cập nhật lúc …" ("lần cuối" khi máy im hoặc Zalo chưa mở quá 5 phút) kèm dòng cảnh báo.
+- Đọc DB chỉ qua hàm đọc có sẵn: `list_customers`, `doixe_get_tong`, `get_receipt_book` (theo tháng, gồm phiếu web chưa hủy và dòng thu sổ gốc), `doixe_get_so` (theo xe hoặc người, chỉ cho đối tượng đã gắn), `get_marks` (theo nhóm). Kết quả giữ 8 giây trong bộ nhớ vì trang hỏi vài giây một lần.
+- Chi hoặc ứng khớp một dòng phí (`dong_phi`) hoặc một lần ứng chưa hủy của Đội xe; chi không có xe/người mà có từ "lương", "văn phòng", "mặt bằng", "internet"… là `NO_LEDGER`, còn lại không rõ đối tượng là `UNKNOWN_TARGET`.
+
 ## Nguồn quyết định
 
 - Sếp và người dùng, chat 19/11/2026 (trích ở đầu spec).
@@ -246,7 +261,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 ## Tiêu chí nghiệm thu
 
-- [ ] P0 xong, số đếm báo trong chat; người dùng chọn nhóm đưa lên web.
+- [x] P0 xong, số đếm báo trong chat; người dùng chọn nhóm đưa lên web (20/11/2026: giữ nhóm đang lên web, các nhóm khác không liên quan; nhóm Thu chi chờ lập).
 - [ ] Unit `watch` (dữ liệu giả, đồng hồ giả):
   - tin mới thuộc nhóm đã chọn vào `messages-delta.jsonl`, tin nhóm không chọn và chat riêng thì không;
   - ảnh tải ngay;
@@ -285,7 +300,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 | PR-1 | A1–A4: `watch`, delta, `after=`, tự cập nhật trang Chat Zalo, nhịp tim, máy canh | Không | Thay task 15 phút bằng tiến trình chạy nền trên máy có Zalo |
 | PR-2 | B1–B2: `v7_cash_chat.py`, route đọc, trang Thu chi chỉ xem | Không | — |
 | PR-3 | B3: bảng `cash_report_review`, hàm, nút xác nhận/sửa/loại | Có, ngoài đường tiền | Tự triển khai theo `DEPLOY-CLAUDE-01` |
-| PR-4 | B4: OCR ở máy có Zalo | Không | Tùy kết quả P0 và Q4 |
+| PR-4 | B4: OCR ở máy có Zalo (P0 đạt 20/20), Gemini cho ảnh OCR đọc không chắc theo [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md) | Không | Khóa API và địa chỉ proxy đặt trên máy có Zalo |
 
 - Agent: claude ([`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md)).
 - Review: opus cho PR-3 (DB, quyền), sonnet medium cho các PR còn lại.
@@ -315,17 +330,36 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 ## Bằng chứng
 
-Chưa có. Số đo dẫn ở đây lấy từ spec và nhật ký của ZALO-GROUP-01 (1/11/2026). P0 chưa chạy.
+**P0 (20/11/2026, chỉ đọc, chạy ở máy có Zalo).** Chỉ ghi số đếm; nội dung tin, chữ OCR và ảnh nằm ngoài repo, ở máy có Zalo.
+
+1. **Nhóm mang tin tiền (8 tuần):**
+   - Kho live-sync có 54 nhóm; khoảng 20 nhóm là nhóm công việc, còn lại là nhóm riêng.
+   - Ảnh chuyển khoản tập trung ở **nhóm kế toán đang lên web**: 21/22 ảnh dáng màn hình là ảnh chuyển khoản. Ngoài nhóm đó, mẫu chỉ thấy 5 ảnh chuyển khoản rải ở hai nhóm.
+   - Các nhóm nhiều ảnh nhất (tới khoảng 580 ảnh mỗi tuần) là ảnh cont, seal, nhiệt độ: 0 ảnh chuyển khoản trong mẫu.
+   - Tin chữ có số tiền (`\d+ ?(tr|triệu|k)`): chỉ một nhóm đáng kể, khoảng 15 tin mỗi tuần. Mẫu `thu|chi` mới có 4 tin.
+   - Người dùng xem danh sách và trả lời các nhóm đó không liên quan; giữ nhóm đang lên web, nhóm Thu chi (Q1) chờ lập.
+2. **Tải trên `hao` nếu đưa cả 20 nhóm công việc:**
+   - 20.158 tin, khoảng 28 MB chữ;
+   - `ChatStore` nạp lại 0,78 giây trên máy có Zalo (CPU `hao` nhanh hơn);
+   - ảnh đã lưu ở máy khoảng 2 GB toàn lịch sử, `/srv` còn trống khoảng 370 GB.
+
+   A2 không cần đọc gói từng phần.
+3. **OCR tại máy (easyocr, CPU):**
+   - Lọc theo dáng ảnh màn hình (cao ≥ 1,7 lần rộng), OCR 161 ảnh, nhận ra 26 ảnh chuyển khoản.
+   - 20 ảnh mới nhất đều đọc ra một số; người dùng tự chấm trên trang soát tại máy: **đúng 20/20** (ngưỡng 18/20), nên làm B4.
+   - Ảnh thường lấy ngẫu nhiên có 1 ảnh chuyển khoản, nên bộ lọc dáng ảnh có thể sót; PR-4 OCR mọi ảnh của nhóm đã chọn.
+   - Tốc độ: khoảng 7,5 giây mỗi ảnh với 6 luồng, 14 giây với 2 luồng.
+   - Người dùng đổi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md) sang OCR làm chính, Gemini khi cần.
 
 ## Câu hỏi đã chốt
 
 Người dùng chốt cả tám câu theo đề xuất của Claude (chat 19/11/2026, "Chốt theo đề xuất").
 
-- **Q1 — Nhóm nào đưa lên web?** **Chốt:** lập **một nhóm Zalo nội bộ "Thu chi"** cho mọi khoản thu chi của công ty. Thêm các nhóm khách hay có ảnh chuyển khoản theo danh sách P0 đưa ra, mỗi nhóm người dùng tự `add`.
-- **Q2 — Có bắt gõ theo mẫu không?** **Chốt:** **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
+- **Q1 — Nhóm nào đưa lên web?** **Sửa 20/11/2026** ([`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md#sửa-ngày-20112026-không-lập-nhóm-thu-chi)): không lập nhóm Thu chi; nguồn là nhóm và chat riêng 1-1 của khách có ảnh chuyển khoản. Bản chốt đầu: lập **một nhóm Zalo nội bộ "Thu chi"** cho mọi khoản thu chi của công ty. Thêm các nhóm khách hay có ảnh chuyển khoản theo danh sách P0 đưa ra, mỗi nhóm người dùng tự `add`.
+- **Q2 — Có bắt gõ theo mẫu không?** **Sửa 20/11/2026:** không bắt; mẫu vẫn được đọc nếu có. Bản chốt đầu: **có** trong nhóm Thu chi (`thu|chi|ứng <số> <đối tượng>`), vì đọc mẫu chắc chắn hơn đọc ảnh. Trong nhóm khách thì không bắt, chỉ đọc ảnh (B4) và dấu tay.
 - **Q3 — Ai xem trang Thu chi?** **Chốt:** mọi người vào được web, như các trang khác (Tailscale). Nếu nhóm Thu chi có lương hay chi riêng của sếp thì cần tách quyền; đó là việc lớn hơn, chưa có trong spec.
 - **Q4 — Đọc ảnh bằng gì?** **Chốt:** OCR ngay trên máy có Zalo, không gửi ảnh ra ngoài, giữ `CHUNG-TU-01`. Nếu P0 cho thấy OCR đọc kém mà sếp muốn dùng AI ngoài (ví dụ Claude đọc ảnh) thì phải sửa `CHUNG-TU-01` mục 4.
-  **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md): mọi ảnh của nhóm đã chọn gửi ra Gemini qua hai đường (proxy OAuth và API trả phí), hai kết quả khớp mới coi là máy đọc được. P0 mục 3 so OCR tại máy với hai đường Gemini trên cùng 20 ảnh.
+  **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md): OCR tại máy đọc mọi ảnh của nhóm đã chọn (P0: đúng 20/20); ảnh có dấu hiệu tiền mà OCR đọc không chắc mới gửi Gemini qua hai đường (proxy OAuth và API trả phí), hai kết quả khớp mới coi là máy đọc được.
 - **Q5 — Máy có Zalo có bật suốt giờ làm việc không?** Real-time chỉ đúng khi máy đó bật. **Chốt:** bật 7:00–20:00. Nếu không bảo đảm được thì cân nhắc một máy riêng luôn bật chỉ chạy Zalo PC.
 - **Q6 — Khoảng ngày đối chiếu.** **Chốt:** từ 1 ngày trước tới 3 ngày sau ngày báo, như dấu "Khách báo đã chuyển". Chi Đội xe có thể ghi muộn hơn (theo đợt hoàn), cần người nhập Đội xe xác nhận.
 - **Q7 — Có nối ngân hàng không?** Đây mới là nguồn "tiền thật". **Chốt:** **để sau**, spec riêng. Các dịch vụ báo biến động số dư như SePay, Casso cần cấp quyền đọc tài khoản ngân hàng, và chi phí chưa kiểm. Nối ngân hàng cần sếp quyết trong spec riêng.

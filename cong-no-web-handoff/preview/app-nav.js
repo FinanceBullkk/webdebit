@@ -1,37 +1,50 @@
 /* Menu trái dùng chung (3/11/2026): mọi trang đặt <aside class="app-nav" data-active="…"></aside> rồi nạp file này trước
- * script của trang. File vẽ nút ☰, ô Tìm khách, chín mục điều hướng và số "sổ còn việc" trên mục Việc cần làm — cùng cách đếm
+ * script của trang. File vẽ nút ☰, ô Tìm khách, các mục điều hướng và số "sổ còn việc" trên mục Quản trị — cùng cách đếm
  * với trang Việc cần làm (InboxTable.books: việc từ Sheet + chuyến thiếu giá, chờ kiểm, số dư đầu, sổ chưa gán mặt hàng).
  * Trang đã có số liệu thì báo qua AppNav.setCustomers / AppNav.setTodoCount (data-count="page") để khỏi đọc API hai lần;
  * trang khác thì file tự đọc. Không ghi gì lên server; chỉ lưu số đếm gần nhất trên máy (localStorage) và bản số liệu Việc cần
- * làm gần nhất trong tab (sessionStorage, đóng tab là hết) để bấm sang trang đó thấy bảng ngay. */
+ * làm gần nhất trong tab (sessionStorage, đóng tab là hết) để bấm sang trang đó thấy bảng ngay.
+ * QUYEN-02: mục Quản trị và dải thẻ (xem ADMIN_TABS).
+ * QUYEN-01 (20/11/2026): máy chủ gắn data-role="user" vào <html> cho login không phải quản lý; khi đó menu chỉ còn các
+ * trang làm sổ, không có số Việc cần làm, và mọi link tới trang quản lý trên trang (cả menu viết sẵn của Sổ khách) bị bỏ. */
 globalThis.AppNav = (() => {
   'use strict';
   // cong-no-format.js khai báo CongNoFormat bằng const ở tầm script: dùng tên trực tiếp, không có trên globalThis.
   const F = CongNoFormat;
   const svg = paths => `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+  // Chỉ máy chủ quyết vai trò; thiếu thuộc tính là quản lý (dev, test, bản cài chưa đặt danh sách quản lý).
+  const isAdmin = () => document.documentElement.dataset.role !== 'user';
+  const ADMIN_PAGES = ['/viec-can-lam.html', '/may-chay.html', '/doi-xe.html', '/doi-xe-bang-ke.html', '/thong-tin-cty.html',
+    '/nhat-ky-cong-viec.html', '/nguoi-dung.html', '/thu-chi.html', '/doi-no.html', '/sheet-trip-queue.html'];
+  const ICON_QUAN_TRI = '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"></path>';
+  // QUYEN-02 (20/11/2026): năm trang làm sổ cho mọi người; quản lý có thêm một mục Quản trị (vào thẳng Việc cần làm, mang số
+  // "sổ còn việc"), các màn quản lý chuyển nhau bằng dải thẻ ở đầu trang.
   const PAGES = [
     ['tong-quan', '/dashboard-v7.html', 'Tổng quan', '<rect x="4" y="4" width="7" height="7" rx="1"></rect><rect x="13" y="4" width="7" height="7" rx="1"></rect><rect x="4" y="13" width="7" height="7" rx="1"></rect><rect x="13" y="13" width="7" height="7" rx="1"></rect>'],
     ['theo-thang', '/cong-no-theo-thang.html', 'Công nợ theo tháng', '<rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M4 10h16M9 3v4M15 3v4"></path>'],
     ['so-khach', '/so-khach-v7-live.html', 'Sổ khách', '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M5 17a3 3 0 0 1 3-3h11"></path>'],
     ['bang-thu', '/bang-thu.html', 'Bảng thu', '<rect x="3" y="6" width="18" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.5"></circle><path d="M6.5 9.5v.01M17.5 14.5v.01"></path>'],
     ['bao-cao-thang', '/bao-cao-thang.html', 'Báo cáo tháng', '<path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v4h4M8 17v-3M12 17v-6M16 17v-4"></path>'],
-    ['viec-can-lam', '/viec-can-lam.html', 'Việc cần làm', '<path d="M9 6h11M9 12h11M9 18h11"></path><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"></path>'],
-    ['may-chay', '/may-chay.html', 'Máy chạy', '<rect x="4" y="6" width="16" height="11" rx="2"></rect><path d="M8 21h8M12 17v4M8 11h2M13 11h3"></path>'],
-    ['doi-xe', '/doi-xe.html', 'Đội xe', '<path d="M2.5 6.5h11v9h-11z"></path><path d="M13.5 9.5h4l3 3v3h-7z"></path><circle cx="6.5" cy="17.5" r="1.8"></circle><circle cx="16.5" cy="17.5" r="1.8"></circle>'],
-    ['thong-tin-cty', '/thong-tin-cty.html', 'Thông tin cty', '<path d="M4 21V5l8-3v19M12 9h8v12M7 8h2M7 12h2M7 16h2M15 13h2M15 17h2M2 21h20"></path>'],
+    ...(isAdmin() ? [['quan-tri', '/viec-can-lam.html', 'Quản trị', ICON_QUAN_TRI]] : []),
   ];
+  const ADMIN_TABS = [
+    ['viec-can-lam', '/viec-can-lam.html', 'Việc cần làm'], ['may-chay', '/may-chay.html', 'Máy chạy'], ['doi-xe', '/doi-xe.html', 'Đội xe'],
+    ['thong-tin-cty', '/thong-tin-cty.html', 'Thông tin cty'], ['thu-chi', '/thu-chi.html', 'Thu chi'], ['nhat-ky', '/nhat-ky-cong-viec.html', 'Nhật ký'], ['nguoi-dung', '/nguoi-dung.html', 'Người dùng'],
+  ];
+  const UNDER_ADMIN = new Set(ADMIN_TABS.map(([id]) => id));   // trang ẩn (Đòi nợ, Chuyến từ Sheet) không sáng mục nào
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   const root = document.querySelector('aside.app-nav');
   let customers = null, loadingCustomers = null;
 
   function mount() {
-    const active = root.dataset.active;
+    const active = UNDER_ADMIN.has(root.dataset.active) ? 'quan-tri' : root.dataset.active;
     root.innerHTML = `<button type="button" id="nav-toggle" aria-label="Mở menu" aria-expanded="false">${svg('<path d="M4 6h16M4 12h16M4 18h16"></path>')}</button>`
       + `<label class="search">${svg('<circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path>')}<span class="search-label">Tìm khách</span>`
       + '<input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off">'
       + '<div id="customer-results" role="listbox" hidden></div></label>'
       + `<nav aria-label="Điều hướng chính">${PAGES.map(([id, href, label, paths]) => `<a${id === active ? ' class="active" aria-current="page"' : ''} href="${href}">`
-        + `${svg(paths)}${label}${id === 'viec-can-lam' ? '<span class="badge" id="todo-badge" hidden></span>' : ''}</a>`).join('')}</nav>`;
+        + `${svg(paths)}${label}${id === 'quan-tri' ? '<span class="badge" id="todo-badge" data-todo-badge hidden></span>' : ''}</a>`).join('')}</nav>`;
+    mountTabs(root.dataset.active);
     root.querySelector('#nav-toggle').addEventListener('click', event => {
       const expanded = event.currentTarget.getAttribute('aria-expanded') !== 'true';
       event.currentTarget.setAttribute('aria-expanded', String(expanded));
@@ -39,6 +52,18 @@ globalThis.AppNav = (() => {
       root.classList.toggle('menu-open', expanded);
     });
     setupSearch();
+  }
+
+  // QUYEN-02: dải thẻ Quản trị ngay trước <main>, ngoài thanh đầu trang của từng màn (trang tự vẽ lại thanh đó).
+  function mountTabs(current) {
+    const main = document.querySelector('main');
+    if (!isAdmin() || !UNDER_ADMIN.has(current) || !main || document.querySelector('.admin-tabs')) return;
+    const tabs = document.createElement('nav');
+    tabs.className = 'admin-tabs';
+    tabs.setAttribute('aria-label', 'Quản trị');
+    tabs.innerHTML = ADMIN_TABS.map(([id, href, label]) => `<a href="${href}"${id === current ? ' class="active" aria-current="page"' : ''}>${label}`
+      + `${id === 'viec-can-lam' ? '<span class="tab-badge" data-todo-badge hidden></span>' : ''}</a>`).join('');
+    main.before(tabs);
   }
 
   // Ô tìm khách: tên Sheet, tên hiển thị, nhãn, mặt hàng, tên gọi khác; bỏ dấu (MH-01), chữ Hán so nguyên chữ.
@@ -84,11 +109,11 @@ globalThis.AppNav = (() => {
   // Số vừa đếm được lưu trên máy để trang không tự đếm (Sổ khách: thẻ Sổ không gọi thêm API) vẫn hiện cùng số.
   const CACHE = 'webdebit.todoCount';
   function paint(count) {
-    const badge = document.querySelector('#todo-badge');
-    if (!badge) return;
-    badge.textContent = count ? String(count) : '';
-    badge.hidden = !count;
-    badge.setAttribute('aria-label', `${count} sổ còn việc`);
+    for (const badge of document.querySelectorAll('#todo-badge, [data-todo-badge]')) {
+      badge.textContent = count ? String(count) : '';
+      badge.hidden = !count;
+      badge.setAttribute('aria-label', `${count} sổ còn việc`);
+    }
   }
   function setTodoCount(n) {
     const count = Number.isInteger(n) && n > 0 ? n : 0;
@@ -132,13 +157,22 @@ globalThis.AppNav = (() => {
     }
   }
 
+  // Người dùng: bỏ link tới trang quản lý đã có sẵn trong HTML (menu riêng của Sổ khách). Link vẽ sau lúc chạy thì
+  // trang tự hỏi AppNav.isAdmin().
+  function dropAdminLinks() {
+    for (const link of document.querySelectorAll('a[href]')) {
+      if (ADMIN_PAGES.includes(new URL(link.href, location.href).pathname)) link.remove();
+    }
+  }
+
   // Sổ khách còn menu riêng (cùng số đo): không có <aside class="app-nav"> thì chỉ hiện số đệm, không đọc API.
   if (root) mount();
-  paintCached();
-  addEventListener('storage', event => { if (event.key === CACHE) paintCached(); });
-  if (root && root.dataset.count !== 'page') {
+  if (!isAdmin()) dropAdminLinks();
+  else paintCached();
+  addEventListener('storage', event => { if (event.key === CACHE && isAdmin()) paintCached(); });
+  if (root && root.dataset.count !== 'page' && isAdmin()) {
     loadTodoCount();
     setInterval(() => { if (!document.hidden) loadTodoCount(); }, 120_000);
   }
-  return { setCustomers, setTodoCount, loadTodoCount, saveTodoSnapshot, readTodoSnapshot };
+  return { isAdmin, setCustomers, setTodoCount, loadTodoCount, saveTodoSnapshot, readTodoSnapshot };
 })();

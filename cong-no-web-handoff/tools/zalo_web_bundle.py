@@ -30,6 +30,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+if str(Path(__file__).resolve().parent) not in sys.path:   # `python -I` không tự thêm thư mục của script
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from zalo_agent import push as pusher
+
 SELECTION = "web-groups.json"
 REPORT = "export-report.json"
 CACHE = "media-cache.json"
@@ -305,7 +309,7 @@ class Media:
 
 
 def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl, max_fetch: int = 300,
-          now: float | None = None, max_age_days: int | None = None) -> dict:
+          now: float | None = None, max_age_days: int | None = None, keep_conversations=()) -> dict:
     chosen = [cid for cid in source.selection() if cid in source.conversations]
     if not chosen:
         raise BundleError("chưa chọn group nào: chạy `add` trước")
@@ -314,8 +318,11 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
     rows: dict[str, list[tuple[int, dict]]] = {cid: [] for cid in chosen}
     senders: set[str] = set()
     wanted: list[tuple[int, dict, dict]] = []   # tin có thể có ảnh/video: (giờ, tin gốc, tin đã làm sạch)
+    needles = [b'"' + cid.encode() + b'"' for cid in chosen]
     with (source.dir / "messages.jsonl").open("rb") as stream:
         for raw in stream:
+            if not any(needle in raw for needle in needles):
+                continue   # dòng của hội thoại khác: khỏi json.loads (131 MB: 1,6 giây xuống 0,25 giây, file live-sync ít bị giữ mở)
             try:
                 row = json.loads(raw)
             except ValueError:
@@ -373,8 +380,9 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
     old = sorted(path for path in out.glob("data-*") if path.is_dir() and path.name != data_name)
     for index, path in enumerate(old):
         # Giữ lượt trước cho server đang đọc dở, trừ khi nó còn hội thoại vừa bị bỏ chọn: bỏ chọn là rời gói ngay.
+        # `keep_conversations`: hội thoại của nguồn khác còn được chọn (WeChat) nhưng không nằm trong kho Zalo này.
         previous = {row.get("conversation_id") for row in read_json(path / "conversations.json", [])}
-        if index < len(old) - (KEEP_DATA_DIRS - 1) or not previous <= set(chosen):
+        if index < len(old) - (KEEP_DATA_DIRS - 1) or not previous <= {*chosen, *keep_conversations}:
             shutil.rmtree(path, ignore_errors=True)
     # Ảnh cũng vậy: chỉ giữ file mà các lượt còn giữ dùng tới.
     keep = set(media.items)
@@ -421,79 +429,25 @@ def cmd_change(source: Source, needles: list[str], add: bool) -> int:
     return 0
 
 
-# Đẩy gói lên máy chủ qua ssh (G5). Thư mục đích trên máy chủ là bản gương của `--out`: chỉ gửi thư mục dữ liệu và ảnh
-# máy chủ chưa có (cả hai bất biến theo tên), đổi export-report.json sau cùng bằng mv (server nạp lại khi file này đổi),
-# rồi xóa phía máy chủ mọi thư mục dữ liệu và ảnh mà máy này không còn giữ: bỏ chọn group là rời máy chủ ở lượt đẩy kế tiếp.
-TARGET = re.compile(r"(?P<host>[A-Za-z0-9][A-Za-z0-9.-]{0,62}):(?P<path>/[A-Za-z0-9_./-]{1,200})")
-# Quyền: không bao giờ chmod trên máy chủ. Tài khoản đẩy không thuộc nhóm của API, nên chmod một thư mục (kể cả "." và
-# media/) làm kernel xóa bit setgid; thư mục dữ liệu tạo sau đó thuộc nhóm người đẩy và API không đọc được (lỗi gặp
-# 19/11/2026). umask 027 cho file 0640 và thư mục 0750 ngay lúc tar tạo; thư mục mới kế thừa nhóm và setgid của gốc.
-REMOTE_APPLY = r"""set -eu
-umask 027
-cd "$1"
-tar -xf - --no-same-owner --no-same-permissions
-mv -f .incoming-report.json export-report.json
-for d in data-*; do
-  if [ -d "$d" ] && ! grep -qxF "$d" .keep-data; then rm -rf -- "$d"; fi
-done
-if [ -d media ]; then
-  for f in media/*; do
-    if [ -f "$f" ] && ! grep -qxF "${f#media/}" .keep-media; then rm -f -- "$f"; fi
-  done
-fi
-rm -f .keep-data .keep-media
-"""
-
-
-def ssh_run(host: str, command: str, stdin=None) -> str:
-    import subprocess
-    # Chạy theo lịch bằng pythonw: không mở cửa sổ console cho ssh.exe.
-    done = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", host, command],
-                          stdin=stdin, capture_output=True, check=False, timeout=1800,
-                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    if done.returncode != 0:
-        raise BundleError(f"ssh {host} lỗi (mã {done.returncode}): {done.stderr.decode('utf-8', 'replace').strip()[:300]}")
-    return done.stdout.decode("utf-8", "replace")
-
-
-def push(out: Path, target: str, run=ssh_run) -> dict:
-    import shlex
-    import tarfile
-    import tempfile
-    match = TARGET.fullmatch(target)
-    if not match or ".." in match["path"]:
-        raise BundleError("--target phải dạng máy:/đường/dẫn tuyệt đối, ví dụ hao:/srv/v7/zalo-bundle")
-    host, remote = match["host"], match["path"].rstrip("/")
+# Đẩy gói lên máy chủ qua ssh (G5) bằng kênh chung `zalo_agent.push` (ZALO-AGENT-01 Phần 2). Thư mục đích trên máy chủ là
+# bản gương của `--out`: chỉ gửi thư mục dữ liệu và ảnh máy chủ chưa có (cả hai bất biến theo tên), đổi export-report.json
+# sau cùng bằng mv (server nạp lại khi file này đổi), rồi xóa phía máy chủ mọi thư mục dữ liệu và ảnh mà máy này không còn
+# giữ: bỏ chọn group là rời máy chủ ở lượt đẩy kế tiếp. Quyền (umask 027, không chmod) do `zalo_agent.push` giữ.
+def push(out: Path, target: str, run=pusher.ssh_run) -> dict:
     report = read_json(out / REPORT)
-    data_dirs = sorted(path.name for path in out.glob("data-*") if path.is_dir())
-    media = sorted(path.name for path in (out / "media").glob("*") if path.is_file() and ".tmp-" not in path.name)
-    if report.get("data_dir") not in data_dirs:
+    data_dirs = sorted(path for path in out.glob("data-*") if path.is_dir())
+    if report.get("data_dir") not in [path.name for path in data_dirs]:
         raise BundleError("gói chưa dựng xong (export-report.json trỏ tới thư mục dữ liệu không có)")
-    there = run(host, f"cd {shlex.quote(remote)} && ls -1A && echo --- && (ls -1A media 2>/dev/null || true)").split("---")
-    remote_dirs = set(there[0].split())
-    remote_media = set(there[1].split()) if len(there) > 1 else set()
-    new_dirs = [name for name in data_dirs if name not in remote_dirs]
-    new_media = [name for name in media if name not in remote_media]
-
-    def add(tar, name: str, data: bytes) -> None:
-        info = tarfile.TarInfo(name)
-        info.size, info.mode, info.mtime = len(data), 0o640, int(time.time())
-        tar.addfile(info, io.BytesIO(data))
-
-    with tempfile.TemporaryFile() as spool:
-        with tarfile.open(fileobj=spool, mode="w", format=tarfile.PAX_FORMAT) as tar:
-            for name in new_dirs:
-                for path in sorted((out / name).iterdir()):
-                    add(tar, f"{name}/{path.name}", path.read_bytes())
-            for name in new_media:
-                add(tar, f"media/{name}", (out / "media" / name).read_bytes())
-            add(tar, ".keep-data", ("\n".join(data_dirs) + "\n").encode())
-            add(tar, ".keep-media", ("\n".join(media) + "\n").encode())
-            add(tar, ".incoming-report.json", (out / REPORT).read_bytes())
-        size = spool.tell()
-        spool.seek(0)
-        run(host, f"sh -c {shlex.quote(REMOTE_APPLY)} apply {shlex.quote(remote)}", stdin=spool)
-    return {"data_sent": len(new_dirs), "media_sent": len(new_media), "bytes_sent": size, "data_dir": report["data_dir"]}
+    items = [pusher.Item(f"{directory.name}/{path.name}", path, immutable=True)
+             for directory in data_dirs for path in sorted(directory.iterdir()) if path.is_file()]
+    items += [pusher.Item(f"media/{path.name}", path, immutable=True)
+              for path in sorted((out / "media").glob("*")) if path.is_file() and ".tmp-" not in path.name]
+    try:
+        sent = pusher.push(pusher.Plan(target, tuple(items), pusher.Item(REPORT, out / REPORT), ("data-*", "media/*")), run=run)
+    except pusher.PushError as exc:
+        raise BundleError(str(exc)) from None
+    return {"data_sent": len({rel.split("/")[0] for rel in sent["sent"] if rel.startswith("data-")}),
+            "media_sent": sum(rel.startswith("media/") for rel in sent["sent"]), "bytes_sent": sent["bytes"], "data_dir": report["data_dir"]}
 
 
 def log_line(out: Path, text: str) -> None:

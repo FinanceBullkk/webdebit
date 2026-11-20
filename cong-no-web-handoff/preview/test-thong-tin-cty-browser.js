@@ -93,7 +93,7 @@ test('Thông tin cty: thẻ tài khoản, danh sách khách giới hạn 60, tì
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '1234567890');
   assert.equal(await page.locator('.ttc-account .ttc-copy').first().innerText(), 'Đã chép');
   assert.equal(await page.locator('.ttc-account').first().evaluate(node => node.open), false, 'bấm Chép không bung thẻ');
-  assert.equal(await page.locator('.app-nav a.active').innerText(), 'Thông tin cty');
+  assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Thông tin cty');   // QUYEN-02: dải thẻ Quản trị
 }));
 
 test('Thông tin cty: địa chỉ có ?q= thì tìm sẵn; chưa bật job thì báo; lỗi máy chủ thì báo và thử lại được', async () => {
@@ -114,13 +114,13 @@ test('Thông tin cty: địa chỉ có ?q= thì tìm sẵn; chưa bật job thì
   });
 });
 
-test('Thông tin cty: khung 1265×560 có menu chín mục lọt khung, không cuộn ngang; 390px xếp dọc, không cuộn ngang', async () => {
+test('Thông tin cty: khung 1265×560 có menu lọt khung, không cuộn ngang; 390px xếp dọc, không cuộn ngang', async () => {
   await withPage({}, async page => {
     const last = await page.locator('.app-nav nav a').last().boundingBox();
     assert.ok(last.y + last.height <= 560, `mục cuối menu lọt khung: ${last.y + last.height}`);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
     const search = await page.locator('.ttc-search').boundingBox(), account = await page.locator('.ttc-account').first().boundingBox();
-    assert.ok(search.y < 140 && account.y < 140, `ô tìm và tài khoản thấy ngay: ${search.y}, ${account.y}`);
+    assert.ok(search.y < 180 && account.y < 180, `ô tìm và tài khoản thấy ngay (dưới dải thẻ 40px): ${search.y}, ${account.y}`);
     assert.ok((await page.locator('#refresh-data').boundingBox()).height >= 40);
   });
   await withPage({}, async page => {

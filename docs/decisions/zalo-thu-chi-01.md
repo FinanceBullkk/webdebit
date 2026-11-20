@@ -15,14 +15,26 @@ Người dùng chốt ngày 19/11/2026 theo đề xuất của Claude, spec [`za
 
 Tám câu Q1–Q8 của spec:
 
-- **Q1:** lập nhóm Zalo nội bộ "Thu chi"; nhóm khách thêm theo danh sách P0.
-- **Q2:** bắt gõ theo mẫu trong nhóm Thu chi.
+- **Q1:** ~~lập nhóm Zalo nội bộ "Thu chi"~~ — **sửa 20/11/2026:** không lập nhóm Thu chi. Nguồn là các nhóm và **chat riêng 1-1** của khách có ảnh chuyển khoản, đo trước rồi người dùng chọn.
+- **Q2:** ~~bắt gõ theo mẫu trong nhóm Thu chi~~ — **sửa 20/11/2026:** không bắt ai gõ theo mẫu. Trang Thu chi vẫn đọc mẫu `thu|chi|ứng` nếu có ai gõ, nhưng nguồn chính là ảnh chuyển khoản (B4).
 - **Q3:** ai vào được web thì xem được trang Thu chi.
-- **Q4:** đọc ảnh bằng OCR ngay trên máy có Zalo, giữ [`CHUNG-TU-01`](chung-tu-01.md) mục 4. **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](anh-gemini-01.md): ảnh của nhóm đã chọn gửi ra Gemini qua hai đường rồi so kết quả.
+- **Q4:** đọc ảnh bằng OCR ngay trên máy có Zalo, giữ [`CHUNG-TU-01`](chung-tu-01.md) mục 4. **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](anh-gemini-01.md): OCR tại máy làm chính (P0 đúng 20/20), ảnh OCR đọc không chắc mới gửi Gemini qua hai đường rồi so.
 - **Q5:** máy có Zalo bật 7:00–20:00.
 - **Q6:** đối chiếu từ 1 ngày trước tới 3 ngày sau ngày báo.
 - **Q7:** nối ngân hàng để sau, làm spec riêng.
 - **Q8:** tách riêng loại `ứng`.
+
+## Sửa ngày 20/11/2026: không lập nhóm Thu chi
+
+Người dùng hỏi lập nhóm Thu chi để làm gì, rồi chỉ ra chỗ không hợp lý: người dùng sẽ phải đem tin từ nhóm khác sang. Tiền thu đã có sẵn ở chỗ khách gửi ảnh chuyển khoản; tiền chi và ứng đã ghi ở sổ Đội xe. Báo lại vào một nhóm riêng là làm hai lần.
+
+Claude đề xuất đọc tiền ở đúng chỗ nó xuất hiện. Người dùng chọn "Đồng ý, đo chat riêng trước":
+
+- bỏ nhóm Zalo "Thu chi" và việc bắt gõ theo mẫu (Q1, Q2);
+- tiền thu: đọc ảnh chuyển khoản trong nhóm và chat riêng 1-1 của khách (B4, theo [`ANH-GEMINI-01`](anh-gemini-01.md)); đo xem chat riêng nào có ảnh chuyển khoản rồi người dùng chọn đưa lên web;
+- tiền chi và ứng: đối chiếu với sổ Đội xe như B2; nguồn "đã chi thật" là sao kê ngân hàng (Q7, để sau).
+
+Trang Thu chi (PR-2, FinanceBullkk/webdebit#551, #552) giữ nguyên, chỉ đổi nguồn tin.
 
 ## Ngày / nguồn
 
@@ -42,4 +54,4 @@ CÒN MỞ:
 - engine OCR;
 - danh sách nhóm (sau P0);
 - khoảng ngày cho chi Đội xe (người nhập Đội xe xác nhận);
-- bot trả lời trong nhóm, WeChat, nối ngân hàng (ngoài phạm vi).
+- bot trả lời trong nhóm, nối ngân hàng (ngoài phạm vi). WeChat: chỉ nhóm người dùng chọn, đọc như nguồn thứ hai của `zalo-agent` ([`WECHAT-01`](wechat-01.md), 20/11/2026).

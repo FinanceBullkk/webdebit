@@ -21,6 +21,7 @@ from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
+import v7_access
 import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_doixe
@@ -28,6 +29,7 @@ import v7_api_sheet
 import v7_api_zalo
 import v7_book_export
 import v7_booking_view
+import v7_cash_chat
 import v7_company_info
 import v7_debit_note_config
 import v7_doixe_xlsx
@@ -37,8 +39,10 @@ import v7_insurance_queue
 import v7_machine
 import v7_month_missing
 import v7_month_report
+import v7_nhat_ky
 import v7_presence
 import v7_read_cache
+import v7_role
 import v7_sheet_refresh
 import v7_zalo_chat
 from v7_api_sheet import (
@@ -69,6 +73,7 @@ from v7_api_tables import (
     MAX_BODY,
     MAX_IMAGE_BODY,
     MAX_IMAGE_BYTES,  # noqa: F401
+    PAGES,
     PREVIEW,
     ROUTES,  # noqa: F401
     SQL,  # noqa: F401
@@ -214,20 +219,26 @@ def accepts_gzip(accept_encoding: str | None) -> bool:
     return False
 
 
-def asset_versions(name: str) -> tuple[bytes, bytes, str]:
-    """(nguyên bản, bản gzip, ETag) của một file preview; file dưới GZIP_MIN_BYTES giữ bản gzip bằng nguyên bản."""
+def asset_versions(name: str, marked: bool = False) -> tuple[bytes, bytes, str]:
+    """(nguyên bản, bản gzip, ETag) của một file preview; file dưới GZIP_MIN_BYTES giữ bản gzip bằng nguyên bản.
+
+    marked (QUYEN-01): bản trang HTML cho người dùng, thẻ <html> có data-role="user"; giữ riêng trong bộ nhớ đệm và
+    ETag khác bản quản lý, nên trình duyệt không lấy nhầm bản của vai trò kia."""
     path = PREVIEW / name
     stat = path.stat()
     key = (stat.st_mtime_ns, stat.st_size)
+    slot = name + "#user" if marked else name
     with _ASSET_LOCK:
-        held = _ASSET_CACHE.get(name)
+        held = _ASSET_CACHE.get(slot)
         if held is not None and held[0] == key:
             return held[1:]
     data = path.read_bytes()
+    if marked:
+        data = v7_role.mark_html(data)
     packed = gzip.compress(data, compresslevel=6, mtime=0) if len(data) >= GZIP_MIN_BYTES else data
     etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
     with _ASSET_LOCK:
-        _ASSET_CACHE[name] = (key, data, packed, etag)
+        _ASSET_CACHE[slot] = (key, data, packed, etag)
     return data, packed, etag
 
 
@@ -298,6 +309,7 @@ POST_HANDLERS = {
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
     "/api/v7/machine/office": v7_machine.handle_office,
     **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
+    "/api/v7/admin/users": v7_access.handle_users,   # QUYEN-02: trang Người dùng, chỉ quản lý (v7_role)
 }
 MACHINE_READS = {"/api/v7/machine": v7_machine.view, "/api/v7/machine/now": v7_machine.now_view, "/api/v7/machine/summary": v7_machine.summary}
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
@@ -356,6 +368,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, v7_booking_view.view()
+    elif parts.path == "/api/v7/cash-chat":
+        # ZALO-THU-CHI-01: khoản thu/chi/ứng báo trong nhóm Zalo đã chọn, đối chiếu chỉ đọc với phiếu thu và Đội xe; tin chat không vào model.
+        return 200, v7_cash_chat.handle_get(parts.query, runner, actor)
     elif parts.path == "/api/v7/report/month":
         # BAO-CAO-THANG-01: chuyến theo tháng ngày chuyến, booking ↔ Sheet (file của phép kiểm booking) ↔ web (get_trip_month).
         return 200, v7_month_report.handle_get(parts.query, runner, READS, actor)
@@ -399,6 +414,16 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = v7_api_doixe.parse_get(parts.path, parts.query)
             result = runner.run(function, payload, actor)
         return 200, v7_api_doixe.with_names(result, lambda login: v7_presence.display_name(login, names))
+    elif parts.path == "/api/v7/admin/users":
+        # QUYEN-02: danh sách login được vào sổ, ngoài DB; v7_role chặn người không phải quản lý trước khi tới đây.
+        if parts.query:
+            bad()
+        return 200, v7_access.view_users(actor)
+    elif parts.path == "/api/v7/nhat-ky":
+        # NHAT-KY-01: PR đã merge của repo do luồng nền đọc từ GitHub, ngoài DB; vẫn sau xác thực danh tính.
+        if parts.query:
+            bad()
+        return 200, v7_nhat_ky.view()
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
@@ -440,6 +465,7 @@ class Handler(BaseHTTPRequestHandler):
     behind_tailscale_serve = False
     serve_hosts: tuple[str, ...] = ()
     allowed_logins: frozenset[str] | None = None  # ACCESS-01; None only outside Serve mode
+    admin_logins: frozenset[str] | None = None  # QUYEN-01; None: every allowed login is admin
     localapi = None
     demo = False
     real_copy = False
@@ -483,14 +509,14 @@ class Handler(BaseHTTPRequestHandler):
         self.discard_unread_body()
         super().finish()
 
-    def asset(self) -> bool:
+    def asset(self, role: str = v7_role.ADMIN) -> bool:
         route = urlsplit(self.path).path
         if self.command != "GET" or route not in ASSETS:
             return False
         checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                      self.behind_tailscale_serve, self.serve_hosts)
         name, kind = ASSETS[route]
-        data, packed, etag = asset_versions(name)
+        data, packed, etag = asset_versions(name, marked=role == v7_role.USER and route in PAGES)
         # MO-SO-NHANH-01 (4/11/2026): trình duyệt giữ file và chỉ hỏi "còn mới không" (ETag → 304) thay vì tải lại
         # 650 KB JS/CSS mỗi lần mở sổ; no-cache (không phải no-store) nên sau deploy lượt mở kế đã lấy bản mới.
         # Bản gzip có ETag riêng vì là một biểu diễn khác (Vary: Accept-Encoding).
@@ -515,6 +541,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
         return True
+
+    def forbidden_page(self) -> None:
+        """QUYEN-01: người dùng gõ địa chỉ trang quản lý thì thấy một câu và link về Tổng quan, không phải JSON."""
+        data = v7_role.FORBIDDEN_PAGE
+        self.send_response(403)
+        for name, field in (("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(data))),
+                            ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                            ("X-Frame-Options", "DENY"),
+                            ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")):
+            self.send_header(name, field)
+        self.end_headers()
+        self.wfile.write(data)
 
     def reply(self, status: int, value: dict) -> None:
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -634,16 +672,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
             checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                          self.behind_tailscale_serve, self.serve_hosts)
+            # QUYEN-02: danh sách có hiệu lực gộp phần cố định (cấu hình unit) với file sửa trên trang Người dùng.
+            # Chưa đặt file thì giữ đúng danh sách của lớp Handler (test thay thuộc tính lớp).
+            store = v7_access.STORE
+            allowed_logins, admin_logins = (store.lists() if store is not None and store.path is not None
+                                            else (self.allowed_logins, self.admin_logins))
             actor = self.server.dev_actor
             if actor is None:
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
                                                   source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve,
-                                                  allowed_logins=self.allowed_logins)
+                                                  allowed_logins=allowed_logins)
             route = urlsplit(self.path)
+            role = v7_role.role(actor, admin_logins)
+            if not v7_role.allowed(route.path, role, PAGES):
+                if route.path in PAGES:
+                    self.forbidden_page()
+                    return
+                raise ApiError(403, "ADMIN_ONLY", v7_role.FORBIDDEN_MESSAGE)
             if self.command == "GET" and route.path == "/api/v7/presence/stream":
                 self.stream(actor, presence_tab(route.query))
                 return
-            if self.asset():
+            if self.asset(role):
                 return
             if self.command == "GET" and route.path.startswith(v7_zalo_chat.MEDIA_PREFIX):
                 # ZALO-GROUP-01: ảnh của gói chat, sau xác thực danh tính như mọi /api/v7/*.
@@ -697,13 +746,14 @@ class Handler(BaseHTTPRequestHandler):
                                    port=self.port, host=self.bind_host, default_actor=self.default_actor,
                                    actor=actor, demo=self.demo, real_copy=self.real_copy,
                                    serve_hosts=self.serve_hosts, behind_tailscale_serve=self.behind_tailscale_serve,
-                                   allowed_logins=self.allowed_logins)
+                                   allowed_logins=allowed_logins)
             self.reply(status, value)
         except v7_identity.IdentityError as exc:
             if exc.code == "LOGIN_NOT_ALLOWED":
                 # ACCESS-01: the login goes to the journal (so the admin knows whom to add), never to the client.
                 print(f"ACCESS-01: từ chối login ngoài danh sách: {exc.detail} (peer {self.client_address[0]})",
                       file=sys.stderr, flush=True)
+                v7_access.DENIED.record(exc.detail)   # QUYEN-02: trang Người dùng cho vào bằng một bấm
                 self.reply(403, {"error": exc.code,
                                  "message": "Tài khoản này chưa được cấp quyền dùng sổ. Báo quản trị thêm vào danh sách."})
             else:
@@ -790,6 +840,11 @@ def main() -> None:
     parser.add_argument("--allowed-login", action="append", default=[],
                         help="Tailscale login allowed to use the ledger (ACCESS-01); repeatable, merged with "
                              "WEBDEBIT_ALLOWED_LOGINS (comma/space separated). Serve mode requires at least one")
+    parser.add_argument("--admin-login", action="append", default=[],
+                        help="Tailscale login that sees the admin pages (QUYEN-01); repeatable, merged with "
+                             "WEBDEBIT_ADMIN_LOGINS. Unset: every allowed login is admin")
+    parser.add_argument("--access-file", default=os.getenv("WEBDEBIT_ACCESS_FILE"),
+                        help="JSON file of logins managed on the Người dùng page (QUYEN-02); added to the fixed lists")
     source = parser.add_mutually_exclusive_group()
     source.add_argument(
         "--demo", action="store_true", help="Mark GET snapshots as fake demo data"
@@ -839,6 +894,19 @@ def main() -> None:
     if args.behind_tailscale_serve and args.insecure_dev_actor is None and not allowed_logins:
         parser.error("--behind-tailscale-serve requires at least one allowed login "
                      "(--allowed-login or WEBDEBIT_ALLOWED_LOGINS; ACCESS-01)")
+    # QUYEN-01: admin list lives next to the allowlist on the host. Each admin must also be allowed, or the list is a typo.
+    admin_env = os.getenv("WEBDEBIT_ADMIN_LOGINS")
+    admin_raw = None
+    if args.admin_login or admin_env is not None:
+        admin_raw = ",".join([*args.admin_login, admin_env or ""])
+    try:
+        admin_logins = v7_identity.parse_allowed_logins(admin_raw)
+    except v7_identity.IdentityError as exc:
+        parser.error(f"admin logins invalid: {exc.code}")
+    if admin_logins is not None and not admin_logins:
+        parser.error("admin logins set but empty (QUYEN-01)")
+    if admin_logins and allowed_logins is not None and not admin_logins <= allowed_logins:
+        parser.error("every admin login must also be an allowed login (QUYEN-01)")
     if args.direct_socket_dir:
         if not args.database or args.database == "webdebit_ledger":
             parser.error("direct mode requires explicit non-legacy database")
@@ -867,6 +935,10 @@ def main() -> None:
     Handler.behind_tailscale_serve = args.behind_tailscale_serve
     Handler.serve_hosts = tuple(accepted_hosts)
     Handler.allowed_logins = allowed_logins
+    Handler.admin_logins = admin_logins
+    if args.access_file and not os.path.isdir(os.path.dirname(os.path.abspath(args.access_file))):
+        parser.error("access file folder does not exist (QUYEN-02)")
+    v7_access.STORE = v7_access.AccessStore(args.access_file, allowed_logins, admin_logins)
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()
@@ -880,6 +952,7 @@ def main() -> None:
     plain = ThreadingHTTPServer((args.host, args.port), Handler)
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm
+    v7_nhat_ky.journal().start()       # NHAT-KY-01: hỏi GitHub PR mới mỗi 5 phút
     if secure is not None:
         threading.Thread(target=secure.serve_forever, daemon=True).start()
     plain.serve_forever()

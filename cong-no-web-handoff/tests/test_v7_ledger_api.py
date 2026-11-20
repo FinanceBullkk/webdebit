@@ -14,7 +14,7 @@ import threading
 import time
 import unittest
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -795,6 +795,168 @@ class LedgerApiTest(unittest.TestCase):
             finally:
                 server.shutdown()
                 worker.join(timeout=3)
+
+    def test_http_user_role_sees_only_ledger_pages(self):
+        # QUYEN-01: login ngoài danh sách quản lý chỉ mở trang làm sổ; trang và API quản lý trả 403, API sổ vẫn mở.
+        authority = "demo.tail-example.ts.net:8443"
+        class RoleHandler(api.Handler):
+            behind_tailscale_serve = True
+            serve_hosts = (authority,)
+            allowed_logins = frozenset({"boss@example.test", "staff@example.test"})
+            admin_logins = frozenset({"boss@example.test"})
+            default_actor = None
+            dev_actor_mode = False
+        RoleHandler.runner = self.runner
+        RoleHandler.localapi = self.localapi
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), RoleHandler) as server, \
+                patch.object(api.v7_nhat_ky, "view", return_value={"days": []}):
+            RoleHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            def request(login, path):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                conn.request("GET", path, headers={"Host": authority, "Tailscale-User-Login": login})
+                response = conn.getresponse()
+                data = response.read()
+                conn.close()
+                return response.status, response.getheader("Content-Type"), response.getheader("ETag"), data
+            try:
+                for path in ("/may-chay.html", "/viec-can-lam.html", "/doi-xe.html", "/thong-tin-cty.html",
+                             "/nhat-ky-cong-viec.html", "/doi-no.html", "/sheet-trip-queue.html"):
+                    with self.subTest(path=path):
+                        status, kind, _, data = request("staff@example.test", path)
+                        self.assertEqual((status, kind), (403, "text/html; charset=utf-8"))
+                        self.assertIn("chỉ dành cho quản lý", data.decode("utf-8"))
+                        self.assertEqual(request("boss@example.test", path)[0], 200)
+                self.runner.calls.clear()
+                for path in ("/api/v7/nhat-ky", "/api/v7/machine", "/api/v7/machine/booking", "/api/v7/doixe/xe",
+                             "/api/v7/doixe/bang-ke.xlsx?thang=2026-10"):
+                    with self.subTest(path=path):
+                        status, _, _, data = request("staff@example.test", path)
+                        self.assertEqual((status, json.loads(data)["error"]), (403, "ADMIN_ONLY"))
+                self.assertEqual(self.runner.calls, [])
+                self.assertEqual(request("boss@example.test", "/api/v7/nhat-ky")[0], 200)
+                for path in ("/", "/dashboard-v7.html", "/so-khach-v7-live.html", "/bang-thu.html", "/bao-cao-thang.html",
+                             "/cong-no-theo-thang.html", "/zalo-chat.html"):
+                    with self.subTest(path=path):
+                        status, _, user_tag, user_page = request("staff@example.test", path)
+                        _, _, boss_tag, boss_page = request("boss@example.test", path)
+                        self.assertEqual(status, 200)
+                        self.assertIn(b'<html lang="vi" data-role="user"', user_page)
+                        self.assertNotIn(b"data-role", boss_page)
+                        self.assertNotEqual(user_tag, boss_tag)  # trình duyệt không lấy nhầm bản của vai trò kia
+                self.assertEqual(request("staff@example.test", "/app-nav.js")[0], 200)
+                self.assertEqual(request("staff@example.test", "/api/v7/customers")[0], 200)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+
+    def test_http_users_page_changes_access_at_once(self):
+        # QUYEN-02: quản lý cho login vừa bị chặn vào trên trang Người dùng; có hiệu lực ngay ở yêu cầu kế, bỏ quyền cũng vậy.
+        authority = "demo.tail-example.ts.net:8443"
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        boss, staff = "boss@example.test", "staff@example.test"
+        store = api.v7_access.AccessStore(Path(folder.name) / "access.json", frozenset({boss}), frozenset({boss}))
+        class UsersHandler(api.Handler):
+            behind_tailscale_serve = True
+            serve_hosts = (authority,)
+            allowed_logins = frozenset({boss})
+            admin_logins = frozenset({boss})
+            default_actor = None
+            dev_actor_mode = False
+        UsersHandler.runner = self.runner
+        UsersHandler.localapi = self.localapi
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), UsersHandler) as server, \
+                patch.object(api.v7_access, "STORE", store), patch.object(api.v7_access, "DENIED", api.v7_access.DeniedLog()), \
+                patch.object(sys, "stderr", io.StringIO()):
+            UsersHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            def call(login, path, body=None):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                headers = {"Host": authority, "Tailscale-User-Login": login}
+                if body is not None:
+                    headers |= {"Origin": f"https://{authority}", "Content-Type": "application/json"}
+                conn.request("POST" if body is not None else "GET", path, body=None if body is None else json.dumps(body), headers=headers)
+                response = conn.getresponse()
+                data = response.read()
+                conn.close()
+                return response.status, (json.loads(data) if response.getheader("Content-Type", "").startswith("application/json") else data)
+            try:
+                self.assertEqual(call(staff, "/api/v7/customers")[1]["error"], "LOGIN_NOT_ALLOWED")
+                status, view = call(boss, "/api/v7/admin/users")
+                self.assertEqual(status, 200)
+                self.assertEqual([row["login"] for row in view["denied"]], [staff])
+                self.assertEqual(call(boss, "/nguoi-dung.html")[0], 200)
+                status, done = call(boss, "/api/v7/admin/users", {"action": "add", "login": staff, "version": view["version"]})
+                self.assertEqual((status, done["version"]), (200, 1))
+                self.assertEqual(call(staff, "/api/v7/customers")[0], 200)   # vào được ngay, không restart
+                status, page = call(staff, "/dashboard-v7.html")
+                self.assertIn(b'data-role="user"', page)
+                self.assertEqual(call(staff, "/api/v7/admin/users")[1]["error"], "ADMIN_ONLY")
+                self.assertEqual((call(staff, "/thu-chi.html")[0], call(staff, "/api/v7/cash-chat")[0]), (403, 403))   # ZALO-THU-CHI-01: chỉ quản lý
+                self.assertEqual(call(boss, "/thu-chi.html")[0], 200)
+                self.assertEqual(call(staff, "/api/v7/admin/users", {"action": "remove", "login": boss, "version": 1})[1]["error"], "ADMIN_ONLY")
+                self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "add", "login": staff, "version": 0})[1]["error"], "STALE")
+                self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "role", "login": staff, "role": "admin", "version": 1})[0], 200)
+                self.assertEqual(call(staff, "/may-chay.html")[0], 200)   # thành quản lý ngay
+                self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "remove", "login": staff, "version": 2})[0], 200)
+                self.assertEqual(call(staff, "/api/v7/customers")[1]["error"], "LOGIN_NOT_ALLOWED")
+                self.assertEqual(call(boss, "/api/v7/admin/users")[1]["version"], 3)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+
+    def test_access_file_cli(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        base = ["api", "--container", "fake", "--behind-tailscale-serve", "--allowed-login", "boss@example.test"]
+        def run(env):
+            with patch.dict(os.environ, env, clear=True), patch.object(sys, "argv", base), ExitStack() as stack:
+                for item in (patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"), patch.object(api.v7_access, "STORE", None),
+                             patch.object(api.Handler, "allowed_logins", None), patch.object(api.Handler, "admin_logins", None),
+                             patch.object(api.Handler, "behind_tailscale_serve", False), patch.object(api.Handler, "serve_hosts", ()),
+                             patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None)):
+                    stack.enter_context(item)
+                api.main()
+                return api.v7_access.STORE
+        store = run({"WEBDEBIT_ACCESS_FILE": str(Path(folder.name) / "access.json")})
+        self.assertEqual(store.path, Path(folder.name) / "access.json")
+        self.assertEqual(store.fixed_allowed, frozenset({"boss@example.test"}))
+        self.assertIsNone(run({}).path)   # không đặt: chỉ xem, ghi trả ACCESS_NOT_CONFIGURED
+        with self.assertRaises(SystemExit) as caught:
+            run({"WEBDEBIT_ACCESS_FILE": str(Path(folder.name) / "khong-co" / "access.json")})
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_admin_logins_cli(self):
+        base = ["api", "--container", "fake", "--behind-tailscale-serve", "--allowed-login", "boss@example.test",
+                "--allowed-login", "staff@example.test"]
+        def patches():
+            return (patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"),
+                    patch.object(api.Handler, "allowed_logins", None), patch.object(api.Handler, "admin_logins", None),
+                    patch.object(api.Handler, "behind_tailscale_serve", False), patch.object(api.Handler, "serve_hosts", ()),
+                    patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None))
+        with patch.dict(os.environ, {"WEBDEBIT_ADMIN_LOGINS": "boss@EXAMPLE.TEST"}, clear=True), \
+                patch.object(sys, "argv", base), ExitStack() as stack:
+            for item in patches():
+                stack.enter_context(item)
+            api.main()
+            self.assertEqual(api.Handler.admin_logins, frozenset({"boss@example.test"}))
+        # Quản lý phải nằm trong danh sách được vào; danh sách đặt mà rỗng là lỗi gõ: không khởi động.
+        for env in ({"WEBDEBIT_ADMIN_LOGINS": "other@example.test"}, {"WEBDEBIT_ADMIN_LOGINS": " "}):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True), patch.object(sys, "argv", base), \
+                    ExitStack() as stack:
+                for item in patches():
+                    stack.enter_context(item)
+                with self.assertRaises(SystemExit) as caught:
+                    api.main()
+                self.assertEqual(caught.exception.code, 2)
+
+    def test_every_page_can_carry_user_role(self):
+        for route, name in api.PAGES.items():
+            with self.subTest(route=route):
+                self.assertIn(b'data-role="user"', api.v7_role.mark_html((api.PREVIEW / name).read_bytes()))
 
     def test_receivables_matrix_route_year_validation(self):
         current = api.datetime.now().year
