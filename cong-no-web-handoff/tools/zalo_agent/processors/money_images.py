@@ -37,8 +37,14 @@ ID = re.compile(r"[A-Za-z0-9_-]{8,128}")
 TRIES = 3
 MAX_FAILED = 2000
 FAILED_BAN = 24 * 3600   # giây: ảnh đã thử đủ 3 lần rồi bỏ thì lần dựng lại sau 1 ngày mới thử lại (`reread` đọc lại được ngay)
-BROKEN = 60              # giây: engine chưa dùng được (`ocr_unavailable`) thì không hỏi lại và không đòi gom revision trong chừng này
-COOL = 30                # giây x 2^(lần liên tiếp - 1), tối đa x16: nghỉ sau khi tiến trình OCR chết hoặc quá giờ
+BROKEN = 60              # giây: lần đầu engine chưa dùng được (`ocr_unavailable`) thì không hỏi lại và không đòi gom revision trong chừng này
+COOL = 60                # giây: lần đầu nghỉ sau khi tiến trình OCR chết hoặc quá giờ
+MAX_WAIT = 3600          # giây: cả hai đều lùi lũy thừa (x2 mỗi lần liên tiếp) tới tối đa chừng này
+
+
+def wait_for(first: int, failures: int) -> int:
+    """Giây chờ sau lần hỏng thứ `failures` liên tiếp: first, 2 x first, … tối đa MAX_WAIT."""
+    return min(MAX_WAIT, first * 2 ** (max(1, failures) - 1))
 
 
 class Background:
@@ -62,13 +68,13 @@ class MoneyImagesProcessor:
     def __init__(self, live: LiveSync, state: Path, reads_dir: Path, *, engine=None, executor=None, prepare=ocr.prepare_image,
                  transcode=wb.transcode_jxl, dry_run: bool = False, clock=time.time, max_age_days: int | None = 30):
         self.live, self.dir, self.reads = live, Path(state), Path(reads_dir)
-        self.engine = engine or ocr.EasyOcr()
+        self.engine = engine or ocr.EasyOcr(work=str(Path(state).parent / "tmp"))
         self.executor, self.prepare, self.transcode = executor, prepare, transcode
         self.dry_run, self.clock, self.max_age_days = dry_run, clock, max_age_days
         self.cursor: dict | None = None
         self.future = None
         self.broken_until = self.cool_until = 0.0
-        self.engine_failures = 0
+        self.engine_failures = self.broken_failures = 0
 
     # ---------------------------------------------------------------- con trỏ (nguồn thật là bản trong bộ nhớ)
     def state(self) -> dict:
@@ -82,7 +88,8 @@ class MoneyImagesProcessor:
 
     def counts(self) -> dict:
         cursor = self.state()
-        return {"read": len(cursor["members"]), "pending": len(cursor["todo"]), "failed": len(cursor["failed"]),
+        banned = sum(1 for entry in cursor["failed"].values() if self.clock() - entry["at"] < FAILED_BAN)   # hết hạn cấm thì không còn tính
+        return {"read": len(cursor["members"]), "pending": len(cursor["todo"]), "failed": banned,
                 "review": sum(1 for member in cursor["members"].values() if member.get("verdict") == "unsure")}
 
     def result(self, action: str, error: str | None = None) -> dict:
@@ -187,13 +194,14 @@ class MoneyImagesProcessor:
         item = next((todo for todo in cursor["todo"] if todo["raw"] == outcome["raw"]), None)
         now = self.clock()
         if outcome["status"] == "unavailable":   # thiếu thư viện, lỗi nạp DLL, thiếu model: không tính lần thử, không đẩy ảnh vào `failed`
-            self.broken_until = now + BROKEN
+            self.broken_failures += 1
+            self.broken_until = now + wait_for(BROKEN, self.broken_failures)
             return False, "ocr_unavailable"
         if outcome["status"] == "engine_error":
             self.engine_failures += 1
-            self.cool_until = now + COOL * 2 ** min(self.engine_failures - 1, 4)
+            self.cool_until = now + wait_for(COOL, self.engine_failures)
         elif outcome["status"] == "ok":
-            self.engine_failures = 0
+            self.engine_failures = self.broken_failures = 0
         if item is None:   # nhóm bị bỏ chọn trong lúc đọc: kết quả nằm trong kho nhưng không vào `members`
             return True, None
         if outcome["status"] == "ok":
@@ -225,7 +233,8 @@ class MoneyImagesProcessor:
             try:
                 _ = self.engine.version   # thiếu engine: báo ngay, đừng để hàng chờ rỗng che mất lỗi
             except ocr.OcrUnavailable:
-                self.broken_until = now + BROKEN
+                self.broken_failures += 1
+                self.broken_until = now + wait_for(BROKEN, self.broken_failures)
                 error = "ocr_unavailable"
         if error or now < self.broken_until:   # engine chưa dùng được: không phát hiện, không nộp việc, khỏi hỏi lại mỗi giây
             return self.result("read" if worked else "idle", error or "ocr_unavailable")

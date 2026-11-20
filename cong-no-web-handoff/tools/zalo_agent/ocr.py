@@ -26,7 +26,7 @@ from pathlib import Path
 from zalo_web_bundle import fold
 
 CHILD = Path(__file__).with_name("ocr_child.py")
-ANALYSIS = "a1"        # đổi khi đổi tiền xử lý hoặc luật phân tích: kho đọc lại theo phiên bản mới
+ANALYSIS = "a2"        # đổi khi đổi tiền xử lý hoặc luật phân tích: kho đọc lại theo phiên bản mới
 MAX_SIDE = 1600        # cạnh dài tối đa khi đọc VÀ khi gửi ra ngoài (Phần 4): tọa độ ô chữ dùng chung cho cả che ảnh
 THREADS = 2
 CONFIDENCE_T = 0.6     # T: độ tin cậy tối thiểu của ô số tiền để OCR được coi là "chắc" (P0: 20/20 ảnh đọc đúng, độ tin cậy 0,42-0,9, trung vị 0,73); đổi bằng ZALO_AGENT_OCR_CONFIDENCE
@@ -85,6 +85,12 @@ class EasyOcr:
 
     def __init__(self, threads: int = THREADS, command: list[str] | None = None, timeout: float = 300, work: str | None = None):
         self.threads, self.timeout, self.work, self.cached = threads, timeout, work, None
+        self.registered = False
+        if work:   # ảnh PNG tạm nằm ở thư mục riêng của agent (không phải %TEMP%); file sót của lần chạy trước bị dọn khi khởi động
+            Path(work).mkdir(parents=True, exist_ok=True)
+            for leftover in Path(work).glob("ocr-*.png"):
+                with contextlib.suppress(OSError):
+                    leftover.unlink()
         self.command = command or [self.interpreter(), "-X", "utf8", "-I", str(CHILD), str(threads)]
         self.child = None
 
@@ -117,7 +123,9 @@ class EasyOcr:
                                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except OSError as exc:
             raise OcrUnavailable("child") from exc
-        atexit.register(self.close)   # agent thoát thì con không mồ côi (con cũng tự thoát khi stdin đóng)
+        if not self.registered:   # đăng ký đúng một lần dù con được tạo lại nhiều lần
+            atexit.register(self.close)   # agent thoát thì con không mồ côi (con cũng tự thoát khi stdin đóng)
+            self.registered = True
         return self.child
 
     def ask(self, path: str) -> dict:
@@ -145,7 +153,7 @@ class EasyOcr:
         return reply
 
     def read(self, image) -> list[dict]:
-        handle, path = tempfile.mkstemp(suffix=".png", dir=self.work)
+        handle, path = tempfile.mkstemp(prefix="ocr-", suffix=".png", dir=self.work)
         os.close(handle)
         try:
             image.save(path, "PNG")
@@ -159,10 +167,13 @@ class EasyOcr:
         clean = []
         for item in boxes:   # kiểm khuôn: ô chữ từ tiến trình con là dữ liệu, không tin
             where, text, confidence = (item.get("b"), item.get("t"), item.get("c")) if isinstance(item, dict) else (None, None, None)
+            corners = item.get("p") if isinstance(item, dict) else None
             if not (isinstance(where, list) and len(where) == 4 and all(isinstance(value, int) for value in where)
-                    and isinstance(text, str) and isinstance(confidence, (int, float)) and 0 <= confidence <= 1):
+                    and isinstance(text, str) and isinstance(confidence, (int, float)) and 0 <= confidence <= 1
+                    and (corners is None or (isinstance(corners, list) and len(corners) == 4 and all(
+                        isinstance(corner, list) and len(corner) == 2 and all(isinstance(value, int) for value in corner) for corner in corners)))):
                 raise OcrFailure("bad_reply")
-            clean.append({"b": where, "t": text, "c": confidence})
+            clean.append({"b": where, "t": text, "c": confidence, **({"p": corners} if corners else {})})
         return clean
 
 
