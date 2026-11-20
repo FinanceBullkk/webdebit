@@ -1989,6 +1989,8 @@ Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP 
 
 ## Thêm loại Cân hàng, Local charge và máy tách theo tên cột (TACH-PHI-TIEU-DE-01 bổ sung) — nâng DB, release, bật máy
 
+Đã nâng DB, ghi 11 chuyến và bật máy 19/11/2026, xem [nhật ký](deploys/2026-11-19-tach-phi-loai-moi.md). DB thử không vào được bằng `v7_app` (`pg_hba` chỉ cho `webdebit_v7`): thử máy bằng `postgres` rồi `SET ROLE v7_app` đầu phiên, như nhật ký.
+
 Migration `cong-no-web-handoff/tools/migrations/2026-11-19-v7-tach-phi-loai-moi.sql` ([`TACH-PHI-TIEU-DE-01`](decisions/tach-phi-tieu-de-01.md)) thêm hai dòng `fee_type` (Cân hàng, Local charge), không phải cột mặc định. Không đổi bảng, hàm, quyền, dòng phụ phí hay số dư. Chạy lại được; tên đã có thì giữ. Không cần cửa sổ dừng ghi.
 
 1. **Bản sao trước:** dump, restore vào DB tạm, áp migration hai lượt với `ON_ERROR_STOP`; số dư từng khách, `trip_fee_line`, `book_fee_column` không đổi, `fee_type` tăng đúng hai dòng (hoặc ít hơn nếu tên đã có); checker 9/9. Xóa DB tạm.
