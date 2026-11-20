@@ -373,6 +373,12 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(dry.step()["action"], "rebuild")
         self.assertEqual(self.remote.calls, [])
         self.assertTrue((self.out / wb.REPORT).is_file())
+        self.assertIsNone(cursors.load(self.root / "state", "bundle"))   # không lưu con trỏ, kể cả `pending`
+        self.assertEqual(list((self.root / "state").glob("*")) if (self.root / "state").exists() else [], [])
+        # Lượt thật ngay sau đó vẫn đẩy gói, không coi như đã đẩy.
+        result = self.processor.step()
+        self.assertEqual((result["action"], result["reason"], result["error"]), ("rebuild", "first_run", None))
+        self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())
         self.assertEqual(cursors.load(self.root / "state", "bundle")["revision"], 87)
 
     def test_failed_first_push_keeps_pending_and_retry_does_not_rebuild(self):
@@ -686,9 +692,13 @@ class AgentCycleTest(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "state" / "identity.json").read_text(encoding="utf-8"))["identity"], "attached")
         self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())
         calls = len(self.remote.calls)
+        for path in (self.root / "state").iterdir():
+            if path.name != "agent.lock":   # khóa còn do agent đầu giữ
+                path.unlink()
         quiet = self.agent(dry_run=True)
         quiet.cycle(force_status=True)
         self.assertEqual(len(self.remote.calls), calls)
+        self.assertEqual(sorted(path.name for path in (self.root / "state").iterdir()), ["agent.lock"])   # không con trỏ, status.json, identity.json
 
     def test_one_agent_at_a_time_and_stale_lock_file_never_blocks(self):
         agent, other = self.agent(), self.agent()
@@ -852,7 +862,7 @@ class AgentCycleTest(unittest.TestCase):
                                "--max-fetch", "0", "--live-sync", str(self.src), "--root", str(self.root)], capture_output=True, check=False, timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr.decode("utf-8", "replace"))
         self.assertEqual(json.loads(done.stdout.decode("utf-8"))["processors"]["bundle"]["error"], None)
-        self.assertTrue((self.root / "state" / "status.json").is_file())
+        self.assertFalse((self.root / "state" / "status.json").exists())   # --dry-run không lưu trạng thái
         self.assertTrue((self.root / "logs" / "agent.log").is_file())
 
 

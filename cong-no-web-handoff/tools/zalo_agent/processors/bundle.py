@@ -45,6 +45,11 @@ class BundleProcessor:
         self.run, self.dry_run, self.fetch, self.transcode = run, dry_run, fetch, transcode
         self.max_fetch, self.max_age_days, self.clock = max_fetch, max_age_days, clock
 
+    def save(self, cursor: dict, now: float) -> None:
+        """`--dry-run` làm hết ở máy nhưng không lưu con trỏ: lượt thật sau đó vẫn đẩy phần chưa tới `hao`."""
+        if not self.dry_run:
+            cursors.save(self.state, NAME, cursor, now)
+
     def result(self, action: str, revision: int | None, error: str | None = None, sent: int = 0, reason: str | None = None) -> dict:
         return {"action": action, "revision": revision, "error": error, "bytes_sent": sent, "reason": reason}
 
@@ -91,9 +96,9 @@ class BundleProcessor:
         except wb.BundleError:
             return self.result("idle", have, "build_failed")
         if pending is None:   # revision mới nhưng không có tin nào của nhóm đã chọn: tiến con trỏ, không đẩy gì
-            cursors.save(self.state, NAME, {**current, "revision": revision}, now)
+            self.save({**current, "revision": revision}, now)
             return self.result("idle", revision)
-        cursors.save(self.state, NAME, {**(current or {}), "pending": pending}, now)
+        self.save({**(current or {}), "pending": pending}, now)
         return self.finish({**(current or {}), "pending": pending}, now)
 
     def rebuild(self, reason: str, revision: int, selection: list[str], now: float) -> dict:
@@ -168,5 +173,5 @@ class BundleProcessor:
             except pusher.PushError:
                 return self.result("retry", current.get("revision"), "push_failed", reason=pending.get("reason"))
         done = {key: value for key, value in {**current, **pending}.items() if key != "pending"}
-        cursors.save(self.state, NAME, done, now)
+        self.save(done, now)
         return self.result("rebuild" if pending.get("reason") != "delta" else "delta", done["revision"], sent=sent, reason=pending.get("reason"))

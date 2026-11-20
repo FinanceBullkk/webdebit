@@ -37,12 +37,15 @@ def agent_version(repo: Path) -> str:
     return text if done.returncode == 0 and re.fullmatch(r"[0-9a-f]{7,40}", text) else "unknown"
 
 
-def track_identity(state: Path, identity: str, now: float) -> str:
-    """Lúc `identity` đổi sang giá trị hiện tại. Nhớ trong `<state>/identity.json` để chạy lại agent không mất mốc."""
+def track_identity(state: Path, identity: str, now: float, persist: bool = True) -> str:
+    """Lúc `identity` đổi sang giá trị hiện tại. Nhớ trong `<state>/identity.json` để chạy lại agent không mất mốc
+    (`persist=False` cho `--dry-run`: tính mà không ghi)."""
     path = Path(state) / "identity.json"
     saved = read_json(path)
     if isinstance(saved, dict) and saved.get("identity") == identity and isinstance(saved.get("since"), str):
         return saved["since"]
+    if not persist:
+        return now_iso(now)
     Path(state).mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
     tmp.write_text(json.dumps({"identity": identity, "since": now_iso(now)}), encoding="utf-8")
@@ -84,8 +87,10 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
                      "error_since": error_since((previous or {}).get("push"), push_failure, now)}}
 
 
-def write(state: Path, status: dict) -> bytes:
+def write(state: Path, status: dict, persist: bool = True) -> bytes:
     data = json.dumps(status, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    if not persist:   # `--dry-run`: không đụng `status.json` thật (mốc `error_since` của lượt thật không được lẫn lượt thử)
+        return data
     Path(state).mkdir(parents=True, exist_ok=True)
     path = Path(state) / FILE
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")

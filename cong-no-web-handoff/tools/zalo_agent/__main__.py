@@ -105,8 +105,8 @@ class Agent:
         try:
             status = status_file.compose(status_file.load(self.state), now, self.version, len(self.live.selection()), self.live,
                                          results, self.push_ok_at, self.push_error,
-                                         (identity, status_file.track_identity(self.state, identity, now)))
-            data = status_file.write(self.state, status)
+                                         (identity, status_file.track_identity(self.state, identity, now, persist=not self.dry_run)))
+            data = status_file.write(self.state, status, persist=not self.dry_run)
         except Exception as exc:  # noqa: BLE001  (file trạng thái bị giữ, ổ đĩa lỗi…: bỏ lượt này, không làm chết agent)
             self.log.error("status: %s", type(exc).__name__)
             return None
