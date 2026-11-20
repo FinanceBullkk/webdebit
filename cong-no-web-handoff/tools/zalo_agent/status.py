@@ -79,6 +79,10 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             "error": error,
             "error_since": error_since(before.get(name), error, now),
             **({"messages": result["messages"]} if isinstance(result.get("messages"), int) and not isinstance(result["messages"], bool) else {})}
+        counts = {key: value for key, value in (result.get("counts") or {}).items()
+                  if CODE.fullmatch(key) and isinstance(value, int) and not isinstance(value, bool)}
+        if counts:   # chỉ số đếm của bộ xử lý (money_images: read, pending, review, failed), không chữ tự do
+            processors[name]["counts"] = counts
     push_failure = code(push_error)   # chỉ đường đẩy nhịp tim (chính file này); lỗi đẩy từng bộ xử lý nằm ở processors.<tên>.error
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
             "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},
