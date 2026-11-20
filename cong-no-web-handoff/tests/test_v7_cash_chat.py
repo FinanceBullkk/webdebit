@@ -1,5 +1,6 @@
 """ZALO-THU-CHI-01 PR-2 (B1–B2): đọc mẫu thu/chi/ứng từ gói chat và đối chiếu chỉ đọc với sổ. Gói chat, sổ, xe, người đều bịa."""
 
+import io
 import json
 import os
 import re
@@ -127,7 +128,8 @@ class ReadPatternTests(unittest.TestCase):
 
     def test_dash_with_space_and_dates_after_the_amount_still_read(self):
         for text, expected in {"chi - 500k xăng": 500_000, "thu 50tr 20/11 khách a": 50_000_000, "thu 50tr 15-11": 50_000_000, "chi 800k 12345 xe": 800_000,
-                               "chi 2tr 4 xe": None, "chi 1k5 3 xe": None}.items():
+                               "thu 5tr 30 cont": 5_000_000, "thu 2tr 51C-123.45": 2_000_000, "chi 2tr 4 xe": 2_000_000, "chi 800k 2 bao": 800_000,
+                               "chi 1k5 3 xe": 1_500, "thu 5tr 30 cont khách a": 5_000_000, "thu 5tr 30": None, "thu 5tr 30 cho khach": None}.items():
             with self.subTest(text):
                 self.assertEqual(cash.read_report(text)["amount_vnd"], expected)
 
@@ -353,7 +355,8 @@ class BuildTests(CashChatCase):
         body = self.get(old, FakeRunner(fail={"get_receipt_book"}))
         self.assertEqual(self.statuses(body), {"old": "WAITING", "fee": "MISSING", "unk": "UNKNOWN_TARGET", "ok": "NO_AMOUNT"})
         self.assertEqual(body["sources_failed"], ["receipt"])
-        self.assertEqual({item["message_id"] for item in body["items"] if item["unchecked"]}, {"old"})
+        # "unk" (thu chưa rõ sổ) cũng chưa kiểm được: không đọc được phiếu thì không biết có SUGGEST hay không.
+        self.assertEqual({item["message_id"] for item in body["items"] if item["unchecked"]}, {"old", "unk"})
         body = self.get(old, FakeRunner(fail={"doixe_get_so"}))
         self.assertEqual(self.statuses(body), {"old": "MISSING", "fee": "WAITING", "unk": "UNKNOWN_TARGET", "ok": "NO_AMOUNT"})
         self.assertEqual((body["sources_failed"], {item["message_id"] for item in body["items"] if item["unchecked"]}), (["fleet"], {"fee"}))
@@ -429,6 +432,54 @@ class BuildTests(CashChatCase):
         self.assertEqual(self.statuses(body), {"sum": "AMOUNT_DIFF", "line": "RECORDED", "nodriver": "UNKNOWN_TARGET", "wage": "AMOUNT_DIFF", "office": "NO_LEDGER"})
         self.assertEqual([(item["ledger_vnd"], item["shared"]) for item in body["items"] if item["message_id"] in ("sum", "wage")], [(1_000_000, True)] * 2)
         self.assertEqual(next(item for item in body["items"] if item["message_id"] == "wage")["target"]["kind"], "tai_xe")
+
+    def test_group_waiting_for_a_person_keeps_its_rows_away_from_other_reports(self):
+        """Hai khoản 5tr tranh một phiếu 5tr (shared): phiếu đó không được gán thêm cho khoản thứ ba (4tr) làm "lệch" như thể của riêng nó."""
+        runner = FakeRunner(receipts=[receipt(1, 1, "KHACH A", 10, 5_000_000)])
+        body = self.get([row("a", at(10, 9), "thu 5tr khách a"), row("b", at(10, 10), "thu 5tr khách a"), row("c", at(10, 11), "thu 4tr khách a")], runner)
+        by = {item["message_id"]: item for item in body["items"]}
+        self.assertEqual([(by[key]["status"], by[key]["shared"]) for key in "ab"], [("AMOUNT_DIFF", True)] * 2)
+        self.assertEqual((by["c"]["status"], by["c"]["ledger_ref"], by["c"]["shared"]), ("MISSING", None, False))
+
+    def test_unclear_receipt_with_failing_source_is_unchecked_not_just_unknown(self):
+        body = self.get([row("unk", at(19), "thu 9tr")], FakeRunner(fail={"get_receipt_book"}))
+        self.assertEqual((body["items"][0]["status"], body["items"][0]["unchecked"]), ("UNKNOWN_TARGET", True))
+        body = self.get([row("unk", at(19), "thu 9tr")])
+        self.assertEqual((body["items"][0]["status"], body["items"][0]["unchecked"]), ("UNKNOWN_TARGET", False))
+
+    def test_odd_data_never_makes_the_route_fail(self):
+        class Odd(FakeRunner):
+            def run(self, function, payload, actor, **kw):
+                if function == "list_customers":
+                    self.calls.append((function, payload))
+                    return {"customers": [{"id": 1, "name": "KHACH A", "aliases": 5}, {"id": 2, "name": "KHACH B", "aliases": "khach b hai"},
+                                          {"id": 3, "name": "KHACH C", "aliases": [None, 7, "khach c ba"], "display_name": ["lạ"]}, {"name": None}, "bậy", None]}
+                return super().run(function, payload, actor, **kw)
+        body = self.get([row("a", at(19), "thu 5tr khách a"), row("c", at(19), "thu 5tr khach c ba")], Odd())
+        self.assertEqual({item["message_id"]: item["target"]["id"] for item in body["items"]}, {"a": 1, "c": 3})
+        marks = [{"id": 1, "kind": "paid_claim", "status": "received", "customer_id": 1, "amount_vnd": "1000000", "on_date": "2026-11-19", "conversation_id": GROUP,
+                  "message_id": "m1", "message_at": "0001-01-01T00:00:00+07:00"},
+                 {"id": 2, "kind": "paid_claim", "status": "received", "customer_id": 1, "amount_vnd": "1000000", "on_date": "2026-11-18", "conversation_id": GROUP,
+                  "message_id": "m2", "message_at": "9999-12-31T23:59:59-12:00"}]
+        body = self.get([row("a", at(19), "thu 5tr khách a")], FakeRunner(marks=marks))
+        self.assertEqual(len(body["items"]), 3)
+        self.assertIsNone(next(item for item in body["items"] if item["message_id"] == "m1")["sent_at"])
+        with patch.object(cash.v7_api_sheet, "with_display_names", side_effect=KeyError("id")):
+            body = self.get([row("a", at(19), "thu 5tr khách a")])
+        self.assertEqual((body["sources_failed"], body["items"][0]["status"], body["items"][0]["unchecked"]), (["directory"], "UNKNOWN_TARGET", True))
+        with patch.object(cash, "_core", side_effect=OverflowError("tràn")), patch.object(sys, "stderr", io.StringIO()) as log:
+            body = self.get([row("a", at(19), "thu 5tr khách a")])
+        self.assertEqual((body["unavailable"], body["reason"]), (True, "UNREADABLE"))
+        self.assertNotIn("khách", log.getvalue())   # chỉ ghi tên lỗi, không ghi chữ của tin
+        self.assertFalse(self.get([row("a", at(19), "thu 5tr khách a")])["unavailable"])   # lỗi không bị giữ lại trong bộ nhớ đệm
+
+    def test_waiter_gives_up_on_a_stuck_leader_and_builds_itself(self):
+        from concurrent.futures import Future
+        key = ("stuck",)
+        cash._FLIGHTS[key] = Future()
+        self.addCleanup(cash._FLIGHTS.pop, key, None)
+        with patch.object(cash, "FLIGHT_WAIT", 0.05):
+            self.assertEqual(cash._single_flight(key, 0.0, lambda: {"built": True}), {"built": True})
 
     def test_unavailable_when_no_bundle(self):
         with patch.object(chat, "EXPORT_DIR", str(self.dir / "khong-co")):
