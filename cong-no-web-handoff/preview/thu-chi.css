@@ -64,6 +64,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-kind.ung{background:var(--warning-soft);color:var(--warning)}
 .tc-amt{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tc-amt .dash{color:var(--ink-3);font-weight:600}
+.tc-amt .tc-src{display:block;color:var(--ink-3);font-size:12px;font-weight:600}   /* PR-4b: số do máy đọc từ ảnh, không phải người gõ */
 .tc-target{min-width:0;overflow-wrap:anywhere}
 .tc-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tc-status b{display:block}

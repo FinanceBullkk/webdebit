@@ -7,10 +7,14 @@ B2. Đối chiếu với phiếu thu (`get_receipt_book`: phiếu web chưa hủ
 và các dấu "Khách báo đã chuyển" (`get_marks`, tự chấm sẵn bằng SQL). Khoảng ngày và luật "quá 3 ngày" lấy đúng của `sokhach._mark_json`
 (`MATCH_BEFORE`, `MATCH_AFTER`, `MISSING_AFTER`; test đối chiếu với file SQL để hai nơi không chấm khác nhau). Một phiếu hoặc dòng sổ
 chỉ ứng với một khoản báo; hai khoản cùng ứng với một dòng thì để người xem chọn (`shared`).
+B4 trên hao (PR-4b): số đọc từ ảnh chuyển khoản lấy ở `money-reads.json` mà máy Zalo đẩy lên (ZALO-AGENT-01 Phần 3). Ảnh không kèm mẫu
+thành khoản thu "từ ảnh"; ảnh chứng của khoản gõ theo mẫu thì đem so số. Luật không đếm hai lần ở spec Thu chi, mục "B4 trên `hao`".
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import sys
 import threading
@@ -19,6 +23,7 @@ from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FlightTimeout
 from datetime import date, datetime, timedelta
 from fractions import Fraction
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -50,9 +55,19 @@ FLIGHT_WAIT = 60.0   # người chờ lượt dựng của người khác tối 
 # Lỗi do dữ liệu lạ (cột thiếu, kiểu sai, ngày tràn): trang trả "chưa đọc được", không bao giờ 500.
 DATA_ERRORS = (KeyError, ValueError, TypeError, AttributeError, IndexError, ArithmeticError, OSError)
 MIN_NAME = 3   # tên (đã bỏ dấu) ngắn hơn thế không tự khớp: dễ trùng với từ thường
+READS_DIR = "/srv/v7/zalo-reads"   # máy Zalo đẩy kết quả đọc ảnh tới đây (`--reads-target`); đổi bằng WEBDEBIT_ZALO_READS_DIR
+READS_FILE = "money-reads.json"
+READS_MAX_BYTES = 8 * 1024 * 1024
+SHA256 = re.compile(r"[0-9a-f]{64}")   # khóa ảnh, trùng `media[].id` của gói chat
+READ_BY = re.compile(r"[a-z0-9-]{1,20}")   # kết luận của máy đọc ảnh; "human" là cần người xem, không có số
+TXN_TIME = re.compile(r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2})?)?")
+SAME_PAYMENT_MS = 24 * 3600 * 1000   # khoản thu gõ theo mẫu cùng hội thoại, cùng số trong chừng này: ảnh là ảnh chứng của nó
+MARK_IMAGE_DAYS = 1   # dấu "Khách báo đã chuyển" cùng hội thoại, cùng số, ngày báo cách ngày ảnh không quá chừng này: giữ dấu
 _FLIGHTS: dict[tuple, Future] = {}
 _CACHE: dict[tuple, tuple[float, dict]] = {}
 _LOCK = threading.Lock()
+_READS: dict = {"stamp": None, "value": {}, "ok": True}
+_READS_LOCK = threading.Lock()
 
 
 # ---- B1: đọc mẫu ----
@@ -143,10 +158,16 @@ class Directory:
         return {"kind": None, "id": None, "label": None, "ambiguous": ambiguous}
 
 
-def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list[dict]) -> list[dict]:
-    """Khoản báo trong [start_ms, end_ms) của các hội thoại đã chọn, kèm ảnh chứng. `directory_of()` chỉ được gọi khi có ít nhất một khoản."""
+def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list[dict], reads: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Khoản báo trong [start_ms, end_ms) của các hội thoại đã chọn, kèm ảnh chứng. `directory_of()` chỉ được gọi khi có ít nhất một khoản.
+
+    Trả thêm các ảnh có kết quả đọc (`reads`) mà không làm ảnh chứng: mỗi ảnh một khoản thu "từ ảnh", chưa có đối tượng. Ảnh do tài khoản
+    Zalo của mình gửi không thành khoản (thường là mình trả hoặc chuyển tiếp); cùng ảnh gặp lại thì không thành khoản nữa."""
+    reads = reads or {}
     names = {row["conversation_id"]: row["display_name"] for row in conversations}
     items: list[dict] = []
+    images: list[dict] = []
+    used: set[str] = set()
     last: dict | None = None
     current = None
     directory = None
@@ -166,7 +187,131 @@ def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list
             items.append(last)
         elif row["media"] and last and row["sender_id"] == last["sender"] and 0 <= stamp - last["sent_at"] <= IMAGE_GAP_MS:
             last["media"] += row["media"]
-    return items
+            used.update(media["id"] for media in row["media"])
+        elif row["media"] and stamp < end_ms and not row["deleted"] and not row["is_own"]:
+            for media in row["media"]:
+                read = reads.get(media["id"])
+                if read is None or media["id"] in used:
+                    continue
+                used.add(media["id"])
+                images.append({"message_id": row["message_id"], "conversation_id": cid, "conversation_name": names.get(cid), "sent_at": stamp,
+                               "sender_name": row["sender_name"], "sender": row["sender_id"], "direction": "thu", "amount_vnd": read["amount_vnd"],
+                               "text": "", "media": [media], "rest": "", "source": "anh", "image_vnd": read["amount_vnd"],
+                               "amount_from": "anh" if read["amount_vnd"] is not None else None,
+                               "image": {key: read[key] for key in ("by", "bank", "txn_time", "candidates")}})
+    return items, images
+
+
+# ---- B4 trên hao: số đọc từ ảnh ----
+def _amount(value: Any) -> int | None:
+    """Số tiền trong file đọc ảnh: số nguyên dương của JSON. Chuỗi, bool, số lẻ, 0 hay số âm đều là None, không ép."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 < value <= MAX_AMOUNT else None
+
+
+def parse_reads(data: Any) -> dict[str, dict]:
+    """`money-reads.json` → {sha256 ảnh: {by, amount_vnd, bank, txn_time, candidates}}. Sai khuôn cả file thì ValueError; một mục lạ thì bỏ mục đó.
+
+    Kết luận có số mà số hỏng thì bỏ cả mục, không đoán. "human" (cần người xem) không có số; `candidates` là các số máy đọc ra để người xem."""
+    if not isinstance(data, dict) or data.get("schema") != 1 or not isinstance(data.get("reads"), dict):
+        raise ValueError("money-reads")
+    out: dict[str, dict] = {}
+    for key, entry in data["reads"].items():
+        if not (isinstance(key, str) and SHA256.fullmatch(key) and isinstance(entry, dict) and isinstance(entry.get("by"), str)
+                and READ_BY.fullmatch(entry["by"])):
+            continue
+        human = entry["by"] == "human"
+        amount = None if human else _amount(entry.get("amount_vnd"))
+        if amount is None and not human:
+            continue
+        bank = entry.get("bank").strip() if isinstance(entry.get("bank"), str) else ""
+        txn = entry.get("txn_time") if isinstance(entry.get("txn_time"), str) and TXN_TIME.fullmatch(entry["txn_time"]) else None
+        candidates = sorted({value for one in _dicts(entry.get("reads")) if (value := _amount(one.get("amount_vnd"))) is not None})
+        out[key] = {"by": entry["by"], "amount_vnd": amount, "bank": bank if 0 < len(bank) <= 40 and bank.isprintable() else None,
+                    "txn_time": txn, "candidates": candidates[:4]}
+    return out
+
+
+def load_reads() -> tuple[dict[str, dict], bool]:
+    """Kết quả đọc ảnh, đọc lại khi file đổi (giờ sửa, cỡ). Thiếu file là máy Zalo chưa bật đọc ảnh: ({}, True).
+    File hỏng, quá lớn hay sai khuôn: ({}, False) để trang cảnh báo, không báo lỗi trang."""
+    path = Path(os.getenv("WEBDEBIT_ZALO_READS_DIR") or READS_DIR) / READS_FILE
+    try:
+        info = path.stat()
+    except FileNotFoundError:
+        return {}, True
+    except OSError:
+        return {}, False
+    stamp = (str(path), info.st_mtime_ns, info.st_size)
+    with _READS_LOCK:
+        if _READS["stamp"] == stamp:
+            return _READS["value"], _READS["ok"]
+    try:
+        if info.st_size > READS_MAX_BYTES or path.is_symlink() or not path.is_file():
+            raise ValueError("money-reads")
+        value, ok = parse_reads(json.loads(path.read_bytes())), True
+    except (OSError, ValueError, TypeError, RecursionError):
+        value, ok = {}, False
+    with _READS_LOCK:
+        _READS.update(stamp=stamp, value=value, ok=ok)
+    return value, ok
+
+
+def image_amount(media: list[dict], reads: dict) -> int | None:
+    """Số đọc từ các ảnh chứng của một khoản: chỉ khi các ảnh đọc ra đúng một số."""
+    found = {reads[one["id"]]["amount_vnd"] for one in media if one["id"] in reads and reads[one["id"]]["amount_vnd"] is not None}
+    return found.pop() if len(found) == 1 else None
+
+
+def merge_images(items: list[dict], images: list[dict]) -> list[dict]:
+    """Ảnh cùng số với khoản thu gõ theo mẫu cùng hội thoại trong 24 giờ, hoặc cùng số và cùng giờ giao dịch (đủ ngày giờ) với ảnh trước
+    trong cùng hội thoại, thành ảnh chứng của khoản đó thay vì một khoản mới. Trả các ảnh còn lại."""
+    kept: list[dict] = []
+    for image in sorted(images, key=lambda one: one["sent_at"]):
+        amount, txn, host = image["amount_vnd"], image["image"]["txn_time"], None
+        if amount is not None:
+            host = next((item for item in items if item["conversation_id"] == image["conversation_id"] and item["direction"] == "thu"
+                         and item["amount_vnd"] == amount and abs(item["sent_at"] - image["sent_at"]) <= SAME_PAYMENT_MS), None)
+            if host is None and txn and "T" in txn:
+                host = next((other for other in kept if other["conversation_id"] == image["conversation_id"] and other["amount_vnd"] == amount
+                             and other["image"]["txn_time"] == txn), None)
+        if host is None:
+            kept.append(image)
+        else:
+            host["media"] += image["media"]
+    return kept
+
+
+def absorb_marks(images: list[dict], marks: list[dict]) -> list[dict]:
+    """Dấu "Khách báo đã chuyển" ở chính tin ảnh, hoặc cùng hội thoại, cùng số, ngày báo cách ngày ảnh không quá 1 ngày: giữ dấu (người
+    nhập số và sổ), ảnh thành ảnh chứng của dấu. Trả các ảnh còn lại."""
+    kept: list[dict] = []
+    for image in images:
+        day = datetime.fromtimestamp(image["sent_at"] / 1000, VN).date()
+        mark = next((mark for mark in marks if mark["conversation_id"] == image["conversation_id"] and (
+            (mark["message_id"] is not None and mark["message_id"] == image["message_id"])
+            or (image["amount_vnd"] is not None and mark["amount"] == image["amount_vnd"] and abs((mark["day"] - day).days) <= MARK_IMAGE_DAYS))), None)
+        if mark is None:
+            kept.append(image)
+        else:
+            mark["media"] += image["media"]
+    return kept
+
+
+def link_targets(images: list[dict], sources: Sources, directory: Directory) -> None:
+    """Đối tượng của khoản từ ảnh: hội thoại gắn đúng một sổ (ZALO-GROUP-01) thì là sổ đó; chưa gắn hoặc gắn nhiều sổ thì chưa rõ."""
+    linked: dict[str, dict[int, Any]] = {}
+    for link in _dicts(sources.read("links", "get_zalo_links", {}).get("links")):
+        if isinstance(link.get("conversation_id"), str) and isinstance(link.get("customer_id"), int) and not isinstance(link["customer_id"], bool):
+            linked.setdefault(link["conversation_id"], {})[link["customer_id"]] = link.get("customer_name")
+    names = {book_id: name for book_id, name, _ in directory.books}
+    for image in images:
+        found = linked.get(image["conversation_id"], {})
+        if len(found) == 1:
+            customer, name = next(iter(found.items()))
+            label = names.get(customer) or (name if isinstance(name, str) else None)
+            image["target"] = {"kind": "so", "id": customer, "label": label}
+        else:
+            image["target"] = {"kind": None, "id": None, "label": None, "ambiguous": len(found) > 1}
 
 
 # ---- B2: đối chiếu ----
@@ -401,42 +546,53 @@ def parse_query(query: str, today: date) -> tuple[date, date, set[str]]:
     return start, end, wanted
 
 
-def _marks(conversations: list[dict], sources: Sources, start: date, end: date, directory: Directory, taken_messages: set, taken_receipts: set) -> tuple[list[dict], int]:
-    """Dấu "Khách báo đã chuyển" của các nhóm đã chọn: hiện như khoản thu, trạng thái do SQL chấm (cùng luật), không chép sang đâu.
-
-    Cửa sổ ngày của dấu tính từ `on_date` (ngày khách báo đã chuyển), của khoản chat từ ngày tin. Dấu cùng tin với một khoản chat, hoặc có
-    phiếu (`receipt_pid`) mà một khoản chat đã ứng, thì ẩn: giữ khoản chat, tổng thu không cộng hai lần (trả thêm số dấu đã ẩn)."""
-    names = {book_id: name for book_id, name, _ in directory.books}
-    items, hidden, seen = [], 0, set()
+def read_marks(conversations: list[dict], sources: Sources, start: date, end: date) -> list[dict]:
+    """Dấu "Khách báo đã chuyển" hợp lệ của các nhóm đã chọn, ngày báo trong khoảng xem (mỗi nhóm đọc một lần). Đọc trước khi đối chiếu
+    để ảnh chuyển khoản của cùng lần trả gộp vào dấu (`absorb_marks`)."""
+    out = []
     for conversation in conversations:
         for mark in _dicts(sources.read("marks", "get_marks", {"conversation_id": conversation["conversation_id"]}).get("marks")):
             day, amount = _day(mark.get("on_date")), _int(mark.get("amount_vnd"))
             if mark.get("kind") != "paid_claim" or mark.get("status") not in MARK_STATUS or day is None or amount is None or amount <= 0 \
                     or not isinstance(mark.get("customer_id"), int) or not start <= day <= end:
                 continue
-            pid = mark.get("receipt_pid") if isinstance(mark.get("receipt_pid"), str) else None
-            if mark.get("message_id") in taken_messages or (pid and (pid in taken_receipts or pid in seen)):
-                hidden += 1
-                continue
-            seen.add(pid)
-            try:
-                sent = int(datetime.fromisoformat(mark["message_at"]).timestamp() * 1000) if isinstance(mark.get("message_at"), str) else None
-            except (ValueError, OverflowError, OSError):
-                sent = None
-            if sent is not None and not 946_684_800_000 <= sent <= 4_102_444_800_000:   # ngoài 2000–2100 là giờ vô lý: bỏ giờ, giữ dấu
-                sent = None
-            items.append({"message_id": mark.get("message_id"), "conversation_id": conversation["conversation_id"], "conversation_name": conversation["display_name"],
-                          "sent_at": sent, "sender_name": mark.get("message_sender"), "direction": "thu", "amount_vnd": amount,
-                          "text": str(mark.get("message_excerpt") or mark.get("note") or "")[:300], "media": [], "day": day, "source": "mark",
-                          "target": {"kind": "so", "id": mark["customer_id"], "label": names.get(mark["customer_id"])},
-                          "status": MARK_STATUS[mark["status"]], "shared": False, "unchecked": False, "ledger_vnd": None,
-                          "ledger_ref": {"kind": "receipt", "pid": pid} if pid else None})
+            out.append({"raw": mark, "conversation_id": conversation["conversation_id"], "conversation_name": conversation["display_name"],
+                        "message_id": mark.get("message_id") if isinstance(mark.get("message_id"), str) else None, "day": day, "amount": amount, "media": []})
+    return out
+
+
+def mark_items(marks: list[dict], directory: Directory, taken_messages: set, taken_receipts: set) -> tuple[list[dict], int]:
+    """Dấu hiện như khoản thu, trạng thái do SQL chấm (cùng luật), không chép sang đâu.
+
+    Cửa sổ ngày của dấu tính từ `on_date` (ngày khách báo đã chuyển), của khoản chat từ ngày tin. Dấu cùng tin với một khoản chat, hoặc có
+    phiếu (`receipt_pid`) mà một khoản chat đã ứng, thì ẩn: giữ khoản chat, tổng thu không cộng hai lần (trả thêm số dấu đã ẩn)."""
+    names = {book_id: name for book_id, name, _ in directory.books}
+    items, hidden, seen = [], 0, set()
+    for entry in marks:
+        mark = entry["raw"]
+        pid = mark.get("receipt_pid") if isinstance(mark.get("receipt_pid"), str) else None
+        if mark.get("message_id") in taken_messages or (pid and (pid in taken_receipts or pid in seen)):
+            hidden += 1
+            continue
+        seen.add(pid)
+        try:
+            sent = int(datetime.fromisoformat(mark["message_at"]).timestamp() * 1000) if isinstance(mark.get("message_at"), str) else None
+        except (ValueError, OverflowError, OSError):
+            sent = None
+        if sent is not None and not 946_684_800_000 <= sent <= 4_102_444_800_000:   # ngoài 2000–2100 là giờ vô lý: bỏ giờ, giữ dấu
+            sent = None
+        items.append({"message_id": mark.get("message_id"), "conversation_id": entry["conversation_id"], "conversation_name": entry["conversation_name"],
+                      "sent_at": sent, "sender_name": mark.get("message_sender"), "direction": "thu", "amount_vnd": entry["amount"],
+                      "text": str(mark.get("message_excerpt") or mark.get("note") or "")[:300], "media": entry["media"], "day": entry["day"], "source": "mark",
+                      "target": {"kind": "so", "id": mark["customer_id"], "label": names.get(mark["customer_id"])},
+                      "status": MARK_STATUS[mark["status"]], "shared": False, "unchecked": False, "ledger_vnd": None,
+                      "ledger_ref": {"kind": "receipt", "pid": pid} if pid else None})
     return items, hidden
 
 
 def _public(item: dict) -> dict:
     out = {key: item.get(key) for key in ("message_id", "conversation_id", "conversation_name", "sent_at", "sender_name", "direction", "amount_vnd", "text",
-                                          "media", "status", "shared", "unchecked", "ledger_ref", "ledger_vnd")}
+                                          "media", "status", "shared", "unchecked", "ledger_ref", "ledger_vnd", "image_vnd", "amount_from", "image")}
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
     out["target"] = {key: item["target"].get(key) for key in ("kind", "id", "label")}
@@ -446,7 +602,8 @@ def _public(item: dict) -> dict:
 
 def totals(items: list[dict]) -> dict:
     out = {"thu_vnd": 0, "chi_vnd": 0, "ung_vnd": 0, "thu_count": 0, "chi_count": 0, "ung_count": 0, "no_amount": 0,
-           "missing": sum(item["status"] == "MISSING" for item in items), "amount_diff": sum(item["status"] == "AMOUNT_DIFF" for item in items)}
+           "missing": sum(item["status"] == "MISSING" for item in items), "amount_diff": sum(item["status"] == "AMOUNT_DIFF" for item in items),
+           "from_image": sum(item.get("source") == "anh" and item["amount_vnd"] is not None for item in items)}
     for item in items:
         if item["amount_vnd"] is None:
             out["no_amount"] += 1
@@ -533,15 +690,34 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
             holder["directory"] = Directory(_dicts(customers), _dicts(fleet.get("xe")), _dicts(fleet.get("nguoi")))
         return holder["directory"]
 
-    # Một giới hạn số nhóm cho cả tin chat và dấu: nhóm có tin mới nhất trước.
+    # Một giới hạn số nhóm cho cả tin chat, ảnh và dấu: nhóm có tin mới nhất trước.
     everything = store.conversations()
     conversations = everything[:MAX_CONVERSATIONS]
-    items = collect(store, directory_of, start_ms, end_ms, conversations)
+    reads, reads_ok = load_reads()
+    if not reads_ok:
+        failed.add("reads")
+    items, images = collect(store, directory_of, start_ms, end_ms, conversations, reads)
+    marks = read_marks(conversations, sources, start, end) if conversations else []
+    images = merge_images(items, absorb_marks(images, marks))
+    for item in items:
+        item["image_vnd"], item["amount_from"] = image_amount(item["media"], reads), None
+        if item["amount_vnd"] is None and item["image_vnd"] is not None:   # mẫu không đọc được số mà ảnh chứng đọc được
+            item["amount_vnd"], item["amount_from"] = item["image_vnd"], "anh"
+    if images:
+        link_targets(images, sources, directory_of())
+        items += images
     if items:
         reconcile(items, directory_of(), sources, today)
-    marks, hidden = _marks(conversations, sources, start, end, directory_of(), {item["message_id"] for item in items},
-                           {item["ledger_ref"]["pid"] for item in items if item.get("ledger_ref") and item["ledger_ref"].get("pid")}) if conversations else ([], 0)
-    items += marks
+    for item in items:
+        if item.get("source") != "anh" and item["image_vnd"] is not None and item["amount_vnd"] not in (None, item["image_vnd"]):
+            item["status"] = "AMOUNT_DIFF"   # Luồng 4: mẫu X, ảnh Y; giữ phiếu đã ghép (nếu có) để người xem mở
+        if item.get("source") == "anh" and item["target"]["kind"] is None and "links" in failed:
+            item["unchecked"] = True
+    marked, hidden = mark_items(marks, directory_of(), {item["message_id"] for item in items},
+                                {item["ledger_ref"]["pid"] for item in items if item.get("ledger_ref") and item["ledger_ref"].get("pid")}) if conversations else ([], 0)
+    for item in marked:   # dấu giữ số người nhập; số ảnh chỉ để người xem so
+        item["image_vnd"] = image_amount(item["media"], reads)
+    items += marked
     items.sort(key=lambda item: (item["day"], item["sent_at"] or 0), reverse=True)
     return {"items": [_public(item) for item in items], "totals": totals(items), "sources_failed": sorted(failed), "marks_hidden": hidden,
             "conversations_skipped": len(everything) - len(conversations),

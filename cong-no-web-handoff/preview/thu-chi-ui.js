@@ -8,7 +8,8 @@
   const $ = id => document.getElementById(id);
   const root = $('thu-chi');
   const POLL_MS = 5000;
-  const state = { days: 7, filter: 'all', data: null, raw: '', fresh: new Set(), pending: null, fails: 0 };
+  // `today`: ngày hôm nay theo giờ VN của máy chủ, giữ qua lần đổi khoảng (đổi khoảng thì `data` về null). Chưa hỏi được lần nào mới dùng đồng hồ máy.
+  const state = { days: 7, filter: 'all', data: null, today: null, raw: '', fresh: new Set(), pending: null, fails: 0 };
   let pollTimer = null;
   let turn = 0;
 
@@ -27,14 +28,14 @@
   const count = n => n.toLocaleString('vi-VN');
 
   async function fetchData() {
-    const today = state.data?.today ?? F.vnDay(Date.now());
+    const today = state.today ?? F.vnDay(Date.now());
     const { from, to } = M.range(today, state.days);
     const response = await fetch(`/api/v7/cash-chat?from=${from}&to=${to}`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw Error('cash-chat');
     return response.text();
   }
 
-  const SOURCE_NAMES = { receipt: 'phiếu thu', fleet: 'sổ Đội xe', directory: 'danh sách khách và xe', marks: 'dấu khách báo đã chuyển' };
+  const SOURCE_NAMES = { receipt: 'phiếu thu', fleet: 'sổ Đội xe', directory: 'danh sách khách và xe', marks: 'dấu khách báo đã chuyển', links: 'danh sách nhóm gắn sổ' };
   // Tuổi dữ liệu Zalo: lấy từ nhịp tim của máy Zalo, không giả là mới. Máy im hoặc Zalo chưa mở thì có dòng cảnh báo riêng.
   function paintZalo(data) {
     const zalo = data.zalo ?? {};
@@ -50,13 +51,17 @@
       : stale ? `Zalo chưa mở trên máy Zalo (${count(zalo.quiet_minutes)} phút). Tin mới chưa lên.` : '';
     warn.hidden = !warn.textContent;
     // Nguồn sổ đọc lỗi: các khoản liên quan ghi "Chưa đối chiếu được", không kết luận chưa vào sổ.
+    // File kết quả đọc ảnh hỏng thì khoản từ ảnh không hiện: nói rõ để không ai tưởng là không có ảnh chuyển khoản nào.
     const sources = $('source-warn');
-    const names = (data.sources_failed ?? []).map(code => SOURCE_NAMES[code] ?? code);
-    sources.textContent = names.length ? `Không đọc được ${names.join(', ')} lúc này. Các khoản liên quan ghi "Chưa đối chiếu được".` : '';
-    sources.hidden = !names.length;
+    const failed = data.sources_failed ?? [];
+    const names = failed.filter(code => code !== 'reads').map(code => SOURCE_NAMES[code] ?? code);
+    sources.textContent = [names.length ? `Không đọc được ${names.join(', ')} lúc này. Các khoản liên quan ghi "Chưa đối chiếu được".` : '',
+      failed.includes('reads') ? 'Không đọc được kết quả đọc ảnh chuyển khoản lúc này: khoản từ ảnh chưa hiện.' : ''].filter(Boolean).join(' ');
+    sources.hidden = !sources.textContent;
   }
 
-  const fig = (kind, sum) => `<div class="tc-fig ${kind}"><b>${esc(money(sum[kind].vnd))}</b><small>${esc(M.KIND_LABEL[kind])} · ${count(sum[kind].n)} khoản</small></div>`;
+  const fig = (kind, sum) => `<div class="tc-fig ${kind}"><b>${esc(money(sum[kind].vnd))}</b>`
+    + `<small>${esc(M.KIND_LABEL[kind])} · ${count(sum[kind].n)} khoản${sum[kind].img ? `, ${count(sum[kind].img)} từ ảnh` : ''}</small></div>`;
   function card(title, sum) {
     const pill = (n, text, warn) => `<span class="tc-pill${n ? (warn ? ' warn' : '') : ' zero'}">${esc(text)}: ${count(n)}</span>`;
     return `<section class="tc-card" aria-label="${esc(title)}"><h2>${esc(title)}</h2><div class="tc-figs">${['thu', 'chi', 'ung'].map(kind => fig(kind, sum)).join('')}</div>`
@@ -83,24 +88,51 @@
 
   function thumbs(item) {
     if (!item.media.length) return '';
-    const shown = item.media.slice(0, 3).map(media => `<a href="/api/v7/zalo/media/${esc(media.id)}" target="_blank" rel="noopener" aria-label="Xem ảnh chứng">`
-      + `<img src="/api/v7/zalo/media/${esc(media.id)}" alt="Ảnh chứng" loading="lazy"></a>`).join('');
+    const name = item.source === 'anh' ? 'Ảnh chuyển khoản' : 'Ảnh chứng';
+    const shown = item.media.slice(0, 3).map(media => `<a href="/api/v7/zalo/media/${esc(media.id)}" target="_blank" rel="noopener" aria-label="Xem ${name.toLowerCase()}">`
+      + `<img src="/api/v7/zalo/media/${esc(media.id)}" alt="${name}" loading="lazy"></a>`).join('');
     const more = item.media.length > 3 ? `<span>+${item.media.length - 3}</span>` : '';
     return `<div class="tc-thumbs">${shown}${more}</div>`;
+  }
+
+  // Giờ giao dịch đọc từ ảnh, theo giờ Việt Nam (giờ không ghi múi thì đã là giờ Việt Nam). Cùng ngày với tin thì chỉ ghi giờ;
+  // chỉ đọc ra ngày mà trùng ngày tin thì không ghi gì.
+  function txnLabel(value, day) {
+    if (!value) return '';
+    let iso = value.slice(0, 10);
+    let time = '';
+    const local = /^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})(?::\d{2})?$/.exec(value);
+    if (local) time = `${local[1]}:${local[2]}`;
+    else if (value.includes('T')) {
+      const ms = Date.parse(value);
+      if (Number.isNaN(ms)) return '';
+      iso = F.vnDay(ms);
+      time = hhmm.format(ms);
+    }
+    if (!time) return iso === day ? '' : `ngày ${dayMonth(iso)}`;
+    return iso === day ? time : `${time} ${dayMonth(iso)}`;
+  }
+  // Khoản từ ảnh không có chữ: cột nội dung ghi giờ giao dịch rồi ngân hàng máy đọc được, để so với phiếu. Giờ đứng trước vì
+  // ô hẹp bị cắt ở cuối dòng: mất tên ngân hàng còn hơn mất giờ.
+  function imageLine(item) {
+    const when = txnLabel(item.image?.txn_time, item.day);
+    return [when ? `Giao dịch ${when}` : 'Ảnh chuyển khoản', item.image?.bank].filter(Boolean).join(' · ');
   }
 
   const TARGET = { so: 'Sổ', xe: 'Xe', tai_xe: 'Tài xế' };
   function row(item) {
     const status = M.statusText(item);
     const target = `${TARGET[item.target.kind] ?? ''} ${item.target.label ?? ''}`.trim() || '—';
+    const text = item.source === 'anh' ? imageLine(item) : item.text;
     const open = item.conversation_id
       ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}">Mở tin</a>` : '';
-    return `<div class="tc-row${state.fresh.has(M.keyOf(item)) ? ' is-new' : ''}" data-status="${esc(item.status)}">`
+    const amount = item.amount_vnd == null ? '<span class="dash">—</span>' : esc(money(item.amount_vnd));
+    return `<div class="tc-row${state.fresh.has(M.keyOf(item)) ? ' is-new' : ''}" data-status="${esc(item.status)}" data-source="${esc(item.source)}">`
       + `<span class="tc-time">${esc(clock(item.sent_at))}</span>`
       + `<div class="tc-who"><b>${esc(item.sender_name ?? 'Không rõ tên')}</b><small title="${esc(item.conversation_name ?? '')}">${esc(item.conversation_name ?? '')}${item.source === 'mark' ? ' · dấu khách báo' : ''}</small></div>`
       + `<span class="tc-kind-cell"><span class="tc-kind ${esc(item.direction)}">${esc(M.KIND_LABEL[item.direction])}</span></span>`
-      + `<span class="tc-amt">${item.amount_vnd == null ? '<span class="dash">—</span>' : esc(money(item.amount_vnd))}</span>`
-      + `<div class="tc-target">${esc(target)}<span class="tc-text" title="${esc(item.text)}">${esc(item.text)}</span></div>`
+      + `<span class="tc-amt">${amount}${item.amount_from === 'anh' ? '<small class="tc-src">đọc từ ảnh</small>' : ''}</span>`
+      + `<div class="tc-target">${esc(target)}<span class="tc-text" title="${esc(text)}">${esc(text)}</span></div>`
       + `<div class="tc-status ${status.tone}"><b>${esc(status.text)}</b>${status.note ? `<small>${esc(status.note)}</small>` : ''}${ledgerLink(item)}</div>`
       + `<div class="tc-side">${thumbs(item)}${open}</div></div>`;
   }
@@ -119,7 +151,7 @@
     const filters = M.FILTERS.filter(filter => filter.id !== 'noamount' || counts.noamount || state.filter === 'noamount')
       .map(filter => `<button type="button" class="tc-chip" data-f="${filter.id}" aria-pressed="${filter.id === state.filter}">${esc(filter.label)}<b>${count(counts[filter.id])}</b></button>`).join('');
     const empty = !all.length
-      ? `<p class="empty">Chưa có khoản thu chi nào trong ${range}. Chỉ tin bắt đầu bằng thu, chi hoặc ứng kèm số tiền mới hiện ở đây, ví dụ: thu 50tr Khách A.</p>`
+      ? `<p class="empty">Chưa có khoản thu chi nào trong ${range}. Ở đây hiện ảnh chuyển khoản khách gửi mà máy đọc được, và tin bắt đầu bằng thu, chi hoặc ứng kèm số tiền, ví dụ: thu 50tr Khách A.</p>`
       : !shown.length ? '<p class="empty">Không có khoản nào trong bộ lọc này.</p>' : '';
     root.innerHTML = `<div class="tc-band">${card('Hôm nay', M.summarize(all.filter(item => item.day === data.today)))}${card(`${range} gần nhất`, M.summarize(all))}</div>`
       + `<div class="tc-filters" role="group" aria-label="Lọc khoản">${filters}</div>${empty}`
@@ -163,6 +195,7 @@
       $('error').hidden = true;
       state.fails = 0;
       const data = JSON.parse(text);
+      if (typeof data.today === 'string') state.today = data.today;
       paintZalo(data);
       if (text === state.raw) {
         state.pending = null;

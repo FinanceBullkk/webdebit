@@ -37,7 +37,7 @@ function makeServer(state) {
       const next = state.respond();
       return next.status ? json({ error: 'X' }, next.status) : json(next.body);
     }
-    if (url.pathname === '/api/v7/zalo/media/' + PHOTO) return send(200, 'image/png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
+    if (url.pathname.startsWith('/api/v7/zalo/media/')) return send(200, 'image/png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64'));
     if (url.pathname === '/api/v7/customers') return json({ customers: [] });
     if (url.pathname.startsWith('/api/')) return json({}, 404);
     if (url.pathname === '/zalo-chat.html') return send(200, 'text/html', '<!doctype html><title>Chat</title><p id="chat">chat</p>');
@@ -366,4 +366,73 @@ test('Thu chi: nguồn sổ đọc lỗi thì báo rõ và khoản liên quan gh
     assert.match(await page.locator('#source-warn').innerText(), /Không đọc được phiếu thu, dấu khách báo đã chuyển lúc này/);
     assert.match(clean(await page.locator('.tc-row').innerText()), /Chưa đối chiếu được Không đọc được sổ lúc này/);
     assert.equal(await page.locator('.tc-chip', { hasText: 'Chưa vào sổ' }).innerText().then(clean), 'Chưa vào sổ0');
+  }));
+
+// PR-4b: ảnh chuyển khoản máy đọc (source 'anh'). Số, ngân hàng và tên sổ bịa.
+const PAY = 'd'.repeat(64);
+const shot = { id: PAY, mime: 'image/jpeg' };
+const photo = (id, day, hour, amount, status, image, extra = {}) => item(id, day, hour, 'thu', amount, status, {
+  source: 'anh', text: '', amount_from: amount == null ? null : 'anh', image_vnd: amount, media: [shot], image, ...extra });
+const IMAGES = [
+  photo('a1', TODAY, 10, 7_000_000, 'RECORDED', { by: 'ocr', bank: 'VIETCOMBANK', txn_time: '2026-11-20T09:58:00+07:00', candidates: [7_000_000] },
+    { target: so(1, 'SỔ A'), ledger_ref: { kind: 'receipt', customer_id: 1, pid: 'PH-2', date: TODAY } }),
+  photo('a2', TODAY, 9, null, 'NO_AMOUNT', { by: 'human', bank: null, txn_time: null, candidates: [1_050_000, 1_500_000] }),
+  photo('a3', '2026-11-19', 15, 4_000_000, 'UNKNOWN_TARGET', { by: 'ocr', bank: 'MB', txn_time: '2026-11-19', candidates: [4_000_000] }),
+  item('t1', '2026-11-19', 9, 'thu', 5_000_000, 'AMOUNT_DIFF', { text: 'thu 5tr SỔ B', image_vnd: 5_500_000, amount_from: null, ledger_vnd: 5_000_000, target: so(2, 'SỔ B'),
+    ledger_ref: { kind: 'receipt', customer_id: 2, date: '2026-11-19' }, media: [shot] }),
+];
+
+test('Thu chi: ảnh chuyển khoản máy đọc hiện như khoản thu, ghi "đọc từ ảnh", giờ giao dịch rồi ngân hàng', () => withPage(ok(IMAGES), async page => {
+  await ready(page);
+  const [today, week] = (await page.locator('.tc-card').allInnerTexts()).map(clean);
+  assert.match(today, /7\.000\.000 đ Thu · 1 khoản, 1 từ ảnh/);   // ảnh chưa đọc chắc không vào tổng
+  assert.match(week, /16\.000\.000 đ Thu · 3 khoản, 2 từ ảnh/);
+  assert.match(week, /Không đọc được số: 1/);
+  const row = id => page.locator('.tc-row').filter({ has: page.locator(`a[href$="m=${id}"]`) });
+  assert.match(clean(await row('a1').innerText()), /^10:00 Lan Nhóm thu chi thử Thu 7\.000\.000 đ đọc từ ảnh Sổ SỔ A Giao dịch 09:58 · VIETCOMBANK Đã vào sổ Mở sổ Mở tin$/);
+  assert.equal((await row('a2').locator('.tc-amt').innerText()).trim(), '—');
+  assert.match(clean(await row('a2').innerText()), /Ảnh chưa đọc chắc Máy đọc ra 1\.050\.000 đ và 1\.500\.000 đ\. Mở ảnh để xem, không cộng vào tổng\./);
+  assert.match(clean(await row('a3').innerText()), /— Ảnh chuyển khoản · MB Chưa rõ của ai Hội thoại chưa gắn sổ\./);
+  assert.match(clean(await row('t1').innerText()), /Lệch: mẫu 5\.000\.000 đ, ảnh 5\.500\.000 đ Sổ ghi 5\.000\.000 đ\./);
+  assert.equal(await row('t1').locator('.tc-src').count(), 0);   // số gõ theo mẫu: không ghi "đọc từ ảnh"
+  assert.equal(await page.locator('.tc-row[data-source="anh"] img').first().getAttribute('alt'), 'Ảnh chuyển khoản');
+  assert.deepEqual((await page.locator('.tc-chip').allInnerTexts()).map(clean), ['Tất cả4', 'Chưa vào sổ0', 'Lệch số1', 'Chưa rõ đối tượng1', 'Không đọc được số1']);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+}));
+
+test('Thu chi: dòng ảnh ở điện thoại 390px gọn trong thẻ, "đọc từ ảnh" nằm dưới số tiền', () => withPage(ok(IMAGES), async page => {
+  await ready(page);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'không có thanh cuộn ngang');
+  const box = await page.locator('.tc-row[data-source="anh"]').first().evaluate(el => {
+    const card = el.getBoundingClientRect();
+    const amount = el.querySelector('.tc-amt b, .tc-amt').getBoundingClientRect();
+    const source = el.querySelector('.tc-src').getBoundingClientRect();
+    return { inside: [...el.children].every(child => { const rect = child.getBoundingClientRect(); return rect.left >= card.left - 1 && rect.right <= card.right + 1; }),
+      below: source.top >= amount.top, right: source.right <= card.right + 1 };
+  });
+  assert.deepEqual(box, { inside: true, below: true, right: true });
+}, { viewport: { width: 390, height: 844 } }));
+
+test('Thu chi: file đọc ảnh hỏng thì nói rõ khoản từ ảnh chưa hiện, không gộp vào câu "Chưa đối chiếu được"', () => withPage(
+  () => ({ body: body([item('t1', TODAY, 9, 'thu', 5_000_000, 'WAITING', { target: so(1, 'SỔ A') })], { sources_failed: ['reads'] }) }), async page => {
+    await ready(page);
+    assert.equal(clean(await page.locator('#source-warn').innerText()), 'Không đọc được kết quả đọc ảnh chuyển khoản lúc này: khoản từ ảnh chưa hiện.');
+  }));
+
+test('Thu chi: danh sách nhóm gắn sổ đọc lỗi thì khoản từ ảnh ghi lý do, cảnh báo nêu đúng nguồn', () => withPage(
+  () => ({ body: body([photo('a9', TODAY, 9, 7_000_000, 'UNKNOWN_TARGET', { by: 'ocr', bank: null, txn_time: null, candidates: [7_000_000] }, { unchecked: true })],
+    { sources_failed: ['links'] }) }), async page => {
+    await ready(page);
+    assert.match(await page.locator('#source-warn').innerText(), /^Không đọc được danh sách nhóm gắn sổ lúc này\./);
+    assert.match(clean(await page.locator('.tc-row').innerText()), /Ảnh chuyển khoản Chưa rõ của ai Không đọc được danh sách nhóm gắn sổ lúc này\./);
+  }));
+
+test('Thu chi: giờ giao dịch khác ngày tin thì ghi cả ngày; giờ không ghi múi là giờ Việt Nam', () => withPage(
+  () => ({ body: body([
+    photo('g1', '2026-11-19', 9, 1_000_000, 'WAITING', { by: 'ocr', bank: 'ACB', txn_time: '2026-11-18T16:50:00+00:00', candidates: [] }),   // 23:50 giờ Việt Nam
+    photo('g2', '2026-11-19', 8, 2_000_000, 'WAITING', { by: 'ocr', bank: 'ACB', txn_time: '2026-11-18', candidates: [] }),
+    photo('g3', '2026-11-19', 7, 3_000_000, 'WAITING', { by: 'ocr', bank: null, txn_time: '2026-11-19T06:15', candidates: [] })]) }), async page => {
+    await ready(page);
+    assert.deepEqual((await page.locator('.tc-row .tc-text').allInnerTexts()).map(clean),
+      ['Giao dịch 23:50 18/11 · ACB', 'Giao dịch ngày 18/11 · ACB', 'Giao dịch 06:15']);
   }));
