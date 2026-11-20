@@ -390,7 +390,7 @@ test('Phiếu chi mới: Đủ cột có Hạ sớm/KH, Km, Ngày neo, Giờ má
   await page.locator('.dx-toast', { hasText: 'thêm dòng điều chỉnh +250.000' }).waitFor();
 }, { query: '?nguoi=1&thang=2026-10' }));
 
-test('Tải lỗi có Thử lại; thiếu quyền báo câu của máy chủ; 1265×560 không cuộn ngang, menu chín mục lọt khung', async () => {
+test('Tải lỗi có Thử lại; thiếu quyền báo câu của máy chủ; 1265×560 không cuộn ngang, menu lọt khung', async () => {
   await withPage(async (page, w) => {
     assert.match(await page.locator('.dx-err').innerText(), /Không tải được Đội xe/);
     w.down = false;
@@ -404,10 +404,10 @@ test('Tải lỗi có Thử lại; thiếu quyền báo câu của máy chủ; 1
     const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
     assert.ok(size.scroll <= size.client, `cuộn ngang: ${JSON.stringify(size)}`);
     const links = page.locator('.app-nav nav a');
-    assert.equal(await links.count(), 9);
+    assert.equal(await links.count(), 6);   // QUYEN-02: năm trang làm sổ + Quản trị
     const last = await links.last().boundingBox();
     assert.ok(last.y + last.height <= 560, `mục cuối menu ra ngoài khung: ${last.y + last.height}`);
-    assert.equal(await page.locator('.app-nav nav a.active').innerText(), 'Đội xe');
+    assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Đội xe');   // QUYEN-02: dải thẻ Quản trị
     for (const sel of ['[data-act="mo-ung"]', '[data-act="mo-hoan"]', '[data-act="lich-su"]', '[data-act="doi-khoa"]']) {
       assert.ok((await page.locator(sel).first().boundingBox()).height >= 40, sel);
     }

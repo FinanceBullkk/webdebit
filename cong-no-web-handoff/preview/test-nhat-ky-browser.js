@@ -62,8 +62,8 @@ test('Nhật ký công việc: hôm nay, thẻ ghim, lịch, lọc chéo theo m�
   assert.equal(await page.locator('#pins .pin').count(), 2);
   assert.match(await page.locator('#pmeta').innerText(), /4 thay đổi/);
   assert.equal(await page.locator('#cg button.sq').count(), 2);
-  assert.equal(await page.locator('.app-nav .nav-extra a.active').innerText(), 'Nhật ký công việc');
-  assert.equal(await page.locator('.app-nav nav a').count(), 9, 'khối chín mục giữ nguyên');
+  assert.equal(await page.locator('nav.admin-tabs a.active').innerText(), 'Nhật ký');   // QUYEN-02: thẻ trong dải Quản trị
+  assert.equal(await page.locator('.app-nav nav a').count(), 6, 'năm trang làm sổ + Quản trị');
 
   await page.locator('#pins .pin').first().click();   // thẻ Đội xe: lọc cả trang
   assert.match(await page.locator('#fbar').innerText(), /Đang xem 2 thay đổi/);

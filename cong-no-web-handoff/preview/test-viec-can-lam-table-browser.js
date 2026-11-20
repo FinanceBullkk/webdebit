@@ -90,7 +90,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     await page.addStyleTag({ content: '#demo-banner{display:none}' }); // Chỉ bỏ banner fixture khi so reference.
     await page.waitForFunction(() => document.querySelectorAll('.work-row').length === 8);
     const geometry = await page.locator('.page-head,.viec-tabs,.work-card').evaluateAll(nodes => nodes.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
-    assert.deepEqual(geometry[0], [76, 0, 1204, 53]);
+    assert.deepEqual(geometry[0], [76, 40, 1204, 53]);   // QUYEN-02: dải thẻ Quản trị 40px phía trên
     assert.deepEqual(geometry[1].slice(0, 3).map(Math.round), [104, 69 - 6 + (geometry[1][1] - 63 > 0 ? Math.round(geometry[1][1] - 63) : 0), 1144]);
     assert.ok(geometry[2][1] > geometry[1][1] + geometry[1][3], 'bảng nằm dưới hàng tab');
     assert.match(await page.locator('tfoot').innerText(), /240 tr \+1[\s\S]*1 giá Sheet · 1 giá khác · 4 chưa giá[\s\S]*1 Sheet xóa · 6 cần xem · 3 mới/);

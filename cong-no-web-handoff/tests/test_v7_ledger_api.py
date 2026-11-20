@@ -851,6 +851,82 @@ class LedgerApiTest(unittest.TestCase):
                 server.shutdown()
                 worker.join(timeout=3)
 
+    def test_http_users_page_changes_access_at_once(self):
+        # QUYEN-02: quản lý cho login vừa bị chặn vào trên trang Người dùng; có hiệu lực ngay ở yêu cầu kế, bỏ quyền cũng vậy.
+        authority = "demo.tail-example.ts.net:8443"
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        boss, staff = "boss@example.test", "staff@example.test"
+        store = api.v7_access.AccessStore(Path(folder.name) / "access.json", frozenset({boss}), frozenset({boss}))
+        class UsersHandler(api.Handler):
+            behind_tailscale_serve = True
+            serve_hosts = (authority,)
+            allowed_logins = frozenset({boss})
+            admin_logins = frozenset({boss})
+            default_actor = None
+            dev_actor_mode = False
+        UsersHandler.runner = self.runner
+        UsersHandler.localapi = self.localapi
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), UsersHandler) as server, \
+                patch.object(api.v7_access, "STORE", store), patch.object(api.v7_access, "DENIED", api.v7_access.DeniedLog()), \
+                patch.object(sys, "stderr", io.StringIO()):
+            UsersHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            def call(login, path, body=None):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                headers = {"Host": authority, "Tailscale-User-Login": login}
+                if body is not None:
+                    headers |= {"Origin": f"https://{authority}", "Content-Type": "application/json"}
+                conn.request("POST" if body is not None else "GET", path, body=None if body is None else json.dumps(body), headers=headers)
+                response = conn.getresponse()
+                data = response.read()
+                conn.close()
+                return response.status, (json.loads(data) if response.getheader("Content-Type", "").startswith("application/json") else data)
+            try:
+                self.assertEqual(call(staff, "/api/v7/customers")[1]["error"], "LOGIN_NOT_ALLOWED")
+                status, view = call(boss, "/api/v7/admin/users")
+                self.assertEqual(status, 200)
+                self.assertEqual([row["login"] for row in view["denied"]], [staff])
+                self.assertEqual(call(boss, "/nguoi-dung.html")[0], 200)
+                status, done = call(boss, "/api/v7/admin/users", {"action": "add", "login": staff, "version": view["version"]})
+                self.assertEqual((status, done["version"]), (200, 1))
+                self.assertEqual(call(staff, "/api/v7/customers")[0], 200)   # vào được ngay, không restart
+                status, page = call(staff, "/dashboard-v7.html")
+                self.assertIn(b'data-role="user"', page)
+                self.assertEqual(call(staff, "/api/v7/admin/users")[1]["error"], "ADMIN_ONLY")
+                self.assertEqual(call(staff, "/api/v7/admin/users", {"action": "remove", "login": boss, "version": 1})[1]["error"], "ADMIN_ONLY")
+                self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "add", "login": staff, "version": 0})[1]["error"], "STALE")
+                self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "role", "login": staff, "role": "admin", "version": 1})[0], 200)
+                self.assertEqual(call(staff, "/may-chay.html")[0], 200)   # thành quản lý ngay
+                self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "remove", "login": staff, "version": 2})[0], 200)
+                self.assertEqual(call(staff, "/api/v7/customers")[1]["error"], "LOGIN_NOT_ALLOWED")
+                self.assertEqual(call(boss, "/api/v7/admin/users")[1]["version"], 3)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+
+    def test_access_file_cli(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        base = ["api", "--container", "fake", "--behind-tailscale-serve", "--allowed-login", "boss@example.test"]
+        def run(env):
+            with patch.dict(os.environ, env, clear=True), patch.object(sys, "argv", base), ExitStack() as stack:
+                for item in (patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"), patch.object(api.v7_access, "STORE", None),
+                             patch.object(api.Handler, "allowed_logins", None), patch.object(api.Handler, "admin_logins", None),
+                             patch.object(api.Handler, "behind_tailscale_serve", False), patch.object(api.Handler, "serve_hosts", ()),
+                             patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None)):
+                    stack.enter_context(item)
+                api.main()
+                return api.v7_access.STORE
+        store = run({"WEBDEBIT_ACCESS_FILE": str(Path(folder.name) / "access.json")})
+        self.assertEqual(store.path, Path(folder.name) / "access.json")
+        self.assertEqual(store.fixed_allowed, frozenset({"boss@example.test"}))
+        self.assertIsNone(run({}).path)   # không đặt: chỉ xem, ghi trả ACCESS_NOT_CONFIGURED
+        with self.assertRaises(SystemExit) as caught:
+            run({"WEBDEBIT_ACCESS_FILE": str(Path(folder.name) / "khong-co" / "access.json")})
+        self.assertEqual(caught.exception.code, 2)
+
     def test_admin_logins_cli(self):
         base = ["api", "--container", "fake", "--behind-tailscale-serve", "--allowed-login", "boss@example.test",
                 "--allowed-login", "staff@example.test"]

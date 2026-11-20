@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import time
@@ -380,6 +381,22 @@ class ZaloDeltaTest(unittest.TestCase):
         self.write_report(delta_bytes=self.delta.stat().st_size, revision=3)
         chat.get_store(str(self.root))
         self.assertEqual(store.messages(CONV_A, 0, 100)["messages"][-1]["sender_name"], "Bạn đổi tên")
+
+    def test_report_change_detected_even_with_same_size_and_mtime(self):
+        # Windows: hai lần ghi export-report.json liền nhau có thể cùng nhịp đồng hồ, cùng cỡ (revision 2 → 3).
+        # Dấu (mtime, size) không đổi thì users.json thay tại chỗ không bao giờ được đọc lại (CI windows 20/11/2026).
+        (self.data / "users.json").write_text(json.dumps({"self_user": OWNER, "users": {KHACH: "Tên cũ"}}), encoding="utf-8")
+        self.write_report(delta_bytes=0, revision=2)
+        report = self.root / "export-report.json"
+        before = report.stat()
+        store = chat.get_store(str(self.root))
+        self.assertEqual(store.messages(CONV_A, 0, 100)["messages"][-1]["sender_name"], "Tên cũ")
+        (self.data / "users.json").write_text(json.dumps({"self_user": OWNER, "users": {KHACH: "Tên mới"}}), encoding="utf-8")
+        self.write_report(delta_bytes=0, revision=3)
+        os.utime(report, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertEqual((report.stat().st_mtime_ns, report.stat().st_size), (before.st_mtime_ns, before.st_size))
+        chat.get_store(str(self.root))
+        self.assertEqual(store.messages(CONV_A, 0, 100)["messages"][-1]["sender_name"], "Tên mới")
 
     def test_reads_exactly_delta_bytes(self):
         first = self.append(message(CONV_A, "m8", KHACH, 1_700_000_008_000, "Đủ dòng"))
