@@ -13,12 +13,13 @@ trả về hay khóa. Đoạn gọi mạng duy nhất là `post_json`: đổi nh
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import os
 import re
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 PROMPT = ("Đây là ảnh biên lai chuyển khoản ngân hàng đã che thông tin cá nhân. Chỉ trả về MỘT đối tượng JSON, không giải thích, đúng bốn "
           'khóa: {"is_transfer": true hoặc false, "amount_vnd": số tiền chuyển bằng số nguyên đồng (không dấu phân cách) hoặc null, '
@@ -30,6 +31,8 @@ TIME = re.compile(r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}
 FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 MODEL = re.compile(r"[A-Za-z0-9._+-]{1,40}")
 TIMEOUT = 60
+# https://, hoặc http:// chỉ khi proxy chạy ngay trên máy này (9router): ảnh và khóa không bao giờ đi rõ qua mạng.
+PROXY_URL = re.compile(r"https://\S+|http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:/\S*)?")
 
 
 class AskError(Exception):
@@ -44,25 +47,40 @@ class AskError(Exception):
 class Route:
     name: str
     url: str
-    headers: tuple
+    headers: tuple = field(repr=False)   # chứa khóa: không bao giờ vào repr, log hay traceback
     style: str   # "openai" hoặc "gemini"
     model: str
 
 
-def post_json(url: str, headers: dict, body: dict, timeout: float = TIMEOUT) -> dict:
-    """Điểm duy nhất gọi mạng. Mọi lỗi đổi thành AskError có mã ngắn."""
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Không đi theo chuyển hướng: ảnh và khóa chỉ tới đúng địa chỉ đã cấu hình. 3xx thành `http_3xx`."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def open_url(request, timeout: float, proxy: str = ""):
+    """Mở một URL **không** dùng proxy hệ thống (biến môi trường, cài đặt Windows) trừ khi `proxy` được cấu hình rõ."""
+    handler = urllib.request.ProxyHandler({"http": proxy, "https": proxy} if proxy else {})
+    return urllib.request.build_opener(handler, NoRedirect).open(request, timeout=timeout)
+
+
+def post_json(url: str, headers: dict, body: dict, timeout: float = TIMEOUT, proxy: str = "") -> dict:
+    """Điểm duy nhất gọi mạng. Mọi lỗi, kể cả lỗi lạ, đổi thành AskError có mã ngắn (không bao giờ chứa nội dung trả về hay khóa)."""
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_url(request, timeout, proxy) as response:
             value = json.loads(response.read(4_000_000))
     except urllib.error.HTTPError as exc:
         raise AskError(f"http_{exc.code}") from None
     except TimeoutError:
         raise AskError("timeout") from None
-    except (urllib.error.URLError, OSError):
+    except (urllib.error.URLError, OSError, http.client.HTTPException):
         raise AskError("network") from None
     except ValueError:
         raise AskError("bad_shape") from None
+    except Exception:  # noqa: BLE001  (lỗi lạ của thư viện chuẩn: vẫn chỉ là một mã ngắn)
+        raise AskError("error") from None
     if not isinstance(value, dict):
         raise AskError("bad_shape")
     return value
@@ -99,7 +117,7 @@ def parse(text: str) -> dict:
         raise AskError("bad_shape") from None
     amount, when, bank = (value.get(key) for key in SHAPE[1:]) if isinstance(value, dict) else (None, None, None)
     ok = (isinstance(value, dict) and set(value) == set(SHAPE) and isinstance(value["is_transfer"], bool)
-          and (amount is None or (isinstance(amount, int) and not isinstance(amount, bool) and 0 <= amount < 10**13))
+          and (amount is None or (isinstance(amount, int) and not isinstance(amount, bool) and 0 < amount < 10**13))
           and (when is None or (isinstance(when, str) and TIME.fullmatch(when)))
           and (bank is None or (isinstance(bank, str) and re.fullmatch(r"[\w .&()\-]{1,60}", bank))))
     if not ok:
@@ -112,14 +130,15 @@ class Gemini:
 
     def __init__(self, env: dict | None = None, post=post_json):
         env = os.environ if env is None else env
-        self.post = post
+        self.proxy = (env.get("ZALO_AGENT_EXTERNAL_PROXY") or "").strip()   # chỉ khi cấu hình rõ mới đi qua proxy; mặc định không dùng proxy hệ thống
+        self.post = post if post is not post_json or not self.proxy else (lambda url, headers, body: post_json(url, headers, body, proxy=self.proxy))
         self.model = (env.get("ZALO_AGENT_GEMINI_MODEL") or "").strip()
         self.routes: dict[str, Route] = {}
         if (env.get("ZALO_AGENT_EXTERNAL") or "off").strip().lower() != "on" or not MODEL.fullmatch(self.model):
             return
         proxy, style, key = (env.get("ZALO_AGENT_GEMINI_PROXY") or "").strip().rstrip("/"), (env.get("ZALO_AGENT_GEMINI_PROXY_STYLE") or "openai").strip(), \
             (env.get("ZALO_AGENT_GEMINI_PROXY_KEY") or "").strip()
-        if re.fullmatch(r"https?://\S+", proxy) and style in ("openai", "gemini"):
+        if PROXY_URL.fullmatch(proxy) and style in ("openai", "gemini"):
             url = f"{proxy}/chat/completions" if style == "openai" else f"{proxy}/v1beta/models/{self.model}:generateContent"
             self.routes["gemini-proxy"] = Route("gemini-proxy", url, (("Authorization", f"Bearer {key}"),) if key else (), style, self.model)
         if (env.get("GEMINI_API_KEY") or "").strip():

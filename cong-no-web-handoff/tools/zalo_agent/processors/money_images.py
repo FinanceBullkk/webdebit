@@ -22,8 +22,10 @@ luận mà che được, ảnh đã che `redacted/<sha256 ảnh gốc>.jpg` (cù
 `hao` chỉ gửi chữ). Ảnh đã che nhớ ở `<root>/redacted/`; `redacted/*` không còn trong kết quả thì bị dọn trên `hao`. Mọi hội thoại trong danh
 sách đã chọn đều được xử lý, nhóm hay chat riêng 1-1 (không lọc theo `is_group`).
 
-Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_revision`, `scan_failed`, `push_failed`. Ảnh hỏng thử 3 lần rồi bỏ, chỉ đếm vào
-`counts.failed`. `--dry-run` không lưu con trỏ, không đẩy, không gửi ra ngoài (kho kết quả vẫn ghi: việc tại máy, idempotent).
+Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_revision`, `scan_failed`, `push_failed`. Ảnh hỏng (sai băm chỉ mục, không giải mã được)
+thử 3 lần rồi bỏ vào `failed` (cấm 1 ngày, `reread` vẫn đọc lại được), chỉ đếm vào `counts.failed`, không làm cả bộ xử lý báo lỗi.
+Engine không dùng được (thiếu thư viện, lỗi DLL, thiếu model) là `ocr_unavailable`, không phải lỗi của ảnh: không tính lần thử, không vào `failed`. `--dry-run` không lưu con trỏ, không đẩy, không gửi ra ngoài (kho kết quả
+vẫn ghi: việc tại máy, idempotent).
 """
 from __future__ import annotations
 
@@ -31,8 +33,9 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from pathlib import Path
 
 import zalo_web_bundle as wb
@@ -52,6 +55,24 @@ TRIES = 3
 RETRY_ASK = 600        # giây x số lần thử: chờ trước khi hỏi lại đường Gemini đã lỗi
 RESEND = 3600          # giây: gửi lại `money-reads.json` dù không đổi (hao mất file thì tự có lại)
 MAX_FAILED = 2000
+FAILED_BAN = 24 * 3600   # giây: ảnh đã thử đủ 3 lần rồi bỏ thì lần dựng lại sau 1 ngày mới thử lại (`reread` đọc lại được ngay)
+BROKEN = 60              # giây: engine chưa dùng được (`ocr_unavailable`) thì không hỏi lại và không đòi gom revision trong chừng này
+COOL = 30                # giây x 2^(lần liên tiếp - 1), tối đa x16: nghỉ sau khi tiến trình OCR chết hoặc quá giờ
+
+
+class Background:
+    """Chạy mỗi việc ở một luồng **daemon**: thoát agent (`--once`) không chờ OCR đang đọc dở (review L7). Chỉ có một việc mỗi lúc."""
+
+    def submit(self, function, *args) -> Future:
+        future: Future = Future()
+
+        def run() -> None:
+            try:
+                future.set_result(function(*args))
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+        threading.Thread(target=run, name="money_ocr", daemon=True).start()
+        return future
 
 
 class MoneyImagesProcessor:
@@ -68,13 +89,16 @@ class MoneyImagesProcessor:
         self.reads_target, self.run = reads_target, run
         self.cursor: dict | None = None
         self.future = None
+        self.broken_until = self.cool_until = 0.0
+        self.engine_failures = 0
         self.hidden_dir = self.reads.parent / "redacted"
-        self.unhideable: set[str] = set()   # ảnh không che được (không ô chữ): khỏi thử lại mỗi lần xuất
+        self.export_scope = None
+        self.export_dirty = True   # có gì đổi kể từ lần xuất trước (hoặc chưa xuất lần nào): chỉ khi đó mới dựng lại `money-reads.json`
 
     # ---------------------------------------------------------------- con trỏ (nguồn thật là bản trong bộ nhớ)
     def state(self) -> dict:
         if self.cursor is None:
-            self.cursor = {"todo": [], "members": {}, "canon": {}, "failed": [], **(cursors.load(self.dir, NAME) or {})}
+            self.cursor = {"todo": [], "members": {}, "canon": {}, "failed": {}, **(cursors.load(self.dir, NAME) or {})}
         return self.cursor
 
     def save(self, now: float) -> None:
@@ -110,69 +134,64 @@ class MoneyImagesProcessor:
         if any(answer is None or answer.get("error") for answer in answers):
             return None
         first, second = answers
-        agree = all(answer["is_transfer"] and isinstance(answer["amount_vnd"], int) for answer in answers) and first["amount_vnd"] == second["amount_vnd"]
-        return "gemini-2" if agree else "human"
+        positive = all(answer["is_transfer"] and isinstance(answer["amount_vnd"], int) and answer["amount_vnd"] > 0 for answer in answers)
+        return "gemini-2" if positive and first["amount_vnd"] == second["amount_vnd"] else "human"
+
+    def primary_read(self, done: list[dict]) -> dict | None:
+        """Kết quả của engine hiện tại: đúng phiên bản nếu có, không thì bản mới nhất của cùng engine (sau khi đổi engine hay `ANALYSIS`, ảnh cũ
+        chưa được đọc lại thì vẫn có số để xuất, không ném)."""
+        mine = [read for read in done if read.get("engine") == self.engine.name]
+        exact = [read for read in mine if read.get("version") == self.engine.version]
+        return max(exact or mine, key=lambda read: read.get("read_at", ""), default=None)
 
     def export_bytes(self, members: dict) -> bytes:
         """`{"schema": 1, "reads": {sha256: {by, amount_vnd, txn_time, bank, reads: [{engine, version, amount_vnd, confidence}]}}}` cho ảnh
-        có dấu hiệu tiền và đã có kết luận. Không chữ OCR, không số tài khoản, không tên, không ô chữ; `human` thì số tiền để trống (số OCR
-        đoán nằm trong `reads` kèm độ tin cậy). Không có giờ tạo file nên không đổi dữ liệu thì không đổi byte."""
+        có dấu hiệu tiền, đã có kết luận và đã quyết xong chuyện ảnh đã che (có file hoặc không che được: để `hao` không gửi chữ trước rồi mới có
+        ảnh). Không chữ OCR, không số tài khoản, không tên, không ô chữ; `human` thì số tiền để trống (số OCR đoán nằm trong `reads` kèm độ tin
+        cậy). Không có giờ tạo file nên không đổi dữ liệu thì không đổi byte."""
         items = {}
         for sha, member in sorted(members.items()):
             by = member.get("by")
-            if by is None:
+            if by is None or member.get("hidden") is None:
                 continue
             done = [read for read in reads.for_image(self.reads, sha) if not read.get("error")]
             item = {"by": by, "amount_vnd": None, "txn_time": None, "bank": None,
                     "reads": [{"engine": read["engine"], "version": read["version"], "amount_vnd": read.get("amount_vnd"),
                                "confidence": read.get("confidence")} for read in done]}
             if by == "ocr":
-                primary = next(read for read in done if read["engine"] == self.engine.name and read["version"] == self.engine.version)
-                item.update({key: primary.get(key) for key in ("amount_vnd", "txn_time", "bank")})
+                primary = self.primary_read(done)
+                item.update({key: (primary or {}).get(key) for key in ("amount_vnd", "txn_time", "bank")})
             elif by == "gemini-2":
-                first, second = (next(read for read in done if read["engine"] == name) for name in gemini_module.ROUTES)
+                found = {read["engine"]: read for read in done if read["engine"] in gemini_module.ROUTES}
+                first, second = (found.get(name, {}) for name in gemini_module.ROUTES)
                 item.update({key: first.get(key) if first.get(key) == second.get(key) else None for key in ("amount_vnd", "txn_time", "bank")})
             items[sha] = item
         return json.dumps({"schema": 1, "reads": items}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
     def redacted_files(self, members: dict) -> list[pusher.Item]:
-        """Ảnh đã che của mọi ảnh đã có kết luận mà che được. Dựng khi cần và nhớ trong `<root>/redacted/`; thiếu Pillow hay file nguồn tạm
-        không đọc được thì bỏ qua lượt này (lần xuất sau thử lại), không che được vì không có ô chữ thì không bao giờ có file."""
-        items = []
-        for sha, member in sorted(members.items()):
-            if member.get("by") is None or sha in self.unhideable:
-                continue
-            path = self.hidden_dir / f"{sha}.jpg"
-            if not path.is_file():
-                try:
-                    primary = reads.load(self.reads, sha, self.engine.name, self.engine.version)
-                    data = self.load_image(member)
-                    hidden = redact.redact(data, primary, self.prepare) if data and primary else None
-                except (ocr.OcrUnavailable, OSError):
-                    continue
-                except Exception:  # noqa: BLE001
-                    hidden = None
-                if hidden is None:
-                    self.unhideable.add(sha)
-                    continue
-                self.hidden_dir.mkdir(parents=True, exist_ok=True)
-                tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
-                tmp.write_bytes(hidden[0])
-                retry_io(lambda tmp=tmp, path=path: os.replace(tmp, path))
-            items.append(pusher.Item(f"redacted/{sha}.jpg", path, immutable=True))
-        return items
+        """Ảnh đã che đã dựng sẵn (ở luồng nền) của mọi ảnh trong tập xuất. Chỉ liệt kê file, không giải mã gì ở vòng chính."""
+        return [pusher.Item(f"redacted/{sha}.jpg", self.hidden_dir / f"{sha}.jpg", immutable=True)
+                for sha, member in sorted(members.items()) if member.get("by") is not None and member.get("hidden") is True]
 
     def export(self, now: float) -> str | None:
-        """Đẩy `money-reads.json` khi đổi (hoặc mỗi giờ). Chỉ xuất khi `members` đúng với nhóm đang chọn; chọn rỗng thì xuất rỗng."""
+        """Đẩy `money-reads.json` và `redacted/*` khi có đổi (cờ bẩn, không dựng lại mỗi giây) hoặc mỗi giờ. Chỉ xuất khi `members` đúng với
+        nhóm đang chọn; chọn rỗng thì xuất rỗng."""
         cursor, selection = self.state(), self.live.selection()
         if not self.reads_target or self.dry_run:
+            return None
+        due = now - cursor.get("pushed_at", 0) >= RESEND
+        scope = cursors.selection_sha256(selection) if selection else ""
+        if scope != self.export_scope:   # đổi nhóm đã chọn (kể cả bỏ chọn hết) cũng là có đổi
+            self.export_dirty = True
+        if not (self.export_dirty or due):
             return None
         if selection and cursor.get("selection_sha256") != cursors.selection_sha256(selection):
             return None   # vừa đổi nhóm, chưa dựng lại: members còn của nhóm cũ
         members = cursor["members"] if selection else {}
         data = self.export_bytes(members)
         digest = hashlib.sha256(data).hexdigest()
-        if digest == cursor.get("pushed_sha") and now - cursor.get("pushed_at", 0) < RESEND:
+        if digest == cursor.get("pushed_sha") and not due:
+            self.export_dirty, self.export_scope = False, scope
             return None
         try:
             plan = pusher.Plan(self.reads_target, tuple(self.redacted_files(members)), pusher.Item(EXPORT, data), ("redacted/*",))
@@ -180,6 +199,7 @@ class MoneyImagesProcessor:
         except pusher.PushError:
             return "push_failed"
         cursor.update(pushed_sha=digest, pushed_at=now)
+        self.export_dirty, self.export_scope = False, scope
         self.save(now)
         return None
 
@@ -187,8 +207,8 @@ class MoneyImagesProcessor:
     def wants_work(self) -> bool:
         """Có revision mới hoặc phải dựng lại (vòng lặp gom 3 giây). Hàng chờ OCR không tính: nó tự chạy mỗi nhịp."""
         revision, selection, cursor = self.live.revision(), self.live.selection(), self.state()
-        if revision is None or not selection:
-            return False
+        if revision is None or not selection or self.clock() < self.broken_until:
+            return False   # engine hỏng: không đòi gom 3 giây mỗi vòng cho cả agent (review L8)
         if cursor.get("revision") is None or revision != cursor["revision"]:
             return True
         return cursors.rebuild_reason(cursor, revision, self.live.baseline_sha256(), selection, self.clock()) is not None
@@ -201,7 +221,8 @@ class MoneyImagesProcessor:
         for key, item in ((read_json(self.live.dir / "media-index.json", {}) or {}).get("items") or {}).items():
             if isinstance(item, dict) and isinstance(item.get("client_message_id"), str) and item.get("mime") in MIMES:
                 by_message.setdefault(item["client_message_id"], []).append({**item, "id": item.get("id") or key})
-        waiting, failed = {item["raw"] for item in cursor["todo"]}, set(cursor["failed"])
+        waiting, now = {item["raw"] for item in cursor["todo"]}, self.clock()
+        failed = {raw for raw, entry in cursor["failed"].items() if now - entry["at"] < FAILED_BAN}
         version = self.engine.version
         for row in rows:
             stamp = int(row["timestamp"]) if str(row.get("timestamp", "")).isdigit() else 0
@@ -214,6 +235,8 @@ class MoneyImagesProcessor:
                 found = sha and reads.load(self.reads, sha, self.engine.name, version)
                 if found:   # đã đọc (cùng engine và phiên bản): không đọc lại, chỉ vào tập `members`
                     cursor["members"][sha] = {**entry, "verdict": ocr.verdict(found), "by": self.decide(sha, found)}
+                    if (self.hidden_dir / f"{sha}.jpg").is_file():
+                        cursor["members"][sha]["hidden"] = True
                 else:
                     cursor["todo"].append({**entry, "tries": 0})
                     waiting.add(raw)
@@ -234,6 +257,7 @@ class MoneyImagesProcessor:
             rows = [row for row in self.live.rows_for(ids, conversations) if row.get("message_type") in wb.IMAGE_TYPES and not row.get("deleted")]
         self.add_rows(rows)
         cursor.update(revision=revision, baseline_sha256=baseline, selection_sha256=cursors.selection_sha256(selection))
+        self.export_dirty = True
         self.save(now)
 
     # ---------------------------------------------------------------- việc của luồng nền: đọc OCR một ảnh, hỏi Gemini một ảnh
@@ -264,6 +288,8 @@ class MoneyImagesProcessor:
             return {"raw": raw, "status": "ok", "sha": sha, "verdict": ocr.verdict(found)}
         except ocr.OcrUnavailable:
             return {"raw": raw, "status": "unavailable"}
+        except ocr.OcrFailure:   # tiến trình OCR chết hoặc quá giờ: lỗi của engine, chưa chắc của ảnh
+            return {"raw": raw, "status": "engine_error"}
         except Exception:  # noqa: BLE001  (ảnh hỏng không được làm chết luồng nền)
             return {"raw": raw, "status": "error"}
 
@@ -273,47 +299,89 @@ class MoneyImagesProcessor:
         with (self.reads.parent / "sent.jsonl").open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(line) + "\n")
 
+    def hidden_bytes(self, sha: str, member: dict) -> bytes | None:
+        """Ảnh đã che của một ảnh (luồng nền): file đã dựng thì đọc lại, chưa thì dựng, nhớ ở `<root>/redacted/`. None khi không che được."""
+        path = self.hidden_dir / f"{sha}.jpg"
+        if path.is_file():
+            return retry_io(path.read_bytes)
+        primary = reads.load(self.reads, sha, self.engine.name, self.engine.version) or self.primary_read(reads.for_image(self.reads, sha))
+        data = self.load_image(member)
+        hidden = redact.redact(data, primary, self.prepare) if data and primary else None
+        if hidden is None:
+            return None
+        self.hidden_dir.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+        tmp.write_bytes(hidden[0])
+        retry_io(lambda: os.replace(tmp, path))
+        return hidden[0]
+
+    def hide(self, sha: str, member: dict) -> dict:
+        try:
+            return {"kind": "hide", "sha": sha, "status": "hidden" if self.hidden_bytes(sha, member) is not None else "unhideable"}
+        except ocr.OcrUnavailable:
+            return {"kind": "hide", "sha": sha, "status": "unavailable"}
+        except Exception:  # noqa: BLE001
+            return {"kind": "hide", "sha": sha, "status": "error"}
+
     def ask(self, sha: str, member: dict) -> dict:
         """Che ảnh rồi gửi cả hai đường (đường đã có kết quả thì thôi). Không che được thì không gửi gì (Q3)."""
         try:
-            primary = reads.load(self.reads, sha, self.engine.name, self.engine.version)
-            data = self.load_image(member)
-            hidden = redact.redact(data, primary, self.prepare) if data and primary else None
+            hidden = self.hidden_bytes(sha, member)
             if hidden is None:
-                return {"sha": sha, "status": "no_image"}
+                return {"kind": "ask", "sha": sha, "status": "no_image"}
             for name in gemini_module.ROUTES:
                 have = reads.load(self.reads, sha, name, self.gemini.model)
                 if have and (not have.get("error") or have.get("tries", 0) >= TRIES):
                     continue
                 entry = {"engine": name, "version": self.gemini.model, "read_at": cursors.now_iso(self.clock()), "confidence": None}
                 try:
-                    entry.update(self.gemini.ask(name, hidden[0]))
+                    entry.update(self.gemini.ask(name, hidden))
                     self.sent(sha, name, "ok")
                 except gemini_module.AskError as exc:
                     entry.update(error=exc.code, tries=(have or {}).get("tries", 0) + 1)
                     self.sent(sha, name, exc.code)
+                except Exception:  # noqa: BLE001  (lỗi lạ khi gửi: cũng tính một lần thử của đường đó)
+                    entry.update(error="error", tries=(have or {}).get("tries", 0) + 1)
+                    self.sent(sha, name, "error")
                 reads.save(self.reads, sha, entry)
-            return {"sha": sha, "status": "ok"}
+            return {"kind": "ask", "sha": sha, "status": "ok"}
         except ocr.OcrUnavailable:
-            return {"sha": sha, "status": "unavailable"}
-        except Exception:  # noqa: BLE001
-            return {"sha": sha, "status": "error"}
+            return {"kind": "ask", "sha": sha, "status": "unavailable"}
+        except Exception:  # noqa: BLE001  (thiếu file media cũ, ghi đĩa lỗi…)
+            return {"kind": "ask", "sha": sha, "status": "error"}
 
-    def finish_ask(self, outcome: dict, now: float) -> None:
+    def finish_job(self, outcome: dict, now: float) -> None:
+        """Áp kết quả việc hỏi Gemini hoặc dựng ảnh che vào `members` (luồng chính)."""
         member = self.state()["members"].get(outcome["sha"])
         if member is None:
             return
-        if outcome["status"] == "no_image":
-            member["by"] = "human"
+        status = outcome["status"]
+        if outcome["kind"] == "hide":
+            if status in ("hidden", "unhideable"):
+                member["hidden"] = status == "hidden"
+            else:   # lỗi lạ: thử lại sau, đủ 3 lần thì coi như không che được (hao chỉ gửi chữ)
+                member["hide_tries"] = member.get("hide_tries", 0) + 1
+                member["next_hide"] = now + RETRY_ASK * member["hide_tries"]
+                if member["hide_tries"] >= TRIES:
+                    member["hidden"] = False
             return
-        primary = reads.load(self.reads, outcome["sha"], self.engine.name, self.engine.version)
-        member["by"] = self.decide(outcome["sha"], primary)
+        if status == "no_image":
+            member["by"], member["hidden"] = "human", False
+            return
+        if status == "error":   # thiếu file media cũ, lỗi lạ: cũng đếm lần thử, đủ 3 lần thì để người xem (không lặp mỗi giây)
+            member["ask_tries"] = member.get("ask_tries", 0) + 1
+            member["next_ask"] = now + RETRY_ASK * member["ask_tries"]
+            if member["ask_tries"] >= TRIES:
+                member["by"] = "human"
+            return
+        member["hidden"] = True   # `hidden_bytes` đã dựng xong file trước khi gửi
+        member["by"] = self.decide(outcome["sha"], reads.load(self.reads, outcome["sha"], self.engine.name, self.engine.version))
         if member["by"] is None:   # đường Gemini lỗi: hỏi lại sau, lâu dần
             tries = max((reads.load(self.reads, outcome["sha"], name, self.gemini.model) or {}).get("tries", 1) for name in gemini_module.ROUTES)
             member["next_ask"] = now + RETRY_ASK * tries
 
     def collect(self) -> tuple[bool, str | None]:
-        """(đã thu một việc, mã lỗi). Chỉ luồng chính đụng con trỏ; luồng nền chỉ ghi kho kết quả và `sent.jsonl`."""
+        """(đã thu một việc, mã lỗi). Chỉ luồng chính đụng con trỏ; luồng nền chỉ ghi kho kết quả, ảnh đã che và `sent.jsonl`."""
         future, self.future = self.future, None
         if future is None:
             return False, None
@@ -325,12 +393,19 @@ class MoneyImagesProcessor:
         except Exception:  # noqa: BLE001
             return False, None
         cursor, now = self.state(), self.clock()
-        if outcome["status"] == "unavailable":
+        if outcome["status"] == "unavailable":   # thiếu thư viện, lỗi nạp DLL, thiếu model, thiếu Pillow: không tính lần thử, không vào `failed`
+            self.broken_until = now + BROKEN
             return False, "ocr_unavailable"
-        if "raw" not in outcome:   # việc hỏi Gemini
-            self.finish_ask(outcome, now)
+        self.export_dirty = True
+        if "kind" in outcome:   # việc hỏi Gemini hoặc dựng ảnh che
+            self.finish_job(outcome, now)
             self.save(now)
             return True, None
+        if outcome["status"] == "engine_error":
+            self.engine_failures += 1
+            self.cool_until = now + COOL * 2 ** min(self.engine_failures - 1, 4)
+        elif outcome["status"] == "ok":
+            self.engine_failures = 0
         item = next((todo for todo in cursor["todo"] if todo["raw"] == outcome["raw"]), None)
         if item is None:   # nhóm bị bỏ chọn trong lúc đọc: kết quả nằm trong kho nhưng không vào `members`
             return True, None
@@ -344,32 +419,48 @@ class MoneyImagesProcessor:
             item["tries"] += 1
             if item["tries"] >= TRIES:
                 cursor["todo"].remove(item)
-                cursor["failed"] = [*cursor["failed"], item["raw"]][-MAX_FAILED:]
+                cursor["failed"][item["raw"]] = {"file": item["file"], "ts": item["ts"], "at": now}
+                for old in sorted(cursor["failed"], key=lambda raw: cursor["failed"][raw]["at"])[:-MAX_FAILED]:
+                    del cursor["failed"][old]
         self.save(now)
         return True, None
 
     def submit(self, now: float) -> None:
+        """Một việc mỗi lúc, theo thứ tự: đọc OCR ảnh mới nhất, hỏi Gemini, dựng ảnh đã che (chỉ khi có đích xuất)."""
         cursor = self.state()
         if self.future is not None:
             return
         if self.executor is None:
-            self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="money_ocr")
+            self.executor = Background()
+        members = cursor["members"]
         if cursor["todo"]:
-            self.future = self.executor.submit(self.process, dict(max(cursor["todo"], key=lambda item: item["ts"])), self.engine)   # mới nhất trước
-        elif self.asking():
-            due = [(member["ts"], sha) for sha, member in cursor["members"].items()
-                   if member.get("verdict") == "unsure" and member.get("by") is None and now >= member.get("next_ask", 0)]
+            if now >= self.cool_until:   # tiến trình OCR vừa chết: nghỉ rồi mới đọc tiếp
+                self.future = self.executor.submit(self.process, dict(max(cursor["todo"], key=lambda item: item["ts"])), self.engine)   # mới nhất trước
+            return
+        due = [(member["ts"], sha) for sha, member in members.items()
+               if self.asking() and member.get("verdict") == "unsure" and member.get("by") is None and now >= member.get("next_ask", 0)]
+        if due:
+            sha = max(due)[1]
+            self.future = self.executor.submit(self.ask, sha, dict(members[sha]))
+            return
+        if self.reads_target and not self.dry_run:
+            due = [(member["ts"], sha) for sha, member in members.items()
+                   if member.get("by") is not None and member.get("hidden") is None and now >= member.get("next_hide", 0)]
             if due:
                 sha = max(due)[1]
-                self.future = self.executor.submit(self.ask, sha, dict(cursor["members"][sha]))
+                self.future = self.executor.submit(self.hide, sha, dict(members[sha]))
 
     def step(self) -> dict:
         now = self.clock()
-        try:
-            _ = self.engine.version   # thiếu engine: báo ngay, đừng để hàng chờ rỗng che mất lỗi
-        except ocr.OcrUnavailable:
-            return self.result("idle", "ocr_unavailable")
-        worked, error = self.collect()
+        worked, error = self.collect()   # luôn thu trước: kết quả của lần đọc đang chạy không được kẹt lại
+        if error is None and now >= self.broken_until:
+            try:
+                _ = self.engine.version   # thiếu engine: báo ngay, đừng để hàng chờ rỗng che mất lỗi
+            except ocr.OcrUnavailable:
+                self.broken_until = now + BROKEN
+                error = "ocr_unavailable"
+        if error or now < self.broken_until:   # engine chưa dùng được: không phát hiện, không nộp việc, khỏi hỏi lại mỗi giây
+            return self.result("read" if worked else "idle", error or "ocr_unavailable")
         revision, selection = self.live.revision(), self.live.selection()
         if revision is None:
             return self.result("read" if worked else "idle", error or "no_revision")
@@ -384,14 +475,17 @@ class MoneyImagesProcessor:
     # ---------------------------------------------------------------- `zalo_agent reread`
     def reread(self, engine, since_ms: int) -> dict:
         """Đọc lại ảnh đã nhận (`members`) có giờ gửi >= `since_ms` bằng `engine` (engine hoặc phiên bản mới), giữ kết quả cũ cạnh bên.
-        Cùng engine và phiên bản thì bỏ qua. Chỉ ghi kho kết quả, không đụng con trỏ. Ném `OcrUnavailable` khi thiếu engine."""
+        Cùng engine và phiên bản thì bỏ qua. Gồm cả ảnh đã bị bỏ vào `failed` (thử lại bằng engine mới). Chỉ ghi kho kết quả, không đụng
+        con trỏ (ảnh `failed` đọc được thì lần dựng lại sau hết hạn cấm sẽ nhận nó từ kho). Ném `OcrUnavailable` khi thiếu engine."""
         version = engine.version
+        cursor = self.state()
         counts = {"wanted": 0, "read": 0, "had": 0, "failed": 0}
-        for sha, member in sorted(self.state()["members"].items(), key=lambda pair: -pair[1]["ts"]):
+        candidates = list(cursor["members"].items()) + [(None, {"raw": raw, **entry}) for raw, entry in cursor["failed"].items()]
+        for sha, member in sorted(candidates, key=lambda pair: -pair[1]["ts"]):
             if member["ts"] < since_ms:
                 continue
             counts["wanted"] += 1
-            if reads.load(self.reads, sha, engine.name, version):
+            if sha and reads.load(self.reads, sha, engine.name, version):
                 counts["had"] += 1
                 continue
             outcome = self.process(member, engine)
