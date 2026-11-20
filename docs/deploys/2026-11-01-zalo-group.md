@@ -91,9 +91,21 @@ Người dùng duyệt trong chat ("Sửa luôn") sau khi Claude báo lỗi.
   - 0 file khác nhóm;
   - `GET /api/v7/zalo/report` qua Tailscale trả `BUNDLED`, 1 group, 367 tin.
 - **Máy có Zalo còn chạy code cũ:** lượt đẩy 00:11 lại làm mất setgid. Khi máy đó cập nhật `zalo_web_bundle.py` bản mới, trả quyền thêm một lần nữa là xong.
+- **Lần cuối (01:29 giờ VN, 20/11/2026):** máy có Zalo đã chạy bản có `umask 027`. Trả quyền lại bằng đúng ba lệnh trên; nhật ký `sudo` trên `hao` có ghi.
+
+### Kiểm lại sau các lượt đẩy bằng code mới (20/11/2026)
+
+- Task `WebdebitZaloSync` chạy `zalo_web_bundle.py` từ checkout `main` trên máy có Zalo. Bản đó đã có `umask 027`, lượt chạy gần nhất trả mã 0.
+- Ba lượt đẩy lúc 08:42, 08:56 và 09:12 (giờ VN) tạo thư mục dữ liệu và file mới:
+  - thư mục `drwxr-s---` nhóm `v7app`, file `-rw-r-----` nhóm `v7app`;
+  - thư mục gốc vẫn `drwxr-s---` nhóm `v7app`;
+  - 0 mục khác nhóm, 0 thư mục mất setgid.
+- `sudo -u v7app` đọc được `export-report.json`.
+- `GET /api/v7/zalo/report` qua Tailscale trả 200 `BUNDLED`: 1 group, 367 tin.
+- Không thêm `aohanh` vào nhóm `v7app`. Không đổi role, nhóm hay quyền ngoài runbook.
+- Lưu ý: task chạy code ngay trong checkout `main`, nên máy đó dùng bản mới chỉ khi checkout ấy đã kéo về.
 
 ## CÒN MỞ
 
-- Máy có Zalo cập nhật `zalo_web_bundle.py` có `umask 027`; sau đó trả quyền `/srv/v7/zalo-bundle` lần cuối.
 - Người dùng chọn group đưa lên web (`zalo_web_bundle.py add`). Đã có 1 group từ 19/11/2026.
 - Người dùng tự đi hết luồng trên web thật: đọc chat, đánh dấu, gắn sổ, xem ở thẻ Trao đổi.
