@@ -122,10 +122,12 @@
         if (result?.error === 'STALE') { confirming = editing = null; await load(); fail(result.message); }
         return false;
       }
+      // Báo "Đã …" chỉ sau khi đọc lại và vẽ xong bảng: không để câu báo đi trước số trên bảng.
       confirming = editing = null;
-      flash(done);
       fail('');
+      flash('');
       await load();
+      flash(done);
       return true;
     } catch {
       fail('Mất kết nối tới máy chủ. Bấm Đọc lại để xem đã lưu chưa.');
