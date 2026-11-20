@@ -143,6 +143,8 @@ class InsuranceProcessor:
         self.store = Path(store) if store else live.dir / STORE
         self.run, self.dry_run, self.clock, self.resync = run, dry_run, clock, resync
         self.memory: dict | None = None   # --dry-run: nhớ trong tiến trình, không ghi đĩa
+        self.seen: dict | None = None     # snapshot đọc lần trước: {key: (cỡ, mtime_ns), raw, sha, at}
+        self.unreadable = False           # lần đọc snapshot gần nhất lỗi khác "không có file"
 
     def result(self, action: str, error: str | None = None, sent: int = 0, reason: str | None = None) -> dict:
         return {"action": action, "revision": None, "error": error, "bytes_sent": sent, "reason": reason}
@@ -166,13 +168,31 @@ class InsuranceProcessor:
             entries.append((path.name, stat.st_size, stat.st_mtime_ns))
         return hashlib.sha256(json.dumps(entries).encode()).hexdigest()
 
+    def read_snapshot(self, now: float) -> tuple[bytes | None, str | None]:
+        """(nội dung, sha256). Vòng lặp gọi mỗi giây nên chỉ đọc và băm lại khi (cỡ, mtime_ns) đổi hoặc đã quá `resync` giây
+        (mốc an toàn nếu hai lần ghi liền nhau trùng cả cỡ lẫn mtime). Đọc qua `retry_io`: trên Windows `insurance_sync` đang
+        giữ file thì tạm bị từ chối. Không có file là None; lỗi đọc khác là None và `unreadable`."""
+        self.unreadable = False
+        try:
+            stat = self.snapshot.stat()
+            key = (stat.st_size, stat.st_mtime_ns)
+            seen = self.seen
+            if seen and seen["key"] == key and 0 <= now - seen["at"] < self.resync:
+                return seen["raw"], seen["sha"]
+            raw = retry_io(self.snapshot.read_bytes)
+        except FileNotFoundError:
+            self.seen = None
+            return None, None
+        except OSError:
+            self.unreadable = True
+            return None, None
+        self.seen = {"key": key, "raw": raw, "sha": hashlib.sha256(raw).hexdigest(), "at": now}
+        return raw, self.seen["sha"]
+
     def look(self) -> tuple[bytes | None, str | None, str]:
         """(nội dung snapshot, sha256 của nó, chữ ký kho PDF); rẻ: snapshot cỡ vài chục KB, kho cỡ vài chục file."""
-        try:
-            raw = self.snapshot.read_bytes()
-        except OSError:
-            raw = None
-        return raw, hashlib.sha256(raw).hexdigest() if raw is not None else None, self.store_signature()
+        raw, sha = self.read_snapshot(self.clock())
+        return raw, sha, self.store_signature()
 
     def wants_work(self) -> bool:
         """Có đổi tại máy (snapshot hoặc kho PDF): vòng lặp gom 3 giây rồi mới xử lý. Lần hỏi định kỳ không tính."""
@@ -220,18 +240,24 @@ class InsuranceProcessor:
         raw, sha, signature = self.look()
         saved = self.load()
         if raw is None:   # chưa từng có snapshot (chưa cài insurance_sync): im; từng có rồi mất: lỗi
+            if self.unreadable:
+                return self.result("idle", "snapshot_unreadable")
             return self.result("idle", "no_snapshot" if saved.get("snapshot_sha256") else None)
         asked = saved.get("checked_at")
         due = sha != saved.get("snapshot_sha256") or signature != saved.get("store_sig") or \
             not isinstance(asked, (int, float)) or now - asked >= self.resync or asked > now
-        if not due:
-            return self.result("idle")
+        if not due:   # PDF thiếu cả ở máy lẫn trên hao: lỗi giữ nguyên tới khi PDF về kho (kho đổi thì `due`)
+            return self.result("idle", "pdf_missing" if saved.get("pdf_missing") else None)
         try:
             rows = build_rows(json.loads(raw))
         except (ValueError, SnapshotError):
             return self.result("idle", "snapshot_invalid")
         if not rows:   # không bao giờ để một snapshot rỗng dọn sạch `hao`
             return self.result("idle", "empty_snapshot")
+        # Bản gốc (`insurance_web.build`) vẫn ghi dòng thiếu/sai `sha256`, nhưng bộ đọc trên hao (`load_insurance_snapshot`) từ chối cả
+        # file, và `wanted` thiếu dòng đó sẽ dọn PDF: từ chối đẩy để hao giữ bản tốt cuối cùng.
+        if any(not row["sha256"] or not SHA_RE.fullmatch(row["sha256"]) for row in rows):
+            return self.result("idle", "snapshot_invalid")
         try:
             web = self.web_bytes(rows, now)
         except OSError:
@@ -239,16 +265,20 @@ class InsuranceProcessor:
         wanted = {row["sha256"] for row in rows if row["sha256"] and SHA_RE.fullmatch(row["sha256"])}
         found, cache = self.scan(wanted, saved.get("pdf_cache") if isinstance(saved.get("pdf_cache"), dict) else {})
         names = {digest: f"pdf/{digest}.pdf" for digest in wanted}
-        plan = pusher.Plan(self.target, tuple(pusher.Item(names[digest], path, immutable=True) for digest, path in sorted(found.items())),
+        plan = pusher.Plan(self.target, tuple(pusher.Item(names[digest], path, immutable=True, check=digest) for digest, path in sorted(found.items())),
                            pusher.Item(WEB, web), ("pdf/*",), keep=tuple(names[digest] for digest in sorted(wanted - set(found))))
-        sent, skipped, shipped = 0, True, []
+        sent, skipped, shipped, absent = 0, True, [], 0
         if not self.dry_run:
             try:
                 done = pusher.push(plan, run=self.run)
             except pusher.PushError:
                 self.save({**saved, "pdf_cache": cache}, now)   # băm PDF khỏi làm lại; snapshot_sha256 giữ cũ nên lượt sau thử lại
                 return self.result("retry", "push_failed")
-            sent, skipped, shipped = done["bytes"], done["skipped"], done["sent"]
-        self.save({"snapshot_sha256": sha, "store_sig": signature, "checked_at": now, "pdf_cache": cache}, now)
-        reason = f"rows={len(rows)} pdf_sent={sum(name.startswith('pdf/') for name in shipped)} missing_local={len(wanted) - len(found)}"
-        return self.result("idle" if skipped else "push", sent=sent, reason=reason)
+            if done["rejected"]:   # PDF đổi sau lần băm (nội dung không còn khớp tên): không gửi, băm lại lượt sau
+                changed = {path.name for digest, path in found.items() if names[digest] in done["rejected"]}
+                self.save({**saved, "pdf_cache": {name: entry for name, entry in cache.items() if name not in changed}}, now)
+                return self.result("retry", "pdf_changed")
+            sent, skipped, shipped, absent = done["bytes"], done["skipped"], done["sent"], len(done["missing"])
+        self.save({"snapshot_sha256": sha, "store_sig": signature, "checked_at": now, "pdf_cache": cache, "pdf_missing": absent}, now)
+        reason = f"rows={len(rows)} pdf_sent={sum(name.startswith('pdf/') for name in shipped)} missing_local={len(wanted) - len(found)} missing_on_hao={absent}"
+        return self.result("idle" if skipped else "push", "pdf_missing" if absent else None, sent=sent, reason=reason)

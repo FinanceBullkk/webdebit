@@ -25,9 +25,19 @@ sys.path.insert(0, str(ROOT / "web"))
 import v7_insurance_queue as queue  # noqa: E402  (phía đọc trên hao: bản gọn phải qua được cổng kiểm của nó)
 import zalo_web_bundle as wb  # noqa: E402
 from test_zalo_agent import BUNDLE_REMOTE, STATUS_REMOTE, Remote  # noqa: E402
-from test_zalo_web_bundle import BASH, GROUP, NOW, FakeCdn, no_jxl, write_source  # noqa: E402
+from test_zalo_web_bundle import (  # noqa: E402
+    BASH,
+    GROUP,
+    KHACH,
+    NOW,
+    FakeCdn,
+    no_jxl,
+    row,
+    write_source,
+)
 from zalo_agent import __main__ as agent_main  # noqa: E402
 from zalo_agent import push as pusher  # noqa: E402
+from zalo_agent import source as source_module  # noqa: E402
 from zalo_agent import status as status_file  # noqa: E402
 from zalo_agent.processors import insurance as ins  # noqa: E402
 from zalo_agent.processors.insurance import InsuranceProcessor  # noqa: E402
@@ -83,7 +93,7 @@ def regen(original: Path) -> None:
         GOLDEN.write_bytes((Path(tmp) / "o.json").read_bytes())
 
 
-class InsuranceTest(unittest.TestCase):
+class InsuranceCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -125,6 +135,9 @@ class InsuranceTest(unittest.TestCase):
             self.put_pdf(name)
         self.put_pdf("d")   # PDF của kho không thuộc giấy nào: không được gửi
 
+
+
+class InsuranceTest(InsuranceCase):
     # --- bản gọn: hợp đồng giữ nguyên ---
     def test_web_file_is_byte_identical_to_the_original_build_and_to_the_golden_file(self):
         self.start()
@@ -324,7 +337,7 @@ class InsuranceTest(unittest.TestCase):
         self.processor.step()
         text = (self.state / "insurance.json").read_text(encoding="utf-8")
         saved = json.loads(text)
-        self.assertEqual(set(saved), {"snapshot_sha256", "store_sig", "checked_at", "pdf_cache", "updated_at"})
+        self.assertEqual(set(saved), {"snapshot_sha256", "store_sig", "checked_at", "pdf_cache", "pdf_missing", "updated_at"})
         for secret in PRIVATE:
             self.assertNotIn(secret, text)
 
@@ -370,7 +383,7 @@ class InsuranceTest(unittest.TestCase):
         self.assertEqual(again["error_since"], status_file.now_iso(NOW))      # vẫn lỗi: giữ mốc
         mode["fail"] = False
         clock["t"] += 600
-        agent.retry_at = 0.0
+        agent.retry_at = dict.fromkeys(agent.retry_at, 0.0)
         status = agent.cycle(force_status=True)
         ok = status["processors"]["insurance"]
         self.assertEqual((ok["error"], ok["error_since"], ok["last_ok_at"]), (None, None, status_file.now_iso(NOW + 1200)))
@@ -397,11 +410,15 @@ class InsuranceTest(unittest.TestCase):
         self.assertEqual([processor.name for processor in agent.processors], ["bundle"])
         write_source(self.src)
         wb.Source(self.src).save_selection([GROUP])
-        done = subprocess.run([sys.executable, "-X", "utf8", "-I", str(ROOT / "tools" / "zalo_agent"), "run", "--once", "--dry-run",
-                                             "--max-fetch", "0", "--live-sync", str(self.src), "--root", str(self.root / "cli"),
-                                             "--insurance-store", str(self.store)], capture_output=True, check=False, timeout=120)
-        self.assertEqual(done.returncode, 0, done.stderr.decode("utf-8", "replace"))
-        self.assertEqual(json.loads(done.stdout.decode("utf-8"))["processors"]["insurance"]["error"], None)
+        base = [sys.executable, "-X", "utf8", "-I", str(ROOT / "tools" / "zalo_agent"), "run", "--once", "--dry-run", "--max-fetch", "0",
+                "--live-sync", str(self.src), "--insurance-store", str(self.store)]
+        off = subprocess.run([*base, "--root", str(self.root / "cli-off")], capture_output=True, check=False, timeout=120)
+        self.assertEqual(off.returncode, 0, off.stderr.decode("utf-8", "replace"))
+        self.assertNotIn("insurance", json.loads(off.stdout.decode("utf-8"))["processors"])   # mặc định TẮT: chưa bật thì không ghi /srv/v7/insurance
+        on = subprocess.run([*base, "--root", str(self.root / "cli-on"), "--insurance-target", "hao:/srv/v7/insurance"],
+                            capture_output=True, check=False, timeout=120)
+        self.assertEqual(on.returncode, 0, on.stderr.decode("utf-8", "replace"))
+        self.assertEqual(json.loads(on.stdout.decode("utf-8"))["processors"]["insurance"]["error"], None)
 
     @unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn shell phía máy chủ")
     def test_real_shell_matches_the_python_fake_for_the_insurance_plan(self):
@@ -425,6 +442,233 @@ class InsuranceTest(unittest.TestCase):
                               for path in real.dirs[INS_REMOTE].rglob("*") if path.is_file()}, f"bước {index}")
         self.assertEqual(sorted(name for name in self.hao_files() if name.startswith("pdf/")),
                          sorted(f"pdf/{SHA[name]}.pdf" for name in "ad"))
+
+
+class InsuranceRobustnessTest(InsuranceCase):
+    """Các ca từ review PR-3: PDF đổi giữa chừng, dòng sai sha256, PDF mất ở cả hai nơi, cache stat của snapshot."""
+
+    def test_row_with_missing_or_bad_sha256_is_refused_so_the_server_keeps_its_good_file(self):
+        self.start()
+        self.processor.step()
+        before = self.hao_files()
+        for bad in (None, "", "khong-phai-hex", "A" * 64):
+            self.now += 60
+            self.put_snapshot(fake_snapshot([fake_row("GIA-001", "a", "TEST0000001"), {**fake_row("GIA-009", "b", "TEST0000009"), "sha256": bad}]))
+            calls = len(self.remote.calls)
+            result = self.processor.step()
+            self.assertEqual((result["action"], result["error"]), ("idle", "snapshot_invalid"))
+            self.assertEqual((self.hao_files(), len(self.remote.calls)), (before, calls))   # không đẩy, không dọn pdf/*
+
+    def test_pdf_missing_on_both_sides_is_reported_and_stays_until_the_pdf_arrives(self):
+        self.put_snapshot()
+        self.put_pdf("a")
+        self.put_pdf("b")                                                     # thiếu PDF c ở máy, hao cũng chưa có
+        first = self.processor.step()
+        self.assertEqual((first["action"], first["error"]), ("push", "pdf_missing"))   # đã đẩy phần có, nhưng không im lặng
+        self.assertIn("missing_on_hao=1", first["reason"])
+        self.now += 60
+        self.assertEqual(self.processor.step()["error"], "pdf_missing")        # lượt không có gì mới vẫn báo, không nhấp nháy
+        self.put_pdf("c")
+        self.assertTrue(self.processor.wants_work())
+        done = self.processor.step()
+        self.assertEqual((done["action"], done["error"]), ("push", None))
+        self.assertEqual(self.processor.step()["error"], None)
+        local_only = self.make(dry_run=True)                                  # dry-run không hỏi hao nên không kết luận được: không báo
+        self.assertIsNone(local_only.step()["error"])
+
+    def test_pdf_missing_locally_but_present_on_hao_is_not_an_error(self):
+        self.start()
+        self.processor.step()
+        for path in self.store.glob("*.pdf"):
+            if path.read_bytes() == PDFS["b"]:
+                path.unlink()
+        self.now += 60
+        self.assertEqual(self.processor.step()["error"], None)
+
+    def test_pdf_whose_content_changed_after_hashing_is_not_sent_under_the_old_name(self):
+        self.put_snapshot()
+        self.put_pdf("b")
+        self.put_pdf("c")
+        wrong = self.store / ("9" * 64 + ".pdf")
+        wrong.write_bytes(PDFS["d"])                                          # nội dung d, nhưng cache (cũ) tin là a
+        stat = wrong.stat()
+        self.state.mkdir(parents=True)
+        (self.state / "insurance.json").write_text(json.dumps({"pdf_cache": {wrong.name: [stat.st_size, stat.st_mtime_ns, SHA["a"]]}}), encoding="utf-8")
+        result = self.processor.step()
+        self.assertEqual((result["action"], result["error"]), ("retry", "pdf_changed"))
+        self.assertNotIn(f"pdf/{SHA['a']}.pdf", self.hao_files())              # không gửi nội dung sai dưới tên a
+        saved = json.loads((self.state / "insurance.json").read_text(encoding="utf-8"))
+        self.assertNotIn(wrong.name, saved["pdf_cache"])                      # cache bỏ file đó: lượt sau băm lại
+        self.assertNotIn("snapshot_sha256", saved)                            # chưa tiến: lượt sau vẫn đẩy
+        self.now += 10
+        after = self.processor.step()
+        self.assertEqual(after["error"], "pdf_missing")                        # băm lại ra d, không ai dùng; a thiếu ở cả hai nơi
+        self.assertNotIn(f"pdf/{SHA['a']}.pdf", self.hao_files())
+
+    def test_snapshot_is_hashed_only_when_stat_changes_or_resync_is_due_and_retries_a_locked_file(self):
+        self.start()
+        reads = []
+        real = ins.retry_io
+        with patch.object(ins, "retry_io", lambda action, *a, **k: (reads.append(1) if getattr(action, "__name__", "") == "read_bytes" else None, real(action, *a, **k))[1]):
+            self.processor.step()
+            for _ in range(5):
+                self.now += 1
+                self.processor.wants_work()
+                self.processor.step()
+            self.assertEqual(len(reads), 1)                                   # mỗi giây một lượt, vẫn một lần đọc
+            self.now += ins.RESYNC
+            self.processor.step()
+            self.assertEqual(len(reads), 2)                                   # mốc an toàn: đọc lại sau 15 phút dù stat không đổi
+            self.put_snapshot(fake_snapshot([fake_row("GIA-001", "a", "TEST0000001")]))
+            self.processor.step()
+            self.assertEqual(len(reads), 3)                                   # stat đổi
+        self.assertEqual(self.hao_web()["row_count"], 1)
+
+    def test_locked_snapshot_is_retried_then_reported_as_unreadable(self):
+        self.start()
+        real = self.src / "insurance-snapshot.json"
+
+        class Locked:
+            def __init__(self, fails):
+                self.fails = fails
+
+            def stat(self):
+                return real.stat()
+
+            def read_bytes(self):
+                if self.fails:
+                    self.fails -= 1
+                    raise PermissionError(5, "Access is denied")
+                return real.read_bytes()
+        with patch.object(source_module, "PAUSE", 0):
+            self.processor.snapshot = Locked(2)                               # insurance_sync đang giữ file tạm thời
+            self.assertEqual(self.processor.step()["error"], None)
+            self.assertEqual(self.hao_web()["row_count"], 5)
+            self.processor.seen = None
+            self.processor.snapshot = Locked(99)                              # giữ mãi
+            self.assertFalse(self.processor.wants_work())
+            self.assertEqual(self.processor.step()["error"], "snapshot_unreadable")
+
+
+class AgentIsolationTest(unittest.TestCase):
+    """Lùi dần riêng từng bộ xử lý và `--dry-run` của `bundle` giữ con trỏ trong bộ nhớ."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.src, self.root = base / "live-sync", base / "agent"
+        self.src.mkdir()
+        (base / "remote").mkdir()
+        write_source(self.src)
+        wb.Source(self.src).save_selection([GROUP])
+        (self.src / "remote-media-store").mkdir()
+        (self.src / "poller-identity.json").write_text(json.dumps({"status": "attached"}), encoding="utf-8")
+        self.remote = Remote(base / "remote")
+        self.remote.dirs[INS_REMOTE] = base / "remote" / "insurance"
+        self.remote.dirs[INS_REMOTE].mkdir()
+        self.clock = {"t": NOW}
+        self.live = LiveSync(self.src)
+
+    def make_agent(self, run=None, **kwargs):
+        def sleep(seconds):
+            self.clock["t"] += seconds
+        agent = agent_main.Agent(self.live, self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=run or self.remote,
+                                 clock=lambda: self.clock["t"], sleep=sleep, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None,
+                                 insurance_target=kwargs.pop("insurance_target", "fake:" + INS_REMOTE), **kwargs)
+        self.addCleanup(agent.release)
+        return agent
+
+    def put_snapshot(self, snapshot):
+        (self.src / "insurance-snapshot.json").write_bytes(dump(snapshot))
+
+    def publish(self, body):
+        revision = self.live.revision() + 1
+        name = f"z{revision}"
+        lines = (self.src / "messages.jsonl").read_text(encoding="utf-8").splitlines()
+        lines.append(json.dumps(row(GROUP, name, KHACH, 1_700_000_200_000 + revision, body), ensure_ascii=False))
+        (self.src / "messages.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (self.src / f"changes-{revision}.json").write_text(json.dumps({"revision": revision, "added": [name], "updated": [], "deleted": []}),
+                                                         encoding="utf-8")
+        (self.src / "revision.json").write_text(json.dumps({"revision": revision, "message_publish_epoch_ms": int(self.clock["t"] * 1000)}),
+                                                encoding="utf-8")
+
+    def hao_deltas(self) -> int:
+        found = list(self.remote.dirs[BUNDLE_REMOTE].glob("data-*/messages-delta.jsonl"))
+        return sum(len(path.read_text(encoding="utf-8").splitlines()) for path in found)
+
+    def test_insurance_push_failures_never_slow_the_chat_bundle(self):
+        self.put_snapshot(fake_snapshot())
+        for name in "abc":
+            (self.src / "remote-media-store" / (name * 8 + ".pdf")).write_bytes(PDFS[name])
+
+        def run(host, command, stdin=None):
+            if INS_REMOTE in command:                                         # /srv/v7/insurance mất setgid như 19/11
+                raise pusher.PushError("hao từ chối")
+            return self.remote(host, command, stdin)
+        agent = self.make_agent(run)
+        agent.tick()
+        self.assertEqual((agent.last["bundle"]["error"], agent.last["insurance"]["error"]), (None, "push_failed"))
+        self.assertEqual((agent.failures["bundle"], agent.retry_at["bundle"]), (0, 0.0))
+        self.assertEqual(agent.failures["insurance"], 1)
+        self.assertGreaterEqual(agent.retry_at["insurance"], self.clock["t"] + 59)
+        steps = []
+        original = agent.processors[1].step
+        agent.processors[1].step = lambda: (steps.append(1), original())[1]
+        for number in range(3):                                               # gói chat vẫn chạy mỗi nhịp và đẩy được
+            self.publish(f"tin số {number}")
+            agent.tick()
+            self.assertEqual((agent.last["bundle"]["action"], agent.last["bundle"]["error"]), ("delta", None))
+            self.assertEqual(agent.ran, ["bundle"])
+        self.assertEqual(self.hao_deltas(), 3)
+        self.assertEqual(steps, [])                                           # bảo hiểm đang lùi: không chạm hao
+        status = agent.cycle(force_status=True)
+        self.assertEqual((status["processors"]["bundle"]["error"], status["processors"]["insurance"]["error"]), (None, "push_failed"))
+        self.assertIsNone(status["push"]["error"])                            # `push` chỉ là nhịp tim, không gom lỗi của bộ xử lý
+
+    def test_local_insurance_errors_do_not_make_the_bundle_retry_every_ten_seconds(self):
+        self.put_snapshot(fake_snapshot([]))                                  # snapshot rỗng: empty_snapshot
+        agent = self.make_agent()
+        agent.tick()
+        self.assertEqual(agent.last["insurance"]["error"], "empty_snapshot")
+        self.assertEqual((agent.retry_at["bundle"], agent.failures["bundle"]), (0.0, 0))
+        self.assertAlmostEqual(agent.retry_at["insurance"], self.clock["t"] + 10, delta=1)
+        sleeps = []
+        agent.sleep = lambda seconds: (sleeps.append(seconds), self.clock.__setitem__("t", self.clock["t"] + seconds))[1]
+        agent.tick()
+        self.assertEqual((agent.ran, sleeps), (["bundle"], []))               # bảo hiểm còn đợi 10 giây: chỉ bundle chạy, không gom 3 giây
+        self.publish("tin mới")
+        agent.tick()
+        self.assertEqual((agent.last["bundle"]["action"], sleeps), ("delta", [agent_main.SETTLE]))
+
+    def test_a_broken_wants_work_does_not_stop_the_other_processor(self):
+        agent = self.make_agent()
+        self.publish("tin mới")
+        agent.processors[1].wants_work = lambda: (_ for _ in ()).throw(RuntimeError("lỗi bất ngờ"))
+        agent.cycle()
+        self.publish("tin nữa")
+        self.assertTrue(agent.wants_work())                                   # bundle vẫn báo có việc
+        agent.processors[0].wants_work = lambda: False
+        self.assertFalse(agent.wants_work())                                  # không ném lỗi ra vòng lặp
+
+    def test_dry_run_loop_builds_the_bundle_once_not_every_few_seconds(self):
+        built = []
+        real = wb.build
+
+        def counting(*args, **kwargs):
+            built.append(1)
+            return real(*args, **kwargs)
+        agent = self.make_agent(dry_run=True, insurance_target="")
+        with patch.object(wb, "build", counting):
+            for _ in range(6):
+                agent.tick()
+        self.assertEqual(len(built), 1)
+        self.assertEqual(self.remote.calls, [])
+        self.assertFalse((self.root / "state" / "bundle.json").exists())      # vẫn không lưu con trỏ ra đĩa
+        self.publish("tin mới")                                               # có tin mới thì dry-run vẫn xử lý phần thêm, không dựng lại
+        with patch.object(wb, "build", counting):
+            agent.tick()
+        self.assertEqual((len(built), agent.last["bundle"]["action"]), (1, "delta"))
 
 
 class PlanKeepTest(unittest.TestCase):

@@ -48,8 +48,10 @@ class Agent:
                                                       snapshot=insurance_snapshot, store=insurance_store, run=run, dry_run=dry_run, clock=clock))
         self.last = {}
         self.last_status_at = 0.0
-        self.retry_at = 0.0
-        self.failures = 0
+        # Lùi dần RIÊNG từng bộ xử lý: lỗi của bộ này không bao giờ làm bộ khác chạy chậm đi.
+        self.retry_at = {processor.name: 0.0 for processor in self.processors}
+        self.failures = {processor.name: 0 for processor in self.processors}
+        self.ran: list[str] = []   # tên các bộ xử lý đã chạy ở lượt `cycle` gần nhất
         self.push_ok_at = None
         self.push_error = None
         self.lock_handle = None
@@ -82,12 +84,15 @@ class Agent:
             self.lock_handle = None
 
     def cycle(self, force_status: bool = False, run_steps: bool = True) -> dict | None:
-        """Một lượt: chạy từng bộ xử lý (trừ khi `run_steps` False: chỉ nhịp tim, dùng lúc lùi sau lỗi), ghi `status.json`
-        và đẩy khi có đổi hoặc đủ một phút."""
+        """Một lượt: chạy từng bộ xử lý không đang lùi sau lỗi (`run_steps` False: không chạy bộ nào, chỉ nhịp tim), ghi
+        `status.json` và đẩy khi có đổi hoặc đủ một phút. Bộ đang lùi giữ nguyên kết quả lượt trước trong `status.json`."""
         if not self.lock():
             return None
         results = dict(self.last)
-        for processor in self.processors if run_steps else ():
+        started = self.clock()
+        due = [processor for processor in self.processors if run_steps and started >= self.retry_at[processor.name]]
+        self.ran = [processor.name for processor in due]
+        for processor in due:
             try:
                 results[processor.name] = processor.step()
             except Exception as exc:  # noqa: BLE001  (một bộ xử lý lỗi không được làm chết cả agent)
@@ -125,25 +130,33 @@ class Agent:
         return status
 
     def wants_work(self) -> bool:
-        return any(processor.wants_work() for processor in self.processors)
+        """Có bộ xử lý nào (không đang lùi) cần gom revision. Mỗi bộ bọc `try` riêng: một bộ hỏng không chặn bộ khác."""
+        now = self.clock()
+        wanted = False
+        for processor in self.processors:
+            if now < self.retry_at[processor.name]:
+                continue
+            try:
+                wanted = processor.wants_work() or wanted
+            except Exception as exc:  # noqa: BLE001
+                self.log.error("%s: wants_work %s", processor.name, type(exc).__name__)
+        return wanted
 
     def tick(self) -> None:
-        if self.clock() < self.retry_at:
-            self.cycle(run_steps=False)   # đang lùi sau lỗi: không chạm máy chủ ngoài nhịp tim mỗi phút
-            return
         if self.wants_work():
             self.sleep(SETTLE)
         self.cycle()
-        errors = {result["error"] for result in self.last.values() if result["error"]}
-        if not errors:
-            self.failures, self.retry_at = 0, 0.0
-        elif "push_failed" in errors:   # máy chủ hoặc mạng: lùi dần để khỏi ssh liên tục
-            self.failures += 1
-            delay = backoff(self.failures)
-            self.retry_at = self.clock() + delay
-            self.log.warning("lỗi đẩy lần %d liên tiếp: lùi %d giây", self.failures, delay)
-        else:                           # lỗi cục bộ (thiếu file, dựng gói lỗi…): thử lại sớm để hết lỗi là mốc error_since về null
-            self.failures, self.retry_at = 0, self.clock() + LOCAL_RETRY
+        for name in self.ran:
+            error = self.last[name]["error"]
+            if not error:
+                self.failures[name], self.retry_at[name] = 0, 0.0
+            elif error == "push_failed":   # máy chủ hoặc mạng: lùi dần bộ này để khỏi ssh liên tục
+                self.failures[name] += 1
+                delay = backoff(self.failures[name])
+                self.retry_at[name] = self.clock() + delay
+                self.log.warning("%s: lỗi đẩy lần %d liên tiếp: lùi %d giây", name, self.failures[name], delay)
+            else:                           # lỗi cục bộ (thiếu file, dựng gói lỗi…): thử lại sớm để hết lỗi là mốc error_since về null
+                self.failures[name], self.retry_at[name] = 0, self.clock() + LOCAL_RETRY
 
     def forever(self, interval: float = 1.0) -> None:
         while True:
@@ -151,7 +164,8 @@ class Agent:
                 self.tick()
             except Exception as exc:  # noqa: BLE001  (không gì được làm chết vòng lặp: pythonw chết thì chết im lặng)
                 self.log.error("vòng lặp: %s", type(exc).__name__)
-                self.retry_at = self.clock() + LOCAL_RETRY
+                for name in self.retry_at:
+                    self.retry_at[name] = self.clock() + LOCAL_RETRY
             self.sleep(interval)
 
 
@@ -180,8 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--root", default=os.environ.get("ZALO_AGENT_ROOT", r"D:\zalo-agent"))
     run.add_argument("--target", default=os.environ.get("ZALO_AGENT_TARGET", "hao:/srv/v7/zalo-bundle"))
     run.add_argument("--status-target", default=os.environ.get("ZALO_AGENT_STATUS_TARGET", "hao:/srv/v7/zalo-agent"))
-    run.add_argument("--insurance-target", default=os.environ.get("ZALO_AGENT_INSURANCE_TARGET", "hao:/srv/v7/insurance"),
-                     help="đích giấy bảo hiểm; rỗng thì tắt bộ xử lý insurance")
+    run.add_argument("--insurance-target", default=os.environ.get("ZALO_AGENT_INSURANCE_TARGET", ""),
+                     help="đích giấy bảo hiểm, ví dụ hao:/srv/v7/insurance; MẶC ĐỊNH RỖNG = tắt bộ xử lý insurance (chỉ bật ở bước "
+                          "tắt ZaloInsurancePush, để hai đường không ghi song song)")
     run.add_argument("--insurance-snapshot", default=os.environ.get("ZALO_INSURANCE_SNAPSHOT"), help="mặc định: <live-sync>/insurance-snapshot.json")
     run.add_argument("--insurance-store", default=os.environ.get("ZALO_INSURANCE_STORE"), help="mặc định: <live-sync>/remote-media-store")
     run.add_argument("--max-fetch", type=int, default=50, help="số ảnh tối đa tải từ Zalo mỗi lượt")
