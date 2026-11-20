@@ -47,10 +47,18 @@ Bản sao dựng từ dump trước khi nâng (17:48), áp migration, chạy hai
 - Lượt hộp việc đầu sau khởi động: `ready`, 244 sổ, 0 sổ lỗi, journal API không có lỗi. Không còn chuyến nào phải tách (công cụ đã làm hết lúc 18:00), nên số dư, tổng phụ phí, phiếu thu, điều chỉnh, khóa tháng và số khoản theo loại trùng trước/sau.
 - Từ lượt runner giá kế tiếp, chuyến mới có cột tên rõ (`过磅`, `LOCAL CHARGE`...) và ô cộng đúng TOTAL − đơn giá được máy tách ngay sau khi ghi giá.
 
+## Bổ sung 20/11: ô âm thành Giảm trừ (08:52)
+
+- #536 merge `7db6a1c`, `Deploy hao` tự lên (không có SQL): `.release-sha` = `7db6a1c`, `/healthz` 200. Máy đối soát không chạy.
+- Backup toàn phần (`pg_restore --list` 1027 dòng), đo trước, ghi bằng công cụ (`--apply`, user của API): 14 dòng ở 5 sổ, cả lượt 55 giây, 0 lỗi; 2 dòng khớp nhiều chuyến để nguyên.
+- Trước/sau trùng: số dư từng khách và tháng, tổng phụ phí từng chuyến và dòng sổ gốc, `receipt_line`, số điều chỉnh, số phiếu thu. Checker 9/9.
+- Khóa tháng: 6 tháng ở 5 sổ được mở rồi khóa lại trong cùng giây (event `month_lock` false → true), không tháng nào bỏ mở. Dấu vân `month_state` đổi vì 6 tháng này trước chưa có dòng (mặc định khóa), nay có dòng `locked=true`; trạng thái thực không đổi.
+- Khoản theo loại, trước → sau: Giảm trừ 103 → 112, Neo 1.209 → 1.220, Điện 287 → 293, Khác 437 → 434, Phụ phí ban đầu 911 → 902.
+
 ## Rollback
 
 - Máy: bỏ `headers` khỏi `auto-sheet.conf`, `daemon-reload`, restart API.
 - Khoản đã tách: mỗi chuyến có event `rewrite_trip_fees` kèm `before`; đổi lại loại trong khung chi tiết phụ phí, hoặc restore dump.
 - Danh mục: loại chưa có khoản thì tắt bằng `set_fee_type_active`; release cũ chạy được với DB mới.
 
-**Bằng chứng:** thư mục `backup-20261119-tach-phi-loai` trong `/srv/v7` trên `hao`, ngoài Git (quyền 700): dump trước khi thử và trước khi nâng kèm sha256, SQL và script đã chạy, kết quả đếm và ghi, phép đo trước/sau, checker.
+**Bằng chứng:** thư mục `backup-20261119-tach-phi-loai` trong `/srv/v7` trên `hao`, ngoài Git (quyền 700): dump trước khi thử, trước khi nâng và trước khi ghi giảm trừ (20/11) kèm sha256, SQL và script đã chạy, kết quả đếm và ghi, phép đo trước/sau, checker.
