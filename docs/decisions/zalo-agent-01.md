@@ -28,7 +28,7 @@ Sáu câu Q1–Q6:
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 20/11/2026. Chưa code. Thay A1 và A4 của [`ZALO-THU-CHI-01`](zalo-thu-chi-01.md); A2 đổi thành "bản mới nhất theo `message_id` thắng, dòng xóa thì ẩn tin".
+ĐÃ CHỐT 20/11/2026. Chưa code. Thay A1 và A4 của [`ZALO-THU-CHI-01`](zalo-thu-chi-01.md); A2 đổi thành "bản mới nhất theo `message_id` thắng; tin xóa hiện giống bản dựng đầy đủ" (chỉnh 20/11/2026 khi ghép PR-1 và PR-2, xem hợp đồng dữ liệu trong spec).
 
 Vẫn phải hỏi người dùng trước khi:
 

@@ -97,7 +97,7 @@ Bộ xử lý nhận hai loại kích hoạt:
    - mỗi đêm một lần, như A1 cũ.
 4. Đọc `revision.json` trước rồi mới đọc `messages.jsonl`. Có thể `messages.jsonl` đã mới hơn `R`; không sao, vì lượt sau xử lý lại theo quy tắc 2.
 
-**Gói chat theo phần thêm.** Bộ xử lý `bundle` ghi tin thêm và tin sửa vào `messages-delta.jsonl`. Tin xóa ghi một dòng `{message_id, deleted: true}`. Vì vậy A2 trên `hao` đổi từ "tin trùng thì giữ một" thành **"bản mới nhất theo `message_id` thắng; dòng xóa thì ẩn tin"**.
+**Gói chat theo phần thêm.** Bộ xử lý `bundle` ghi tin thêm và tin sửa vào `messages-delta.jsonl`. Tin xóa ghi một dòng `deleted` (khuôn ở [hợp đồng dữ liệu](#hợp-đồng-dữ-liệu-giữa-máy-zalo-và-hao)). Vì vậy A2 trên `hao` đổi từ "tin trùng thì giữ một" thành **"bản mới nhất theo `message_id` thắng; tin xóa hiện giống bản dựng đầy đủ"**.
 
 **Chạy nền.** Task Scheduler bật `zalo-agent` lúc đăng nhập và chạy lại khi chết, **kể cả khi chạy pin**, một bản duy nhất (`IgnoreNew`). Lệnh: `pythonw -X utf8 -I …\zalo_agent run`. Có `--once` để chạy tay và `--dry-run` để không đẩy.
 
@@ -192,7 +192,7 @@ Hiện ở trang Thu chi (một dòng nhỏ dưới tiêu đề) và trong `summ
  "push": {"last_ok_at": "…", "error": null}}
 ```
 
-Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ dòng cuối của `poller.log` (`attached`, `waiting_for_zalo`, `reprobing`).
+Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ `poller-identity.json` của live-sync (`attached`, `waiting_for_zalo`, `reprobing`).
 
 **Ở `hao`:**
 
@@ -201,9 +201,9 @@ Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ dòng
   - "Zalo chưa mở trên máy Zalo";
   - "Chậm 12 phút";
   - "Không nghe máy Zalo từ 08:05".
-- `tools/v7_watchdog.py` thêm phép kiểm `zalo`, chỉ trong 7:00–20:00 giờ VN và chỉ khi đã chọn ít nhất một nhóm:
+- `tools/v7_watchdog.py` thêm phép kiểm `zalo`, chỉ trong 7:00–20:00 giờ VN, chỉ khi đã có `status.json` và đã chọn ít nhất một nhóm:
   - `status.json` cũ quá 15 phút → "máy Zalo im lặng";
-  - `waiting_for_zalo` quá 15 phút → "Zalo chưa mở";
+  - `waiting_for_zalo` quá 15 phút (tính từ `identity_since`) → "Zalo chưa mở";
   - một bộ xử lý chậm quá 15 phút → "chậm".
 - Báo qua kênh email có sẵn ([`CANH-BAO-01`](../docs/decisions/canh-bao-01.md)). Hết lỗi thì có email "đã ổn".
 
@@ -221,28 +221,34 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 - Mỗi dòng của delta:
   - tin thêm hoặc sửa: cùng khuôn với một dòng `messages.jsonl` của gói (đã làm sạch như `build`);
   - tin xóa: `{"message_id": "…", "conversation_id": "…", "timestamp": "<ms>", "deleted": true}`.
-- **Bản cuối cùng theo `message_id` thắng**, xét theo thứ tự: `messages.jsonl` rồi tới delta từ trên xuống. Dòng `deleted` thì ẩn tin.
+- **Bản cuối cùng theo `message_id` thắng**, xét theo thứ tự: `messages.jsonl` rồi tới delta từ trên xuống.
+- Dòng `deleted` trong delta hiện **giống hệt** tin có `deleted: true` trong một bản dựng đầy đủ (cùng nhãn, cùng chỗ), để lần dựng lại mỗi đêm không đổi những gì người dùng thấy.
+- `data-<…>/media.json` và `data-<…>/users.json` có thể được **thay tại chỗ** khi delta có ảnh hoặc người gửi mới. `hao` đọc lại hai file này mỗi khi `export-report.json` đổi.
 - `export-report.json` thêm ba trường; các trường cũ giữ nguyên, kể cả `bundle_sha256` (băm của `messages.jsonl`):
   - `delta_bytes` (int): số byte hợp lệ của delta, 0 khi chưa có;
   - `delta_lines` (int);
   - `revision` (int): revision của live-sync đã gồm trong gói.
 - `hao` đọc delta từ byte đã đọc tới đúng `delta_bytes`, không đọc quá. Nhờ vậy dòng đang ghi dở không bao giờ được đọc.
 - `data_dir` hoặc `bundle_sha256` đổi thì lập chỉ mục lại từ đầu.
-- Thứ tự đẩy: delta và ảnh mới trước, `export-report.json` `mv` sau cùng.
+- Thứ tự đẩy: delta, `media.json`, `users.json` và ảnh mới trước; `export-report.json` `mv` sau cùng; dọn file không còn trong danh sách giữ **sau** khi `mv` file chốt, để file chốt cũ không bao giờ trỏ tới thư mục đã xóa.
 
 **Nhịp tim `/srv/v7/zalo-agent/status.json`.** Đường dẫn đọc từ biến môi trường `WEBDEBIT_ZALO_AGENT_STATUS` (mặc định như trên).
 
 ```json
 {"schema": 1, "at": "2026-11-20T08:04:00+07:00", "agent_version": "<sha commit>", "selected_groups": 1,
- "live_sync": {"revision": 1129, "revision_at": "2026-11-20T08:03:51+07:00", "identity": "attached"},
+ "live_sync": {"revision": 1129, "revision_at": "2026-11-20T08:03:51+07:00", "identity": "attached",
+               "identity_since": "2026-11-20T08:03:10+07:00"},
  "processors": {"bundle": {"revision": 1129, "lag_revisions": 0, "last_ok_at": "…", "error": null}},
  "push": {"last_ok_at": "…", "error": null}}
 ```
 
-- `identity` ∈ `attached`, `waiting_for_zalo`, `reprobing`, `unknown`.
+- `identity` ∈ `attached`, `waiting_for_zalo`, `reprobing`, `unknown`; lấy từ `poller-identity.json` của live-sync.
+- `identity_since`: lúc `identity` đổi sang giá trị hiện tại (agent tự ghi nhận). `hao` đo "Zalo chưa mở quá 15 phút" bằng trường này; thiếu thì dùng `revision_at`.
+- `live_sync.revision` và `revision_at` là `null` khi agent không đọc được `revision.json`.
 - `error` là mã ngắn `[a-z_]{1,40}` hoặc `null`, không chữ tự do.
 - Giờ là ISO 8601 có `+07:00`.
-- Thiếu file, đọc lỗi hoặc `schema` khác 1 thì `hao` coi như "không nghe máy Zalo", không báo lỗi trang.
+- **Thiếu file** (chưa bật agent): tab Máy chạy hiện "Chưa có máy Zalo báo về", máy canh im.
+- **File đọc lỗi, `schema` khác 1, hoặc `at` cũ quá 15 phút**: "Không nghe máy Zalo từ …"; máy canh báo theo Phần 6. Không báo lỗi trang.
 - Bộ xử lý chưa có thì không có khóa; `hao` chỉ hiện các khóa có mặt.
 
 Thư mục `/srv/v7/zalo-agent` trên `hao` (nhóm `v7app`, `drwxr-s---`) do Claude tạo bằng `sudo` ở bước Chuyển, theo đúng cách của `/srv/v7/zalo-bundle`.
@@ -302,7 +308,7 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   - quét 131 MB dưới 2 giây (đo trên máy có Zalo, ghi số).
 - [ ] PR-1: test của `push.py`: kịch bản máy chủ có `umask 027`, không có `chmod`, file chốt `mv` sau cùng; không đổi gì thì không gửi tar.
 - [ ] PR-1: thử trên `hao` ở thư mục tạm có setgid, đẩy hai lượt: mọi thư mục giữ `drwxr-s---` nhóm `v7app`, `v7app` đọc được; xóa thư mục tạm. Ghi nhật ký.
-- [ ] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, ẩn tin xóa; `after=` chỉ trả tin mới hơn.
+- [ ] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `after=` chỉ trả tin mới hơn.
 - [ ] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm.
 - [ ] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px.
 - [ ] Chuyển: một ngày làm việc trên máy thật, tin mới lên web trong **30 giây** (p95, từ `revision_at` tới `status.json` trên `hao`); khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp, không mất tin. Ghi số trong nhật ký.
