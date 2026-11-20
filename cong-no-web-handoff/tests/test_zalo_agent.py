@@ -373,6 +373,12 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(dry.step()["action"], "rebuild")
         self.assertEqual(self.remote.calls, [])
         self.assertTrue((self.out / wb.REPORT).is_file())
+        self.assertIsNone(cursors.load(self.root / "state", "bundle"))   # không lưu con trỏ, kể cả `pending`
+        self.assertEqual(list((self.root / "state").glob("*")) if (self.root / "state").exists() else [], [])
+        # Lượt thật ngay sau đó vẫn đẩy gói, không coi như đã đẩy.
+        result = self.processor.step()
+        self.assertEqual((result["action"], result["reason"], result["error"]), ("rebuild", "first_run", None))
+        self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())
         self.assertEqual(cursors.load(self.root / "state", "bundle")["revision"], 87)
 
     def test_failed_first_push_keeps_pending_and_retry_does_not_rebuild(self):
@@ -584,8 +590,9 @@ class SourceStatusTest(unittest.TestCase):
         self.assertEqual(second["processors"]["bundle"]["error"], "unexpected")                       # chữ tự do bị thay bằng mã
         self.assertEqual(second["processors"]["bundle"]["last_ok_at"], first["processors"]["bundle"]["last_ok_at"])   # lỗi thì giữ mốc cũ
         self.assertNotIn("100.1.2.3", json.dumps(second))
-        self.assertEqual(status_file.compose(second, NOW, "v", 0, self.live, {"bundle": {"revision": 80, "error": "push_failed"}}, None, None,
-                                                ("unknown", "x"))["push"]["error"], "push_failed")
+        pushed = status_file.compose(second, NOW, "v", 0, self.live, {"bundle": {"revision": 80, "error": "push_failed"}}, None, None, ("unknown", "x"))
+        self.assertEqual((pushed["push"]["error"], pushed["processors"]["bundle"]["error"]), (None, "push_failed"))   # `push` chỉ là đường đẩy nhịp tim
+        self.assertEqual(status_file.compose(second, NOW, "v", 0, self.live, {}, None, "push_failed", ("unknown", "x"))["push"]["error"], "push_failed")
 
     def test_error_since_marks_when_the_error_started_not_when_it_last_changed(self):
         state, status = Path(self.tmp.name) / "state", None
@@ -633,7 +640,8 @@ class SourceStatusTest(unittest.TestCase):
         self.addCleanup(again.release)
         status = again.cycle(force_status=True)
         self.assertEqual(status["processors"]["bundle"]["error_since"], status_file.now_iso(NOW))
-        self.assertEqual(status["push"]["error_since"], status_file.now_iso(NOW))
+        again.cycle(force_status=True)                                # đường đẩy nhịp tim cũng lỗi: `push` có mốc riêng, không lẫn lỗi bộ xử lý
+        self.assertEqual(again.cycle(force_status=True)["push"]["error_since"], status_file.now_iso(NOW + 7200))
 
     def test_identity_since_changes_only_when_identity_changes_and_survives_restart(self):
         state = Path(self.tmp.name) / "state"
@@ -686,9 +694,13 @@ class AgentCycleTest(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "state" / "identity.json").read_text(encoding="utf-8"))["identity"], "attached")
         self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())
         calls = len(self.remote.calls)
+        for path in (self.root / "state").iterdir():
+            if path.name != "agent.lock":   # khóa còn do agent đầu giữ
+                path.unlink()
         quiet = self.agent(dry_run=True)
         quiet.cycle(force_status=True)
         self.assertEqual(len(self.remote.calls), calls)
+        self.assertEqual(sorted(path.name for path in (self.root / "state").iterdir()), ["agent.lock"])   # không con trỏ, status.json, identity.json
 
     def test_one_agent_at_a_time_and_stale_lock_file_never_blocks(self):
         agent, other = self.agent(), self.agent()
@@ -793,10 +805,10 @@ class AgentCycleTest(unittest.TestCase):
         self.assertEqual(agent.last["bundle"]["error"], "no_revision")
         self.assertEqual({round(later - earlier) for earlier, later in itertools.pairwise(steps)}, {10})   # đúng 10 giây, không tăng dần
         (self.src / "revision.json").write_text(json.dumps({"revision": 87}), encoding="utf-8")
-        agent.retry_at, clock["limit"] = 0.0, float("inf")
+        agent.retry_at["bundle"], clock["limit"] = 0.0, float("inf")
         agent.tick()                                                  # hết lỗi: về null ngay lượt sau
         self.assertIsNone(agent.last["bundle"]["error"])
-        self.assertEqual(agent.failures, 0)
+        self.assertEqual(agent.failures["bundle"], 0)
 
     def test_identity_change_pushes_status_at_once(self):
         agent = self.agent()
@@ -852,7 +864,7 @@ class AgentCycleTest(unittest.TestCase):
                                "--max-fetch", "0", "--live-sync", str(self.src), "--root", str(self.root)], capture_output=True, check=False, timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr.decode("utf-8", "replace"))
         self.assertEqual(json.loads(done.stdout.decode("utf-8"))["processors"]["bundle"]["error"], None)
-        self.assertTrue((self.root / "state" / "status.json").is_file())
+        self.assertFalse((self.root / "state" / "status.json").exists())   # --dry-run không lưu trạng thái
         self.assertTrue((self.root / "logs" / "agent.log").is_file())
 
 

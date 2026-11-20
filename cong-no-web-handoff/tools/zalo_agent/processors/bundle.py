@@ -44,6 +44,17 @@ class BundleProcessor:
         self.live, self.state, self.out, self.target = live, Path(state), Path(work), target
         self.run, self.dry_run, self.fetch, self.transcode = run, dry_run, fetch, transcode
         self.max_fetch, self.max_age_days, self.clock = max_fetch, max_age_days, clock
+        self.memory: dict | None = None   # --dry-run: con trỏ chỉ nhớ trong tiến trình, không ghi đĩa
+
+    def load(self) -> dict | None:
+        return self.memory if self.dry_run and self.memory is not None else cursors.load(self.state, NAME)
+
+    def save(self, cursor: dict, now: float) -> None:
+        """`--dry-run` làm hết ở máy nhưng không lưu con trỏ ra đĩa (lượt thật sau đó vẫn đẩy phần chưa tới `hao`); con trỏ chỉ
+        sống trong tiến trình để vòng lặp `run --dry-run` không dựng lại mỗi nhịp."""
+        self.memory = {**cursor, "updated_at": cursors.now_iso(now)}
+        if not self.dry_run:
+            cursors.save(self.state, NAME, cursor, now)
 
     def result(self, action: str, revision: int | None, error: str | None = None, sent: int = 0, reason: str | None = None) -> dict:
         return {"action": action, "revision": revision, "error": error, "bytes_sent": sent, "reason": reason}
@@ -62,7 +73,7 @@ class BundleProcessor:
 
     def wants_work(self) -> bool:
         """Rẻ (vài file nhỏ): có revision mới, lượt chưa đẩy xong, hoặc phải dựng lại. Vòng lặp chỉ gom 3 giây khi True."""
-        revision, selection, current = self.live.revision(), self.live.selection(), cursors.load(self.state, NAME)
+        revision, selection, current = self.live.revision(), self.live.selection(), self.load()
         if revision is None or not selection:
             return False
         if current is None or current.get("pending") or revision != current["revision"] or self.damaged(current):
@@ -72,7 +83,7 @@ class BundleProcessor:
     def step(self) -> dict:
         now = self.clock()
         revision = self.live.revision()
-        current = cursors.load(self.state, NAME)
+        current = self.load()
         have = current.get("revision") if current else None
         if revision is None:
             return self.result("idle", have, "no_revision")
@@ -91,9 +102,9 @@ class BundleProcessor:
         except wb.BundleError:
             return self.result("idle", have, "build_failed")
         if pending is None:   # revision mới nhưng không có tin nào của nhóm đã chọn: tiến con trỏ, không đẩy gì
-            cursors.save(self.state, NAME, {**current, "revision": revision}, now)
+            self.save({**current, "revision": revision}, now)
             return self.result("idle", revision)
-        cursors.save(self.state, NAME, {**(current or {}), "pending": pending}, now)
+        self.save({**(current or {}), "pending": pending}, now)
         return self.finish({**(current or {}), "pending": pending}, now)
 
     def rebuild(self, reason: str, revision: int, selection: list[str], now: float) -> dict:
@@ -168,5 +179,5 @@ class BundleProcessor:
             except pusher.PushError:
                 return self.result("retry", current.get("revision"), "push_failed", reason=pending.get("reason"))
         done = {key: value for key, value in {**current, **pending}.items() if key != "pending"}
-        cursors.save(self.state, NAME, done, now)
+        self.save(done, now)
         return self.result("rebuild" if pending.get("reason") != "delta" else "delta", done["revision"], sent=sent, reason=pending.get("reason"))

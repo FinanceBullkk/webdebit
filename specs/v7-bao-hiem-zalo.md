@@ -79,6 +79,8 @@ Sổ khách và Việc cần làm cho biết chuyến nào có giấy bảo hi�
 
 **Đẩy.** Dùng lại kênh G5: Task Scheduler 15 phút, `pythonw`, một tar qua ssh tới `hao:/srv/v7/insurance/`, ghi file tạm rồi `mv` để server không đọc file dở. PDF (để Mở giấy) chỉ gửi giấy chưa có trên `hao`, tên file là `sha256`. Người dùng đã đồng ý mở đường này ([Q3](#câu-hỏi-đã-chốt)); cài đặt vẫn theo runbook và ghi nhật ký triển khai như G5.
 
+**Chuyển vào máy Zalo (ZALO-AGENT-01 PR-3, 20/11/2026).** Dựng bản gọn và đẩy nay là bộ xử lý `insurance` của `zalo_agent` ([spec](zalo-agent.md#phần-2-một-kênh-đẩy-chung)) chạy trong cùng tiến trình nền với gói chat, qua kênh đẩy chung. Hợp đồng `insurance-web.json` và bố cục `hao:/srv/v7/insurance` **không đổi** (cùng trường, cùng thứ tự, cùng cách tính `sha256`), nên phía đọc dưới đây không đụng. Task `ZaloInsurancePush` và worktree `claude/bao-hiem-web` hết cần khi bộ xử lý được bật (cần người dùng đồng ý trước khi tắt task cũ); `insurance_sync.py` của `zalo-audit-viewer` vẫn là nơi ghi `insurance-snapshot.json`.
+
 **Đọc.** `WEBDEBIT_INSURANCE_SNAPSHOT_PATH` (mặc định `/srv/v7/insurance/insurance-web.json`). Đọc lỗi, sai `schema_version` hoặc sai hash → `{unavailable: true}`, sổ vẫn mở bình thường.
 
 ## Ghép và kế hoạch

@@ -68,10 +68,12 @@ class PushError(Exception):
 @dataclass(frozen=True)
 class Item:
     """Một file của kế hoạch. `immutable`: đã có trên máy chủ cùng tên và cùng cỡ là đủ (file đặt tên theo nội dung
-    hoặc không bao giờ đổi); ngược lại so sha256."""
+    hoặc không bao giờ đổi); ngược lại so sha256. `check`: sha256 mà nội dung phải có; lúc đưa vào tar nội dung lệch thì
+    file bị bỏ, không gửi (kho đặt tên theo băm URL, file có thể đổi sau lần băm trước)."""
     rel: str
     source: Path | bytes
     immutable: bool = False
+    check: str | None = None
 
     def size(self) -> int:
         return len(self.source) if isinstance(self.source, bytes) else self.source.stat().st_size
@@ -89,6 +91,7 @@ class Plan:
     files: tuple[Item, ...]        # mọi file nên có (trừ file chốt), theo thứ tự cài
     final: Item                    # file chốt, nằm thẳng trong thư mục đích
     prune: tuple[str, ...] = ()    # mẫu như `data-*` hoặc `media/*`: mục khớp mà không có trong kế hoạch bị xóa
+    keep: tuple[str, ...] = ()     # tên mà máy chủ đang có thì giữ, không gửi (nguồn tại máy tạm mất): không bị dọn
 
 
 def ssh_run(host: str, command: str, stdin=None) -> str:
@@ -118,10 +121,10 @@ def validate(plan: Plan) -> tuple[str, str]:
     match = TARGET.fullmatch(plan.target)
     if not match or ".." in match["path"]:
         raise PushError("đích phải dạng máy:/đường/dẫn tuyệt đối, ví dụ hao:/srv/v7/zalo-bundle")
-    names = [item.rel for item in plan.files]
-    if len(set(names)) != len(names) or plan.final.rel in names or "/" in plan.final.rel:
+    held = [*(item.rel for item in plan.files), *plan.keep]
+    if len(set(held)) != len(held) or plan.final.rel in held or "/" in plan.final.rel:
         raise PushError("kế hoạch đẩy có file trùng tên hoặc file chốt không nằm thẳng trong thư mục đích")
-    if not all(REL.fullmatch(rel) and ".." not in rel for rel in [*names, plan.final.rel]) or \
+    if not all(REL.fullmatch(rel) and ".." not in rel for rel in [*held, plan.final.rel]) or \
             not all(PATTERN.fullmatch(pattern) and ".." not in pattern for pattern in plan.prune):
         raise PushError("tên file hoặc mẫu dọn trong kế hoạch đẩy không hợp lệ")
     return match["host"], match["path"].rstrip("/")
@@ -149,37 +152,47 @@ def survey(plan: Plan, host: str, remote: str, run) -> tuple[dict[str, int], dic
 
 
 def push(plan: Plan, run=ssh_run) -> dict:
-    """Đẩy một kế hoạch. Trả {sent: [đường dẫn file đã gửi], bytes, skipped}."""
+    """Đẩy một kế hoạch. Trả {sent: [đường dẫn file đã gửi], bytes, skipped, rejected: [file có `check` mà nội dung lệch, không
+    gửi], missing: [tên trong `keep` mà máy chủ cũng không có; chỉ biết khi đã hỏi máy chủ]}."""
     host, remote = validate(plan)
-    keep = [item.rel for item in plan.files]
+    held = [*(item.rel for item in plan.files), *plan.keep]   # giữ trên máy chủ: file sẽ gửi và file "giữ nếu có"
+    missing: list[str] = []
     if plan.files or plan.prune:
         sizes, shas = survey(plan, host, remote, run)
+        missing = [rel for rel in plan.keep if rel not in sizes]
         send = [item for item in plan.files
                 if sizes.get(item.rel) != item.size() or (not item.immutable and shas.get(item.rel) != item.sha256())]
-        planned = set(keep) | {plan.final.rel}
+        planned = set(held) | {plan.final.rel}
         known = {pattern: {unit(name, pattern) for name in planned} for pattern in plan.prune}
         # Glob của shell bỏ qua tên bắt đầu bằng dấu chấm còn fnmatch thì không: bỏ chúng khi so.
         stale = any(fnmatchcase(unit(rel, pattern), pattern) and not unit(rel, pattern).rsplit("/", 1)[-1].startswith(".")
                     and unit(rel, pattern) not in known[pattern] for rel in sizes for pattern in plan.prune)
         if not send and not stale and shas.get(plan.final.rel) == plan.final.sha256():
-            return {"sent": [], "bytes": 0, "skipped": True}
+            return {"sent": [], "bytes": 0, "skipped": True, "rejected": [], "missing": missing}
     else:
         send = []   # thư mục chỉ có file chốt (nhịp tim): luôn gửi, khỏi hỏi máy chủ
-    ancestors = {"/".join(rel.split("/")[:depth]) for rel in keep for depth in range(1, rel.count("/") + 1)}
+    ancestors = {"/".join(rel.split("/")[:depth]) for rel in held for depth in range(1, rel.count("/") + 1)}
 
     def add(tar, name: str, data: bytes) -> None:
         info = tarfile.TarInfo(name)
         info.size, info.mode, info.mtime = len(data), 0o640, int(time.time())
         tar.addfile(info, io.BytesIO(data))
 
+    shipped: list[str] = []
+    rejected: list[str] = []
     with tempfile.TemporaryFile() as spool:
         with tarfile.open(fileobj=spool, mode="w", format=tarfile.PAX_FORMAT) as tar:
             for item in send:
-                add(tar, item.rel, item.data())
-            add(tar, ".list", "".join(f"{item.rel}\n" for item in send).encode())
-            add(tar, ".keep", "".join(f"{name}\n" for name in [*keep, *sorted(ancestors)]).encode())
+                data = item.data()
+                if item.check and hashlib.sha256(data).hexdigest() != item.check:
+                    rejected.append(item.rel)
+                    continue
+                add(tar, item.rel, data)
+                shipped.append(item.rel)
+            add(tar, ".list", "".join(f"{rel}\n" for rel in shipped).encode())
+            add(tar, ".keep", "".join(f"{name}\n" for name in [*held, *sorted(ancestors)]).encode())
             add(tar, plan.final.rel, plan.final.data())
         size = spool.tell()
         spool.seek(0)
         run(host, command(APPLY_SCRIPT, remote, plan.final.rel, *plan.prune), stdin=spool)
-    return {"sent": [item.rel for item in send] + [plan.final.rel], "bytes": size, "skipped": False}
+    return {"sent": [*shipped, plan.final.rel], "bytes": size, "skipped": False, "rejected": rejected, "missing": missing}
