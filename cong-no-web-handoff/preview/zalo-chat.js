@@ -11,7 +11,7 @@
   // page: trang cũ nhất đã tải; newest: trang mới nhất đã tải (khác 0 khi mở thẳng một tin bằng ?m=).
   const state = {
     conversations: [], filter: '', selected: null, messages: [], total: 0, page: 0, newest: 0, hasOlder: false,
-    query: '', request: 0, loading: false, focus: null,
+    query: '', request: 0, loading: false, focus: null, ready: false,
   };
   const MEDIA = '/api/v7/zalo/media/';
   const chat = $('chat');
@@ -445,6 +445,18 @@
     if (chip) unlink(chip.dataset.unlink);
   });
 
+  // HTML các tin (kèm vạch ngày và cụm người gửi), nối tiếp sau tin `previous` của ngày `day`.
+  function messageParts(messages, day, previous) {
+    const parts = [];
+    for (const message of messages) {
+      const key = message.timestamp_ms ? dayKey(message.timestamp_ms) : null;
+      if (key && key !== day) { parts.push(`<div class="day">${esc(key)}</div>`); day = key; previous = null; }
+      parts.push(renderMessage(message, !previous || previous.sender_id !== message.sender_id));
+      previous = message;
+    }
+    return parts;
+  }
+
   function paintMessages() {
     const box = $('messages');
     if (!state.messages.length) {
@@ -454,15 +466,7 @@
     const parts = [];
     if (state.hasOlder) parts.push(`<button type="button" class="btn older" id="older">Tải tin cũ hơn (${number(state.total - state.messages.length - state.newest * PAGE_LIMIT)} tin)</button>`);
     else parts.push(`<p class="end">Đầu hội thoại${state.query.trim() ? ' (kết quả tìm)' : ''}</p>`);
-    let day = null;
-    let previous = null;
-    for (const message of state.messages) {
-      const key = message.timestamp_ms ? dayKey(message.timestamp_ms) : null;
-      if (key && key !== day) { parts.push(`<div class="day">${esc(key)}</div>`); day = key; previous = null; }
-      const first = !previous || previous.sender_id !== message.sender_id;
-      parts.push(renderMessage(message, first));
-      previous = message;
-    }
+    parts.push(...messageParts(state.messages, null, null));
     if (state.newest > 0) parts.push(`<button type="button" class="btn newer" id="newer">Tải tin mới hơn</button>`);
     box.innerHTML = parts.join('');
   }
@@ -485,6 +489,8 @@
       const before = box.scrollHeight - box.scrollTop;
       const top = box.scrollTop;
       if (fresh) {
+        state.ready = true;   // từ đây trang có thể hỏi tin mới (poll)
+        resetUnseen();
         state.page = state.newest = data.page;
         state.hasOlder = data.has_older;
         state.messages = data.messages;
@@ -525,6 +531,8 @@
     if (!row) return;
     state.selected = id;
     state.query = '';
+    state.ready = false;
+    resetUnseen();
     state.messages = [];
     state.page = state.newest = 0;
     $('message-search').value = '';
@@ -539,6 +547,71 @@
     await Promise.all([loadMarks(id), loadPage(0, { focus })]);
     if (marks.size && state.selected === id) repaintKeep();
   }
+
+  // ZALO-AGENT-01 (A3): trang đang hiện thì hỏi tin mới 5 giây một lần (`after=`), tab ẩn thì ngừng. Người đang đọc tin cũ
+  // (cuộn lên khỏi đáy) không bị kéo xuống: tin mới nối vào cuối, hiện nút "N tin mới"; bấm nút hoặc cuộn xuống đáy thì thôi.
+  // Chỉ hỏi khi đang ở trang mới nhất và không tìm; sửa/xóa tin cũ hiện khi mở lại hội thoại (after= chỉ trả tin mới hơn).
+  const POLL_MS = 5000;
+  const NEAR_BOTTOM = 80;
+  let pollTimer = null;
+  let polling = false;
+  let unseen = 0;
+  const atBottom = box => box.scrollHeight - box.scrollTop - box.clientHeight <= NEAR_BOTTOM;
+
+  function showUnseen() {
+    const pill = $('new-pill');
+    pill.hidden = unseen === 0;
+    pill.innerHTML = `${number(unseen)} tin mới <span aria-hidden="true">↓</span>`;
+  }
+  function resetUnseen() { unseen = 0; showUnseen(); }
+
+  function appendLive(rows) {
+    const box = $('messages');
+    const follow = atBottom(box);
+    if (!state.messages.length) {
+      state.messages = rows;
+      paintMessages();
+    } else {
+      const previous = state.messages.at(-1);
+      box.insertAdjacentHTML('beforeend', messageParts(rows, previous.timestamp_ms ? dayKey(previous.timestamp_ms) : null, previous).join(''));
+      state.messages = state.messages.concat(rows);
+    }
+    if (follow) { box.scrollTop = box.scrollHeight; resetUnseen(); } else { unseen += rows.length; showUnseen(); }
+  }
+
+  async function pollNew() {
+    if (polling || document.hidden || !state.ready || !state.selected || state.newest !== 0 || state.query.trim()) return;
+    polling = true;
+    const selected = state.selected;
+    const request = state.request;
+    try {
+      for (let more = true; more;) {
+        const after = state.messages.reduce((latest, message) => Math.max(latest, message.timestamp_ms ?? 0), 0);
+        const data = await json(`/api/v7/zalo/messages?${new URLSearchParams({ conversation: selected, after: String(after), limit: String(PAGE_LIMIT) })}`);
+        if (selected !== state.selected || request !== state.request || !state.ready) break;
+        const known = new Set(state.messages.map(message => message.message_id));
+        const fresh = data.messages.filter(message => !known.has(message.message_id));
+        more = data.has_more && fresh.length > 0;
+        state.total = data.total;
+        if (!fresh.length) continue;
+        appendLive(fresh);
+        const row = state.conversations.find(item => item.conversation_id === selected);
+        if (row) { row.message_count = data.total; row.last_message_at = data.latest_ms ?? row.last_message_at; paintList(); }
+        $('subtitle').textContent = `${number(data.total)} tin · đang hiện ${number(state.messages.length)}`;
+      }
+    } catch { /* mạng chập chờn: 5 giây sau hỏi lại */ } finally { polling = false; }
+  }
+  function schedulePoll() {
+    clearTimeout(pollTimer);
+    pollTimer = document.hidden ? null : setTimeout(async () => { await pollNew(); schedulePoll(); }, POLL_MS);
+  }
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(pollTimer);
+    if (document.hidden) return;
+    pollNew().then(schedulePoll);   // tab hiện lại: hỏi ngay một lượt rồi theo nhịp 5 giây
+  });
+  $('messages').addEventListener('scroll', () => { if (unseen && atBottom($('messages'))) resetUnseen(); }, { passive: true });
+  $('new-pill').addEventListener('click', () => { $('messages').scrollTop = $('messages').scrollHeight; resetUnseen(); });
 
   // Xem ảnh lớn: hộp thoại gốc của trình duyệt, Esc hoặc bấm ra ngoài thì đóng.
   const viewer = $('pic-viewer');
@@ -614,4 +687,5 @@
 
   $('error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) init(); });
   init();
+  schedulePoll();
 })();

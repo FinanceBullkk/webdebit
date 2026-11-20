@@ -272,5 +272,140 @@ class ZaloWebBundleStoreTest(unittest.TestCase):
                          [fixture.GROUP, fixture.OTHER])
 
 
+class ZaloDeltaTest(unittest.TestCase):
+    """ZALO-AGENT-01: gói gốc + messages-delta.jsonl (bản cuối theo message_id thắng, dòng xóa ẩn tin, đọc tới delta_bytes)."""
+
+    SHA = "e" * 64
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.data = self.root / "data-20261120-0800"
+        self.data.mkdir()
+        write_fixture(self.data)
+        self.delta = self.data / "messages-delta.jsonl"
+        chat._STORE, chat._STORE_DIR = None, None
+        chat._RELOAD.clear()
+        chat._RELOAD["running"] = False
+        self.addCleanup(setattr, chat, "_STORE", None)
+
+    def write_report(self, **extra):
+        report = {"status": "BUNDLED", "data_dir": self.data.name, "bundle_sha256": self.SHA, **extra}
+        (self.root / "export-report.json").write_text(json.dumps(report), encoding="utf-8")
+
+    def append(self, *rows) -> int:
+        """Nối dòng vào delta, trả về số byte hợp lệ mới (đặt vào delta_bytes)."""
+        with self.delta.open("ab") as stream:
+            for row in rows:
+                stream.write((json.dumps(row, ensure_ascii=False) + "\n").encode("utf-8"))
+        return self.delta.stat().st_size
+
+    @staticmethod
+    def ids(page):
+        return [m["message_id"] for m in page["messages"]]
+
+    def test_without_delta_behaves_as_before(self):
+        self.write_report()
+        store = chat.ChatStore(self.root)
+        self.assertEqual((store.message_count, store.delta_offset), (9, 0))
+        self.assertEqual(self.ids(store.messages(CONV_A, 0, 3)), ["m5", "m6", "m7"])
+
+    def test_edit_and_delete_latest_wins(self):
+        size = self.append(
+            message(CONV_A, "m8", KHACH, 1_700_000_008_000, "Tin mới"),
+            message(CONV_A, "m2", KHACH, 1_700_000_002_000, "Dạ em xem rồi, sửa lại"),   # tin sửa: cùng mã, thay cả dòng
+            {"message_id": "m4", "conversation_id": CONV_A, "timestamp": "1700000004000", "deleted": True})
+        self.write_report(delta_bytes=size, delta_lines=3, revision=7)
+        store = chat.ChatStore(self.root)
+        page = store.messages(CONV_A, 0, 100)
+        self.assertEqual(self.ids(page), ["m1", "m2", "m3", "m5", "m6", "m7", "m8"])   # m4 đã ẩn, m8 thêm
+        rows = {m["message_id"]: m for m in page["messages"]}
+        self.assertEqual(rows["m2"]["body_text"], "Dạ em xem rồi, sửa lại")
+        self.assertEqual((page["total"], store.message_count, store.conversations()[0]["last_message_at"]), (7, 9, 1_700_000_008_000))
+        self.assertEqual(self.ids(store.messages(CONV_A, 0, 50, "sửa lại")), ["m2"])   # tìm chữ ở bản mới
+        self.assertEqual(store.messages(CONV_A, 0, 50, "Dạ để em xem lại")["total"], 0)   # bản cũ không còn
+        with self.assertRaises(chat.ChatError):
+            store.messages(CONV_A, 0, 50, focus="m4")
+
+    def test_delete_then_readd_and_unknown_rows(self):
+        size = self.append(
+            {"message_id": "m1", "conversation_id": CONV_A, "timestamp": "1700000001000", "deleted": True},
+            {"message_id": "khong-co", "conversation_id": CONV_A, "timestamp": "5", "deleted": True},
+            {"message_id": "m1", "conversation_id": "z" * 64, "timestamp": "5", "body": "ngoài danh sách"},
+            message(CONV_A, "m1", OWNER, 1_700_000_001_000, "Gửi lại sau khi xóa"))
+        self.write_report(delta_bytes=size)
+        store = chat.ChatStore(self.root)
+        rows = {m["message_id"]: m for m in store.messages(CONV_A, 0, 100)["messages"]}
+        self.assertEqual(rows["m1"]["body_text"], "Gửi lại sau khi xóa")
+        self.assertEqual(store.messages(CONV_A, 0, 100)["total"], 7)
+
+    def test_reads_exactly_delta_bytes(self):
+        first = self.append(message(CONV_A, "m8", KHACH, 1_700_000_008_000, "Đủ dòng"))
+        partial = json.dumps(message(CONV_A, "m9", KHACH, 1_700_000_009_000, "Ghi dở"), ensure_ascii=False)
+        with self.delta.open("ab") as stream:
+            stream.write(partial.encode("utf-8")[:20])   # dòng đang ghi dở, chưa có xuống dòng
+        self.write_report(delta_bytes=first)
+        store = chat.ChatStore(self.root)
+        self.assertEqual((store.delta_offset, "m9" in store.latest, "m8" in store.latest), (first, False, True))
+        # Dù tệp dài hơn delta_bytes (dòng m9 đã trọn nhưng báo cáo chưa nói tới), không đọc quá.
+        with self.delta.open("ab") as stream:
+            stream.write(partial.encode("utf-8")[20:] + b"\n")
+        store.read_delta(first)
+        self.assertEqual((store.delta_offset, "m9" in store.latest), (first, False))
+        # delta_bytes cắt giữa dòng: chỉ lấy tới dòng trọn cuối.
+        store.read_delta(self.delta.stat().st_size - 5)
+        self.assertEqual((store.delta_offset, "m9" in store.latest), (first, False))
+        store.read_delta(self.delta.stat().st_size)
+        self.assertIn("m9", store.latest)
+
+    def test_missing_delta_file_is_ignored(self):
+        self.write_report(delta_bytes=500)
+        store = chat.ChatStore(self.root)
+        self.assertEqual((store.delta_offset, store.message_count), (0, 9))
+
+    def test_report_change_reads_only_new_delta(self):
+        self.write_report(delta_bytes=self.append(message(CONV_A, "m8", KHACH, 1_700_000_008_000, "Một")))
+        store = chat.get_store(str(self.root))
+        before = store.delta_offset
+        with patch.object(chat.ChatStore, "_index", side_effect=AssertionError("không được lập lại chỉ mục")):
+            self.write_report(delta_bytes=self.append(message(CONV_A, "m9", KHACH, 1_700_000_009_000, "Hai")), revision=8)
+            self.assertIs(chat.get_store(str(self.root)), store)
+        self.assertGreater(store.delta_offset, before)
+        self.assertEqual(self.ids(store.messages(CONV_A, 0, 3)), ["m7", "m8", "m9"])
+        self.assertEqual(store.report.get("revision"), 8)
+
+    def test_new_bundle_hash_or_dir_reindexes(self):
+        self.write_report(delta_bytes=self.append(message(CONV_A, "m8", KHACH, 1_700_000_008_000, "Một")))
+        store = chat.ChatStore(self.root)
+        for change in ({"bundle_sha256": "f" * 64}, {"data_dir": "data-20261121-0800"}, {"delta_bytes": 0}):
+            with self.subTest(change=change):
+                self.write_report(delta_bytes=self.delta.stat().st_size)
+                report = json.loads((self.root / "export-report.json").read_text(encoding="utf-8"))
+                (self.root / "export-report.json").write_text(json.dumps({**report, **change}), encoding="utf-8")
+                self.assertFalse(store.refresh_delta())
+        (self.root / "export-report.json").write_text(json.dumps({"status": "BUNDLED"}), encoding="utf-8")   # bản cũ, không có hash
+        self.assertFalse(store.refresh_delta())
+
+    def test_after_parameter_returns_only_newer(self):
+        size = self.append(message(CONV_A, "m8", KHACH, 1_700_000_008_000, "Tin mới 1"),
+                           message(CONV_A, "m9", OWNER, 1_700_000_009_000, "Tin mới 2"))
+        self.write_report(delta_bytes=size)
+        directory = str(self.root)
+        status, body = chat.handle_get("/api/v7/zalo/messages", f"conversation={CONV_A}&after=1700000007000", directory)
+        self.assertEqual((status, self.ids(body), body["after"], body["has_more"], body["latest_ms"]), (200, ["m8", "m9"], 1_700_000_007_000, False, 1_700_000_009_000))
+        _, body = chat.handle_get("/api/v7/zalo/messages", f"conversation={CONV_A}&after=1700000009000", directory)
+        self.assertEqual((body["messages"], body["has_more"]), ([], False))   # đúng bằng thì không trả lại chính nó
+        _, body = chat.handle_get("/api/v7/zalo/messages", f"conversation={CONV_A}&after=0&limit=2", directory)
+        self.assertEqual((self.ids(body), body["has_more"], body["total"]), (["m1", "m2"], True, 9))
+        for bad in ("after=-1", "after=abc", "after=", "after=1234567890123456", "after=1&page=1", "after=1&q=cont", "after=1&message=m1"):
+            with self.subTest(bad=bad), self.assertRaises(chat.ChatError) as caught:
+                chat.handle_get("/api/v7/zalo/messages", f"conversation={CONV_A}&{bad}", directory)
+            self.assertEqual(caught.exception.status, 400)
+        with self.assertRaises(chat.ChatError) as caught:
+            chat.handle_get("/api/v7/zalo/messages", f"conversation={'9' * 64}&after=1", directory)
+        self.assertEqual(caught.exception.status, 404)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,11 +8,18 @@ thì lập chỉ mục lại ở luồng nền, trong lúc đó vẫn trả theo
 Khởi động chỉ đọc một lượt để lập chỉ mục offset theo hội thoại;
 mỗi yêu cầu đọc đúng các dòng của trang cần trả, không bao giờ nạp cả file vào RAM hay gửi
 cả file cho trình duyệt. Không ghi, không sửa file nguồn, không log nội dung tin.
+
+ZALO-AGENT-01: thư mục dữ liệu có thể kèm `messages-delta.jsonl` (chỉ nối thêm: tin thêm/sửa/xóa). `export-report.json`
+ghi `delta_bytes` = số byte hợp lệ; chỉ đọc tới đó, nên dòng đang ghi dở không bao giờ được đọc. Bản cuối cùng theo
+`message_id` thắng (gói gốc rồi tới phần thêm); dòng `deleted` trong phần thêm thì ẩn tin. Báo cáo đổi mà `data_dir` và
+`bundle_sha256` giữ nguyên thì chỉ đọc tiếp phần thêm; không thì lập chỉ mục lại ở luồng nền.
 """
 
 from __future__ import annotations
 
 import argparse
+import bisect
+import io
 import json
 import math
 import os
@@ -128,22 +135,36 @@ def read_optional(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def load_report(directory: Path) -> dict:
+    for name in ("export-report.json", "message-export-report.json"):
+        try:
+            return json.loads((directory / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+def delta_limit(report: object) -> int:
+    value = report.get("delta_bytes") if isinstance(report, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+MAIN, DELTA = 0, 1   # nguồn của một dòng chỉ mục: messages.jsonl hay messages-delta.jsonl
+
+
 class ChatStore:
     def __init__(self, directory: Path):
         self.directory = directory
+        self.lock = threading.Lock()      # chỉ mục đổi khi đọc tiếp phần thêm; người đọc lấy bản sao dưới khóa này
         self.stamp = report_stamp(directory)
-        self.report = {}
-        for name in ("export-report.json", "message-export-report.json"):
-            try:
-                self.report = json.loads((directory / name).read_text(encoding="utf-8"))
-                break
-            except (OSError, ValueError):
-                continue
+        self.report = load_report(directory)
         data_dir = self.report.get("data_dir") if isinstance(self.report, dict) else None
         if data_dir is not None and not (isinstance(data_dir, str) and DATA_DIR.fullmatch(data_dir)):
             raise unavailable("export-report.json trỏ tới thư mục dữ liệu không hợp lệ")
         base = directory / data_dir if data_dir else directory
         self.messages_path = base / "messages.jsonl"
+        self.delta_path = base / "messages-delta.jsonl"
+        self.base = base
         try:
             conversations = json.loads((base / "conversations.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
@@ -162,16 +183,24 @@ class ChatStore:
         self.media = {key: value for key, value in read_optional(base / "media.json").items()
                       if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
         self.media_dir = directory / "media"
-        self.entries: dict[str, list[tuple[int, int, int, str]]] = {cid: [] for cid in self.by_id}
+        # Dòng chỉ mục: (thời điểm, offset, độ dài, mã tin, nguồn). `latest` giữ dòng cuối của mỗi mã tin.
+        self.entries: dict[str, list[tuple[int, int, int, str, int]]] = {cid: [] for cid in self.by_id}
+        self.latest: dict[str, tuple[str, tuple]] = {}
         self.last_sent: dict[str, dict[str, int]] = {cid: {} for cid in self.by_id}
+        # Bộ đếm tính trên các dòng đã đọc, không trừ lại khi một tin bị thay/ẩn (chỉ để hiện tóm tắt).
         self.body_missing = self.attachment_matched = self.attachment_unmatched = self.skipped = 0
+        self.delta_offset = 0
+        self.live = False                 # đã sắp xếp xong: từ đây thêm dòng bằng insort
         self._index()
         for entries in self.entries.values():
             entries.sort()
+        self.live = True
+        self.read_delta(delta_limit(self.report))
         self.owner_id = self.self_user or self._owner()
         self.message_count = sum(len(entries) for entries in self.entries.values())
 
     def _index(self) -> None:
+        stale: set[tuple] = set()
         try:
             with self.messages_path.open("rb") as stream:
                 offset = 0
@@ -181,28 +210,96 @@ class ChatStore:
                         row = json.loads(raw)
                     except ValueError:
                         row = None
-                    if not isinstance(row, dict) or row.get("conversation_id") not in self.entries:
-                        self.skipped += 1
-                    else:
-                        cid = row["conversation_id"]
-                        stamp = to_millis(row.get("timestamp")) or to_millis(row.get("server_time")) or 0
-                        mid = row.get("message_id") if isinstance(row.get("message_id"), str) else ""
-                        self.entries[cid].append((stamp, offset, length, mid))
-                        sender = row.get("sender_id")
-                        if isinstance(sender, str):
-                            sent = self.last_sent[cid]
-                            sent[sender] = max(sent.get(sender, 0), stamp)
-                        if row.get("body") is None:
-                            self.body_missing += 1
-                        attachment = shape_attachment(row.get("attachment_metadata"))
-                        if attachment is not None:
-                            if attachment["state"] == "matched":
-                                self.attachment_matched += 1
-                            else:
-                                self.attachment_unmatched += 1
+                    self._add(row, offset, length, MAIN, stale)
                     offset += length
         except OSError as exc:
             raise unavailable("không đọc được messages.jsonl") from exc
+        if stale:   # mã tin trùng trong gói gốc: giữ dòng cuối
+            for cid, entries in self.entries.items():
+                self.entries[cid] = [entry for entry in entries if entry not in stale]
+
+    def _add(self, row: object, offset: int, length: int, source: int, stale: set | None = None) -> None:
+        """Nạp một dòng vào chỉ mục. Trùng mã tin thì dòng này thay dòng trước; phần thêm có `deleted` thì chỉ ẩn tin."""
+        if not isinstance(row, dict) or row.get("conversation_id") not in self.entries:
+            self.skipped += 1
+            return
+        cid = row["conversation_id"]
+        mid = row.get("message_id") if isinstance(row.get("message_id"), str) else ""
+        previous = self.latest.pop(mid, None) if mid else None
+        if previous is not None:
+            if stale is not None:
+                stale.add(previous[1])
+            else:
+                try:
+                    self.entries[previous[0]].remove(previous[1])
+                except ValueError:
+                    pass
+        if source == DELTA and row.get("deleted") is True:
+            return
+        stamp = to_millis(row.get("timestamp")) or to_millis(row.get("server_time")) or 0
+        entry = (stamp, offset, length, mid, source)
+        if self.live:
+            bisect.insort(self.entries[cid], entry)
+        else:
+            self.entries[cid].append(entry)
+        if mid:
+            self.latest[mid] = (cid, entry)
+        sender = row.get("sender_id")
+        if isinstance(sender, str):
+            sent = self.last_sent[cid]
+            sent[sender] = max(sent.get(sender, 0), stamp)
+        if row.get("body") is None:
+            self.body_missing += 1
+        attachment = shape_attachment(row.get("attachment_metadata"))
+        if attachment is not None:
+            if attachment["state"] == "matched":
+                self.attachment_matched += 1
+            else:
+                self.attachment_unmatched += 1
+
+    def read_delta(self, limit: int) -> None:
+        """Đọc tiếp `messages-delta.jsonl` từ byte đã đọc tới đúng `limit`; chỉ lấy dòng trọn (kết thúc bằng xuống dòng)."""
+        if limit <= self.delta_offset:
+            return
+        try:
+            with self.delta_path.open("rb") as stream:
+                stream.seek(self.delta_offset)
+                data = stream.read(limit - self.delta_offset)
+        except OSError:
+            return   # phần thêm chưa tới hoặc mất: giữ chỉ mục hiện có, lần báo cáo sau thử lại
+        offset = self.delta_offset
+        for raw in io.BytesIO(data[:data.rfind(b"\n") + 1]):
+            try:
+                row = json.loads(raw)
+            except ValueError:
+                row = None
+            self._add(row, offset, len(raw), DELTA)
+            offset += len(raw)
+        self.delta_offset = offset
+        self.message_count = sum(len(entries) for entries in self.entries.values())
+
+    def refresh_delta(self) -> bool:
+        """Báo cáo đổi: cùng `data_dir` và `bundle_sha256` thì chỉ đọc tiếp phần thêm (True).
+
+        False khi phải lập chỉ mục lại: gói gốc đổi, thiếu `bundle_sha256` (bản cũ) hoặc phần thêm ngắn đi.
+        """
+        stamp = report_stamp(self.directory)
+        report = load_report(self.directory)
+        if (not isinstance(report, dict) or not isinstance(report.get("bundle_sha256"), str)
+                or report.get("data_dir") != self.report.get("data_dir")
+                or report.get("bundle_sha256") != self.report.get("bundle_sha256")
+                or delta_limit(report) < self.delta_offset):
+            return False
+        users = read_optional(self.base / "users.json")
+        media = read_optional(self.base / "media.json")
+        with self.lock:
+            self.user_names = {key: value for key, value in (users.get("users") or {}).items()
+                               if isinstance(key, str) and isinstance(value, str)}
+            self.media = {key: value for key, value in media.items()
+                          if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
+            self.read_delta(delta_limit(report))
+            self.report, self.stamp = report, stamp
+        return True
 
     def _owner(self) -> str | None:
         """Chủ tài khoản = người gửi có mặt ở nhiều hội thoại nhất (bản xuất không ghi uid chủ)."""
@@ -229,25 +326,50 @@ class ChatStore:
     def conversations(self, query: str = "") -> list[dict]:
         needle = fold(query.strip())
         rows = []
-        for cid, row in self.by_id.items():
-            name = row.get("display_name") if isinstance(row.get("display_name"), str) else None
-            if needle and needle not in fold(name or "") and not cid.startswith(needle):
-                continue
-            entries = self.entries[cid]
-            sent = self.last_sent[cid]
-            rows.append({"conversation_id": cid, "display_name": name or None,
-                         "name_status": row.get("name_status") if isinstance(row.get("name_status"), str) else None,
-                         "message_count": len(entries),
-                         "last_message_at": entries[-1][0] if entries else None,
-                         "last_own_message_at": sent.get(self.owner_id) if self.owner_id else None,
-                         "participant_count": len(row.get("participant_ids") or []),
-                         "is_group": bool(row.get("is_group"))})
+        with self.lock:
+            for cid, row in self.by_id.items():
+                name = row.get("display_name") if isinstance(row.get("display_name"), str) else None
+                if needle and needle not in fold(name or "") and not cid.startswith(needle):
+                    continue
+                entries = self.entries[cid]
+                sent = self.last_sent[cid]
+                rows.append({"conversation_id": cid, "display_name": name or None,
+                             "name_status": row.get("name_status") if isinstance(row.get("name_status"), str) else None,
+                             "message_count": len(entries),
+                             "last_message_at": entries[-1][0] if entries else None,
+                             "last_own_message_at": sent.get(self.owner_id) if self.owner_id else None,
+                             "participant_count": len(row.get("participant_ids") or []),
+                             "is_group": bool(row.get("is_group"))})
         rows.sort(key=lambda item: (-(item["last_message_at"] or 0), item["conversation_id"]))
         return rows
 
-    def _read(self, stream, entry: tuple[int, int, int, str]) -> dict:
+    def _read(self, streams: dict, entry: tuple[int, int, int, str, int]) -> dict:
+        """Đọc đúng dòng của `entry`; mở file nguồn (gói gốc hoặc phần thêm) lần đầu cần tới."""
+        stream = streams.get(entry[4])
+        if stream is None:
+            stream = streams[entry[4]] = (self.delta_path if entry[4] == DELTA else self.messages_path).open("rb")
         stream.seek(entry[1])
         return json.loads(stream.read(entry[2]))
+
+    def _snapshot(self, conversation_id: str) -> list:
+        with self.lock:
+            return list(self.entries[conversation_id])
+
+    def messages_after(self, conversation_id: str, after: int, limit: int = DEFAULT_LIMIT) -> dict:
+        """Tin của hội thoại có thời điểm lớn hơn `after` (mili giây), cũ trước; quá `limit` thì `has_more` để hỏi tiếp."""
+        if conversation_id not in self.by_id:
+            raise ChatError(404, "CONVERSATION_NOT_FOUND", "Không có hội thoại này.")
+        entries = self._snapshot(conversation_id)
+        start = bisect.bisect_right(entries, (after, float("inf")))
+        chosen = entries[start:start + limit]
+        streams: dict = {}
+        try:
+            rows = [self.shape(self._read(streams, entry)) for entry in chosen]
+        finally:
+            for stream in streams.values():
+                stream.close()
+        return {"conversation_id": conversation_id, "messages": rows, "after": after, "total": len(entries),
+                "has_more": start + limit < len(entries), "latest_ms": entries[-1][0] if entries else None}
 
     def messages(self, conversation_id: str, page: int = 0, limit: int = DEFAULT_LIMIT, query: str = "",
                  focus: str = "") -> dict:
@@ -257,18 +379,19 @@ class ChatStore:
         """
         if conversation_id not in self.by_id:
             raise ChatError(404, "CONVERSATION_NOT_FOUND", "Không có hội thoại này.")
-        entries = self.entries[conversation_id]
+        entries = self._snapshot(conversation_id)
         if focus:
             position = next((index for index, entry in enumerate(entries) if entry[3] == focus), None)
             if position is None:
                 raise ChatError(404, "MESSAGE_NOT_FOUND", "Tin này không còn trong dữ liệu chat.")
             page = (len(entries) - 1 - position) // limit
         needle = fold(query.strip())
-        with self.messages_path.open("rb") as stream:
+        streams: dict = {}
+        try:
             if needle:
                 selected = []
                 for entry in entries:
-                    row = self._read(stream, entry)
+                    row = self._read(streams, entry)
                     text = body_text(row.get("body"))
                     if text and needle in fold(text):
                         selected.append(entry)
@@ -277,7 +400,10 @@ class ChatStore:
             total = len(selected)
             end = max(total - page * limit, 0)
             start = max(end - limit, 0)
-            rows = [self.shape(self._read(stream, entry)) for entry in selected[start:end]]
+            rows = [self.shape(self._read(streams, entry)) for entry in selected[start:end]]
+        finally:
+            for stream in streams.values():
+                stream.close()
         result = {"conversation_id": conversation_id, "messages": rows, "total": total, "page": page, "limit": limit,
                   "pages": math.ceil(total / limit), "has_older": start > 0, "query": query.strip()}
         if focus:
@@ -348,7 +474,7 @@ def get_store(directory: str | None = None) -> ChatStore:
             _STORE, _STORE_DIR = ready, directory
         if _STORE is None or directory != _STORE_DIR:
             _STORE, _STORE_DIR = ChatStore(Path(directory)), directory
-        elif not _RELOAD["running"] and report_stamp(Path(directory)) != _STORE.stamp:
+        elif not _RELOAD["running"] and report_stamp(Path(directory)) != _STORE.stamp and not _STORE.refresh_delta():
             _RELOAD["running"] = True
             threading.Thread(target=_reload, args=(directory,), name="zalo-chat-reload", daemon=True).start()
         return _STORE
@@ -383,15 +509,20 @@ def handle_get(path: str, query: str, directory: str | None = None) -> tuple[int
         rows = get_store(directory).conversations(values.get("q", "")[:MAX_QUERY])
         return 200, {"conversations": rows, "total": len(rows)}
     if path == "/api/v7/zalo/messages":
-        values = _query(query, {"conversation", "page", "limit", "q", "message"})
+        values = _query(query, {"conversation", "page", "limit", "q", "message", "after"})
         conversation = values.get("conversation", "")
         page_text, limit_text = values.get("page", "0"), values.get("limit", str(DEFAULT_LIMIT))
         focus = values.get("message", "")
+        after = values.get("after", "")
         if (not CONVERSATION_ID.fullmatch(conversation) or not page_text.isdigit() or not limit_text.isdigit()
                 or len(page_text) > 6 or len(limit_text) > 3
                 or not 0 <= int(page_text) <= MAX_PAGE or not 1 <= int(limit_text) <= MAX_LIMIT
-                or ("message" in values and (not MESSAGE_ID.fullmatch(focus) or values.get("q", "").strip()))):
+                or ("message" in values and (not MESSAGE_ID.fullmatch(focus) or values.get("q", "").strip()))
+                # after= là chế độ riêng: chỉ đi với conversation và limit, số nguyên mili giây không âm.
+                or ("after" in values and (not after.isdigit() or len(after) > 15 or {"page", "q", "message"} & set(values)))):
             raise ChatError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
+        if "after" in values:
+            return 200, get_store(directory).messages_after(conversation, int(after), int(limit_text))
         return 200, get_store(directory).messages(conversation, int(page_text), int(limit_text),
                                                   values.get("q", "")[:MAX_QUERY], focus)
     raise ChatError(404, "NOT_FOUND", "Không có đường dẫn này.")
