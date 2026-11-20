@@ -34,8 +34,11 @@ MAX_BODY = 4000
 MAX_CARD = 500
 URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.\-]{1,19}://\S*")   # mọi scheme: http, weixin, wxp…
 TAG = re.compile(r"<[^>]{0,400}>")
-PLACEHOLDER = re.compile(r"\$\{[^}]*\}")
+PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_]\w*\$")   # `${name}` và mẫu thật của WeChat `$username$`, `$names$`
 PREFIX = re.compile(r"^([A-Za-z0-9][\w@.\-]{2,63}):\n")
+USERNAME = re.compile(r"(?:wxid_[A-Za-z0-9]{4,32}|[A-Za-z][A-Za-z0-9_\-]{5,19})")   # dạng username WeChat hợp lệ (id tùy chỉnh 6–20 ký tự)
+TRIED: dict = {}                 # người gửi đã làm mới bộ nhớ đệm mà vẫn không tra ra → giờ thử gần nhất (không làm mới lại liền)
+RETRY_AFTER = 6 * 3600           # giây
 XMLISH = re.compile(r"<\s*/?\s*(?:msg|sysmsg|appmsg|revokemsg)\b", re.IGNORECASE)
 REFER = re.compile(r"<refermsg>.*?</refermsg>", re.DOTALL)
 REVOKE = re.compile(r"revokemsg|撤回|recalled a message|recalled", re.IGNORECASE)
@@ -59,20 +62,21 @@ def scrub(text: str) -> str:
     return " ".join(text.split())[:MAX_CARD]
 
 
-def strip_prefix(text: str, sender: str = "") -> str:
-    """Bỏ tiền tố `<id>:\n` của tin nhóm người khác gửi: id là mã người gửi, hoặc trông như mã (có chữ số, `_` hay `@`: `wxid_…`,
-    id tùy chỉnh `abc123`). Một chữ thường như "Ghi chú:" không bị coi là mã."""
-    found = PREFIX.match(text)
-    if found and (found.group(1) == sender or re.search(r"[0-9_@]", found.group(1))):
+def strip_prefix(text: str, sender: str = "", is_self: bool = False) -> str:
+    """Bỏ tiền tố `<username>:\n` của tin nhóm NGƯỜI KHÁC gửi. Tin chính chủ không có tiền tố nên không bao giờ bị bỏ (một dòng
+    đầu như "KH01:" là chữ thật). Biết người gửi: chỉ bỏ khi tiền tố đúng bằng username đó. Chưa biết người gửi: bỏ khi tiền tố có
+    dạng username WeChat hợp lệ (`wxid_…` hay id tùy chỉnh 6–20 ký tự), còn "T10:" hay "Ghi chú:" thì giữ."""
+    found = None if is_self else PREFIX.match(text)
+    if found and (found.group(1) == sender if sender else USERNAME.fullmatch(found.group(1))):
         return text[found.end():]
     return text
 
 
-def clean_content(kind, content: str, sender: str = "") -> str:
+def clean_content(kind, content: str, sender: str = "", is_self: bool = False) -> str:
     """Chỉ phần chữ người đọc được. Loại tin khác ngoài chữ/tệp/hệ thống trả rỗng (bộ xử lý dùng nhãn tiếng Việt)."""
-    text = strip_prefix(content or "", sender)
+    text = content or ""
     if kind == "文本":
-        return text[:MAX_BODY]
+        return strip_prefix(text, sender, is_self)[:MAX_BODY]
     if kind == "文件/链接/卡片":
         xml = REFER.sub("", text)
         parts = [scrub(tag(xml, name)) for name in ("title", "des")]
@@ -173,26 +177,35 @@ def export_image(tools, username: str, local_id: int, directory: str) -> str | N
 
 
 def fingerprint(item: dict) -> str:
-    """Dấu vân tay của một bản ghi đầu ra (loại, chữ đã làm sạch, người gửi, cờ thu hồi): cửa sổ đọc lại chỉ cần so cái này."""
-    text = json.dumps([item.get("type"), item.get("content"), item.get("sender"), bool(item.get("revoked"))], ensure_ascii=True)
+    """Dấu vân tay của một bản ghi đầu ra (loại, chữ đã làm sạch, người gửi và tên, cờ thu hồi): cửa sổ đọc lại chỉ cần so cái này;
+    đổi biệt danh làm dòng được gửi lại để `users.json` cập nhật."""
+    text = json.dumps([item.get("type"), item.get("content"), item.get("sender"), item.get("sender_name"), bool(item.get("revoked"))],
+                      ensure_ascii=True)
     return hashlib.sha256(text.encode("ascii")).hexdigest()[:16]
 
 
-def stale(row: dict, nicks: dict) -> bool:
-    """Người gửi chưa tra được (thành viên mới vào sau khi tiến trình mở DB, bộ nhớ đệm của upstream cũ)."""
+def stale_key(row: dict, nicks: dict):
+    """Khóa người gửi chưa tra được (thành viên mới vào sau khi tiến trình mở DB, bộ nhớ đệm của upstream cũ), hoặc None."""
     if row.get("sender_id") == 2 or row.get("type") == "系统消息":
-        return False
-    return not row.get("sender_username") or row["sender_username"] not in nicks
+        return None
+    if not row.get("sender_username"):
+        return ("id", row.get("sender_id"))
+    return None if row["sender_username"] in nicks else ("name", row["sender_username"])
 
 
-def refresh(db) -> dict:
-    """Đặt lại bộ nhớ đệm người gửi và biệt danh của upstream (`_sender_id_index`, `nickname_map`), rồi trả bảng biệt danh mới."""
+def refresh(db, current: dict) -> dict:
+    """Đặt lại bộ nhớ đệm người gửi và biệt danh của upstream rồi trả bảng biệt danh mới. Lỗi làm mới thì giữ bảng cũ: tuyệt đối
+    không để lỗi này làm `serve` bỏ DB (mở lại DB là upstream quét bộ nhớ Weixin.exe lần nữa)."""
     with contextlib.suppress(Exception):
         db._sender_id_cache = None
     try:
         return db.nickname_map(refresh=True)
     except TypeError:
-        return db.nickname_map()
+        with contextlib.suppress(Exception):
+            return db.nickname_map()
+    except Exception:   # noqa: BLE001
+        pass
+    return current
 
 
 def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None, window: bool = False) -> dict:
@@ -203,7 +216,7 @@ def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None,
     out = {"kind": "message", "username": username, "local_id": row.get("local_id"), "sort_seq": row.get("sort_seq"),
            "create_time": row.get("create_time"), "type": kind, "is_self": is_self,
            "sender": "" if is_self else sender, "sender_name": "" if is_self else (nicks.get(sender) or ""),   # không bao giờ wxid thô
-           "content": clean_content(kind, raw, sender), "image": None}
+           "content": clean_content(kind, raw, sender, is_self), "image": None}
     if window:
         out["window"] = True
     if kind == "系统消息" and REVOKE.search(raw):
@@ -241,14 +254,23 @@ def cmd_read(db, request: dict) -> int:
     refreshed = False
     for username in present:
         have = groups[username] if isinstance(groups[username], dict) else None
+        # Lần đầu cũng nằm trong ngân sách: chỉ lấy tin gần nhất (tối đa min(first_limit, quota)); phần cũ hơn BỎ có chủ đích, không đọc dần.
+        limit = quota if (have or {}).get("sort_seq") else min(first, quota)
         for attempt in (0, 1):
-            fresh = read_group(db, username, have, first, quota)
+            fresh = read_group(db, username, have, limit, quota)
             seen = {key(row) for row in fresh}
             late = read_window(db, username, hours, time.time()) if hours > 0 and (have or {}).get("sort_seq") else []
             late = [row for row in late if key(row) not in seen]
-            if attempt == 0 and not refreshed and any(stale(row, nicks) for row in [*fresh, *late]):
-                nicks, refreshed = refresh(db), True   # người mới vào nhóm: đọc lại với bộ nhớ đệm người gửi mới
+            # Chỉ tin MỚI mới đáng làm mới bộ nhớ đệm; người gửi đã thử mà vẫn không ra (đã rời nhóm…) thì không thử lại trong 6 giờ.
+            missing = {k for k in (stale_key(row, nicks) for row in fresh) if k is not None and time.time() - TRIED.get(k, 0) > RETRY_AFTER}
+            if attempt == 0 and not refreshed and missing:
+                nicks, refreshed = refresh(db, nicks), True   # người mới vào nhóm: đọc lại với bộ nhớ đệm người gửi mới
                 continue
+            if refreshed:
+                for row in fresh:
+                    k = stale_key(row, nicks)
+                    if k is not None:
+                        TRIED[k] = time.time()
             break
         for row in fresh:
             item = record(nicks, username, row, tools, images_dir)

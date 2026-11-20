@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -61,6 +62,13 @@ def sender_id(wxid: str) -> str:
 
 
 SELF_ID = sha("wechat:self")[:32]
+WXID = re.compile(r"wxid_[A-Za-z0-9]+")
+
+
+def safe_name(name: object, wxid: str = "") -> str:
+    """Tên hiển thị của người gửi; thiếu hoặc là mã thô (`wxid_…`, đúng mã người gửi) thì "Thành viên WeChat"."""
+    shown = name.strip() if isinstance(name, str) else ""
+    return MEMBER_NAME if not shown or shown == wxid or WXID.fullmatch(shown) else shown
 
 
 def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str] | None] | None:
@@ -71,7 +79,7 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
     kind = item.get("type")
     content = item.get("content") if isinstance(item.get("content"), str) else ""
     if isinstance(item.get("type"), str) and XMLISH.search(content):   # phòng con cũ chưa làm sạch: XML không bao giờ lên gói
-        content = clean_content(item["type"], content, item.get("sender") or "")
+        content = clean_content(item["type"], content, item.get("sender") or "", bool(item.get("is_self")))
     mtype = KINDS.get(kind, 19) if isinstance(kind, str) else 19
     if kind == "图片":
         body = "Ảnh WeChat" if image else LABELS[kind]
@@ -84,8 +92,7 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
     own = bool(item.get("is_self"))
     wxid = item.get("sender") if isinstance(item.get("sender"), str) else ""
     sid = SELF_ID if own else sender_id(wxid) if wxid else None
-    shown = (item.get("sender_name") or "").strip() if isinstance(item.get("sender_name"), str) else ""
-    name = SELF_NAME if own else (MEMBER_NAME if not shown or shown == wxid else shown) if wxid else None
+    name = SELF_NAME if own else safe_name(item.get("sender_name"), wxid) if wxid else None
     millis = str(stamp * 1000)
     row = {"message_id": message_id(username, local_id, seq), "conversation_id": conversation_id(username), "sender_id": sid,
            "timestamp": millis, "server_time": millis, "message_type": mtype, "status": 2 if own else 4, "body_state": None,
@@ -144,7 +151,7 @@ class Store:
             wb.write_atomic(self.media_path, wb.dump({**known, **media}))
         if users:
             known = read_json(self.users_path, {}) or {}
-            wb.write_atomic(self.users_path, wb.dump({**known, **users}))
+            wb.write_atomic(self.users_path, wb.dump({**{key: safe_name(name) for key, name in known.items()}, **users}))
         if rows:
             with self.log.open("ab") as stream:
                 stream.write(b"".join(wb.dump(row) + b"\n" for row in rows))
@@ -205,7 +212,8 @@ class Store:
 
     def users_for(self, rows: list[dict]) -> dict[str, str]:
         known = read_json(self.users_path, {}) or {}
-        return {row["sender_id"]: known[row["sender_id"]] for row in rows if row.get("sender_id") in known}
+        # tên mã thô còn sót từ bản cũ chỉ ở máy: không bao giờ vào gói
+        return {row["sender_id"]: safe_name(known[row["sender_id"]]) for row in rows if row.get("sender_id") in known}
 
     def media_for(self, rows: list[dict], out: Path) -> dict[str, dict]:
         """Chép ảnh của các dòng vào `out/media` (nếu thiếu) và trả mục `media.json` của chúng."""
@@ -348,6 +356,7 @@ class WeChatProcessor:
         self.interval, self.first_limit, self.images, self.recheck_hours = interval, first_limit, images, recheck_hours
         self.fps: dict[tuple, tuple[str, int]] = {}   # (nhóm, local_id, sort_seq) → (dấu vân tay, giờ tin): cửa sổ chỉ gửi nội dung khi khác
         self.appended = 0                             # số dòng THẬT SỰ ghi ở lượt nhập gần nhất
+        self.names: dict[str, str] | None = None   # users.json của kho; nạp lười, cập nhật khi ghi
         self.known: dict[str, dict] | None = None   # dấu vết bản cuối của mỗi mã tin trong log; nạp lười ở lượt nhập đầu
         self.run, self.clock, self.dry_run, self.background = run, clock, dry_run, background
         saved = read_json(self.state / f"{NAME}.json", {}) or {}
@@ -460,7 +469,10 @@ class WeChatProcessor:
             if not duplicate:
                 rows.append(row)
                 staged[row["message_id"]] = trace(row)
-                if user:
+            if user:   # tên theo bản MỚI NHẤT, kể cả khi dòng không đổi (biệt danh có sau); chỉ ghi khi khác bản đã lưu
+                self.names = self.names if self.names is not None else read_json(self.store.users_path, {}) or {}
+                have = users.get(user[0]) or self.names.get(user[0])
+                if user[1] != have and not (user[1] == MEMBER_NAME and have):   # không để "Thành viên WeChat" đè tên thật đã biết
                     users[user[0]] = user[1]
             if window:
                 continue   # tin cũ đọc lại không đẩy con trỏ
@@ -471,6 +483,7 @@ class WeChatProcessor:
                 moved[username] = {"sort_seq": seq, "tail": [*tail, local_id]}
         self.store.append(rows, users, media)
         self.known.update(staged)
+        self.names = {**(self.names or {}), **users}
         self.fps.update(seen_fp)
         self.appended = len(rows)
         self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **{u: c for u, c in moved.items() if u in groups}}

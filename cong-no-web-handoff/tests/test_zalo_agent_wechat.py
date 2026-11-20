@@ -728,7 +728,7 @@ class RoundTwoExportTest(unittest.TestCase):
         def get_messages(self, username, limit=20, offset=0):
             rows = super().get_messages(username, limit, offset)
             return [{**row, "sender_username": "" if self._sender_id_cache is not None else "wxid_moi1",
-                     "content": ("abc123:\n" if self._sender_id_cache is None else "") + row["content"]} for row in rows]
+                     "content": "wxid_moi1:\n" + row["content"]} for row in rows]
 
         def nickname_map(self, refresh=False):
             self.fresh_nicks = self.fresh_nicks or refresh
@@ -750,7 +750,8 @@ class RoundTwoExportTest(unittest.TestCase):
 
     def test_prefix_of_any_id_like_token_is_dropped_but_plain_words_are_kept(self):
         self.assertEqual(export.clean_content("文本", "abc123:\nThu 5 triệu"), "Thu 5 triệu")
-        self.assertEqual(export.clean_content("文本", "wxid_xyz:\nThu 5 triệu"), "Thu 5 triệu")
+        self.assertEqual(export.clean_content("文本", "wxid_xyz12:\nThu 5 triệu"), "Thu 5 triệu")
+        self.assertEqual(export.clean_content("文本", "T10:\nThu 5 triệu"), "T10:\nThu 5 triệu")   # quá ngắn để là username
         self.assertEqual(export.clean_content("文本", "Ghi:\nThu 5 triệu"), "Ghi:\nThu 5 triệu")
         self.assertEqual(export.clean_content("文本", "Ghi:\nThu 5 triệu", "Ghi"), "Thu 5 triệu")
 
@@ -856,6 +857,121 @@ class RoundTwoProcessorTest(WeChatBase):
         names = json.loads((self.store.dir / "users.json").read_text(encoding="utf-8"))
         self.assertEqual(names, {fixed["sender_id"]: wc.MEMBER_NAME})
         self.assertNotIn("wxid", json.dumps([fixed, names]))
+
+
+class RoundThreeExportTest(unittest.TestCase):
+    Db = ExportTest.Db
+
+    def setUp(self):
+        export.TRIED.clear()
+        self.addCleanup(export.TRIED.clear)
+
+    def run_read(self, db, request):
+        lines = []
+        with unittest.mock.patch.object(export, "emit", lines.append), unittest.mock.patch.object(export.time, "time", return_value=1_793_000_010.0):
+            export.cmd_read(db, request)
+        return lines
+
+    def test_own_messages_never_lose_their_first_line_even_when_it_looks_like_a_prefix(self):
+        self.assertEqual(export.clean_content("文本", "KH0001:\nthu 5tr", "", is_self=True), "KH0001:\nthu 5tr")
+        self.assertEqual(export.clean_content("文本", "T10:\nthu 5tr", "", is_self=True), "T10:\nthu 5tr")
+        self.assertEqual(export.clean_content("文本", "wxid_abcdef:\nthu", "", is_self=True), "wxid_abcdef:\nthu")
+        row = {"local_id": 1, "sort_seq": 1000, "create_time": 1, "type": "文本", "sender_id": 2, "sender_username": "", "content": "KH0001:\nthu 5tr"}
+        self.assertEqual(export.record({}, USER, row, None, None)["content"], "KH0001:\nthu 5tr")
+
+    def test_a_known_sender_only_loses_a_prefix_equal_to_their_own_username(self):
+        self.assertEqual(export.clean_content("文本", "KH0001:\nthu 5tr", "wxid_a1b2c3"), "KH0001:\nthu 5tr")
+        self.assertEqual(export.clean_content("文本", "wxid_a1b2c3:\nthu 5tr", "wxid_a1b2c3"), "thu 5tr")
+        self.assertEqual(export.clean_content("文本", "wxid_other9:\nthu 5tr", "wxid_a1b2c3"), "wxid_other9:\nthu 5tr")   # không phải người gửi
+
+    def test_the_real_join_template_with_dollar_placeholders_keeps_only_readable_text(self):
+        template = '<sysmsg type="sysmsgtemplate"><sysmsgtemplate><content_template type="tmpl_type_profilewithrevoke"><template><![CDATA["$username$"邀请"$names$"加入了群聊]]></template></content_template></sysmsgtemplate></sysmsg>'
+        cleaned = export.clean_content("系统消息", template)
+        self.assertIn("加入了群聊", cleaned)
+        self.assertNotIn("$", cleaned)
+        self.assertNotIn("username", cleaned)
+
+    def test_an_unresolvable_sender_triggers_one_refresh_then_none_for_six_hours_and_never_drops_the_db(self):
+        class Gone(ExportTest.Db):
+            """Người gửi đã rời nhóm: không bao giờ tra ra, và làm mới biệt danh lúc nào cũng lỗi."""
+
+            def __init__(self):
+                super().__init__([(USER, NAME)], total=2)
+                self.refreshes = 0
+
+            def get_messages(self, username, limit=20, offset=0):
+                return [{**row, "sender_username": "wxid_roi1"} for row in super().get_messages(username, limit, offset)]
+
+            def nickname_map(self, refresh=False):
+                if refresh:
+                    self.refreshes += 1
+                    raise RuntimeError("lỗi thoáng qua")
+                return {}
+
+        db = Gone()
+        for _ in range(4):
+            lines = self.run_read(db, {"groups": {USER: {}}, "first_limit": 10})
+            self.assertEqual(lines[-1]["kind"], "end")   # lỗi làm mới không làm hỏng yêu cầu, không ném ra serve (không bỏ DB)
+        self.assertEqual(db.refreshes, 1)
+        export.TRIED[("name", "wxid_roi1")] = 1_793_000_010.0 - 7 * 3600   # quá hạn 6 giờ: thử lại một lần
+        self.run_read(db, {"groups": {USER: {}}, "first_limit": 10})
+        self.assertEqual(db.refreshes, 2)
+
+    def test_only_new_messages_decide_a_refresh_not_the_replayed_window(self):
+        class Stale(ExportTest.Db):
+            def __init__(self):
+                super().__init__([(USER, NAME)], total=3)
+                self.refreshes = 0
+
+            def get_messages(self, username, limit=20, offset=0):
+                return [{**row, "sender_username": "wxid_cu"} for row in super().get_messages(username, limit, offset)]
+
+            def nickname_map(self, refresh=False):
+                self.refreshes += refresh
+                return {"wxid_cu": "Người cũ"} if refresh else {}   # tên chỉ có sau làm mới
+
+        db = Stale()
+        # cursor ở cuối: không có tin mới, chỉ có cửa sổ với người gửi "chưa tra được" → không làm mới
+        self.run_read(db, {"groups": {USER: {"sort_seq": 3000, "tail": [3]}}, "window_hours": 6})
+        self.assertEqual(db.refreshes, 0)
+
+    def test_first_read_is_inside_the_shared_budget_and_takes_only_the_newest(self):
+        groups = [(f"wxid_g{i}@chatroom", f"Nhóm {i}") for i in range(3)]
+        db = self.Db(groups, total=3000)
+        lines = self.run_read(db, {"groups": {u: {} for u, _ in groups}, "first_limit": 5000})
+        messages = [line for line in lines if line["kind"] == "message"]
+        self.assertEqual(len(messages), 3 * 666)   # không còn 3 × 5000 làm yêu cầu vượt timeout và kẹt
+        self.assertEqual(max(m["local_id"] for m in messages), 3000)   # lấy tin GẦN NHẤT
+        self.assertEqual(min(m["local_id"] for m in messages), 3000 - 666 + 1)
+
+
+class RoundThreeProcessorTest(WeChatBase):
+    def test_a_nickname_that_arrives_later_updates_users_json_and_a_placeholder_never_overwrites_it(self):
+        self.db.feed = [msg(1, 1000, "tin", sender="wxid_moi1", name="")]
+        self.poll()
+        row = self.store.rows_after(0)[0][0]
+        users = lambda: json.loads((self.store.dir / "users.json").read_text(encoding="utf-8"))  # noqa: E731
+        self.assertEqual(users(), {row["sender_id"]: wc.MEMBER_NAME})
+        self.db.window = [msg(1, 1000, "tin", sender="wxid_moi1", name="Người mới", window=True)]   # dòng không đổi, biệt danh có sau
+        self.poll()
+        self.assertEqual(users(), {row["sender_id"]: "Người mới"})
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 1)   # không thêm dòng, chỉ cập nhật tên
+        self.db.window = [msg(1, 1000, "tin", sender="wxid_moi1", name="", window=True)]
+        self.poll()
+        self.assertEqual(users(), {row["sender_id"]: "Người mới"})   # tra lỗi thoáng qua: không đè tên thật
+
+    def test_raw_ids_left_in_an_old_users_json_are_cleaned_and_never_reach_the_bundle(self):
+        self.db.feed = [msg(1, 1000, "tin", sender="wxid_moi1", name="Người mới")]
+        self.poll()
+        row = self.store.rows_after(0)[0][0]
+        (self.store.dir / "users.json").write_text(json.dumps({row["sender_id"]: "wxid_moi1xyz"}), encoding="utf-8")   # bản cũ còn mã thô
+        self.assertEqual(self.store.users_for([row]), {row["sender_id"]: wc.MEMBER_NAME})
+        self.bundle.step()
+        files = self.remote_files()
+        self.assertEqual(files["users"]["users"][row["sender_id"]], wc.MEMBER_NAME)
+        self.assertNotIn("wxid", json.dumps(files["users"]))
+        self.assertEqual(wc.safe_name("wxid_abc123"), wc.MEMBER_NAME)
+        self.assertEqual(wc.safe_name("Anh Hùng"), "Anh Hùng")
 
 
 if __name__ == "__main__":
