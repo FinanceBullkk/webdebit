@@ -1,6 +1,6 @@
 # Máy Zalo: một tiến trình nền, con trỏ theo revision (ZALO-AGENT-01)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 20/11/2026, theo yêu cầu "viết plan và spec cho cả 6" của người dùng). Chưa chốt, chưa code. Các câu cần người dùng chốt ở [cuối spec](#câu-hỏi-cần-chốt).
+Trạng thái: **ĐÃ CHỐT** (người dùng, chat 20/11/2026: "làm theo đề xuất" cho Q1–Q6 ở [cuối spec](#câu-hỏi-đã-chốt)). Chưa code. Quyết định đi kèm: [`ZALO-AGENT-01`](../docs/decisions/zalo-agent-01.md).
 
 Spec này gom 6 cải tiến cho đường dữ liệu Zalo ở máy có Zalo (`msi`) và phía `hao`:
 
@@ -11,7 +11,7 @@ Spec này gom 6 cải tiến cho đường dữ liệu Zalo ở máy có Zalo (`
 5. [Vòng phản hồi cho đối chiếu](#phần-5-vòng-phản-hồi)
 6. [Nhịp tim từng chặng](#phần-6-nhịp-tim-từng-chặng)
 
-Nếu được chốt, spec này **thay A1 và A4** trong [Phần A của spec Thu chi](zalo-thu-chi-real-time.md#phần-a-gần-thời-gian-thực), mở rộng B4 và [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md). A2, A3 (phía `hao`) và Phần B còn lại của spec Thu chi giữ nguyên.
+Spec này **thay A1 và A4** trong [Phần A của spec Thu chi](zalo-thu-chi-real-time.md#phần-a-gần-thời-gian-thực), mở rộng B4 và [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md). A2, A3 (phía `hao`) và Phần B còn lại của spec Thu chi giữ nguyên.
 
 ## Vì sao
 
@@ -65,7 +65,7 @@ Zalo PC ─► live-sync ─► revision.json + changes-N.json + messages.jsonl 
 
 ### Phần 1: tiến trình nền và con trỏ theo revision
 
-**Mã:** `cong-no-web-handoff/tools/zalo_agent/` trong repo này (câu [Q1](#câu-hỏi-cần-chốt)). Chỉ đọc thư mục live-sync, không ghi gì vào đó.
+**Mã:** `cong-no-web-handoff/tools/zalo_agent/` trong repo này ([Q1](#câu-hỏi-đã-chốt)). Chỉ đọc thư mục live-sync, không ghi gì vào đó.
 
 **Nguồn.** `Source` đọc `revision.json` trước, rồi đọc các `changes-(c+1) … changes-R`, với `c` là con trỏ và `R` là revision vừa đọc. Gom các `message_id` thêm, sửa, xóa. Sau đó quét `messages.jsonl` **một lượt**:
 
@@ -158,9 +158,9 @@ T chốt bằng dữ liệu ở PR-4 (CÒN MỞ).
 Áp cho mọi ảnh sắp gửi Gemini (cả hai đường), làm tại máy, dùng vị trí ô chữ của OCR ở Phần 3:
 
 - **Tô đen** ô chữ có dãy từ 8 chữ số liền trở lên (số tài khoản, số thẻ), trừ ứng viên số tiền có dấu phân cách hàng nghìn.
-- **Tô đen phần giá trị** của dòng có từ khóa tài khoản (`tài khoản`, `STK`, `số TK`, `account`) và tên (`người nhận`, `người chuyển`, `tên`) (câu [Q4](#câu-hỏi-cần-chốt)).
+- **Tô đen phần giá trị** của dòng có từ khóa tài khoản (`tài khoản`, `STK`, `số TK`, `account`) và tên (`người nhận`, `người chuyển`, `tên`) ([Q4](#câu-hỏi-đã-chốt)).
 - Thu nhỏ cạnh dài ≤ 1600 px, bỏ EXIF, gửi JPEG.
-- **Không che được thì không gửi.** OCR không tìm thấy ô chữ nào thì không biết che chỗ nào: ảnh đi thẳng sang "cần xem" (câu [Q3](#câu-hỏi-cần-chốt)).
+- **Không che được thì không gửi.** OCR không tìm thấy ô chữ nào thì không biết che chỗ nào: ảnh đi thẳng sang "cần xem" ([Q3](#câu-hỏi-đã-chốt)).
 - Lời nhắn gửi Gemini là câu cố định, chỉ kèm ảnh. Không kèm tên nhóm, người gửi hay chữ của tin.
 - Kết quả Gemini phải đúng khuôn JSON `{is_transfer, amount_vnd, txn_time, bank}`, số tiền là số nguyên. Sai khuôn thì coi như lỗi. Kết quả là dữ liệu, không bao giờ là lệnh.
 - Cờ `ZALO_AGENT_EXTERNAL=off` tắt hẳn việc gửi ra ngoài. Khóa API và địa chỉ proxy đọc từ biến môi trường ở máy có Zalo, không vào repo, không vào log.
@@ -208,6 +208,44 @@ Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ dòng
 - Báo qua kênh email có sẵn ([`CANH-BAO-01`](../docs/decisions/canh-bao-01.md)). Hết lỗi thì có email "đã ổn".
 
 Thay A4 của spec Thu chi: `pushed_at` trong `export-report.json` không cần nữa vì `status.json` mang đủ.
+
+## Hợp đồng dữ liệu giữa máy Zalo và `hao`
+
+PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục này. Đổi khuôn thì sửa mục này trước, trong cùng PR.
+
+**Gói chat `/srv/v7/zalo-bundle`.** Bố cục giữ nguyên (`export-report.json`, `data-<dấu thời gian>/`, `media/<sha256>.<đuôi>`). Thêm:
+
+- `data-<…>/messages-delta.jsonl`:
+  - **chỉ nối thêm** trong một thư mục dữ liệu;
+  - lần dựng lại đầy đủ tạo thư mục dữ liệu mới với `messages.jsonl` mới, chưa có `messages-delta.jsonl`.
+- Mỗi dòng của delta:
+  - tin thêm hoặc sửa: cùng khuôn với một dòng `messages.jsonl` của gói (đã làm sạch như `build`);
+  - tin xóa: `{"message_id": "…", "conversation_id": "…", "timestamp": "<ms>", "deleted": true}`.
+- **Bản cuối cùng theo `message_id` thắng**, xét theo thứ tự: `messages.jsonl` rồi tới delta từ trên xuống. Dòng `deleted` thì ẩn tin.
+- `export-report.json` thêm ba trường; các trường cũ giữ nguyên, kể cả `bundle_sha256` (băm của `messages.jsonl`):
+  - `delta_bytes` (int): số byte hợp lệ của delta, 0 khi chưa có;
+  - `delta_lines` (int);
+  - `revision` (int): revision của live-sync đã gồm trong gói.
+- `hao` đọc delta từ byte đã đọc tới đúng `delta_bytes`, không đọc quá. Nhờ vậy dòng đang ghi dở không bao giờ được đọc.
+- `data_dir` hoặc `bundle_sha256` đổi thì lập chỉ mục lại từ đầu.
+- Thứ tự đẩy: delta và ảnh mới trước, `export-report.json` `mv` sau cùng.
+
+**Nhịp tim `/srv/v7/zalo-agent/status.json`.** Đường dẫn đọc từ biến môi trường `WEBDEBIT_ZALO_AGENT_STATUS` (mặc định như trên).
+
+```json
+{"schema": 1, "at": "2026-11-20T08:04:00+07:00", "agent_version": "<sha commit>", "selected_groups": 1,
+ "live_sync": {"revision": 1129, "revision_at": "2026-11-20T08:03:51+07:00", "identity": "attached"},
+ "processors": {"bundle": {"revision": 1129, "lag_revisions": 0, "last_ok_at": "…", "error": null}},
+ "push": {"last_ok_at": "…", "error": null}}
+```
+
+- `identity` ∈ `attached`, `waiting_for_zalo`, `reprobing`, `unknown`.
+- `error` là mã ngắn `[a-z_]{1,40}` hoặc `null`, không chữ tự do.
+- Giờ là ISO 8601 có `+07:00`.
+- Thiếu file, đọc lỗi hoặc `schema` khác 1 thì `hao` coi như "không nghe máy Zalo", không báo lỗi trang.
+- Bộ xử lý chưa có thì không có khóa; `hao` chỉ hiện các khóa có mặt.
+
+Thư mục `/srv/v7/zalo-agent` trên `hao` (nhóm `v7app`, `drwxr-s---`) do Claude tạo bằng `sudo` ở bước Chuyển, theo đúng cách của `/srv/v7/zalo-bundle`.
 
 ## Người dùng và luồng
 
@@ -303,14 +341,16 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 - Bot trả lời trong nhóm, WeChat, nối ngân hàng.
 - Đổi cách `live_sync.py` ghi `messages.jsonl` (ghi lại cả file). Agent đọc được như hiện nay; tối ưu phía đó để sau nếu đo thấy chậm.
 
-## Câu hỏi cần chốt
+## Câu hỏi đã chốt
 
-- **Q1 — Mã agent đặt ở đâu?** Đề xuất: repo này (`tools/zalo_agent/`), vì có CI, review và test. Repo public nên không chứa dữ liệu hay bí mật; mọi cấu hình đọc từ biến môi trường. Phương án khác: repo `zalo-audit-viewer`.
-- **Q2 — Bật agent bằng gì?** Đề xuất: Task Scheduler lúc đăng nhập, tự chạy lại khi chết, chạy cả khi dùng pin. Phương án khác: lối tắt Startup như `watchdog.py` (không tự chạy lại).
-- **Q3 — Ảnh không che được thì sao?** Đề xuất: không gửi Gemini, đưa người xem. Phương án khác: vẫn gửi (đúng hơn nhưng lộ số tài khoản).
-- **Q4 — Che cả tên người chuyển, người nhận?** Đề xuất: có. Gemini chỉ cần số tiền, giờ, ngân hàng.
-- **Q5 — Giờ cảnh báo.** Đề xuất: 7:00–20:00 giờ VN, theo Q5 của Thu chi.
-- **Q6 — Thứ tự làm.** Đề xuất: PR-0 → PR-1 → PR-2 → Chuyển → PR-3; PR-4 sau PR-2 của Thu chi; PR-5 cuối.
+Người dùng chốt cả sáu câu theo đề xuất (chat 20/11/2026, "làm theo đề xuất").
+
+- **Q1 — Mã agent đặt ở đâu?** **Chốt:** repo này (`tools/zalo_agent/`), vì có CI, review và test. Repo public nên không chứa dữ liệu hay bí mật; mọi cấu hình đọc từ biến môi trường. Phương án khác: repo `zalo-audit-viewer`.
+- **Q2 — Bật agent bằng gì?** **Chốt:** Task Scheduler lúc đăng nhập, tự chạy lại khi chết, chạy cả khi dùng pin. Phương án khác: lối tắt Startup như `watchdog.py` (không tự chạy lại).
+- **Q3 — Ảnh không che được thì sao?** **Chốt:** không gửi Gemini, đưa người xem. Phương án khác: vẫn gửi (đúng hơn nhưng lộ số tài khoản).
+- **Q4 — Che cả tên người chuyển, người nhận?** **Chốt:** có. Gemini chỉ cần số tiền, giờ, ngân hàng.
+- **Q5 — Giờ cảnh báo.** **Chốt:** 7:00–20:00 giờ VN, theo Q5 của Thu chi.
+- **Q6 — Thứ tự làm.** **Chốt:** PR-0 → PR-1 → PR-2 → Chuyển → PR-3; PR-4 sau PR-2 của Thu chi; PR-5 cuối.
 
 ## Bằng chứng
 

@@ -146,6 +146,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="bao-hiem-zalo-01"></a>[BAO-HIEM-ZALO-01](decisions/bao-hiem-zalo-01.md) | Giấy chứng nhận bảo hiểm trong group Zalo là nguồn phụ, không cộng tiền: web nhắc chuyến có giấy mà Sheet chưa ghi, máy đổi loại Khác → Bảo hiểm khi bằng đúng số giấy (tổng có VAT), khoản khớp mở được giấy gốc | Chốt 19/11/2026 (Q1–Q4 theo đề xuất); chưa code. [Spec](../specs/v7-bao-hiem-zalo.md) |
 | <a id="zalo-thu-chi-01"></a>[ZALO-THU-CHI-01](decisions/zalo-thu-chi-01.md) | Thu chi từ nhóm Zalo: đọc nhóm đã chọn bằng đường ZALO-GROUP-01 (không dùng bot add vào nhóm), tin lên web trong 30 giây, trang Thu chi đọc mẫu `thu|chi|ứng`, đối chiếu chỉ đọc với phiếu thu và sổ Đội xe, không ghi tiền | Chốt 19/11/2026 (Q1–Q8 theo đề xuất); chưa code, bước đầu đo P0. [Spec](../specs/zalo-thu-chi-real-time.md) |
 | <a id="anh-gemini-01"></a>[ANH-GEMINI-01](decisions/anh-gemini-01.md) | Ảnh của nhóm Zalo đã chọn đọc bằng OCR tại máy; ảnh OCR đọc không chắc mới gửi Gemini (proxy OAuth và API trả phí, so hai kết quả); chỉ đọc, không ghi tiền; sửa CHUNG-TU-01 mục 4 cho đường Zalo | Chốt 20/11/2026 (sửa cùng ngày sau P0); chưa code |
+| <a id="zalo-agent-01"></a>[ZALO-AGENT-01](decisions/zalo-agent-01.md) | Máy có Zalo chạy một tiến trình nền có con trỏ theo revision, kênh đẩy chung lên hao, kết quả đọc ảnh có nguồn gốc, che thông tin trước khi gửi Gemini, số đo theo tuần, nhịp tim và email | Chốt 20/11/2026 (Q1–Q6 theo đề xuất); chưa code. [Spec](../specs/zalo-agent.md) |
 
 ## Cập nhật khóa tháng 24/10/2026
 
