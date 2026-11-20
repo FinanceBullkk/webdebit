@@ -63,13 +63,14 @@ const ThuChiModel = (() => {
   /** Câu trạng thái đối chiếu theo bảng của spec (Luồng 2). `tone`: ok (đã vào sổ), wait, warn (cần người xem), info. */
   function statusText(item) {
     const shared = item.shared ? 'Một dòng sổ có hai khoản báo cùng chờ: người xem chọn.' : '';
+    if (item.unchecked && item.status === 'WAITING') return { tone: 'info', text: 'Chưa đối chiếu được', note: 'Không đọc được sổ lúc này, chưa biết đã vào sổ hay chưa.' };
     switch (item.status) {
       case 'RECORDED': return { tone: 'ok', text: 'Đã vào sổ', note: '' };
       case 'WAITING': return { tone: 'wait', text: 'Chờ vào sổ', note: '' };
       case 'MISSING': return { tone: 'warn', text: 'Chưa vào sổ', note: 'Quá 3 ngày vẫn chưa thấy trong sổ.' };
       case 'AMOUNT_DIFF': return { tone: 'warn', text: `Lệch: báo ${money(item.amount_vnd)}, sổ ${money(item.ledger_vnd)}`, note: shared };
       case 'SUGGEST': return { tone: 'warn', text: `Có thể là phiếu của sổ ${item.ledger_ref?.name ?? ''}`.trim(), note: ['Người xác nhận.', shared].filter(Boolean).join(' ') };
-      case 'UNKNOWN_TARGET': return { tone: 'info', text: 'Chưa rõ của ai', note: item.ambiguous ? 'Tin khớp nhiều hơn một tên.' : '' };
+      case 'UNKNOWN_TARGET': return { tone: 'info', text: 'Chưa rõ của ai', note: item.unchecked ? 'Không đọc được danh sách khách và xe lúc này.' : item.ambiguous ? 'Tin khớp nhiều hơn một tên.' : '' };
       case 'NO_LEDGER': return { tone: 'info', text: 'Web chưa có sổ chi này', note: 'Chỉ liệt kê.' };
       case 'NO_AMOUNT': return { tone: 'info', text: 'Không đọc được số', note: 'Số tiền không đúng mẫu, không cộng vào tổng.' };
       default: return { tone: 'info', text: '', note: '' };

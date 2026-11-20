@@ -8,7 +8,7 @@
   const $ = id => document.getElementById(id);
   const root = $('thu-chi');
   const POLL_MS = 5000;
-  const state = { days: 7, filter: 'all', data: null, raw: '', fresh: new Set() };
+  const state = { days: 7, filter: 'all', data: null, raw: '', fresh: new Set(), pending: null, fails: 0 };
   let pollTimer = null;
   let turn = 0;
 
@@ -16,18 +16,25 @@
   const clock = ms => (ms == null ? '—' : hhmm.format(ms));
   const dayMonth = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
   const dayLabel = (iso, today) => (iso === today ? `Hôm nay ${dayMonth(iso)}` : iso === M.dayShift(today, -1) ? `Hôm qua ${dayMonth(iso)}` : dayMonth(iso));
-  const stamp = (iso, today) => (iso ? `${iso.slice(0, 10) === today ? '' : `${dayMonth(iso)} `}${iso.slice(11, 16)}` : '');
+  // Giờ của máy chủ là ISO có múi giờ: đọc bằng Date rồi đổi sang giờ Việt Nam, không cắt chuỗi.
+  const stamp = (iso, today) => {
+    const ms = Date.parse(iso ?? '');
+    if (Number.isNaN(ms)) return '';
+    const day = F.vnDay(ms);
+    return `${day === today ? '' : `${dayMonth(day)} `}${hhmm.format(ms)}`;
+  };
   const money = value => F.full(String(value));
   const count = n => n.toLocaleString('vi-VN');
 
   async function fetchData() {
     const today = state.data?.today ?? F.vnDay(Date.now());
     const { from, to } = M.range(today, state.days);
-    const response = await fetch(`/api/v7/cash-chat?from=${from}&to=${to}`, { cache: 'no-store' });
+    const response = await fetch(`/api/v7/cash-chat?from=${from}&to=${to}`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw Error('cash-chat');
     return response.text();
   }
 
+  const SOURCE_NAMES = { receipt: 'phiếu thu', fleet: 'sổ Đội xe', directory: 'danh sách khách và xe', marks: 'dấu khách báo đã chuyển' };
   // Tuổi dữ liệu Zalo: lấy từ nhịp tim của máy Zalo, không giả là mới. Máy im hoặc Zalo chưa mở thì có dòng cảnh báo riêng.
   function paintZalo(data) {
     const zalo = data.zalo ?? {};
@@ -42,6 +49,11 @@
     warn.textContent = zalo.state === 'silent' ? `Máy Zalo không báo về từ ${stamp(zalo.at, data.today)}. Tin mới có thể chưa lên.`
       : stale ? `Zalo chưa mở trên máy Zalo (${count(zalo.quiet_minutes)} phút). Tin mới chưa lên.` : '';
     warn.hidden = !warn.textContent;
+    // Nguồn sổ đọc lỗi: các khoản liên quan ghi "Chưa đối chiếu được", không kết luận chưa vào sổ.
+    const sources = $('source-warn');
+    const names = (data.sources_failed ?? []).map(code => SOURCE_NAMES[code] ?? code);
+    sources.textContent = names.length ? `Không đọc được ${names.join(', ')} lúc này. Các khoản liên quan ghi "Chưa đối chiếu được".` : '';
+    sources.hidden = !names.length;
   }
 
   const fig = (kind, sum) => `<div class="tc-fig ${kind}"><b>${esc(money(sum[kind].vnd))}</b><small>${esc(M.KIND_LABEL[kind])} · ${count(sum[kind].n)} khoản</small></div>`;
@@ -80,7 +92,7 @@
   const TARGET = { so: 'Sổ', xe: 'Xe', tai_xe: 'Tài xế' };
   function row(item) {
     const status = M.statusText(item);
-    const target = item.target.kind ? `${TARGET[item.target.kind]} ${item.target.label ?? ''}`.trim() : '—';
+    const target = `${TARGET[item.target.kind] ?? ''} ${item.target.label ?? ''}`.trim() || '—';
     const open = item.conversation_id
       ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}">Mở tin</a>` : '';
     return `<div class="tc-row${state.fresh.has(M.keyOf(item)) ? ' is-new' : ''}" data-status="${esc(item.status)}">`
@@ -116,37 +128,71 @@
     if (keepFocus) root.querySelector(`[data-f="${keepFocus}"]`)?.focus();
   }
 
-  async function load({ initial = false } = {}) {
+  // Đang đọc (cuộn xuống hoặc tiêu điểm nằm trong danh sách) thì không vẽ lại dưới tay người dùng: giữ bản mới ở `pending` và hiện nút.
+  const inList = () => Boolean(document.activeElement?.closest?.('.tc-day'));
+  const reading = () => window.scrollY > 120 || inList();
+
+  function showPill() {
+    const pill = $('new-pill');
+    pill.hidden = !state.pending;
+    if (!state.pending) return;
+    const added = M.newKeys(state.data.items, state.pending.data.items ?? []).length;
+    pill.textContent = added ? `Có ${count(added)} khoản mới, bấm để xem` : 'Có cập nhật mới, bấm để xem';
+    $('new-note').textContent = pill.textContent;
+  }
+
+  function apply(next) {
+    // Chỉ so khoản mới khi cả hai bản đều có dữ liệu: hồi từ "thiếu gói" không tô mọi khoản là mới.
+    const before = state.data && !state.data.unavailable ? state.data.items : null;
+    const added = before && !next.data.unavailable ? M.newKeys(before, next.data.items) : [];
+    state.raw = next.text;
+    state.data = next.data;
+    state.pending = null;
+    state.fresh = new Set(added);
+    $('new-note').textContent = added.length ? `Có ${count(added.length)} khoản mới` : '';
+    $('new-pill').hidden = true;
+    render();
+    state.fresh = new Set();   // tô nền chỉ một lần: bấm chip lọc vẽ lại không tô lại
+  }
+
+  async function load({ force = false } = {}) {
     const mine = ++turn;
     try {
       const text = await fetchData();
       if (mine !== turn) return;
       $('error').hidden = true;
+      state.fails = 0;
       const data = JSON.parse(text);
       paintZalo(data);
-      if (text === state.raw) return;
-      const before = state.data?.items ?? [];
-      const added = state.data && !data.unavailable ? M.newKeys(before, data.items ?? []) : [];
-      state.raw = text;
-      state.data = data;
-      state.fresh = new Set(added);
-      $('new-note').textContent = added.length ? `Có ${added.length} khoản mới` : '';
-      render();
+      if (text === state.raw) {
+        state.pending = null;
+        showPill();
+        return;
+      }
+      const next = { text, data };
+      if (!force && state.data && !state.data.unavailable && !data.unavailable && reading()) {
+        state.pending = next;
+        showPill();
+        return;
+      }
+      apply(next);
     } catch {
       if (mine !== turn) return;
+      state.fails += 1;
       const error = $('error');
       error.innerHTML = state.data
         ? 'Không cập nhật được. Số đang hiện là lần tải trước.'
         : `${esc(F.loadError('thu chi'))} <button type="button" class="btn" id="retry">Thử lại</button>`;
       error.hidden = false;
-      $('retry')?.addEventListener('click', () => { load({ initial: true }); });
-      if (initial && !state.data) root.innerHTML = '';
+      $('retry')?.addEventListener('click', () => { load({ force: true }).then(schedule); });
+      if (!state.data) root.innerHTML = '';
     }
   }
 
+  // Nhịp 5 giây; lỗi liên tiếp thì giãn dần (10, 20, rồi 30 giây) để máy chủ đang chậm không bị hỏi dồn.
   function schedule() {
     clearTimeout(pollTimer);
-    pollTimer = document.hidden ? null : setTimeout(async () => { await load(); schedule(); }, POLL_MS);
+    pollTimer = document.hidden ? null : setTimeout(async () => { await load(); schedule(); }, POLL_MS * Math.min(2 ** state.fails, 6));
   }
   document.addEventListener('visibilitychange', () => {
     clearTimeout(pollTimer);
@@ -158,14 +204,22 @@
     state.filter = chip.dataset.f;
     render();
   });
+  $('new-pill').addEventListener('click', () => {
+    if (state.pending) apply(state.pending);
+    window.scrollTo({ top: 0 });
+  });
+  // Cuộn về đầu trang và tiêu điểm không còn trong danh sách thì nhận bản mới luôn, không cần bấm nút.
+  window.addEventListener('scroll', () => { if (state.pending && !reading()) apply(state.pending); }, { passive: true });
   $('range').addEventListener('change', event => {
     state.days = Number(event.target.value);
     state.data = null;   // khoảng khác thì không so với bản cũ để tìm khoản mới
     state.raw = '';
+    state.pending = null;
+    $('new-pill').hidden = true;
     root.innerHTML = '<p class="loading">Đang tải thu chi…</p>';
-    load();
+    load({ force: true });
   });
-  $('refresh-data').addEventListener('click', () => { state.raw = ''; load(); });
+  $('refresh-data').addEventListener('click', () => { state.raw = ''; load({ force: true }); });
 
-  load({ initial: true }).then(schedule);
+  load({ force: true }).then(schedule);
 })();

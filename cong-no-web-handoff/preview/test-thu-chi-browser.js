@@ -11,7 +11,7 @@ const PHOTO = 'c'.repeat(64);
 const item = (id, day, hour, direction, amount, status, extra = {}) => ({
   source: 'chat', message_id: id, conversation_id: GROUP, conversation_name: 'Nhóm thu chi thử', sent_at: Date.parse(`${day}T${String(hour).padStart(2, '0')}:00:00+07:00`),
   day, sender_name: 'Lan', direction, amount_vnd: amount, text: `${direction} ${amount} thử`, media: [], target: { kind: null, id: null, label: null }, ambiguous: false,
-  status, shared: false, ledger_ref: null, ledger_vnd: null, ...extra });
+  status, shared: false, unchecked: false, ledger_ref: null, ledger_vnd: null, ...extra });
 const so = (id, label) => ({ kind: 'so', id, label });
 const ITEMS = [
   item('t1', TODAY, 11, 'thu', 50_000_000, 'RECORDED', { target: so(1, 'SỔ A'), ledger_ref: { kind: 'receipt', customer_id: 1, pid: 'PH-1', date: TODAY }, media: [{ id: PHOTO, mime: 'image/jpeg' }] }),
@@ -24,7 +24,7 @@ const ITEMS = [
   item('t8', '2026-11-17', 10, 'thu', null, 'NO_AMOUNT', { text: 'thu 50 khach' }),
   item('t9', '2026-11-18', 10, 'thu', 9_000_000, 'UNKNOWN_TARGET'),
 ];
-const body = (items, extra = {}) => ({ unavailable: false, from: '2026-11-14', to: TODAY, today: TODAY, items, totals: {}, counts: {}, bundle_at: '2026-11-20T11:00:00+07:00',
+const body = (items, extra = {}) => ({ unavailable: false, sources_failed: [], from: '2026-11-14', to: TODAY, today: TODAY, items, totals: {}, counts: {}, bundle_at: '2026-11-20T11:00:00+07:00',
   last_message_at: Date.parse(`${TODAY}T11:00:00+07:00`), zalo: { state: 'ok', at: '2026-11-20T11:30:00+07:00', silent_minutes: 0, identity: 'attached', quiet_minutes: 0 }, ...extra });
 
 function makeServer(state) {
@@ -146,6 +146,8 @@ test('Thu chi: khoản mới tự hiện sau một lượt hỏi, không cần t
   }, { clock: true });
 });
 
+const answer = page => page.waitForResponse(response => response.url().includes('/api/v7/cash-chat'));
+
 test('Thu chi: tab ẩn thì ngừng hỏi, hiện lại thì hỏi ngay', () => withPage(ok(ITEMS), async (page, state) => {
   await ready(page);
   const setHidden = hidden => page.evaluate(value => {
@@ -155,11 +157,15 @@ test('Thu chi: tab ẩn thì ngừng hỏi, hiện lại thì hỏi ngay', () =>
   await setHidden(true);
   const before = state.calls.length;
   await page.clock.runFor(30_000);
+  await page.waitForTimeout(150);   // đồng hồ giả không chạy giờ thật: chờ chắc chắn không có yêu cầu nào đang bay
   assert.equal(state.calls.length, before);
+  let answered = answer(page);   // đợi phản hồi mạng về rồi mới tua đồng hồ, để lượt đếm không chạy trước yêu cầu
   await setHidden(false);
-  await page.clock.runFor(100);
+  await answered;
   assert.equal(state.calls.length, before + 1);
+  answered = answer(page);
   await page.clock.runFor(5000);
+  await answered;
   assert.equal(state.calls.length, before + 2);
 }, { clock: true }));
 
@@ -244,3 +250,120 @@ test('Thu chi: điện thoại 390px, mỗi khoản là một thẻ gọn, khôn
   const amount = await page.locator('.tc-row').first().locator('.tc-amt').boundingBox();
   assert.ok(amount.x > 195, 'số tiền ở bên phải của thẻ, cùng dòng với giờ và người gửi');
 }, { viewport: { width: 390, height: 844 } }));
+
+test('Thu chi: đang đọc (cuộn xuống) thì khoản mới không vẽ lại danh sách mà hiện nút; bấm nút hoặc cuộn về đầu thì nhận', () => {
+  let phase = 0;
+  const added = item('n1', TODAY, 12, 'thu', 8_000_000, 'WAITING', { target: so(5, 'SỔ E') });
+  const more = item('n2', TODAY, 13, 'chi', 1_000_000, 'WAITING');
+  return withPage(() => ({ body: body(phase === 2 ? [more, added, ...ITEMS] : phase ? [added, ...ITEMS] : ITEMS) }), async page => {
+    await ready(page);
+    await page.evaluate(() => { window.scrollTo(0, 400); document.querySelector('.tc-row').dataset.keep = '1'; });
+    assert.ok(await page.evaluate(() => window.scrollY) > 120);
+    phase = 1;
+    let answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    await page.locator('#new-pill').waitFor();
+    assert.equal(await page.locator('#new-pill').innerText(), 'Có 1 khoản mới, bấm để xem');
+    assert.equal(await page.locator('.tc-row[data-keep]').count(), 1, 'danh sách không bị vẽ lại dưới tay người đọc');
+    assert.equal(await page.locator('.tc-row').count(), 9);
+    assert.ok(await page.evaluate(() => window.scrollY) > 120, 'không bị kéo đi chỗ khác');
+    await page.locator('#new-pill').click();
+    assert.equal(await page.locator('.tc-row').count(), 10);
+    assert.equal(await page.locator('#new-pill').isHidden(), true);
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    // Lần nữa: cuộn xuống, có khoản mới nữa, rồi tự cuộn về đầu thì nhận luôn, không cần bấm.
+    phase = 2;
+    await page.evaluate(() => window.scrollTo(0, 400));
+    answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    await page.locator('#new-pill').waitFor();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.locator('#new-pill').waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('.tc-row').count(), 11);
+  }, { clock: true, viewport: { width: 1280, height: 400 } });
+});
+
+test('Thu chi: tiêu điểm đang ở trong danh sách thì không vẽ lại, nút hiện thay', () => {
+  let phase = 0;
+  const added = item('n1', TODAY, 12, 'thu', 8_000_000, 'WAITING', { target: so(5, 'SỔ E') });
+  return withPage(() => ({ body: body(phase ? [added, ...ITEMS] : ITEMS) }), async page => {
+    await ready(page);
+    await page.locator('.tc-open').first().focus();
+    phase = 1;
+    const answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    await page.locator('#new-pill').waitFor();
+    assert.equal(await page.locator('.tc-row').count(), 9);
+    assert.equal(await page.evaluate(() => document.activeElement.className), 'tc-open', 'tiêu điểm bàn phím không mất');
+  }, { clock: true });
+});
+
+test('Thu chi: hồi từ "thiếu gói" không tô mọi khoản là mới, tô nền chỉ một lần', () => {
+  let phase = 0;
+  const added = item('n1', TODAY, 12, 'thu', 8_000_000, 'WAITING', { target: so(5, 'SỔ E') });
+  return withPage(() => ({ body: phase === 0 ? { unavailable: true, zalo: { state: 'missing' } } : phase === 1 ? body(ITEMS) : body([added, ...ITEMS]) }), async page => {
+    await page.locator('.empty').waitFor();
+    phase = 1;
+    await page.clock.runFor(5000);
+    await ready(page);
+    assert.equal(await page.locator('.tc-row.is-new').count(), 0);
+    assert.equal(await page.locator('#new-note').innerText(), '');
+    phase = 2;
+    await page.clock.runFor(5000);
+    await page.locator('.tc-row.is-new').waitFor();
+    assert.equal(await page.locator('.tc-row.is-new').count(), 1);
+    await page.locator('.tc-chip', { hasText: 'Lệch số' }).click();   // vẽ lại vì lọc: không tô lại
+    await page.locator('.tc-chip', { hasText: 'Tất cả' }).click();
+    assert.equal(await page.locator('.tc-row.is-new').count(), 0);
+  }, { clock: true });
+});
+
+test('Thu chi: lỗi liên tiếp thì giãn nhịp hỏi (10 rồi 20 giây), hồi lại thì về 5 giây', () => {
+  let down = false;
+  return withPage(() => (down ? { status: 503 } : { body: body(ITEMS) }), async (page, state) => {
+    await ready(page);
+    const start = state.calls.length;
+    down = true;
+    let answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    assert.equal(state.calls.length, start + 1);
+    await page.clock.runFor(5000);   // lần lỗi thứ nhất: lần sau cách 10 giây
+    await page.waitForTimeout(150);
+    assert.equal(state.calls.length, start + 1);
+    answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    assert.equal(state.calls.length, start + 2);
+    down = false;
+    answered = answer(page);
+    await page.clock.runFor(20_000);   // lỗi thứ hai: lần sau cách 20 giây
+    await answered;
+    await page.locator('#error').waitFor({ state: 'hidden' });
+    answered = answer(page);
+    await page.clock.runFor(5000);   // đã hồi: về nhịp 5 giây
+    await answered;
+    assert.equal(state.calls.length, start + 4);
+  }, { clock: true });
+});
+
+test('Thu chi: giờ Zalo là ISO có múi giờ, đổi đúng sang giờ Việt Nam; loại đối tượng lạ không hiện "undefined"', async () => {
+  await withPage(() => ({ body: body([item('x1', TODAY, 9, 'thu', 5_000_000, 'UNKNOWN_TARGET', { target: { kind: 'la', id: 1, label: null } })],
+    { zalo: { state: 'ok', at: '2026-11-20T04:05:00Z', silent_minutes: 0, identity: 'attached', quiet_minutes: 0 } }) }), async page => {
+    await ready(page);
+    assert.equal(await page.locator('#zalo-at').innerText(), 'Zalo cập nhật lúc 11:05');
+    assert.doesNotMatch(await page.locator('.tc-row').innerText(), /undefined|null/);
+    assert.equal(clean(await page.locator('.tc-target').innerText()).startsWith('—'), true);
+  });
+});
+
+test('Thu chi: nguồn sổ đọc lỗi thì báo rõ và khoản liên quan ghi "Chưa đối chiếu được", không phải "Chưa vào sổ"', () => withPage(
+  () => ({ body: body([item('u1', '2026-11-10', 9, 'thu', 5_000_000, 'WAITING', { target: so(1, 'SỔ A'), unchecked: true })], { sources_failed: ['receipt', 'marks'] }) }), async page => {
+    await ready(page);
+    assert.match(await page.locator('#source-warn').innerText(), /Không đọc được phiếu thu, dấu khách báo đã chuyển lúc này/);
+    assert.match(clean(await page.locator('.tc-row').innerText()), /Chưa đối chiếu được Không đọc được sổ lúc này/);
+    assert.equal(await page.locator('.tc-chip', { hasText: 'Chưa vào sổ' }).innerText().then(clean), 'Chưa vào sổ0');
+  }));

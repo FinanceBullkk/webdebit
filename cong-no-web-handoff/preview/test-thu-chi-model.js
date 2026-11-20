@@ -57,3 +57,10 @@ test('Câu trạng thái đúng bảng của spec; lệch số ghi cả hai số
   assert.equal(M.statusText(item('d', 'thu', null, 'NO_AMOUNT')).text, 'Không đọc được số');
   assert.equal(M.money(null), '—');
 });
+
+test('Khoản chưa đối chiếu được (nguồn sổ lỗi) không bị ghi là chưa vào sổ', () => {
+  const text = M.statusText(item('d', 'thu', 5, 'WAITING', { unchecked: true }));
+  assert.deepEqual([text.tone, text.text], ['info', 'Chưa đối chiếu được']);
+  assert.match(M.statusText(item('d', 'thu', 5, 'UNKNOWN_TARGET', { unchecked: true })).note, /danh sách khách và xe/);
+  assert.equal(M.statusText(item('d', 'thu', 5, 'WAITING')).text, 'Chờ vào sổ');
+});

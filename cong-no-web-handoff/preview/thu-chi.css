@@ -18,6 +18,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc #error{max-width:1100px;margin:0 0 12px;padding:10px 14px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-weight:600}
 .tc #error button{margin-left:10px}
 .tc-warn{max-width:1100px;margin:0 0 12px;padding:10px 14px;border:1px solid #f0d49b;border-radius:8px;background:var(--warning-soft);color:var(--warning);font-weight:600}
+.tc-newpill{position:sticky;top:12px;z-index:5;display:block;margin:0 auto 10px;min-height:40px;padding:0 18px;border:1px solid var(--accent);border-radius:20px;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 2px 8px #1f293740;cursor:pointer}
 #thu-chi{max-width:1100px;display:flex;flex-direction:column;gap:14px}
 .tc .loading,.tc .empty{margin:0;padding:16px;border:1px dashed var(--line);border-radius:var(--radius);background:#fff;color:var(--ink-2)}
 
