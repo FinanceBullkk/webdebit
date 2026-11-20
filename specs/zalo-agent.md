@@ -204,7 +204,8 @@ Chỉ có mã và số đếm, không chữ tự do. `identity` lấy từ `poll
 - `tools/v7_watchdog.py` thêm phép kiểm `zalo`, chỉ trong 7:00–20:00 giờ VN, chỉ khi đã có `status.json` và đã chọn ít nhất một nhóm:
   - `status.json` cũ quá 15 phút → "máy Zalo im lặng";
   - `waiting_for_zalo` quá 15 phút (tính từ `identity_since`) → "Zalo chưa mở";
-  - một bộ xử lý chậm quá 15 phút → "chậm".
+  - một bộ xử lý chậm quá 15 phút → "chậm";
+  - một bộ xử lý hoặc `push` báo `error` liên tục quá 15 phút → "lỗi" kèm mã ngắn.
 - Báo qua kênh email có sẵn ([`CANH-BAO-01`](../docs/decisions/canh-bao-01.md)). Hết lỗi thì có email "đã ổn".
 
 Thay A4 của spec Thu chi: `pushed_at` trong `export-report.json` không cần nữa vì `status.json` mang đủ.
@@ -250,6 +251,8 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 - **Thiếu file** (chưa bật agent): tab Máy chạy hiện "Chưa có máy Zalo báo về", máy canh im.
 - **File đọc lỗi, `schema` khác 1, hoặc `at` cũ quá 15 phút**: "Không nghe máy Zalo từ …"; máy canh báo theo Phần 6. Không báo lỗi trang.
 - Bộ xử lý chưa có thì không có khóa; `hao` chỉ hiện các khóa có mặt.
+
+**Trang hỏi tin mới theo thứ tự đến** (thay `after=<timestamp>` của A3, chỉnh 20/11/2026 sau review PR-2): `GET /api/v7/zalo/messages?conversation=…&since=<token>` trả mọi dòng của hội thoại đến sau `token` (thêm, sửa, xóa) kèm `token` mới. `token` do server cấp (gắn với `bundle_sha256` và vị trí đã đọc trong delta); token của gói cũ thì trả `{reset: true}` và trang tải lại hội thoại. Lý do: khi máy Zalo mở lại sau một đêm, live-sync đọc bù hàng trăm tin có giờ gửi cũ hơn tin mới nhất trang đang hiện; lọc theo giờ gửi sẽ bỏ lỡ chúng.
 
 Thư mục `/srv/v7/zalo-agent` trên `hao` (nhóm `v7app`, `drwxr-s---`) do Claude tạo bằng `sudo` ở bước Chuyển, theo đúng cách của `/srv/v7/zalo-bundle`.
 
@@ -308,7 +311,7 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   - quét 131 MB dưới 2 giây (đo trên máy có Zalo, ghi số).
 - [ ] PR-1: test của `push.py`: kịch bản máy chủ có `umask 027`, không có `chmod`, file chốt `mv` sau cùng; không đổi gì thì không gửi tar.
 - [ ] PR-1: thử trên `hao` ở thư mục tạm có setgid, đẩy hai lượt: mọi thư mục giữ `drwxr-s---` nhóm `v7app`, `v7app` đọc được; xóa thư mục tạm. Ghi nhật ký.
-- [ ] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `after=` chỉ trả tin mới hơn.
+- [ ] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `since=` trả cả tin tới muộn (giờ gửi cũ hơn), tin sửa, tin xóa; token gói cũ thì `reset`.
 - [ ] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm.
 - [ ] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px.
 - [ ] Chuyển: một ngày làm việc trên máy thật, tin mới lên web trong **30 giây** (p95, từ `revision_at` tới `status.json` trên `hao`); khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp, không mất tin. Ghi số trong nhật ký.

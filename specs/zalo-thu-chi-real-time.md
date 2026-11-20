@@ -138,7 +138,7 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
 
 ### Đề xuất: giữ gói file và kênh ssh, đổi bốn chỗ
 
-> **Thay ngày 20/11/2026:** [`ZALO-AGENT-01`](zalo-agent.md) (ĐÃ CHỐT) thay A1 và A4 bằng một tiến trình nền có con trỏ theo revision, kênh đẩy chung và `status.json`; A2 đổi thành "bản mới nhất theo `message_id` thắng; tin xóa hiện giống bản dựng đầy đủ". A1 và A4 dưới đây giữ làm lịch sử; A2, A3 vẫn hiện hành với sửa đổi trên.
+> **Thay ngày 20/11/2026:** [`ZALO-AGENT-01`](zalo-agent.md) (ĐÃ CHỐT) thay A1 và A4 bằng một tiến trình nền có con trỏ theo revision, kênh đẩy chung và `status.json`; A2 đổi thành "bản mới nhất theo `message_id` thắng; tin xóa hiện giống bản dựng đầy đủ"; A3 hỏi bằng con trỏ `since` theo thứ tự đến thay cho `after=<timestamp>`. A1 và A4 dưới đây giữ làm lịch sử; A2, A3 vẫn hiện hành với sửa đổi trên.
 
 Không thêm bảng DB, không mở cổng ghi mới trên `hao`, không đổi Tailscale. Cùng thư mục `/srv/v7/zalo-bundle` và cùng tài khoản ssh mà người dùng đã đồng ý ở G5.
 
