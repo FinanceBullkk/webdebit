@@ -18,7 +18,7 @@ Tám câu Q1–Q8 của spec:
 - **Q1:** lập nhóm Zalo nội bộ "Thu chi"; nhóm khách thêm theo danh sách P0.
 - **Q2:** bắt gõ theo mẫu trong nhóm Thu chi.
 - **Q3:** ai vào được web thì xem được trang Thu chi.
-- **Q4:** đọc ảnh bằng OCR ngay trên máy có Zalo, giữ [`CHUNG-TU-01`](chung-tu-01.md) mục 4.
+- **Q4:** đọc ảnh bằng OCR ngay trên máy có Zalo, giữ [`CHUNG-TU-01`](chung-tu-01.md) mục 4. **Thay ngày 20/11/2026** bởi [`ANH-GEMINI-01`](anh-gemini-01.md): ảnh của nhóm đã chọn gửi ra Gemini qua hai đường rồi so kết quả.
 - **Q5:** máy có Zalo bật 7:00–20:00.
 - **Q6:** đối chiếu từ 1 ngày trước tới 3 ngày sau ngày báo.
 - **Q7:** nối ngân hàng để sau, làm spec riêng.
