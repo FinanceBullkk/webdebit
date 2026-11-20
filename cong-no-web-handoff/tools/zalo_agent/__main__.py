@@ -1,7 +1,7 @@
 """ZALO-AGENT-01: `python -X utf8 -I …\\zalo_agent run [--once] [--dry-run]`, một tiến trình nền ở máy có Zalo.
 
 Cấu hình đọc từ tham số hoặc biến môi trường (`ZALO_LIVE_SYNC`, `ZALO_AGENT_ROOT`, `ZALO_AGENT_TARGET`,
-`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
+`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_WECHAT` (=1 bật nguồn WeChat), `ZALO_WECHAT_PYTHON`, `ZALO_WECHAT_PILOT`, `ZALO_WECHAT_GROUPS`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
 `bundle/` (gói chat dựng tại máy), `insurance/` (bản gọn bảo hiểm), `logs/` (xoay vòng 10 MB x 3). Chỉ đọc thư mục live-sync.
 """
 from __future__ import annotations
@@ -21,6 +21,7 @@ if __package__ in (None, ""):   # chạy `python -I …\zalo_agent`: đưa thư 
 from zalo_agent import cursor as cursors
 from zalo_agent import push as pusher
 from zalo_agent import status as status_file
+from zalo_agent.processors import wechat as wechat_source
 from zalo_agent.processors.bundle import BundleProcessor
 from zalo_agent.processors.insurance import InsuranceProcessor
 from zalo_agent.source import LiveSync
@@ -35,14 +36,21 @@ LOCAL_RETRY = 10      # giây: thử lại lỗi cục bộ
 class Agent:
     def __init__(self, live: LiveSync, root: Path, bundle_target: str, status_target: str, *, run=pusher.ssh_run,
                  dry_run: bool = False, clock=time.time, sleep=time.sleep, log=None, insurance_target: str | None = None,
-                 insurance_snapshot: Path | None = None, insurance_store: Path | None = None, **processor_args):
+                 insurance_snapshot: Path | None = None, insurance_store: Path | None = None, wechat: dict | None = None, **processor_args):
         self.live, self.root, self.status_target, self.run = live, Path(root), status_target, run
         self.dry_run, self.clock, self.sleep = dry_run, clock, sleep
         self.state = self.root / "state"
         self.log = log or logging.getLogger("zalo_agent")
         self.version = status_file.agent_version(REPO)
+        # --dry-run dùng kho riêng (`wechat-dry`): không nối `log.jsonl` thật nên lượt thật sau đó không có dòng thừa
+        overlay = wechat_source.Store(self.root / ("wechat-dry" if dry_run else "wechat"), wechat_source.Selection(Path(wechat["groups"]))) if wechat else None
         self.processors = [BundleProcessor(live, self.state, self.root / "bundle", bundle_target, run=run, dry_run=dry_run,
-                                           clock=clock, **processor_args)]
+                                           clock=clock, overlay=overlay, **processor_args)]
+        if overlay:   # WECHAT-01: nguồn thứ hai, chỉ khi bật `--wechat`; tiến trình con chạy ở luồng nền nên không làm chậm bundle
+            self.processors.append(wechat_source.WeChatProcessor(
+                overlay, self.state, python=wechat["python"], pilot=wechat["pilot"], interval=wechat.get("interval", wechat_source.INTERVAL),
+                images=wechat.get("images", False), run=wechat.get("run") or wechat_source.Session(), dry_run=dry_run, clock=clock,
+                background=wechat.get("background", True)))
         if insurance_target:   # không đích thì không có bộ xử lý (và không có khóa trong status.json)
             self.processors.append(InsuranceProcessor(live, self.state, self.root / "insurance", insurance_target,
                                                       snapshot=insurance_snapshot, store=insurance_store, run=run, dry_run=dry_run, clock=clock))
@@ -199,13 +207,27 @@ def main(argv: list[str] | None = None) -> int:
                           "tắt ZaloInsurancePush, để hai đường không ghi song song)")
     run.add_argument("--insurance-snapshot", default=os.environ.get("ZALO_INSURANCE_SNAPSHOT"), help="mặc định: <live-sync>/insurance-snapshot.json")
     run.add_argument("--insurance-store", default=os.environ.get("ZALO_INSURANCE_STORE"), help="mặc định: <live-sync>/remote-media-store")
+    wechat_source.add_arguments(run)
+    run.add_argument("--wechat", action="store_true", default=os.environ.get("ZALO_AGENT_WECHAT") == "1",
+                     help="WECHAT-01: bật nguồn WeChat (nhóm trong wechat-groups.json); MẶC ĐỊNH TẮT")
+    run.add_argument("--wechat-interval", type=float, default=wechat_source.INTERVAL, help="giây giữa hai lần đọc WeChat")
+    run.add_argument("--wechat-images", action="store_true", help="giải mã ảnh WeChat khi khóa ảnh suy ra được ngoại tuyến (mặc định tắt)")
+    for name in ("wechat-list", "wechat-add", "wechat-remove"):
+        command = sub.add_parser(name, help="chọn nhóm WeChat lên web (đọc chỉ-đọc qua wechat-mcp-pilot)")
+        wechat_source.add_arguments(command)
+        if name != "wechat-list":
+            command.add_argument("needles", nargs="+", help="tên nhóm hoặc 8 ký tự đầu mã")
     run.add_argument("--max-fetch", type=int, default=50, help="số ảnh tối đa tải từ Zalo mỗi lượt")
     run.add_argument("--max-age-days", type=int, default=30)
     args = parser.parse_args(argv)
+    if args.command.startswith("wechat-"):
+        return wechat_source.main_command(args)
     root = Path(args.root)
     agent = Agent(LiveSync(Path(args.live_sync)), root, args.target, args.status_target, dry_run=args.dry_run,
                   insurance_target=args.insurance_target, insurance_snapshot=Path(args.insurance_snapshot) if args.insurance_snapshot else None,
                   insurance_store=Path(args.insurance_store) if args.insurance_store else None,
+                  wechat={"python": args.wechat_python, "pilot": args.wechat_pilot, "groups": args.wechat_groups,
+                          "interval": args.wechat_interval, "images": args.wechat_images} if args.wechat else None,
                   max_fetch=args.max_fetch, max_age_days=args.max_age_days)
     if not agent.lock():   # trước khi mở agent.log: bản thứ hai giữ handle log sẽ làm bản chính không xoay vòng được log trên Windows
         print("đang có một agent khác chạy")

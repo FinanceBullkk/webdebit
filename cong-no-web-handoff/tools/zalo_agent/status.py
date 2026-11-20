@@ -77,7 +77,8 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             "lag_revisions": max(0, revision - have) if isinstance(revision, int) and isinstance(have, int) else None,
             "last_ok_at": now_iso(now) if error is None else (before.get(name) or {}).get("last_ok_at"),
             "error": error,
-            "error_since": error_since(before.get(name), error, now)}
+            "error_since": error_since(before.get(name), error, now),
+            **({"messages": result["messages"]} if isinstance(result.get("messages"), int) and not isinstance(result["messages"], bool) else {})}
     push_failure = code(push_error)   # chỉ đường đẩy nhịp tim (chính file này); lỗi đẩy từng bộ xử lý nằm ở processors.<tên>.error
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
             "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},

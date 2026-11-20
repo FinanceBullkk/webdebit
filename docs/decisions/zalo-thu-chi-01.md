@@ -54,4 +54,4 @@ CÒN MỞ:
 - engine OCR;
 - danh sách nhóm (sau P0);
 - khoảng ngày cho chi Đội xe (người nhập Đội xe xác nhận);
-- bot trả lời trong nhóm, WeChat, nối ngân hàng (ngoài phạm vi).
+- bot trả lời trong nhóm, nối ngân hàng (ngoài phạm vi). WeChat: chỉ nhóm người dùng chọn, đọc như nguồn thứ hai của `zalo-agent` ([`WECHAT-01`](wechat-01.md), 20/11/2026).
