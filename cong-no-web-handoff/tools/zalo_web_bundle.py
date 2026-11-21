@@ -12,6 +12,11 @@ chỉ ghi `web-groups.json` (danh sách group được lên web) cạnh kho. Gó
 Gói không có URL CDN, đường dẫn máy, băm URL hay hội thoại không được chọn. Ảnh chỉ tải từ
 `*.zdn.vn`/`*.zadn.vn` như viewer; ảnh JXL của Zalo đổi sang JPEG khi có `pillow-jxl-plugin`.
 Không log nội dung tin.
+
+Từ 21/11/2026 dòng tin mang thêm `card`, `quote_id`, `reactions`, `sticker`; `users.json` có `avatars`, mỗi hội thoại có
+`avatar` (hợp đồng trong specs/zalo-agent.md). Nguồn là các chỉ mục phụ viewer đã dựng (`quote-index.json`,
+`reaction-index.json`, `sticker-index.json`, `avatar-index.json`); sticker, avatar và ghi âm/video viewer tải sẵn
+(`remote-media-store`) chỉ được chép sau khi sha256 khớp chỉ mục. Ghi âm và video không tự tải từ CDN.
 """
 from __future__ import annotations
 
@@ -40,12 +45,24 @@ CACHE = "media-cache.json"
 VN = timezone(timedelta(hours=7))
 ALLOWED_HOSTS = (".zdn.vn", ".zadn.vn")
 IMAGE_TYPES = {2, 7}          # ảnh, GIF
+STICKER_TYPE, VOICE_TYPE, VIDEO_TYPE = 4, 3, 18
+MEDIA_TYPES = IMAGE_TYPES | {VOICE_TYPE, VIDEO_TYPE}   # ghi âm (.aac/.amr), video (.mp4): bản trong máy hoặc bản viewer tải sẵn
 URL_KEYS = ("normalUrl", "oriUrl", "hdUrl")   # bản thường đủ xem, nhẹ hơn bản HD
 MAX_BYTES = 30 * 1024 * 1024
 RETRY_AFTER = 7 * 24 * 3600   # URL lỗi thì 7 ngày sau mới thử lại
 KEEP_DATA_DIRS = 2            # lượt hiện tại và lượt trước (server có thể còn đọc lượt trước)
-EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4"}
+EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4",
+              "audio/aac": ".aac", "audio/amr": ".amr"}
+STORE_EXTENSIONS = frozenset({*EXTENSIONS.values(), ".jxl"})
 CONVERSATION_ID = re.compile(r"[0-9a-f]{64}")
+CLEAN_KEYS = ("message_id", "conversation_id", "sender_id", "timestamp", "server_time", "message_type", "status", "body_state")
+# Mã thẻ theo (msgType, action) của Zalo PC, đo trên kho thật 21/11/2026: loại 6 phần lớn là liên kết, không phải cuộc gọi.
+# "recommened" là cách Zalo viết, giữ nguyên.
+CARDS = {(6, "recommened.link"): "link", (6, "recommened.misscall"): "missed_call", (6, "recommened.calltime"): "call",
+         (6, "recommened.user"): "contact", (25, "show.profile"): "contact", (52, "zinstant.bankcard"): "bank_card",
+         (-1909, "msginfo.actionlist"): "system", **{(26, action): "poll" for action in ("vote", "create", "update", "close")}}
+MAX_REACTIONS = 20
+AVATAR_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/jxl": ".jxl"}
 
 
 class BundleError(Exception):
@@ -90,6 +107,11 @@ def sniff(data: bytes) -> str | None:
         return "image/webp"
     if data.startswith(b"\xff\x0a") or data.startswith(b"\x00\x00\x00\x0cJXL \r\n\x87\n"):
         return "image/jxl"
+    if data.startswith(b"#!AMR"):   # ghi âm Zalo: "#!AMR\n" hoặc "#!AMR-WB\n"
+        return "audio/amr"
+    if len(data) >= 2 and data[0] == 0xFF and data[1] & 0xF6 == 0xF0:
+        # AAC khung ADTS (kiểu ghi âm còn lại của Zalo): 12 bit đồng bộ, hai bit layer 00. JPEG (FF D8) và JXL (FF 0A) đã xét ở trên.
+        return "audio/aac"
     if data[4:8] == b"ftyp":
         return "video/mp4"
     return None
@@ -151,6 +173,34 @@ def clean_body(body: object):
         # Album: Zalo gửi nhiều ảnh thành nhiều tin cùng một nhóm; giữ để giao diện gộp lại.
         clean["album"] = hashlib.sha256(str(params["group_layout_id"]).encode()).hexdigest()[:16]
     return clean
+
+
+def card_code(row: dict) -> str | None:
+    body = row.get("body")
+    action = body.get("action") if isinstance(body, dict) else None
+    return CARDS.get((row.get("message_type"), action)) if isinstance(action, str) and isinstance(row.get("message_type"), int) else None
+
+
+def clean_message(row: dict) -> dict:
+    """Phần làm sạch của một dòng tin, chung cho bản dựng đầy đủ và delta (cả dòng tin xóa): không URL, không đường dẫn máy."""
+    clean = {key: row.get(key) for key in CLEAN_KEYS}
+    clean["body"] = clean_body(row.get("body"))
+    card = card_code(row)
+    if card:
+        clean["card"] = card
+    return clean
+
+
+def as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def optional(path: Path) -> dict:
+    """Chỉ mục phụ của viewer: thiếu hay hỏng thì coi như trống (gói vẫn dựng, chỉ thiếu phần đó)."""
+    try:
+        return as_dict(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
 
 
 class Source:
@@ -218,7 +268,10 @@ class Media:
         self.budget = max_fetch
         self.now = time.time() if now is None else now
         self.items: dict[str, dict] = {}
-        self.counts = dict.fromkeys(("local", "fetched", "cached", "missing", "pending", "failed"), 0)
+        self.counts = dict.fromkeys(("local", "preloaded", "fetched", "cached", "missing", "pending", "failed"), 0)
+        self.adopted: dict[str, str | None] = {}
+        self.urls: dict | None = None            # media-url-index.json của viewer: nạp lười
+        self.remote_items: dict | None = None    # remote-media-index.json của viewer: nạp lười
         local = read_json(source.dir / "media-index.json", {"items": {}}).get("items", {})
         self.local: dict[str, list[dict]] = {}
         for opaque, item in local.items():
@@ -252,6 +305,43 @@ class Media:
                 return sha
         return None
 
+    def adopt(self, path: Path, expected: object) -> str | None:
+        """Chép một file viewer đã kiểm (sticker, avatar, bản CDN tải sẵn) khi sha256 khớp chỉ mục; không khớp thì bỏ."""
+        if not (isinstance(expected, str) and CONVERSATION_ID.fullmatch(expected)):
+            return None
+        if expected not in self.adopted:
+            try:
+                data = path.read_bytes() if path.stat().st_size <= MAX_BYTES else None   # cùng trần với tải CDN
+            except OSError:
+                data = None
+            self.adopted[expected] = self._store(data) if data is not None and hashlib.sha256(data).hexdigest() == expected else None
+        return self.adopted[expected]
+
+    def preloaded(self, key: str) -> str | None:
+        """Bản CDN viewer đã tải sẵn (media_preload), tìm theo sha256 của URL; file đặt tên theo băm URL."""
+        if self.remote_items is None:
+            self.remote_items = as_dict(optional(self.source.dir / "remote-media-index.json").get("items"))
+        item = self.remote_items.get(key)
+        if not (isinstance(item, dict) and item.get("ext") in STORE_EXTENSIONS):
+            return None
+        sha = self.adopt(self.source.dir / "remote-media-store" / (key + item["ext"]), item.get("sha256"))
+        if sha:
+            self.counts["preloaded"] += 1
+        return sha
+
+    def remote(self, row: dict, kinds: tuple[str, ...]) -> str | None:
+        """Ghi âm, video: URL theo mã tin trong media-url-index.json, đúng nguồn media_preload của viewer dùng."""
+        if self.urls is None:
+            self.urls = as_dict(optional(self.source.dir / "media-url-index.json").get("entries"))
+        entry = self.urls.get(row.get("message_id")) if isinstance(row.get("message_id"), str) else None
+        for kind in kinds if isinstance(entry, dict) else ():
+            urls = entry.get(kind)
+            for url in urls if isinstance(urls, list) else ():
+                sha = self.preloaded(hashlib.sha256(url.encode("utf-8")).hexdigest()) if isinstance(url, str) else None
+                if sha:
+                    return sha
+        return None
+
     def for_message(self, row: dict, body: object) -> list[str]:
         found = []
         params = parse_params(body) if isinstance(body, dict) else {}
@@ -268,8 +358,12 @@ class Media:
             if sha:
                 self.counts["local"] += 1
                 found.append(sha)
-        if found or row.get("message_type") not in IMAGE_TYPES or not isinstance(body, dict):
+        message_type = row.get("message_type")
+        if found or message_type not in MEDIA_TYPES or not isinstance(body, dict):
             return found
+        if message_type in (VOICE_TYPE, VIDEO_TYPE):   # chỉ mục URL cũ (schema 1) xếp video vào "voice"
+            sha = self.remote(row, ("voice",) if message_type == VOICE_TYPE else ("video", "voice"))
+            return [sha] if sha else []
         urls = list(dict.fromkeys(body.get(key) for key in URL_KEYS if allowed(body.get(key))))
         if not urls:
             self.counts["missing"] += 1
@@ -279,6 +373,11 @@ class Media:
             sha = (self.cache.get(key) or {}).get("sha256")
             if sha and self._known(sha, width, height):
                 self.counts["cached"] += 1
+                return [sha]
+        for key in keys:   # viewer đã tải sẵn đúng URL này (media_preload, cùng thứ tự ưu tiên bản thường): khỏi tải CDN
+            sha = self.preloaded(key)
+            if sha:
+                self.cache[key] = {"sha256": sha}
                 return [sha]
         stamp = int(row["timestamp"]) if str(row.get("timestamp", "")).isdigit() else 0
         too_old = self.max_age_days is not None and self.now - stamp / 1000 > self.max_age_days * 86400
@@ -308,6 +407,81 @@ class Media:
         write_atomic(self.out / CACHE, dump({"schema": 1, "urls": self.cache}))
 
 
+def wants_media(row: dict, media: Media) -> bool:
+    return row.get("message_type") in MEDIA_TYPES or row.get("client_message_id") in media.local
+
+
+class Extras:
+    """Trích dẫn, cảm xúc, sticker, avatar từ chỉ mục phụ của viewer (chỉ đọc; mỗi file nạp lười một lần)."""
+
+    def __init__(self, source: Source):
+        self.dir = source.dir
+        self.loaded: dict[str, dict] = {}
+        self.counts = dict.fromkeys(("quotes", "reactions", "stickers", "stickers_missing", "avatars", "cards"), 0)
+
+    def index(self, name: str) -> dict:
+        if name not in self.loaded:
+            self.loaded[name] = optional(self.dir / name)
+        return self.loaded[name]
+
+    def items(self, name: str) -> dict:
+        return as_dict(self.index(name).get("items"))
+
+    def enrich(self, clean: dict, row: dict, media: Media) -> None:
+        """`quote_id`, `reactions`, `sticker` cho một tin chưa xóa (tin xóa không có ba trường này)."""
+        mid = row.get("message_id") if isinstance(row.get("message_id"), str) else None
+        parent = self.items("quote-index.json").get(mid) if mid else None
+        if isinstance(parent, str) and 0 < len(parent) <= 128 and parent != mid:
+            clean["quote_id"] = parent
+            self.counts["quotes"] += 1
+        reactions = self.reactions(row)
+        if reactions:
+            clean["reactions"] = reactions
+            self.counts["reactions"] += 1
+        if row.get("message_type") == STICKER_TYPE:
+            sha = self.sticker(row.get("body"), media)
+            if sha:
+                clean["sticker"] = sha
+            self.counts["stickers" if sha else "stickers_missing"] += 1
+        if clean.get("card"):
+            self.counts["cards"] += 1
+
+    def reactions(self, row: dict) -> list[dict] | None:
+        """[{emoji, count}]: mỗi người thả tính một lần cho mỗi emoji, nhiều người trước; không giữ ai thả."""
+        item = self.items("reaction-index.json").get(row.get("message_id")) if isinstance(row.get("message_id"), str) else None
+        if (not isinstance(item, dict) or not isinstance(item.get("reactions"), dict)
+                or item.get("conversation_id", row.get("conversation_id")) != row.get("conversation_id")):
+            return None
+        palette = as_dict(self.index("reaction-index.json").get("palette"))
+        people: dict[str, int] = {}
+        for targets in item["reactions"].values():   # {người thả: {khóa phụ: rType}}; palette: {rType: emoji} (như viewer)
+            icons = targets.values() if isinstance(targets, dict) else ()
+            for emoji in {palette.get(str(icon)) for icon in icons if isinstance(icon, int) and not isinstance(icon, bool)}:
+                if isinstance(emoji, str) and 0 < len(emoji) <= 16:
+                    people[emoji] = people.get(emoji, 0) + 1
+        ranked = sorted(people.items(), key=lambda pair: (-pair[1], pair[0]))[:MAX_REACTIONS]
+        return [{"emoji": emoji, "count": count} for emoji, count in ranked] or None
+
+    def sticker(self, body: object, media: Media) -> str | None:
+        """Ảnh sticker: thân tin có `catId` và `id`; file ở `sticker-store/<sha256>.png` (tên trong chỉ mục không là đường dẫn)."""
+        ids = (body.get("catId"), body.get("id")) if isinstance(body, dict) else (None, None)
+        if not all(isinstance(value, int) and not isinstance(value, bool) for value in ids):
+            return None
+        item = self.items("sticker-index.json").get(f"{ids[0]}:{ids[1]}")
+        files = item.get("files") if isinstance(item, dict) else None
+        first = files[0] if isinstance(files, list) and files and isinstance(files[0], dict) else None
+        return media.adopt(self.dir / "sticker-store" / f"{first.get('sha256')}.png", first.get("sha256")) if first else None
+
+    def avatar(self, key: str, media: Media) -> str | None:
+        """`U:<mã người>` hoặc `C:<mã hội thoại>` → sha256 của ảnh trong `media/` của gói."""
+        item = self.items("avatar-index.json").get(key)
+        extension = AVATAR_EXTENSIONS.get(item.get("mime")) if isinstance(item, dict) else None
+        sha = media.adopt(self.dir / "avatar-store" / f"{item.get('sha256')}{extension}", item.get("sha256")) if extension else None
+        if sha:
+            self.counts["avatars"] += 1
+        return sha
+
+
 def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl, max_fetch: int = 300,
           now: float | None = None, max_age_days: int | None = None, keep_conversations=()) -> dict:
     chosen = [cid for cid in source.selection() if cid in source.conversations]
@@ -315,6 +489,7 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
         raise BundleError("chưa chọn group nào: chạy `add` trước")
     out.mkdir(parents=True, exist_ok=True)
     media = Media(out, source, fetch, transcode, max_fetch, now, max_age_days)
+    extras = Extras(source)
     rows: dict[str, list[tuple[int, dict]]] = {cid: [] for cid in chosen}
     senders: set[str] = set()
     wanted: list[tuple[int, dict, dict]] = []   # tin có thể có ảnh/video: (giờ, tin gốc, tin đã làm sạch)
@@ -330,14 +505,14 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
             cid = row.get("conversation_id")
             if cid not in rows:
                 continue
-            clean = {key: row.get(key) for key in ("message_id", "conversation_id", "sender_id", "timestamp", "server_time",
-                                                     "message_type", "status", "body_state")}
-            clean["body"] = clean_body(row.get("body"))
+            clean = clean_message(row)
             stamp = int(row["timestamp"]) if str(row.get("timestamp", "")).isdigit() else 0
             if row.get("deleted"):
                 clean["deleted"] = True
-            elif row.get("message_type") in IMAGE_TYPES or row.get("client_message_id") in media.local:
-                wanted.append((stamp, row, clean))
+            else:
+                extras.enrich(clean, row, media)
+                if wants_media(row, media):
+                    wanted.append((stamp, row, clean))
             rows[cid].append((stamp, clean))
             if isinstance(row.get("sender_id"), str):
                 senders.add(row["sender_id"])
@@ -359,8 +534,9 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
                       "name_status": "name_index" if source.names.get(cid) else "unmatched",
                       "is_group": source.is_group(cid),
                       "participant_ids": list(source.conversations[cid].get("participant_ids") or []),
-                      "message_count": len(rows[cid])} for cid in chosen]
-    users = {"self_user": source.self_user, "users": {uid: source.users[uid] for uid in sorted(senders) if uid in source.users}}
+                      "message_count": len(rows[cid]), "avatar": extras.avatar("C:" + cid, media)} for cid in chosen]
+    users = {"self_user": source.self_user, "users": {uid: source.users[uid] for uid in sorted(senders) if uid in source.users},
+             "avatars": {uid: sha for uid in sorted(senders) if (sha := extras.avatar("U:" + uid, media))}}
     (tmp / "conversations.json").write_bytes(dump(conversations))
     (tmp / "users.json").write_bytes(dump(users))
     with (tmp / "messages.jsonl").open("wb") as stream:
@@ -375,7 +551,8 @@ def build(source: Source, out: Path, *, fetch=fetch_url, transcode=transcode_jxl
     report = {"status": "BUNDLED", "schema": 1, "data_dir": data_name, "built_at": built.isoformat(timespec="seconds"),
               "source_revision": source.revision, "conversation_count": len(chosen),
               "message_count": sum(len(items) for items in rows.values()), "media_count": len(media.items),
-              **{f"media_{key}": value for key, value in media.counts.items()}, "bundle_sha256": digest.hexdigest()}
+              **{f"media_{key}": value for key, value in media.counts.items()},
+              **{f"extras_{key}": value for key, value in extras.counts.items()}, "bundle_sha256": digest.hexdigest()}
     write_atomic(out / REPORT, dump(report))
     old = sorted(path for path in out.glob("data-*") if path.is_dir() and path.name != data_name)
     for index, path in enumerate(old):

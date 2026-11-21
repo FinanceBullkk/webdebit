@@ -76,6 +76,59 @@ def write_source(directory: Path) -> None:
             stream.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
+STICKER_PNG = b"\x89PNG\r\n\x1a\nsticker-bia"
+AVATAR_JPEG = b"\xff\xd8\xff\xe0avatar-khach-bia"
+AVATAR_BAN = b"\xff\xd8\xff\xe0avatar-ban-bia"
+GROUP_PNG = b"\x89PNG\r\n\x1a\navatar-nhom-bia"
+VOICE_AAC = b"\xff\xf1\x50\x80voice-bia"
+VOICE_URL = "https://f1.voice.zdn.vn/v1.aac"
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def write_extras(directory: Path) -> None:
+    """Chỉ mục phụ của viewer (khuôn đo trên kho thật 21/11/2026, nội dung bịa) và năm tin: trích dẫn, sticker, ghi âm, hai thẻ.
+
+    Chỉ mục có sẵn mục cho các tin q2, s2, v2 mà test agent thêm sau (viewer dựng chỉ mục ngay sau revision.json).
+    """
+    with (directory / "messages.jsonl").open("a", encoding="utf-8") as stream:
+        for item in (row(GROUP, "q1", KHACH, 1_700_000_009_000, "Dạ em nhận rồi"),
+                     row(GROUP, "s1", KHACH, 1_700_000_010_000, {"type": 7, "id": 42, "catId": 7}, 4),
+                     row(GROUP, "v1", KHACH, 1_700_000_011_000, {"title": "", "description": "", "href": VOICE_URL, "action": "", "params": "{}"}, 3),
+                     row(GROUP, "c1", OWNER, 1_700_000_012_000, {"action": "recommened.link", "title": "Bảng giá", "description": "",
+                                                                 "href": "https://link.example/g", "params": "{}"}, 6),
+                     row(GROUP, "c2", KHACH, 1_700_000_013_000, {"action": "vote", "title": "Chốt ngày giao", "description": "", "params": "{}"}, 26)):
+            stream.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    def put(name, value):
+        (directory / name).write_text(json.dumps(value), encoding="utf-8")
+
+    put("quote-index.json", {"items": {"q1": "m1", "m7": "m1", "q2": "m1"}})
+    put("reaction-index.json", {"palette": {"0": "/-heart", "1": "/-strong"}, "items": {
+        # {người thả: {khóa phụ: rType}}: BAN thả tim hai lần vẫn là một người; rType 99 không có trong palette thì bỏ.
+        "m1": {"conversation_id": GROUP, "reactions": {KHACH: {"t1": 0}, BAN: {"t1": 0, "t2": 0, "t3": 1}, OWNER: {"t1": 99}}},
+        "m7": {"conversation_id": GROUP, "reactions": {KHACH: {"t1": 0}}},
+        "q2": {"conversation_id": GROUP, "reactions": {KHACH: {"t1": 1}}},
+        "m2": {"conversation_id": OTHER, "reactions": {BAN: {"t1": 0}}}}})   # ghi hội thoại khác với tin: bỏ
+    put("sticker-index.json", {"items": {"7:42": {"cate_id": 7, "sticker_id": 42, "files": [
+        {"name": "ten-trong-chi-muc", "sha256": sha(STICKER_PNG), "bytes": len(STICKER_PNG), "mime": "image/png"}]}}})
+    put("avatar-index.json", {"items": {
+        "U:" + KHACH: {"sha256": sha(AVATAR_JPEG), "bytes": len(AVATAR_JPEG), "mime": "image/jpeg", "source": "cdn"},
+        "U:" + BAN: {"sha256": sha(AVATAR_BAN), "bytes": len(AVATAR_BAN), "mime": "image/jpeg", "source": "cdn"},
+        "U:" + OWNER: {"sha256": "d" * 64, "bytes": 9, "mime": "image/jpeg", "source": "cdn"},   # không có file: bỏ
+        "C:" + GROUP: {"sha256": sha(GROUP_PNG), "bytes": len(GROUP_PNG), "mime": "image/png", "source": "db_blob"}}})
+    url_key = sha(VOICE_URL.encode())
+    put("media-url-index.json", {"schema": 2, "entries": {"v1": {"voice": [VOICE_URL]}, "v2": {"voice": [VOICE_URL]}}})
+    put("remote-media-index.json", {"items": {url_key: {"sha256": sha(VOICE_AAC), "bytes": len(VOICE_AAC), "mime": "audio/aac", "ext": ".aac"}}})
+    for folder, name, data in (("sticker-store", sha(STICKER_PNG) + ".png", STICKER_PNG), ("avatar-store", sha(AVATAR_JPEG) + ".jpg", AVATAR_JPEG),
+                               ("avatar-store", sha(AVATAR_BAN) + ".jpg", AVATAR_BAN), ("avatar-store", sha(GROUP_PNG) + ".png", GROUP_PNG),
+                               ("remote-media-store", url_key + ".aac", VOICE_AAC)):
+        (directory / folder).mkdir(exist_ok=True)
+        (directory / folder / name).write_bytes(data)
+
+
 class FakeCdn:
     def __init__(self):
         self.calls = []
@@ -162,7 +215,7 @@ class ZaloWebBundleTest(unittest.TestCase):
         self.assertEqual(conversations[0]["display_name"], "Nhóm Kim Mẫu - công nợ")
         self.assertTrue(conversations[0]["is_group"])
         self.assertEqual([row["message_id"] for row in messages], ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"])
-        self.assertEqual(users, {"self_user": OWNER, "users": {OWNER: "Hào", KHACH: "Vũ"}})
+        self.assertEqual(users, {"self_user": OWNER, "users": {OWNER: "Hào", KHACH: "Vũ"}, "avatars": {}})
         text = bundle_text(self.out)
         for secret in ("Bí mật", "riêng tư", "Người lạ", OTHER, PRIVATE, "http", "zdn.vn", "9" * 64, "cm-", "s" * 64):
             self.assertNotIn(secret, text)
@@ -239,6 +292,53 @@ class ZaloWebBundleTest(unittest.TestCase):
         fourth = self.build(now=NOW + 180)
         self.assertFalse((self.out / second["data_dir"]).exists())
         self.assertEqual(sorted(path.name for path in self.out.glob("data-*")), sorted([third["data_dir"], fourth["data_dir"]]))
+
+    def test_extras_quote_reactions_sticker_avatar_voice_and_cards(self):
+        write_extras(self.src)
+        self.source.save_selection([GROUP])
+        cdn = FakeCdn()
+        report = self.build(cdn)
+        conversations, users, messages, media = self.data(report)
+        rows = {item["message_id"]: item for item in messages}
+        self.assertEqual(rows["q1"]["quote_id"], "m1")
+        self.assertEqual(rows["m1"]["reactions"], [{"emoji": "/-heart", "count": 2}, {"emoji": "/-strong", "count": 1}])   # đếm người
+        self.assertNotIn("reactions", rows["m2"])
+        self.assertTrue(rows["m7"]["deleted"])
+        self.assertFalse({"quote_id", "reactions", "sticker"} & set(rows["m7"]))   # tin xóa: không trích dẫn, không cảm xúc
+        self.assertEqual((rows["s1"]["sticker"], media[sha(STICKER_PNG)]["mime"]), (sha(STICKER_PNG), "image/png"))
+        self.assertEqual((rows["v1"]["media"], media[sha(VOICE_AAC)]["mime"]), ([sha(VOICE_AAC)], "audio/aac"))
+        self.assertTrue((self.out / "media" / (sha(VOICE_AAC) + ".aac")).is_file())
+        self.assertNotIn(VOICE_URL, cdn.calls)   # ghi âm chỉ lấy bản viewer đã tải sẵn, không tự tải CDN
+        self.assertEqual((rows["c1"]["card"], rows["c2"]["card"], "card" in rows["m1"]), ("link", "poll", False))
+        self.assertEqual(users["avatars"], {KHACH: sha(AVATAR_JPEG)})   # avatar không có file thì bỏ; BAN không gửi tin trong nhóm
+        self.assertEqual(conversations[0]["avatar"], sha(GROUP_PNG))
+        self.assertEqual([report[key] for key in ("extras_quotes", "extras_reactions", "extras_stickers", "extras_avatars", "extras_cards",
+                                                  "media_preloaded")], [1, 1, 1, 2, 2, 1])
+        text = bundle_text(self.out)
+        for leaked in (VOICE_URL, sha(VOICE_URL.encode()), "ten-trong-chi-muc"):
+            self.assertNotIn(leaked, text)
+        (self.src / "quote-index.json").write_text("{hỏng", encoding="utf-8")   # chỉ mục hỏng hay sai khuôn: gói vẫn dựng, chỉ thiếu phần đó
+        (self.src / "reaction-index.json").write_text(json.dumps({"items": ["m1"], "palette": []}), encoding="utf-8")
+        (self.src / "media-url-index.json").write_text(json.dumps({"entries": {"v1": {"voice": "không phải danh sách"}}}), encoding="utf-8")
+        _, _, messages, _ = self.data(self.build(cdn, now=NOW + 60))
+        rows = {item["message_id"]: item for item in messages}
+        self.assertEqual(("quote_id" in rows["q1"], "reactions" in rows["m1"], "media" in rows["v1"]), (False, False, False))
+        # Ảnh: bản đã có trong gói (cache) thắng bản viewer tải sẵn, nên dựng lại không đổi file; chưa có thì lấy bản tải sẵn, khỏi tải CDN.
+        cached = sha(cdn_bytes(CDN_OK))
+        url_key = sha(CDN_OTHER.encode())
+        preloaded_jpeg = b"\xff\xd8\xff\xe0tai-san-bia"
+        (self.src / "remote-media-store" / (url_key + ".jpg")).write_bytes(preloaded_jpeg)
+        (self.src / "remote-media-store" / (sha(CDN_OK.encode()) + ".jpg")).write_bytes(b"\xff\xd8\xff\xe0ban-khac")
+        (self.src / "remote-media-index.json").write_text(json.dumps({"items": {
+            url_key: {"sha256": sha(preloaded_jpeg), "bytes": len(preloaded_jpeg), "mime": "image/jpeg", "ext": ".jpg"},
+            sha(CDN_OK.encode()): {"sha256": sha(b"\xff\xd8\xff\xe0ban-khac"), "bytes": 12, "mime": "image/jpeg", "ext": ".jpg"}}}), encoding="utf-8")
+        self.source.save_selection([GROUP, OTHER])
+        cdn = FakeCdn()
+        _, _, messages, _ = self.data(self.build(cdn, now=NOW + 120))
+        rows = {item["message_id"]: item for item in messages}
+        self.assertEqual((rows["m2"]["media"], rows["o2"]["media"], CDN_OTHER in cdn.calls), ([cached], [sha(preloaded_jpeg)], False))
+        self.assertEqual([bundle.sniff(data) for data in (VOICE_AAC, b"#!AMR\nx", b"#!AMR-WB\nx", JPEG_LOCAL, JXL_LOCAL)],
+                         ["audio/aac", "audio/amr", "audio/amr", "image/jpeg", "image/jxl"])
 
     def test_clean_body(self):
         self.assertIsNone(bundle.clean_body(None))

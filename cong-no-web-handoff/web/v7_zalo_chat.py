@@ -14,6 +14,9 @@ ghi `delta_bytes` = số byte hợp lệ; chỉ đọc tới đó, nên dòng đ
 `message_id` thắng (gói gốc rồi tới phần thêm); dòng `deleted` trong phần thêm hiện như tin `deleted: true` của bản dựng đầy đủ
 (giữ chỗ và người gửi, bỏ chữ và ảnh). Báo cáo đổi mà `data_dir` và `bundle_sha256` giữ nguyên thì chỉ đọc tiếp phần thêm và
 đọc lại `users.json`, `media.json` (có thể bị thay tại chỗ); không thì lập chỉ mục lại ở luồng nền.
+
+Từ 21/11/2026 mỗi tin trả thêm `card`, `quote` (tin được trích dẫn, cùng hội thoại), `reactions`, `sticker`, `sender_avatar`;
+mỗi hội thoại thêm `avatar`. Giá trị sai khuôn thì bỏ; gói cũ không có thì trả rỗng.
 """
 
 from __future__ import annotations
@@ -43,10 +46,17 @@ MESSAGE_ID = re.compile(r"[0-9A-Za-z_-]{1,128}")
 MEDIA_ID = re.compile(r"[0-9a-f]{64}")
 SINCE_TOKEN = re.compile(r"[0-9a-f]{8}:[0-9]{1,15}")   # <8 ký tự băm của gói>:<byte của phần thêm đã đọc>
 DATA_DIR = re.compile(r"data-[0-9-]{1,40}")
-MEDIA_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4"}
-# Nhãn loại tin suy từ bản xuất 30/10/2026 (msgType của Zalo PC); loại lạ hiện "Loại N".
+MEDIA_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4",
+                    "audio/aac": ".aac", "audio/amr": ".amr"}
+# Nhãn loại tin suy từ bản xuất 30/10/2026 và kho thật 21/11/2026 (msgType của Zalo PC); loại lạ hiện "Loại N".
 TYPE_NAMES = {1: "Văn bản", 2: "Ảnh", 3: "Ghi âm", 4: "Sticker", 5: "Ảnh", 6: "Cuộc gọi", 7: "GIF",
-              17: "Vị trí", 18: "Video", 19: "Tệp", 20: "Đã thu hồi", 21: "Thẻ liên kết", -4: "Thông báo nhóm"}
+              17: "Vị trí", 18: "Video", 19: "Tệp", 20: "Đã thu hồi", 21: "Thẻ liên kết", 25: "Danh thiếp", 26: "Bình chọn",
+              27: "Thẻ", 52: "Tin tương tác", -4: "Thông báo nhóm", -27: "Thông báo", -1909: "Tin hệ thống"}
+# Mã thẻ do gói ghi theo (msgType, action) (`zalo_web_bundle.CARDS`): đúng hơn nhãn theo loại (loại 6 phần lớn là liên kết).
+CARD_NAMES = {"link": "Liên kết", "missed_call": "Cuộc gọi nhỡ", "call": "Cuộc gọi", "contact": "Danh thiếp",
+              "poll": "Bình chọn", "bank_card": "Thẻ ngân hàng", "system": "Tin hệ thống"}
+MAX_REACTIONS = 20
+QUOTE_CHARS = 120
 # Trong bản xuất, 100% tin chủ tài khoản gửi có status 2 và tin nhận có status 4; mã khác giữ số.
 STATUS_NAMES = {2: "đã gửi", 4: "đã nhận"}
 _LOCK = threading.Lock()
@@ -123,6 +133,25 @@ def shape_attachment(meta: object) -> dict | None:
             "media_items": items}
 
 
+def shape_reactions(value: object) -> list[dict]:
+    """[{emoji, count}] của gói, tối đa MAX_REACTIONS; mục sai khuôn thì bỏ."""
+    rows = []
+    for item in value[:MAX_REACTIONS] if isinstance(value, list) else ():
+        emoji, count = (item.get("emoji"), item.get("count")) if isinstance(item, dict) else (None, None)
+        if (isinstance(emoji, str) and 0 < len(emoji) <= 16 and isinstance(count, int) and not isinstance(count, bool)
+                and 0 < count <= 100_000):
+            rows.append({"emoji": emoji, "count": count})
+    return rows
+
+
+def parse_users(users: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """users.json → (tên theo mã người, mã ảnh avatar theo mã người); mục sai khuôn thì bỏ."""
+    names = users.get("users") if isinstance(users.get("users"), dict) else {}
+    avatars = users.get("avatars") if isinstance(users.get("avatars"), dict) else {}
+    return ({key: value for key, value in names.items() if isinstance(key, str) and isinstance(value, str)},
+            {key: value for key, value in avatars.items() if isinstance(key, str) and isinstance(value, str) and MEDIA_ID.fullmatch(value)})
+
+
 def report_stamp(directory: Path) -> str | None:
     """Dấu nhận biết gói đổi: băm nội dung `export-report.json` (vài trăm byte). Không dùng (mtime, cỡ): trên Windows hai lần
     ghi liền nhau có thể cùng nhịp đồng hồ và cùng cỡ (revision 2 → 3), nên thay đổi bị bỏ qua (CI windows 20/11/2026)."""
@@ -191,8 +220,7 @@ class ChatStore:
                 self.by_id[row["conversation_id"]] = row
         # Gói web (ZALO-GROUP-01): tên người gửi, chủ tài khoản do viewer xác minh, bảng ảnh. Bản xuất cũ không có.
         users = read_optional(base / "users.json")
-        self.user_names = {key: value for key, value in (users.get("users") or {}).items()
-                           if isinstance(key, str) and isinstance(value, str)}
+        self.user_names, self.avatars = parse_users(users)
         self.self_user = users.get("self_user") if isinstance(users.get("self_user"), str) else None
         self.media = {key: value for key, value in read_optional(base / "media.json").items()
                       if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
@@ -319,8 +347,7 @@ class ChatStore:
         with self.lock:
             # Đọc lỗi (đang ghi dở, JSON hỏng) thì giữ bản cũ; chỉ thay khi đọc được một dict hợp lệ.
             if users is not None:
-                self.user_names = {key: value for key, value in (users.get("users") or {}).items()
-                                   if isinstance(key, str) and isinstance(value, str)}
+                self.user_names, self.avatars = parse_users(users)
             if media is not None:
                 self.media = {key: value for key, value in media.items()
                               if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
@@ -358,6 +385,7 @@ class ChatStore:
                 name = row.get("display_name") if isinstance(row.get("display_name"), str) else None
                 if needle and needle not in fold(name or "") and not cid.startswith(needle):
                     continue
+                avatar = row.get("avatar")
                 entries = self.entries[cid]
                 sent = self.last_sent[cid]
                 rows.append({"conversation_id": cid, "display_name": name or None,
@@ -366,7 +394,8 @@ class ChatStore:
                              "last_message_at": entries[-1][0] if entries else None,
                              "last_own_message_at": sent.get(self.owner_id) if self.owner_id else None,
                              "participant_count": len(row.get("participant_ids") or []),
-                             "is_group": bool(row.get("is_group"))})
+                             "is_group": bool(row.get("is_group")),
+                             "avatar": avatar if isinstance(avatar, str) and avatar in self.media else None})
         rows.sort(key=lambda item: (-(item["last_message_at"] or 0), item["conversation_id"]))
         return rows
 
@@ -421,7 +450,7 @@ class ChatStore:
             new_token = f"{self.prefix}:{reached if more else self.delta_offset}"
         streams: dict = {}
         try:
-            rows = [self.shape(self._read(streams, entry)) for entry in sorted(picked.values())]
+            rows = [self.shape(self._read(streams, entry), streams) for entry in sorted(picked.values())]
         finally:
             for stream in streams.values():
                 stream.close()
@@ -436,7 +465,7 @@ class ChatStore:
                       if not entry[4] & TOMBSTONE]
         streams: dict = {}
         try:
-            return [(cid, self.shape(self._read(streams, entry))) for cid, entry in picked]
+            return [(cid, self.shape(self._read(streams, entry), streams)) for cid, entry in picked]
         finally:
             for stream in streams.values():
                 stream.close()
@@ -470,7 +499,7 @@ class ChatStore:
             total = len(selected)
             end = max(total - page * limit, 0)
             start = max(end - limit, 0)
-            rows = [self.shape(self._read(streams, entry)) for entry in selected[start:end]]
+            rows = [self.shape(self._read(streams, entry), streams) for entry in selected[start:end]]
         finally:
             for stream in streams.values():
                 stream.close()
@@ -480,31 +509,52 @@ class ChatStore:
             result["focus"] = focus
         return result
 
-    def shape(self, row: dict) -> dict:
+    def media_ref(self, key: object) -> dict | None:
+        item = self.media.get(key) if isinstance(key, str) else None
+        if not item:
+            return None
+        return {"id": key, "mime": item["mime"], **{name: item.get(name) if isinstance(item.get(name), int) else None for name in ("width", "height")}}
+
+    def quote(self, row: dict, streams: dict | None) -> dict | None:
+        """Tin được trích dẫn (cùng hội thoại): người gửi, nhãn, tối đa QUOTE_CHARS ký tự; không đọc được thì `found: false`."""
+        parent = row.get("quote_id")
+        if not (isinstance(parent, str) and MESSAGE_ID.fullmatch(parent)):
+            return None
+        found = self.latest.get(parent)
+        if streams is None or found is None or found[0] != row.get("conversation_id"):
+            return {"message_id": parent, "found": False}
+        quoted = self.shape(self._read(streams, found[1]))   # không truyền streams: tin được trích không kèm trích dẫn của nó
+        text = quoted["body_text"]
+        return {"message_id": parent, "found": True, **{key: quoted[key] for key in ("sender_id", "sender_name", "type_label", "deleted")},
+                "body_text": text[:QUOTE_CHARS] if isinstance(text, str) else None}
+
+    def shape(self, row: dict, streams: dict | None = None) -> dict:
         body = row.get("body")
         kind = "missing" if body is None else "text" if isinstance(body, str) else "card"
         message_type = row.get("message_type") if isinstance(row.get("message_type"), int) else None
         status = row.get("status") if isinstance(row.get("status"), int) else None
         sender = row.get("sender_id")
-        media = []
-        for key in row.get("media") or []:
-            item = self.media.get(key) if isinstance(key, str) else None
-            if item:
-                media.append({"id": key, "mime": item["mime"],
-                              **{name: item.get(name) if isinstance(item.get(name), int) else None for name in ("width", "height")}})
+        media = [ref for ref in (self.media_ref(key) for key in row.get("media") or []) if ref]
         album = body.get("album") if isinstance(body, dict) and isinstance(body.get("album"), str) else None
+        deleted = row.get("deleted") is True
+        card = row.get("card") if isinstance(row.get("card"), str) and row["card"] in CARD_NAMES else None
+        avatar = self.avatars.get(sender) if isinstance(sender, str) else None
         return {"message_id": row.get("message_id"), "sender_id": sender,
                 "sender_name": self.user_names.get(sender) if isinstance(sender, str) else None,
                 "is_own": self.owner_id is not None and sender == self.owner_id,
-                "deleted": row.get("deleted") is True, "media": media, "album": album,
+                "deleted": deleted, "media": media, "album": album,
                 "timestamp_ms": to_millis(row.get("timestamp")) or to_millis(row.get("server_time")),
-                "message_type": message_type,
-                "type_label": TYPE_NAMES.get(message_type, f"Loại {message_type}" if message_type is not None else "Không rõ loại"),
+                "message_type": message_type, "card": card,
+                "type_label": CARD_NAMES.get(card) or TYPE_NAMES.get(message_type, f"Loại {message_type}" if message_type is not None else "Không rõ loại"),
                 "status": status,
                 "status_label": STATUS_NAMES.get(status, f"trạng thái {status}" if status is not None else "không rõ trạng thái"),
                 "body_kind": kind, "body_text": body_text(body),
                 "body_state": row.get("body_state") if isinstance(row.get("body_state"), str) else None,
-                "attachment": shape_attachment(row.get("attachment_metadata"))}
+                "attachment": shape_attachment(row.get("attachment_metadata")),
+                "quote": None if deleted else self.quote(row, streams),
+                "reactions": [] if deleted else shape_reactions(row.get("reactions")),
+                "sticker": None if deleted else self.media_ref(row.get("sticker")),
+                "sender_avatar": avatar if avatar in self.media else None}
 
 
     def media_file(self, media_id: str) -> tuple[str, bytes]:
