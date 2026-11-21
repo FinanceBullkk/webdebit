@@ -307,6 +307,7 @@ POST_HANDLERS = {
     "/api/v7/zalo/unlink": lambda raw, runner, actor: v7_api_zalo.handle_link(raw, runner, actor, unlink=True),
     "/api/v7/marks": v7_api_zalo.handle_mark,
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
+    "/api/v7/cash-chat/review": v7_cash_chat.handle_review,   # ZALO-THU-CHI-01 PR-3: chỉ quản lý (v7_role), không ghi tiền
     "/api/v7/machine/office": v7_machine.handle_office,
     **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
     "/api/v7/admin/users": v7_access.handle_users,   # QUYEN-02: trang Người dùng, chỉ quản lý (v7_role)

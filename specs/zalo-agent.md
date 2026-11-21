@@ -226,6 +226,17 @@ T mặc định **0,6** (`ocr.CONFIDENCE_T`, đổi bằng `ZALO_AGENT_OCR_CONFI
 
 Hiện ở trang Thu chi (một dòng nhỏ dưới tiêu đề) và trong `summary()` của tab Máy chạy.
 
+Khuôn đã code (21/11/2026; API sẵn, dòng trên trang để PR giao diện):
+
+- `GET /api/v7/cash-chat` thêm `feedback: {weeks: [...]}`, tuần mới trước. Mỗi tuần gồm:
+  - `week` (ISO, ví dụ `2026-W47`), `from`, `to`: thứ Hai–Chủ nhật, giờ VN, theo ngày của khoản;
+  - `decided`: số ảnh đã đọc theo `by`;
+  - `reviewed`: ảnh người đã chốt số (xác nhận, sửa số) hay loại; chỉ gắn đối tượng thì chưa là chốt;
+  - `human_handled`: trong số ảnh đã chốt, ảnh "cần xem";
+  - `engines`: `{"<engine>@<phiên bản>": {"right", "wrong"}}`. Số engine đọc trùng số cuối cùng là đúng; ảnh bị loại thì mọi số đọc ra đều sai.
+- Ảnh chứng gửi ngay sau tin gõ (trong 2 phút) không tính. Mã engine sai khuôn thì bỏ.
+- `summary()` có `thu_chi_anh_tuan`: tuần hiện tại, kèm `at`. Trang Thu chi ghi giá trị này mỗi lần dựng một khoảng có hôm nay, vì tab Máy chạy không có kết nối DB. Giá trị là `null` khi chưa ai mở trang từ lần khởi động API. Chỉ số đếm và mã cố định.
+
 **Không tự chỉnh.** Ngưỡng T và khoảng ngày đối chiếu (Q6 của Thu chi) chỉ đổi bằng PR có số đo tuần đi kèm. Máy không tự đổi luật của chính nó.
 
 ### Phần 6: nhịp tim từng chặng
@@ -478,7 +489,7 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   - cùng engine và phiên bản thì không đọc lại;
   - kết quả Gemini sai khuôn bị loại.
 - [ ] PR-4: trên 20 ảnh của P0, OCR với ngưỡng T vẫn đúng 20/20; số ảnh phải gửi Gemini được báo trong chat.
-- [ ] PR-5: với dòng xác nhận giả, số đo tuần đúng theo engine; không chữ tự do nào vào `summary()`.
+- [x] PR-5: với dòng xác nhận giả, số đo tuần đúng theo engine; không chữ tự do nào vào `summary()` (21/11/2026: `FeedbackTests` ở `tests/test_v7_cash_chat.py`, `test_summary_carries_this_weeks_image_feedback_as_codes_and_counts` ở `tests/test_v7_machine.py`).
 - [x] Đo độ trễ từng chặng và tốc độ xả hàng chờ OCR (21/11/2026), test với dữ liệu bịa: `LatencyTest` (p50/p95 hạng gần nhất, hai cửa sổ, mẫu quá 24 giờ bị bỏ, sống qua lần chạy lại, số lạ bị bỏ, `--dry-run` không ghi file); `test_delta_push_measures_each_stage_and_a_retry_counts_the_wait` (năm chặng đúng từng mốc, tin sửa và nhóm chưa chọn không là mẫu `zalo`, đẩy lỗi chưa có mẫu, gửi lại tính cả thời gian chờ); `test_drain_counts_images_leaving_the_queue_and_when_the_queue_filled`; phía `hao`: `test_zalo_latency_and_ocr_drain_are_numbers_only`, `test_slow_delivery_p95_and_stalled_image_queue` (p95 quá 5 phút với ≥ 3 lượt thì báo, ít lượt hay đúng ngưỡng thì không; hàng chờ đứng 20 phút thì báo, đang lỗi thì chỉ báo lỗi).
 - [x] Mở rộng hợp đồng gói chat (21/11/2026), test với kho viewer bịa:
   - `test_extras_quote_reactions_sticker_avatar_voice_and_cards`: trích dẫn; cảm xúc đếm theo người; sticker và avatar chép khi sha256 khớp; ghi âm lấy bản viewer tải sẵn, không tải CDN; mã thẻ; tin xóa không có ba trường; chỉ mục hỏng thì gói vẫn dựng; không lộ URL hay băm URL;

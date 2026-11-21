@@ -118,6 +118,11 @@ ERRORS = {
     "INVALID_MARK_DATE": (422, "Hứa trả hẹn từ hôm nay trở đi; ngày khách báo đã chuyển không được sau hôm nay."),
     "MARK_NOT_FOUND": (422, "Không tìm thấy dấu này."),
     "MARK_ALREADY_CANCELLED": (409, "Dấu này đã được bỏ."),
+    # ZALO-THU-CHI-01 PR-3: xác nhận/sửa/loại khoản thu chi báo trong nhóm Zalo.
+    "INVALID_CASH_REVIEW": (422, "Dữ liệu xác nhận khoản thu chi không hợp lệ."),
+    "TARGET_NOT_FOUND": (422, "Không tìm thấy sổ, xe hay người này."),
+    "MESSAGE_NOT_FOUND": (422, "Tin này không còn trong dữ liệu chat Zalo. Tải lại trang."),
+    "MULTIPLE_IMAGES": (422, "Tin này có nhiều ảnh chuyển khoản, chưa xác nhận riêng từng ảnh được."),
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "FEE_LINE_NOT_FOUND": (409, "Không tìm thấy khoản phụ phí. Tải lại sổ."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
@@ -337,6 +342,9 @@ SQL["record_mark"] = "SELECT sokhach.record_mark(:'payload'::jsonb);"
 SQL["cancel_mark"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.cancel_mark((j->>'id')::bigint, j->>'reason') FROM b;"
 SQL["get_marks"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
                     "SELECT sokhach.get_marks((j->>'customer_id')::bigint, j->>'conversation_id') FROM b;")
+# ZALO-THU-CHI-01 PR-3: xác nhận/sửa/loại khoản thu chi báo trong nhóm Zalo, ngoài đường tiền; v7_cash_chat kiểm thân lệnh.
+SQL["record_cash_review"] = "SELECT sokhach.record_cash_review(:'payload'::jsonb);"
+SQL["get_cash_reviews"] = "SELECT sokhach.get_cash_reviews(:'payload'::jsonb);"
 # MAY-TAO-SO-01: máy đối soát tạo sổ khách mới; không có route, API không gọi.
 SQL["create_book_from_sheet"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.create_book_from_sheet("
                                  "j->>'book_name', j->>'commodity_name', j->>'book_mode', j->'openings', j->'legacy', j->'month_checks', "
