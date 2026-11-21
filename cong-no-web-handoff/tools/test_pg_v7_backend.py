@@ -60,6 +60,7 @@ from test_pg_v7_backend_activity import check_activity
 from test_pg_v7_backend_audit_kien_truc import check_audit_kien_truc
 from test_pg_v7_backend_bang_thu import check_bang_thu
 from test_pg_v7_backend_can_du import check_can_du
+from test_pg_v7_backend_cash_review import check_cash_review
 from test_pg_v7_backend_chan_trung import check_chan_trung
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_doc_nhat_quan import check_doc_nhat_quan
@@ -279,6 +280,9 @@ CASES.append(case("AUDIT-KT.02", "BEHAVIOR", "GET ledger read stays in one snaps
 # ZALO-GROUP-01 1/11/2026: gắn group ↔ sổ, dấu tin; trạng thái tính từ phiếu thu, không đổi số tiền.
 CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message marks: status from receipts, cancel with reason, no money change",
                   check="zalo_group", functions=("link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks")))
+# ZALO-THU-CHI-01 PR-3 21/11/2026: xác nhận/sửa/loại khoản thu chi báo trong nhóm Zalo; chỉ thêm dòng, không đổi số tiền.
+CASES.append(case("ZALO-THU-CHI.03", "BEHAVIOR", "Cash report reviews: repeated click writes once, not_cash needs a reason, no money change, app/reader rights",
+                  check="cash_review", functions=("record_cash_review", "get_cash_reviews")))
 
 CASES.append(case("MAY-TAO-SO.01", "BEHAVIOR", "Create one book from a Sheet tab atomically through the cutover gates", check="tao_so", functions=("create_book_from_sheet",)))
 CASES.append(case("VCL-GIU.01", "BEHAVIOR", "Keep one Sheet task with audit, unchanged money, retry and validation", check="sheet_keep", functions=("keep_sheet_task",)))
@@ -307,7 +311,7 @@ CASES.append(case("HOAT-DONG.01", "BEHAVIOR", "Activity of one VN day across boo
 CASES.append(case("HIEU-NANG.01", "BEHAVIOR", "Read stamp changes after every committed write to any sokhach table, not on reads, locks or rollbacks",
                   check="read_stamp", functions=("get_read_stamp",)))
 
-CHECKS = {"audit_kien_truc": check_audit_kien_truc, "doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"audit_kien_truc": check_audit_kien_truc, "doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "cash_review": check_cash_review, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -433,7 +437,7 @@ def check_migration(pg: Pg) -> None:
                      "2026-11-18-v7-doi-xe-thu-doc-ghi-chu.sql", "2026-11-19-v7-doi-xe-dieu-do.sql", "2026-11-19-v7-khach-moi.sql",
                      "2026-11-19-v7-doi-xe-tai-chinh-chang.sql",
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
-                     "2026-11-19-v7-tach-phi-loai-moi.sql"):
+                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)

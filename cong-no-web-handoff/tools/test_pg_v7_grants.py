@@ -51,6 +51,7 @@ APP_READ.add('get_ledger_events(bigint)')  # MO-SO-NHANH-02: khung Lịch sử c
 APP_READ.add('get_activity(date)')  # HOAT-DONG-01: việc đã ghi theo ngày, có trước → sau như Lịch sử, không cấp reader
 APP_READ.add('get_safety_net(jsonb)')  # LUOI-AN-TOAN-01: lưới an toàn của máy canh (v7app), không cấp reader
 READ.update({'get_zalo_links()', 'get_marks(bigint,text)'})  # ZALO-GROUP-01: ai vào app cũng xem được gắn sổ và dấu
+READ.add('get_cash_reviews(jsonb)')  # ZALO-THU-CHI-01 PR-3: trạng thái xác nhận khoản thu chi, chỉ đọc
 WRITE = {
     # Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md): giữ, lấy giá Sheet, gán mặt hàng, chọn sổ, hoàn tác lô.
     'create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text)',  # MAY-TAO-SO-01: máy đối soát tạo sổ khách mới
@@ -63,6 +64,7 @@ WRITE = {
     'record_reminder(bigint,text)',  # NHAC-NO-01: ghi "đã nhắc", app ghi
     'link_zalo(text,bigint)', 'unlink_zalo(text,bigint,text)',  # ZALO-GROUP-01: gắn/bỏ gắn group, app ghi
     'record_mark(jsonb)', 'cancel_mark(bigint,text)',  # ZALO-GROUP-01: dấu tin, app ghi
+    'record_cash_review(jsonb)',  # ZALO-THU-CHI-01 PR-3: xác nhận/sửa/loại khoản thu chi, app ghi
     'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
     'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
     'replace_trip_fee(bigint,bigint,text,bigint,bigint,bigint,text)',
@@ -132,6 +134,7 @@ KNOWN_FUNCTIONS.add('get_trip_month')  # BAO-CAO-THANG-01
 KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # chặn trùng hàng chờ 1/11/2026
 KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_json', 'record_mark', 'cancel_mark',
                         'get_marks'})  # ZALO-GROUP-01
+KNOWN_FUNCTIONS.update({'_cash_review_state', '_cash_review_json', 'record_cash_review', 'get_cash_reviews'})  # ZALO-THU-CHI-01 PR-3
 KNOWN_FUNCTIONS.add('create_book_from_sheet')  # MAY-TAO-SO-01
 KNOWN_FUNCTIONS.add('get_activity')  # HOAT-DONG-01
 KNOWN_FUNCTIONS.add('get_read_stamp')  # HIEU-NANG-01

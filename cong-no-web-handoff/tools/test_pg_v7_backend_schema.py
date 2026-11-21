@@ -85,6 +85,7 @@ def check_roles(pg: Pg) -> None:
                        "get_ledger", "get_ledger_events", "list_customers", "get_dashboard", "get_dashboard_debt", "get_read_stamp", "list_sheet_trip_refs", "list_legacy_trip_refs", "resolve_sheet_conflict", "record_offset", "void_offset",
                        "get_receivables_matrix", "get_receivables_detail", "record_reminder", "get_reminders", "get_receipt_book", "get_trip_month", "get_activity", "get_safety_net",
                        "link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks",
+                       "record_cash_review", "get_cash_reviews",   # ZALO-THU-CHI-01 PR-3
                        "attach_receipt_image", "remove_receipt_image", "list_receipt_images", "get_receipt_image", "find_receipt_image",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")

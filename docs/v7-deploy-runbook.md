@@ -1709,6 +1709,24 @@ Thứ tự với release: release mới gọi `/api/v7/zalo/links` và `/api/v7/
 
 Rollback: `DROP TABLE sokhach.contact_mark, sokhach.zalo_link` và `DROP FUNCTION` sáu hàm cùng `_mark_json`, dưới `sokhach_owner`; không gì tham chiếu tới. Hoặc restore dump lúc dừng.
 
+## Xác nhận khoản thu chi Zalo (ZALO-THU-CHI-01 PR-3) — nâng DB đang có (21/11/2026)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-21-v7-cash-report-review.sql` ([spec](../specs/zalo-thu-chi-real-time.md)) chỉ THÊM, ngoài đường tiền như `contact_mark`:
+
+- Bảng `sokhach.cash_report_review`: xác nhận, sửa số, gắn đối tượng, loại một khoản báo trong nhóm Zalo; chỉ thêm dòng.
+- Hàm cấp cho app: `record_cash_review(jsonb)`. Cấp cho app và reader: `get_cash_reviews(jsonb)`.
+- Hàm nội bộ: `_cash_review_state`, `_cash_review_json`.
+
+Không đổi bảng tiền, view nợ, phân bổ, khóa tháng, `customer.version`, dữ liệu hay quyền cũ. Chạy lại được. **Chạy sau `2026-11-19-v7-tach-phi-loai-moi.sql`.**
+
+Thứ tự với release: release mới đọc `get_cash_reviews` khi dựng trang Thu chi và có route `POST /api/v7/cash-chat/review`. Release lên trước migration thì trang Thu chi ghi `reviews` vào `sources_failed` (vẫn hiện khoản) và route xác nhận báo lỗi; sổ và tiền không ảnh hưởng. Release cũ chạy được với DB mới.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt. Số dư từng khách/tháng, số dòng mọi bảng và số event không đổi. `v7_post_deploy_check.sql` OK. App EXECUTE được `record_cash_review` và `get_cash_reviews`; reader chỉ `get_cash_reviews`; không role nào EXECUTE hàm nội bộ hay chạm thẳng bảng. Gọi thử dưới `v7_app` trong một transaction rồi ROLLBACK.
+2. **Cửa sổ dừng ghi:** như đợt ZALO-GROUP-01: dừng API, dump kèm hash, chạy migration một transaction, đối soát tổng từng khách và số event trước bằng sau, chạy checker, bật lại API.
+3. **Đổi release** bằng `webdebit-release.sh deploy <sha>` (`Deploy hao` dừng ở cổng SQL). **Sau:** `/healthz` 200; dưới `v7_app`, `sokhach.get_cash_reviews('{"message_ids":[]}')` trả `{"reviews": {}}`; `GET /api/v7/cash-chat` không có `reviews` trong `sources_failed`.
+
+Rollback: `DROP TABLE sokhach.cash_report_review` và `DROP FUNCTION` bốn hàm, dưới `sokhach_owner`; không gì tham chiếu tới. Hoặc restore dump lúc dừng. Release cũ không gọi bảng hay hàm mới.
+
 ## Chuyến từ booking vào đúng sổ theo mặt hàng, máy tự đưa chuyến mới vào sổ (P3b, ĐỀ XUẤT 1/11/2026)
 
 Không có SQL: `Deploy hao` tự lên khi PR merge ([spec P3b](../specs/v7-hop-ngoai-le-p3b.md)).
