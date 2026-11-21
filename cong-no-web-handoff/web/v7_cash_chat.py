@@ -64,6 +64,7 @@ READS_FILE = "money-reads.json"
 READS_MAX_BYTES = 8 * 1024 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}")   # khóa ảnh, trùng `media[].id` của gói chat
 READ_BY = re.compile(r"[a-z0-9-]{1,20}")   # kết luận của máy đọc ảnh; "human" là cần người xem, không có số
+ENGINE = re.compile(r"[A-Za-z0-9_.+-]{1,40}")   # tên và phiên bản engine đọc ảnh: mã cố định, không chữ tự do
 # Giờ giao dịch: ISO như spec; nhận thêm cách ghi của đường đọc ngoài (cách thay T, "Z", "+0700") rồi chuẩn hóa về `±HH:MM`.
 TXN_TIME = re.compile(r"(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?)(Z|[+-]\d{2}:?\d{2})?)?")
 SAME_PAYMENT_MS = 24 * 3600 * 1000   # khoản thu gõ theo mẫu cùng hội thoại, cùng số trong chừng này: ảnh là ảnh của lần trả đó
@@ -263,7 +264,8 @@ def image_item(cid: str, name: str | None, row: dict, stamp: int, media: dict, r
             "day": paid if paid is not None and paid < sent and (sent - paid).days < MAX_SPAN_DAYS else sent,
             "sender_name": row["sender_name"], "sender": row["sender_id"], "direction": "thu", "amount_vnd": read["amount_vnd"],
             "text": "", "media": [media], "rest": "", "source": "anh", "image_vnd": read["amount_vnd"], "image_diff": False,
-            "amount_from": "anh" if read["amount_vnd"] is not None else None, "image": {key: read[key] for key in ("by", "bank", "txn_time", "candidates")}}
+            "amount_from": "anh" if read["amount_vnd"] is not None else None, "image": {key: read[key] for key in ("by", "bank", "txn_time", "candidates")},
+            "_engines": read.get("engines") or []}   # số từng engine đọc (vòng phản hồi, ZALO-AGENT-01 Phần 5); không ra API
 
 
 def parse_reads(data: Any) -> dict[str, dict]:
@@ -283,8 +285,10 @@ def parse_reads(data: Any) -> dict[str, dict]:
             continue
         bank = entry.get("bank").strip() if isinstance(entry.get("bank"), str) else ""
         candidates = sorted({value for one in _dicts(entry.get("reads")) if (value := _amount(one.get("amount_vnd"))) is not None})
+        engines = [{"engine": f"{one['engine']}@{one['version']}", "amount_vnd": _amount(one.get("amount_vnd"))} for one in _dicts(entry.get("reads"))[:8]
+                   if all(isinstance(one.get(name), str) and ENGINE.fullmatch(one[name]) for name in ("engine", "version"))]
         out[key] = {"by": entry["by"], "amount_vnd": amount, "bank": bank if 0 < len(bank) <= 40 and bank.isprintable() else None,
-                    "txn_time": _txn_time(entry.get("txn_time")), "candidates": candidates[:4]}
+                    "txn_time": _txn_time(entry.get("txn_time")), "candidates": candidates[:4], "engines": engines[:4]}
     return out
 
 
@@ -684,6 +688,47 @@ def mark_items(marks: list[dict], directory: Directory, taken_messages: set, tak
     return items, hidden
 
 
+def _week(monday: date) -> dict:
+    iso = monday.isocalendar()
+    return {"week": f"{iso.year}-W{iso.week:02d}", "from": monday.isoformat(), "to": (monday + timedelta(6)).isoformat(),
+            "decided": {}, "reviewed": 0, "human_handled": 0, "engines": {}}
+
+
+def feedback(read_images: list[dict], items: list[dict]) -> dict:
+    """Vòng phản hồi (ZALO-AGENT-01 Phần 5), chỉ số đếm và mã, theo tuần thứ Hai–Chủ nhật (giờ VN) của ngày khoản:
+
+    - `decided`: ảnh chuyển khoản đã đọc (đứng riêng hay gộp vào khoản gõ sau đó) theo kết luận `by` (mã của máy đọc, hoặc human: cần người xem);
+    - `reviewed`: ảnh người đã chốt số (xác nhận, sửa số) hay loại; `human_handled`: trong đó, ảnh "cần xem". Chỉ gắn đối tượng thì chưa là chốt;
+    - `engines`: với mỗi ảnh đã chốt, mỗi `engine@phiên bản` đọc ra số trùng số cuối cùng là đúng, khác là sai; ảnh bị loại thì mọi số đọc
+      ra đều sai; xác nhận mà vẫn không có số thì không chấm.
+    Không có chữ của tin, lý do hay tên: `summary()` của tab Máy chạy dùng thẳng bản này."""
+    weeks: dict[date, dict] = {}
+
+    def week_of(day: date) -> dict:
+        monday = day - timedelta(days=day.weekday())
+        return weeks.setdefault(monday, _week(monday))
+
+    for image in read_images:
+        decided = week_of(image["day"])["decided"]
+        decided[image["image"]["by"]] = decided.get(image["image"]["by"], 0) + 1
+    for item in items:
+        review = item.get("review") if item.get("source") == "anh" else None
+        decision = (review or {}).get("decision")
+        if not review or (decision not in ("confirm", "not_cash") and item.get("amount_from") != "sua"):
+            continue
+        week = week_of(item["day"])
+        week["reviewed"] += 1
+        week["human_handled"] += item["image"]["by"] == "human"
+        final = None if decision == "not_cash" else item["amount_vnd"]
+        if final is None and decision != "not_cash":
+            continue
+        for read in item.get("_engines") or []:
+            if read["amount_vnd"] is not None:
+                score = week["engines"].setdefault(read["engine"], {"right": 0, "wrong": 0})
+                score["right" if read["amount_vnd"] == final else "wrong"] += 1
+    return {"weeks": [weeks[monday] for monday in sorted(weeks, reverse=True)]}
+
+
 def read_reviews(items: list[dict], sources: Sources) -> dict[str, dict]:
     """Trạng thái xác nhận (PR-3) của các khoản đang xem, theo mã tin; đọc lỗi thì `sources_failed` ghi `reviews`."""
     ids = sorted({item["message_id"] for item in items if isinstance(item.get("message_id"), str)})[:5000]
@@ -901,6 +946,7 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
     marks = read_marks(conversations, sources, start, end) if conversations else []
     # PR-3: số và đối tượng người dùng sửa có hiệu lực trước khi gộp ảnh chứng (số sửa có thể khớp đúng ảnh của khoản đó) và trước khi
     # đối chiếu; khoản đã loại không giữ ảnh, không đối chiếu, không cộng tổng.
+    read_images = list(images)   # mọi ảnh đã đọc trong khoảng, trước khi loại hay gộp: mẫu số "máy kết luận" của vòng phản hồi
     reviews = read_reviews(items + images, sources) if items or images else {}
     dropped = apply_reviews(items + images, reviews, directory_of()) if reviews else []
     if dropped:
@@ -923,7 +969,14 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
         item["image_vnd"] = image_amount(item["media"], reads)
     items += marked
     items.sort(key=lambda item: (item["day"], item["sent_at"] or 0), reverse=True)
+    looped = feedback(read_images, items)
+    if start <= today <= end:   # tuần hiện tại cho summary() của tab Máy chạy (máy không có kết nối DB): chỉ số đếm và mã
+        monday = today - timedelta(days=today.weekday())
+        current = next((week for week in looped["weeks"] if week["from"] == monday.isoformat()), None) or _week(monday)
+        v7_machine.FEEDBACK.clear()
+        v7_machine.FEEDBACK.update(at=datetime.now(VN).isoformat(timespec="seconds"), **current)
     return {"items": [_public(item) for item in items], "totals": totals(items), "sources_failed": sorted(failed), "marks_hidden": hidden,
+            "feedback": looped,
             "conversations_skipped": len(everything) - len(conversations), "images_before": before,
             "counts": {code: sum(item["status"] == code for item in items) for code in STATUSES}}
 

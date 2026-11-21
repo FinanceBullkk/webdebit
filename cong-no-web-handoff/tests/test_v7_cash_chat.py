@@ -109,7 +109,8 @@ class CashChatCase(unittest.TestCase):
         self.reads = Path(folder.name) / "reads" / "money-reads.json"
         for patcher in (patch.object(chat, "EXPORT_DIR", str(self.dir)), patch.object(chat, "_STORE", None), patch.object(chat, "_STORE_DIR", None),
                         patch.dict(os.environ, {"WEBDEBIT_ZALO_AGENT_STATUS": str(self.status), "WEBDEBIT_ZALO_READS_DIR": str(Path(folder.name) / "reads")}),
-                        patch.dict(cash._CACHE, clear=True), patch.dict(cash._READS, {"stamp": None, "value": {}, "ok": True})):
+                        patch.dict(cash._CACHE, clear=True), patch.dict(cash._READS, {"stamp": None, "value": {}, "ok": True}),
+                        patch.dict(cash.v7_machine.FEEDBACK, clear=True)):   # số đo tuần ghi sang tab Máy chạy: không rò giữa các test
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -906,6 +907,45 @@ class ReviewTests(CashChatCase):
         self.assertTrue(v7_role.admin_api("/api/v7/cash-chat/review"))
         self.assertFalse(v7_role.allowed("/api/v7/cash-chat/review", v7_role.USER, {}))
         self.assertIs(api.POST_HANDLERS["/api/v7/cash-chat/review"], cash.handle_review)
+
+
+class FeedbackTests(CashChatCase):
+    """ZALO-AGENT-01 PR-5: số đo tuần theo engine từ dòng xác nhận giả; giá trị đưa sang summary() chỉ có số và mã."""
+
+    def test_weekly_counts_per_engine_from_confirmed_rows(self):
+        def both(easy, gemini):
+            return [{"engine": "easyocr", "version": "1.7.2+a2", "amount_vnd": easy, "confidence": 0.9},
+                    {"engine": "gemini", "version": "2", "amount_vnd": gemini, "confidence": None},
+                    {"engine": "tên lạ có dấu", "version": "1", "amount_vnd": easy}]   # mã engine sai khuôn: bỏ
+        reads = {PAY[0]: read_entry(1_000_000, reads=both(1_000_000, 1_000_000)),               # xác nhận: hai engine đúng
+                 PAY[1]: read_entry(2_000_000, reads=both(2_000_000, 2_500_000)),               # sửa thành 2,5tr: easyocr sai, gemini đúng
+                 PAY[2]: read_entry(3_000_000, by="gemini-2", reads=both(3_000_000, 3_000_000)),  # loại: mọi số đọc ra đều sai
+                 PAY[3]: read_entry(None, by="human", reads=both(400_000, 450_000)),            # cần xem, người sửa thành 450k
+                 PAY[4]: read_entry(5_000_000)}                                                 # máy kết luận, chưa ai chốt
+        self.reads.parent.mkdir(exist_ok=True)
+        self.reads.write_text(json.dumps({"schema": 1, "redact": "w1", "reads": reads}), encoding="utf-8")
+        rows = [row(f"p{n}", at(19, 9 + n), "", sender=MINH, media=[PAY[n]]) for n in range(5)]
+        reviews = {"p0": {"decision": "confirm", "reviews": 1}, "p1": {"amount_vnd": "2500000", "reviews": 1},
+                   "p2": {"decision": "not_cash", "reason": "ảnh cũ gửi lại", "reviews": 1}, "p3": {"amount_vnd": "450000", "reviews": 1},
+                   "p4": {"target": {"kind": "so", "id": 1}, "reviews": 1}}   # chỉ gắn đối tượng: chưa là chốt số
+        with patch.dict(cash.v7_machine.FEEDBACK, clear=True):
+            body = self.get(rows, FakeRunner(reviews=reviews))
+            pushed = dict(cash.v7_machine.FEEDBACK)
+        week = body["feedback"]["weeks"][0]
+        self.assertEqual((week["week"], week["from"], week["to"]), ("2026-W47", "2026-11-16", "2026-11-22"))
+        self.assertEqual(week["decided"], {"ocr": 3, "gemini-2": 1, "human": 1})
+        self.assertEqual((week["reviewed"], week["human_handled"]), (4, 1))
+        self.assertEqual(week["engines"], {"easyocr@1.7.2+a2": {"right": 1, "wrong": 3}, "gemini@2": {"right": 3, "wrong": 1}})
+        self.assertEqual({key: value for key, value in pushed.items() if key != "at"}, week)   # tuần hiện tại sang tab Máy chạy
+        self.assertNotIn("_engines", json.dumps(body["items"]))
+        text = json.dumps(pushed, ensure_ascii=False)
+        for free_text in ("ảnh cũ gửi lại", "tên lạ", "Lan", "Minh"):   # không lý do, không tên người, không engine sai khuôn
+            self.assertNotIn(free_text, text)
+
+    def test_a_past_range_does_not_replace_this_week_for_the_machine_tab(self):
+        with patch.dict(cash.v7_machine.FEEDBACK, {"week": "giữ nguyên"}, clear=True):
+            self.get([row("a", at(5), "thu 5tr khách a")], query="from=2026-11-01&to=2026-11-07")
+            self.assertEqual(cash.v7_machine.FEEDBACK, {"week": "giữ nguyên"})
 
 
 class SqlRuleSyncTests(unittest.TestCase):
