@@ -689,6 +689,19 @@ class ImageReadTests(CashChatCase):
         body = self.get(rows, FakeRunner(links=[LINK]))
         self.assertEqual([(item["message_id"], [media["id"] for media in item["media"]]) for item in body["items"]], [("m", [PAY[0], PAY[1]])])
         self.assertEqual(body["totals"]["thu_vnd"], 7_000_000)
+        self.assertEqual(body["items"][0]["resent"], 1)   # s1 là ảnh chứng (không trùng), s2 là cùng giao dịch gửi lại: cảnh báo trùng
+
+    def test_evidence_image_sent_again_elsewhere_counts_as_a_resend_of_that_payment(self):
+        """Luồng 4: cùng ảnh của một lần trả gửi lại (chuyển tiếp, sang nhóm khác) chỉ tính một khoản, kèm số lần gửi lại để người xem biết."""
+        self.write_reads({PAY[0]: read_entry(7_000_000, txn="2026-11-19T09:00:00+07:00")})
+        rows = [row("m", at(19, 9), "thu 7tr khách a"), row("p", at(19, 9, 1), None, media=[PAY[0]]),    # ảnh chứng của khoản gõ
+                row("fw", at(19, 11), None, sender=MINH, media=[PAY[0]]),                                  # cùng ảnh, gửi lại trong nhóm
+                row("other", at(19, 12), None, sender=MINH, cid=OTHER, media=[PAY[0]])]                      # cùng ảnh, ở nhóm khác
+        body = self.get(rows, FakeRunner(links=[LINK]))
+        self.assertEqual([(item["message_id"], item["resent"]) for item in body["items"]], [("m", 2)])
+        self.assertEqual(body["totals"]["thu_vnd"], 7_000_000)
+        alone = self.get([row("x", at(19, 10), None, sender=MINH, media=[PAY[0]])], FakeRunner(links=[LINK]))
+        self.assertEqual(alone["items"][0]["resent"], 0)   # không gửi lại thì 0, không phải null
 
     def test_link_reason_tells_why_the_book_is_unknown(self):
         """Review #562 (8): lý do chưa rõ sổ đi kèm khoản, không đoán từ cờ `unchecked`."""
@@ -720,11 +733,13 @@ class ImageReadTests(CashChatCase):
         again = self.get([row("a", at(19, 15), None, sender=MINH, media=[PAY[0]]), row("b", at(19, 15, 30), None, sender=MINH, media=[PAY[0]]),
                           row("c", at(19, 16), None, sender=MINH, media=[PAY[1]])], runner)
         self.assertEqual(media(again), [("a", "anh", [PAY[0], PAY[1]])])   # cùng ảnh gửi lại; ảnh khác cùng số, cùng giờ giao dịch
+        self.assertEqual(again["items"][0]["resent"], 2)   # b (cùng ảnh) và c (ảnh khác, cùng giao dịch): hai lần gửi lại, chỉ một khoản
         dates = self.get([row("a", at(19, 15), None, sender=MINH, media=[PAY[2]]), row("b", at(19, 16), None, sender=MINH, media=[PAY[3]])], runner)
         self.assertEqual(len(dates["items"]), 2)   # chỉ có ngày giao dịch: không đủ để gộp
         typed = self.get([row("m", at(18, 20), "thu 7tr khách a"), row("img", at(19, 15), None, sender=MINH, media=[PAY[0]]),
                           row("later", at(20, 9), None, sender=MINH, media=[PAY[2]])], runner)
         self.assertEqual(media(typed), [("later", "anh", [PAY[2]]), ("m", "chat", [PAY[0]])])   # 19 giờ sau thì gộp, 37 giờ sau thì không
+        self.assertEqual([item["resent"] for item in typed["items"]], [0, 0])   # ảnh làm chứng cho khoản gõ không phải trùng
         self.assertEqual(typed["totals"]["thu_vnd"], 14_000_000)
 
     def test_contact_mark_keeps_the_payment_and_takes_the_image(self):

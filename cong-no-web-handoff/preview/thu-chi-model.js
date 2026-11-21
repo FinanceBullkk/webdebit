@@ -79,9 +79,15 @@ const ThuChiModel = (() => {
       Mẫu và ảnh khác số thì câu chính là "Lệch: mẫu X, ảnh Y", câu đối chiếu (đã vào sổ, gợi ý sổ, chưa vào sổ…) chuyển xuống ghi chú. */
   function statusText(item) {
     const base = matchText(item);
-    if (!imageDiff(item)) return base;
-    return { tone: 'warn', text: `Lệch: mẫu ${money(item.amount_vnd)}, ảnh ${money(item.image_vnd)}`, note: joinNotes(`${base.text}.`, base.note) };
+    const status = !imageDiff(item) ? base
+      : { tone: 'warn', text: `Lệch: mẫu ${money(item.amount_vnd)}, ảnh ${money(item.image_vnd)}`, note: joinNotes(`${base.text}.`, base.note) };
+    return { ...status, note: joinNotes(status.note, resentNote(item)) };
   }
+
+  /** Luồng 4: cùng một lần trả được gửi lại (cùng ảnh, hoặc ảnh khác cùng số và cùng phút giao dịch) thì chỉ tính một khoản; ghi rõ để người
+      xem không tưởng bị sót hay cộng hai lần. Máy chủ đếm (`resent`), 0 hay thiếu là không trùng. */
+  const resentNote = item => (Number.isInteger(item.resent) && item.resent > 0
+    ? `Ảnh chuyển khoản gửi lại thêm ${item.resent.toLocaleString('vi-VN')} lần (cùng giao dịch): chỉ tính một lần.` : '');
 
   function matchText(item) {
     const shared = item.shared ? 'Một dòng sổ có hai khoản báo cùng chờ: người xem chọn.' : '';

@@ -190,12 +190,13 @@ def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list
 
     Trả thêm các ảnh có kết quả đọc (`reads`) không làm ảnh chứng: mỗi ảnh một khoản thu "từ ảnh", chưa có đối tượng. Ảnh chứng thắng bất
     kể thứ tự đọc: ảnh đã làm ảnh chứng ở bất kỳ hội thoại nào thì không thành khoản riêng; cùng ảnh gửi nhiều lần chỉ giữ lần sớm nhất.
+    Mỗi lần gửi lại bị bỏ được đếm vào `resent` của khoản giữ ảnh đó (Luồng 4: chỉ tính một khoản, kèm cảnh báo trùng).
     Ảnh do tài khoản Zalo của mình gửi không thành khoản (thường là mình trả hoặc chuyển tiếp)."""
     reads = reads or {}
     names = {row["conversation_id"]: row["display_name"] for row in conversations}
     items: list[dict] = []
     candidates: list[dict] = []
-    proof: set[str] = set()
+    proof: dict[str, dict] = {}   # mã ảnh → khoản gõ giữ ảnh đó làm ảnh chứng (khoản sớm nhất)
     last: dict | None = None
     current = None
     directory = None
@@ -217,16 +218,20 @@ def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list
         elif row["media"] and last and row["sender_id"] == last["sender"] and 0 <= stamp - last["sent_at"] <= IMAGE_GAP_MS:
             have = {media["id"] for media in last["media"]}
             last["media"] += [media for media in row["media"] if media["id"] not in have]
-            proof.update(media["id"] for media in row["media"])
+            for media in row["media"]:
+                proof.setdefault(media["id"], last)
         elif row["media"] and stamp < end_ms and not row["deleted"] and not row["is_own"]:
             candidates += [image_item(cid, names.get(cid), row, stamp, media, reads[media["id"]]) for media in row["media"] if media["id"] in reads]
     images: list[dict] = []
-    seen: set[str] = set()
+    seen: dict[str, dict] = {}
     for image in sorted(candidates, key=lambda one: one["sent_at"]):
         key = image["media"][0]["id"]
-        if key not in proof and key not in seen:
-            seen.add(key)
-            images.append(image)
+        holder = proof.get(key) or seen.get(key)
+        if holder is not None:   # cùng ảnh gửi lại: không thành khoản mới, khoản đang giữ ảnh ghi thêm một lần gửi lại
+            holder["resent"] = holder.get("resent", 0) + 1
+            continue
+        seen[key] = image
+        images.append(image)
     return items, images
 
 
@@ -354,7 +359,8 @@ def attach_images(items: list[dict], marks: list[dict], images: list[dict], read
     2. dấu đặt trên chính tin ảnh;
     3. khoản thu gõ cùng hội thoại cùng số (số gõ hoặc số ảnh chứng) trong 24 giờ, rồi dấu cùng hội thoại cùng số cách ngày giao dịch của ảnh
        không quá 1 ngày; chỉ khi giờ giao dịch không vênh với ảnh chỗ đó đã có, và chỗ đó chưa nhận ảnh nào theo luật này.
-    Trả các ảnh còn lại, mỗi ảnh một khoản."""
+    Ảnh gắn theo luật 1 là gửi lại: chỗ giữ cộng thêm một vào `resent` (cộng cả số lần gửi lại mà ảnh đó đã mang). Trả các ảnh còn lại,
+    mỗi ảnh một khoản."""
     index: dict[tuple, dict] = {}
     hosts = [item for item in items if item["direction"] == "thu"]
     for host in (*hosts, *marks):
@@ -371,6 +377,7 @@ def attach_images(items: list[dict], marks: list[dict], images: list[dict], read
         conv, amount, key = image["conversation_id"], image["amount_vnd"], txn_key(image["image"]["txn_time"])
         same = (conv, amount, key) if amount is not None and key else None
         owner, took = index.get(same) if same else None, False
+        again = owner is not None   # luật 1: giao dịch này đã có chỗ giữ, ảnh này là một lần gửi lại
         if owner is None:
             owner = next((mark for mark in marks if mark["conversation_id"] == conv and mark["message_id"] is not None and mark["message_id"] == image["message_id"]), None)
         if owner is None and amount is not None:
@@ -386,6 +393,8 @@ def attach_images(items: list[dict], marks: list[dict], images: list[dict], read
             continue
         have = {media["id"] for media in owner["media"]}
         owner["media"] += [media for media in image["media"] if media["id"] not in have]
+        # Gộp theo luật 1 (cùng số, cùng phút giao dịch) là cùng một giao dịch gửi lại; luật 2–3 là ảnh chứng của lần trả, không phải trùng.
+        owner["resent"] = owner.get("resent", 0) + image.get("resent", 0) + int(again)
         if "_took" in owner:
             owner["_took"] += took
             if key:
@@ -701,7 +710,7 @@ def mark_items(marks: list[dict], directory: Directory, taken_messages: set, tak
                       "text": str(mark.get("message_excerpt") or mark.get("note") or "")[:300], "media": entry["media"], "day": entry["day"], "source": "mark",
                       "target": {"kind": "so", "id": mark["customer_id"], "label": names.get(mark["customer_id"])},
                       "status": MARK_STATUS[mark["status"]], "shared": False, "unchecked": False, "ledger_vnd": None,
-                      "ledger_ref": {"kind": "receipt", "pid": pid} if pid else None})
+                      "ledger_ref": {"kind": "receipt", "pid": pid} if pid else None, "resent": entry.get("resent", 0)})
     return items, hidden
 
 
@@ -848,6 +857,7 @@ def _public(item: dict) -> dict:
     out["currency"] = item.get("currency", "VND")
     out["image_diff"] = bool(item.get("image_diff"))
     out["target_from"] = "sua" if item.get("target_reviewed") else None   # Luồng 3: đối tượng người dùng gắn tay, không phải máy tự khớp
+    out["resent"] = item.get("resent", 0)   # Luồng 4: số lần cùng giao dịch được gửi lại (chỉ tính một khoản); 0 là không trùng
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
     out["target"] = {key: item["target"].get(key) for key in ("kind", "id", "label")}

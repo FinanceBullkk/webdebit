@@ -108,7 +108,7 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
 2. Khoản chỉ có OCR thì là "chờ xác nhận". Khi có cả mẫu tin và OCR:
    - hai số bằng nhau thì khoản chắc chắn;
    - hai số khác nhau thì là `AMOUNT_DIFF` "mẫu X, ảnh Y".
-3. Cùng mã giao dịch xuất hiện hai lần (gửi lại ảnh, gửi hai nhóm) thì chỉ tính một khoản, kèm cảnh báo trùng.
+3. Cùng mã giao dịch xuất hiện hai lần (gửi lại ảnh, gửi hai nhóm) thì chỉ tính một khoản, kèm cảnh báo trùng. (22/11/2026: chưa đọc được mã giao dịch; làm theo [B4 luật 3](#b4-trên-hao-trang-thu-chi-hiện-số-đọc-từ-ảnh-pr-4b-21112026): cùng ảnh ở bất kỳ nhóm nào, hoặc ảnh khác cùng nhóm cùng số cùng phút giao dịch, thì một khoản, ghi "gửi lại thêm N lần".)
 4. Ảnh không gửi ra dịch vụ ngoài `hao` và máy có Zalo ([`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md) mục 4). Đọc ảnh bằng AI ngoài là [Q4](#câu-hỏi-đã-chốt).
 
 ### Bị chặn
@@ -222,7 +222,7 @@ Luật:
    - **Ngày:** ngày tin. Ảnh cũ gửi lại (giao dịch trước ngày tin, trong 93 ngày) thì là ngày giao dịch, để đối chiếu đúng phiếu và cộng vào đúng ngày tiền vào. Giao dịch trước khoảng đang xem thì không cộng, trang chỉ ghi số ảnh như vậy.
    - **Đối chiếu sổ** như khoản thu gõ tay (B2), trừ một điều: khoản từ ảnh không ghép đoán (lệch số, gợi ý) vào phiếu mà một dấu "Khách báo đã chuyển" đang giữ. Ảnh khác số với phiếu đó thường là lần trả khác. Khoản gõ tay vẫn ghép như cũ vì gõ nhầm số là chuyện thường.
 3. **Không đếm hai lần.** Mỗi khoản thu gõ theo mẫu và mỗi dấu "Khách báo đã chuyển" là một lần trả. Ảnh (theo thứ tự gửi) gắn vào:
-   - cùng ảnh (cùng khóa) gửi nhiều lần: một khoản, lần sớm nhất;
+   - cùng ảnh (cùng khóa) gửi nhiều lần, kể cả ở nhóm khác hay ảnh đã làm ảnh chứng của khoản gõ: một khoản, lần sớm nhất;
    - chỗ đang giữ một ảnh cùng hội thoại, cùng số, cùng giờ giao dịch (tới phút, theo giờ VN), không giới hạn ngày: cùng một giao dịch;
    - dấu đặt trên chính tin ảnh;
    - khoản thu gõ cùng hội thoại, cùng số (số gõ hoặc số ảnh chứng), cách không quá 24 giờ; rồi dấu cùng hội thoại, cùng số, ngày báo cách ngày giao dịch của ảnh không quá 1 ngày. Hai điều kiện: giờ giao dịch không vênh với ảnh chỗ đó đã có (giờ khác là lần trả khác), và chỗ đó chưa nhận ảnh nào theo luật này. Ảnh gắn vào dấu thì giữ số người nhập trên dấu; ảnh đọc ra số khác chỉ ghi chú "Ảnh đọc ra X".
@@ -255,7 +255,8 @@ Review độc lập ngày 21/11/2026 (FinanceBullkk/webdebit#562) tìm ra 8 ch�
 CÒN MỞ:
 
 - Ảnh chuyển khoản do người không phải tài khoản Zalo của mình gửi vẫn tính là thu, kể cả nhân viên khác trong nhóm khách.
-- File chưa có mã giao dịch. Hai ảnh khác nhau của cùng một giao dịch mà máy không đọc ra giờ giao dịch vẫn thành hai khoản.
+- File chưa có mã giao dịch. Hai ảnh khác nhau của cùng một giao dịch mà máy không đọc ra giờ giao dịch vẫn thành hai khoản; hai ảnh khác nhau của cùng giao dịch gửi ở **hai nhóm** cũng vậy (không gộp chéo nhóm chỉ bằng số và giờ: hai khách trả cùng số cùng phút là có thể).
+- **Cảnh báo trùng (22/11/2026, Luồng 4 mục 3):** mỗi lần gửi lại bị gộp (cùng ảnh; hoặc gộp theo "cùng số, cùng giờ giao dịch") cộng một vào `resent` của khoản giữ lần trả; trang ghi "Ảnh chuyển khoản gửi lại thêm N lần (cùng giao dịch): chỉ tính một lần." ở ô trạng thái. Ảnh gắn làm ảnh chứng của khoản gõ hay của dấu khách báo không phải trùng. Tổng không đổi.
 
 ## P0: đo trước khi code
 
@@ -280,7 +281,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 **Khuôn đã code ở PR-2** (`web/v7_cash_chat.py`; `/api/v7/cash-chat` chỉ cho quản lý như Đội xe, vì có số chi và ứng của Đội xe):
 
 - Mặc định 7 ngày tới hôm nay (giờ VN), tối đa 93 ngày; `status=` nhận mã trạng thái cách nhau bằng dấu phẩy và chỉ lọc `items`, còn `totals` và `counts` tính trên cả khoảng.
-- Mỗi `item`: `message_id`, `conversation_id`, `conversation_name`, `sent_at` (ms), `day`, `sender_name`, `direction`, `amount_vnd` (số nguyên hoặc `null`), `text` (≤ 300 ký tự), `media`, `target {kind, id, label}`, `ambiguous`, `status`, `shared`, `ledger_ref`, `ledger_vnd`, `source` (`chat` hoặc `mark`).
+- Mỗi `item`: `message_id`, `conversation_id`, `conversation_name`, `sent_at` (ms), `day`, `sender_name`, `direction`, `amount_vnd` (số nguyên hoặc `null`), `text` (≤ 300 ký tự), `media`, `target {kind, id, label}`, `ambiguous`, `status`, `shared`, `ledger_ref`, `ledger_vnd`, `source` (`chat` hoặc `mark`); từ 22/11/2026 thêm `resent` (số lần cùng giao dịch được gửi lại, 0 là không trùng).
 - `zalo_age_seconds` được thay bằng `zalo {state, at, silent_minutes, identity, quiet_minutes}` lấy từ `status.json` của máy Zalo (`v7_machine.zalo()`), cộng `bundle_at` (giờ dựng gói) và `last_message_at`: đủ để phân biệt "máy im", "Zalo chưa mở" và "ít tin".
 - `shared: true` khi một phiếu hoặc dòng sổ là ứng viên của hai khoản báo; cả hai hiện `AMOUNT_DIFF` (hoặc `SUGGEST`) cho người chọn.
 - **Không đoán số và đối tượng (review 20/11/2026):** đơn vị rồi cách rồi chữ số ("1 triệu 2", "2 tr 5") và dấu trừ dính vào số ("chi -500k") là `NO_AMOUNT`, còn gạch có khoảng trắng ("chi - 500k") là dấu ngăn và vẫn đọc 500.000 (chủ ý). "Số rời" chỉ tính khi 1–3 chữ số đứng một mình và không dính chữ cái, không là ngày, không đứng trước danh từ đếm được: "1 triệu 2", "2 tr 5" là `NO_AMOUNT`, còn "5tr 30 cont", "2tr 51C-123.45", "800k 2 xe" đọc 5 triệu, 2 triệu, 800 nghìn; biển số chỉ nhận khi có chữ cái của dãy biển (51C-123.45) hoặc đứng ngay sau "xe", "bks", "bs", "biển số" ("15.11", "2026" không phải biển); tên sổ hoặc người ngắn hơn 3 ký tự (bỏ dấu) không tự khớp.
