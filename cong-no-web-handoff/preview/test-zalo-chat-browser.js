@@ -123,7 +123,8 @@ function withLive(base, live) {
   for (const row of live) rows.set(row.message_id, row);
   return sorted([...rows.values()]);
 }
-function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, extras = false, world = null, live = [], control = { prefix: 'abcd1234' } } = {}) {
+// `beat.value`: nhịp tim máy Zalo mà /api/v7/zalo/report trả (null là chưa có máy Zalo báo về); test đổi giữa chừng để giả máy im.
+function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, extras = false, world = null, live = [], control = { prefix: 'abcd1234' }, beat = { value: null } } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (drop.has(url.pathname)) { req.socket.destroy(); return; }
@@ -139,7 +140,8 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
       if (unavailable) return json(503, { error: 'ZALO_EXPORT_UNAVAILABLE', message: 'Máy chủ chưa có bản xuất chat Zalo: chưa đặt WEBDEBIT_ZALO_EXPORT_DIR' });
       if (url.pathname === `/api/v7/zalo/media/${PIC}`) return send(200, 'image/png', PNG);
       if (url.pathname === '/api/v7/zalo/report') {
-        return json(200, bundled ? { ...report(), status: 'BUNDLED', conversation_count: 1, message_count: 120, media_count: 1, built_at: '2026-11-01T14:12:19+07:00' } : report());
+        const zalo = beat.value ? { zalo: beat.value } : {};
+        return json(200, bundled ? { ...report(), status: 'BUNDLED', conversation_count: 1, message_count: 120, media_count: 1, built_at: '2026-11-01T14:12:19+07:00', ...zalo } : report());
       }
       if (url.pathname === '/api/v7/zalo/conversations' && extras) {
         return json(200, { total: 1, conversations: [{ conversation_id: EXTRA, display_name: 'Nhóm có avatar', name_status: 'name_index', message_count: 60,
@@ -340,7 +342,7 @@ test('Chat Zalo: màn hình điện thoại hiện danh sách, mở hội thoạ
 test('Chat Zalo (gói web): group có tên người gửi theo cụm, ảnh trong tin, bấm xem lớn, ảnh mất thì báo', async () => {
   await withPage({ bundled: true }, async (page, logs) => {
     await page.locator('.conv').first().waitFor();
-    assert.match(await page.locator('#summary').innerText(), /^1 group · 120 tin · 1 ảnh · cập nhật 14:12 01\/11\/2026 · chỉ xem$/);
+    assert.match(await page.locator('#summary').innerText(), /^1 group · 120 tin · 1 ảnh · Zalo cập nhật lúc 14:12 01\/11\/2026 · chỉ xem$/);   // chưa có máy Zalo báo về: giờ dựng gói
     await page.locator('.conv').first().click();
     await page.locator('.msg[data-id="g119"]').waitFor();
     // Khung tin tự cuộn và đứng ở tin mới nhất; trang không dài theo số tin (lỗi flex: 1 bỏ qua height, sửa 1/11/2026).
@@ -781,3 +783,62 @@ test('Chat Zalo: điện thoại 390px, trích dẫn dài bị cắt trong bong 
   });
   assert.equal(fit, true);
 }, { viewport: { width: 390, height: 844 } }));
+
+// ---- ZALO-THU-CHI-01 "Bị chặn": máy Zalo im hay Zalo chưa mở thì Chat Zalo ghi "lần cuối" và cảnh báo, như trang Thu chi. ----
+const OLD_BEAT = '2026-11-01T08:05:00+07:00';   // ngày cố định đã qua: giờ luôn kèm ngày, test không đổi theo ngày chạy
+
+test('Chat Zalo: máy Zalo im thì dòng đầu ghi "cập nhật lần cuối" và có cảnh báo; Zalo chưa mở ghi số phút; máy báo đều thì không cảnh báo', async () => {
+  await withPage({ bundled: true, beat: { value: { state: 'silent', at: OLD_BEAT, silent_minutes: 200, identity: 'attached', quiet_minutes: 0 } } }, async page => {
+    await page.locator('.conv').first().waitFor();
+    assert.match(await page.locator('#summary').innerText(), /· Zalo cập nhật lần cuối lúc 08:05 01\/11\/2026 · chỉ xem$/);
+    assert.equal(await page.locator('#summary').getAttribute('class'), 'summary stale');
+    assert.equal(await page.locator('#zalo-warn').innerText(), 'Máy Zalo không báo về từ 08:05 01/11/2026. Tin mới có thể chưa lên.');
+  });
+  await withPage({ bundled: true, beat: { value: { state: 'ok', at: OLD_BEAT, silent_minutes: 0, identity: 'waiting_for_zalo', quiet_minutes: 42 } } }, async page => {
+    await page.locator('.conv').first().waitFor();
+    assert.equal(await page.locator('#zalo-warn').innerText(), 'Zalo chưa mở trên máy Zalo (42 phút). Tin Zalo mới chưa lên.');
+  });
+  await withPage({ bundled: true, beat: { value: { state: 'ok', at: OLD_BEAT, silent_minutes: 0, identity: 'attached', quiet_minutes: 0 } } }, async page => {
+    await page.locator('.conv').first().waitFor();
+    assert.match(await page.locator('#summary').innerText(), /· Zalo cập nhật lúc 08:05 01\/11\/2026 · chỉ xem$/);   // nhịp tim thắng giờ dựng gói
+    assert.equal(await page.locator('#zalo-warn').isHidden(), true);
+  });
+});
+
+test('Chat Zalo: máy Zalo im giữa chừng thì sau một phút dòng đầu tự đổi sang "lần cuối" và hiện cảnh báo, không cần tải lại; tab ẩn thì không hỏi', async () => {
+  const requests = [];
+  const beat = { value: { state: 'ok', at: OLD_BEAT, silent_minutes: 0, identity: 'attached', quiet_minutes: 0 } };
+  await withPage({ bundled: true, requests, beat }, async page => {
+    await page.locator('.conv').first().waitFor();
+    assert.equal(await page.locator('#zalo-warn').isHidden(), true);
+    beat.value = { state: 'silent', at: OLD_BEAT, silent_minutes: 20, identity: 'attached', quiet_minutes: 0 };
+    const reports = () => requests.filter(item => item === '/api/v7/zalo/report').length;
+    await page.clock.runFor(30_000);
+    assert.equal(reports(), 1);   // chưa đủ một phút: không hỏi lại
+    await page.clock.runFor(35_000);
+    await page.locator('#zalo-warn:not([hidden])').waitFor();
+    assert.match(await page.locator('#summary').innerText(), /Zalo cập nhật lần cuối lúc 08:05 01\/11\/2026/);
+    assert.equal(reports(), 2);
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.clock.runFor(180_000);
+    await page.waitForTimeout(150);   // đồng hồ giả không chạy giờ thật: chờ chắc chắn không có yêu cầu nào đang bay
+    assert.equal(reports(), 2);
+  }, { clock: true });
+});
+
+test('Chat Zalo: có dòng cảnh báo thì khung chat vẫn vừa màn (1280×720 và 390×844): tin mới nhất ở đáy khung không bị đẩy dưới mép', async () => {
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+    await withPage({ bundled: true, beat: { value: { state: 'silent', at: OLD_BEAT, silent_minutes: 200, identity: 'attached', quiet_minutes: 0 } } }, async page => {
+      await page.locator('.conv').first().click();
+      await page.locator('.msg[data-id="g119"]').waitFor();
+      assert.equal(await page.locator('#zalo-warn').isVisible(), true);
+      const fit = await page.evaluate(() => ({ bottom: document.getElementById('chat').getBoundingClientRect().bottom, height: window.innerHeight,
+        scroll: document.documentElement.scrollHeight - window.innerHeight }));
+      assert.ok(fit.bottom <= fit.height + 1, `khung chat đáy ${fit.bottom} / màn ${fit.height} (${viewport.width})`);
+      assert.ok(fit.scroll <= 1, `trang không cuộn thêm: ${fit.scroll} (${viewport.width})`);
+    }, { viewport });
+  }
+});

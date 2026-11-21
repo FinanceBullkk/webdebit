@@ -495,18 +495,18 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 
 ## Tiêu chí nghiệm thu
 
-- [ ] PR-0: sau một ngày chạy, `logs/` dưới 40 MB; heap probe vẫn dò được (watchdog ghi `exit=0`).
-- [ ] PR-1, test với kho live-sync giả (fixture bịa, không dữ liệu thật):
-  - thêm, sửa, xóa tin ra đúng `messages-delta.jsonl`;
-  - chết giữa lượt đẩy thì lượt sau gửi lại, `hao` không có dòng trùng;
-  - thiếu `changes-N` ở giữa, revision lùi hoặc baseline đổi thì dựng lại từ đầu;
-  - nhóm chưa chọn không lọt vào gói;
-  - quét 131 MB dưới 2 giây (đo trên máy có Zalo, ghi số).
-- [ ] PR-1: test của `push.py`: kịch bản máy chủ có `umask 027`, không có `chmod`, file chốt `mv` sau cùng; không đổi gì thì không gửi tar.
-- [ ] PR-1: thử trên `hao` ở thư mục tạm có setgid, đẩy hai lượt: mọi thư mục giữ `drwxr-s---` nhóm `v7app`, `v7app` đọc được; xóa thư mục tạm. Ghi nhật ký.
-- [ ] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `since=` trả cả tin tới muộn (giờ gửi cũ hơn), tin sửa, tin xóa; token gói cũ thì `reset`.
-- [ ] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm.
-- [ ] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px.
+- [ ] PR-0: sau một ngày chạy, `logs/` dưới 40 MB; heap probe vẫn dò được (watchdog ghi `exit=0`). 22/11/2026: `logs/` 25 MB sau hai ngày (đạt); heap probe chỉ chạy khi poller gắn lại: `exit=0` lúc áp PR-0, hai lần `exit=1` sau đó trùng lúc Zalo PC tắt; còn chờ một lần gắn lại khi Zalo mở ([nhật ký](../docs/deploys/2026-11-20-zalo-agent.md#đo-thêm-22112026)).
+- [x] PR-1, test với kho live-sync giả (fixture bịa, không dữ liệu thật), `tests/test_zalo_agent.py` (đối chiếu 22/11/2026):
+  - thêm, sửa, xóa tin ra đúng `messages-delta.jsonl` (`test_add_update_delete_become_delta_and_unselected_groups_stay_out`, `test_delta_row_has_exactly_the_shape_build_would_produce`);
+  - chết giữa lượt đẩy thì lượt sau gửi lại, `hao` không có dòng trùng (`test_dropped_connection_resends_without_duplicate_lines`, `test_agent_killed_while_sending_resumes_from_pending_without_loss_or_repeat`);
+  - thiếu `changes-N` ở giữa, revision lùi hoặc baseline đổi thì dựng lại từ đầu (`test_rebuild_from_scratch_when_cursor_cannot_be_trusted`, ca `missing_changes`, `revision_back`, `baseline_changed`);
+  - nhóm chưa chọn không lọt vào gói (cùng ca đầu, `test_revision_without_selected_messages_moves_cursor_and_sends_nothing`);
+  - quét 131 MB dưới 2 giây: đo lại 22/11/2026 trên máy có Zalo, `rows_for` với 446 mã không có (buộc quét hết) trên `messages.jsonl` 125,1 MiB: nhanh nhất **0,33 giây** / 3 lượt ([nhật ký](../docs/deploys/2026-11-20-zalo-agent.md#đo-thêm-22112026)).
+- [x] PR-1: test của `push.py`: kịch bản máy chủ có `umask 027`, không có `chmod`, file chốt `mv` sau cùng; không đổi gì thì không gửi tar (`PushTest.test_script_has_umask_first_no_chmod_and_final_file_moved_last`, `test_nothing_changed_sends_no_tar_and_changes_send_only_difference`; cả lớp bỏ qua khi máy không có bash + tar).
+- [x] PR-1: thử trên `hao` ở thư mục tạm có setgid, đẩy hai lượt: mọi thư mục giữ `drwxr-s---` nhóm `v7app`, `v7app` đọc được; xóa thư mục tạm. Ghi nhật ký (20/11/2026, ba lượt ở `/srv/v7/zalo-agent-test`: [nhật ký](../docs/deploys/2026-11-20-zalo-agent.md#trên-hao)).
+- [x] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `since=` trả cả tin tới muộn (giờ gửi cũ hơn), tin sửa, tin xóa; token gói cũ thì `reset` (`ZaloDeltaTest`: `test_edit_replaces_and_deleted_line_shows_like_a_full_build`, `test_media_and_users_replaced_in_place_reach_new_delta_messages`, `test_since_returns_everything_that_arrived_after_the_token_even_old_edits_and_late_messages`, `test_since_asks_for_a_reload_when_the_bundle_was_rebuilt`).
+- [x] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm (`ZaloTests`: `test_silent_status_reports_during_work_hours_only`, `test_waiting_for_zalo_reports_after_15_minutes`, `test_no_selected_group_means_no_check`).
+- [x] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px (`test-may-chay-browser.js`: ca "Máy chạy (1280×720)…" và "Máy chạy (390px)…", cùng tên "nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường").
 - [x] Chịu lỗi, test với kho live-sync và máy chủ bịa (21/11/2026), mỗi ca kiểm không mất tin, không gói dở (file chốt luôn trỏ tới thư mục đủ file, delta dài ít nhất `delta_bytes`), con trỏ đuổi kịp:
   - agent bị giết lúc gửi tar và sau khi máy chủ đã áp: chạy lại thì đẩy nốt `pending`, không tin nào hai lần;
   - ssh đứt giữa tar (bash + tar thật): máy chủ giữ nguyên file chốt cũ, không sót thư mục tạm, lượt sau đẩy đủ;
@@ -516,14 +516,14 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   Tên test: `test_agent_killed_while_sending_resumes_from_pending_without_loss_or_repeat`, `test_ssh_cut_in_the_middle_of_the_tar_leaves_the_old_bundle_whole`, `test_full_disk_on_hao_keeps_pending_and_the_old_bundle_until_space_returns`, `test_zalo_reopened_after_hours_delivers_late_messages_in_one_delta_and_since_sees_them`.
 - [ ] Chuyển: một ngày làm việc trên máy thật, tin mới lên web trong **30 giây** (p95, từ `revision_at` tới `status.json` trên `hao`); khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp, không mất tin. Ghi số trong nhật ký.
 - [x] PR-3, test với snapshot, PDF và máy chủ bịa (`tests/test_zalo_agent_insurance.py`): bản gọn trùng từng byte với golden của code gốc; PDF mới gửi, PDF cũ dọn, PDF mất ở máy thì giữ trên máy chủ; 0 dòng không đẩy; snapshot không đổi thì không gửi tar; lỗi đẩy thì `error_since` có mốc; băm PDF theo cache; `--dry-run` không lưu gì.
-- [ ] PR-3, ở bước bật: task bảo hiểm không còn phụ thuộc worktree, chạy cả khi dùng pin; mọi giấy hiện như trước trên `hao` (hỏi người dùng trước khi tắt `ZaloInsurancePush`).
-- [ ] PR-4, ảnh tổng hợp bằng PIL (số tài khoản giả):
-  - ô có dãy ≥ 8 chữ số bị tô đen, số tiền không bị che;
-  - OCR không thấy chữ thì không gửi;
-  - `ZALO_AGENT_EXTERNAL=off` thì không có kết nối ra ngoài;
-  - cùng engine và phiên bản thì không đọc lại;
-  - kết quả Gemini sai khuôn bị loại.
-- [ ] PR-4: trên 20 ảnh của P0, OCR với ngưỡng T vẫn đúng 20/20; số ảnh phải gửi Gemini được báo trong chat.
+- [x] PR-3, ở bước bật: task bảo hiểm không còn phụ thuộc worktree, chạy cả khi dùng pin; mọi giấy hiện như trước trên `hao` (hỏi người dùng trước khi tắt `ZaloInsurancePush`). 20/11/2026: người dùng bấm "Đồng ý bật"; bộ xử lý `insurance` chạy trong task `ZaloAgent` (code từ checkout `main`, chạy cả khi dùng pin), `ZaloInsurancePush` tắt không xóa; trên `hao` 22 dòng, 22 PDF, một giấy qua web 200 và băm khớp ([nhật ký](../docs/deploys/2026-11-20-zalo-agent.md#bật-đường-bảo-hiểm-trong-agent-1239)).
+- [x] PR-4, ảnh tổng hợp bằng PIL (số tài khoản giả), đối chiếu 22/11/2026:
+  - ô có dãy ≥ 8 chữ số bị tô đen, số tiền không bị che (`RedactPixelsTest.test_everything_sensitive_is_black_and_only_amount_labels_time_bank_survive`: luật thật chặt hơn, che mọi ô ngoài danh sách được giữ; dãy số liền chỉ kiểm ở mức chữ trong `RedactWhitelistTest`; cần Pillow nên chỉ chạy ở job Windows);
+  - OCR không thấy chữ thì không gửi (`ExternalTest.test_image_where_ocr_finds_no_text_at_all_is_never_sent`, thêm 22/11/2026; `redact.redact` trả None khi không có ô chữ);
+  - `ZALO_AGENT_EXTERNAL=off` thì không có kết nối ra ngoài (`test_external_off_sends_nothing_and_opens_no_connection_unsure_goes_to_human`, mức cấu hình ở `GeminiTest`);
+  - cùng engine và phiên bản thì không đọc lại (`test_same_engine_and_version_is_not_read_again_new_version_reads_and_keeps_the_old_file`);
+  - kết quả Gemini sai khuôn bị loại (`GeminiTest.test_answer_must_have_exactly_the_agreed_shape`).
+- [x] PR-4: trên 20 ảnh của P0, OCR với ngưỡng T vẫn đúng 20/20; số ảnh phải gửi Gemini được báo trong chat (20/11/2026: 20/20 khớp, T = 0,6 để 2/20 ảnh sang Gemini; số đo ở [Phần 3](#phần-3-kết-quả-đọc-ảnh-có-nguồn-gốc)).
 - [x] PR-5: với dòng xác nhận giả, số đo tuần đúng theo engine; không chữ tự do nào vào `summary()` (21/11/2026: `FeedbackTests` ở `tests/test_v7_cash_chat.py`, `test_summary_carries_this_weeks_image_feedback_as_codes_and_counts` ở `tests/test_v7_machine.py`).
 - [x] Đo độ trễ từng chặng và tốc độ xả hàng chờ OCR (21/11/2026), test với dữ liệu bịa: `LatencyTest` (p50/p95 hạng gần nhất, hai cửa sổ, mẫu quá 24 giờ bị bỏ, sống qua lần chạy lại, số lạ bị bỏ, `--dry-run` không ghi file); `test_delta_push_measures_each_stage_and_a_retry_counts_the_wait` (năm chặng đúng từng mốc, tin sửa và nhóm chưa chọn không là mẫu `zalo`, đẩy lỗi chưa có mẫu, gửi lại tính cả thời gian chờ); `test_drain_counts_images_leaving_the_queue_and_when_the_queue_filled`; phía `hao`: `test_zalo_latency_and_ocr_drain_are_numbers_only`, `test_slow_delivery_p95_and_stalled_image_queue` (p95 quá 5 phút với ≥ 3 lượt thì báo, ít lượt hay đúng ngưỡng thì không; hàng chờ đứng 20 phút thì báo, đang lỗi thì chỉ báo lỗi).
 - [x] Mở rộng hợp đồng gói chat (21/11/2026), test với kho viewer bịa:

@@ -114,7 +114,7 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
 ### Bị chặn
 
 - **Máy có Zalo tắt:**
-  - trang Thu chi và Chat Zalo ghi rõ "Zalo cập nhật lần cuối lúc …", không giả là đang mới;
+  - trang Thu chi và Chat Zalo ghi rõ "Zalo cập nhật lần cuối lúc …", không giả là đang mới (22/11/2026: hai trang dùng chung `CongNoFormat.zaloFreshness`; Chat Zalo hỏi lại dòng đầu mỗi phút khi tab hiện; Zalo chưa mở thì cảnh báo nói "tin Zalo", vì WeChat đọc kho riêng);
   - quá 15 phút trong giờ làm việc thì máy canh gửi email ([Phần A](#phần-a-gần-thời-gian-thực), A4).
 - **Không có quyền (ngoài Tailscale):** 403 như mọi trang.
 - **Nhóm chưa chọn lên web:** không có tin. Hội thoại riêng tư không rời máy (ZALO-GROUP-01).
@@ -270,7 +270,7 @@ Chỉ đọc, chạy ở máy có Zalo, chỉ báo số đếm trong chat, khôn
 | Route (qua xác thực như mọi `/api/v7/*`) | Trả về |
 | --- | --- |
 | `GET /api/v7/zalo/messages?…&after=<ms>` | như hiện có, chỉ tin có `timestamp_ms > after`; thêm `bundle_at` |
-| `GET /api/v7/zalo/report` | thêm `pushed_at`, `last_message_at`, `age_seconds` |
+| `GET /api/v7/zalo/report` | thêm `zalo {state, at, silent_minutes, identity, quiet_minutes}` (nhịp tim máy Zalo, chỉ mã, giờ, số phút; cùng phần `zalo` của `/api/v7/cash-chat`). Sửa 22/11/2026: thay `pushed_at`, `last_message_at`, `age_seconds` của bản đề xuất |
 | `GET /api/v7/cash-chat?from=YYYY-MM-DD&to=YYYY-MM-DD&status=` | `{items:[{…khoản B1, status, ledger_ref, ledger_vnd, message}], totals:{thu_vnd, chi_vnd, ung_vnd, missing, amount_diff}, zalo_age_seconds}`; thiếu gói → `{unavailable: true}` |
 | `POST /api/v7/cash-chat/review` (PR-3) | `{message_id, action, value, reason, request_id}` → dòng đã ghi; lỗi `REASON_REQUIRED`, `MESSAGE_NOT_FOUND`, `TARGET_NOT_FOUND` |
 | `GET /api/v7/cash-chat/targets` (PR-3b) | `{so, xe, tai_xe: [{id, label}], failed}`: danh sách cho ô "Gắn sổ/xe"; mọi sổ, xe và người còn dùng |
@@ -340,31 +340,31 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 ## Tiêu chí nghiệm thu
 
 - [x] P0 xong, số đếm báo trong chat; người dùng chọn nhóm đưa lên web (20/11/2026: giữ nhóm đang lên web, các nhóm khác không liên quan; nhóm Thu chi chờ lập).
-- [ ] Unit `watch` (dữ liệu giả, đồng hồ giả):
-  - tin mới thuộc nhóm đã chọn vào `messages-delta.jsonl`, tin nhóm không chọn và chat riêng thì không;
-  - ảnh tải ngay;
-  - gom 3 giây thành một lần đẩy;
-  - không có tin thì vẫn có nhịp tim mỗi phút;
-  - dựng đêm làm rỗng delta.
-- [ ] Unit `ChatStore`:
-  - đọc thêm delta mà không lập lại chỉ mục gói gốc;
-  - `message_id` trùng chỉ còn một;
-  - `after=` trả đúng tin mới hơn.
-- [ ] Unit `v7_cash_chat.py`:
-  - mọi cách viết số ở [Luồng 1](#luồng-1-gửi-thu-chi-vào-nhóm-mọi-người-trên-zalo) ra đúng VND;
-  - số không đọc được thành NULL;
-  - đối tượng khớp hai sổ thành "chưa rõ";
-  - mỗi trạng thái đối chiếu có ít nhất một ca;
-  - một phiếu không ứng với hai khoản;
-  - phiếu đã hủy không tính.
-- [ ] Unit máy canh: Zalo quá 15 phút trong giờ làm việc thì báo, ngoài giờ không báo, chưa chọn nhóm thì không kiểm.
-- [ ] Playwright, máy chủ giả, 1280×720 và 390×844:
-  - khoản mới tự hiện sau một lượt hỏi;
-  - đang đọc tin cũ thì hiện nút "N tin mới";
-  - lọc Chưa vào sổ đúng số;
-  - Mở tin sang đúng tin;
-  - Zalo cũ hiện câu "cập nhật lần cuối";
-  - dùng được bằng bàn phím.
+- [x] Unit `watch` (dữ liệu giả, đồng hồ giả). `watch` thành `zalo_agent run` ([`zalo-agent`](zalo-agent.md)); test ở `tests/test_zalo_agent.py` (đối chiếu 22/11/2026):
+  - tin mới thuộc nhóm đã chọn vào `messages-delta.jsonl`, tin nhóm không chọn và chat riêng thì không (`test_add_update_delete_become_delta_and_unselected_groups_stay_out`, `test_revision_without_selected_messages_moves_cursor_and_sends_nothing`);
+  - ảnh tải ngay (`test_delta_of_new_image_adds_media_and_is_sent`);
+  - gom 3 giây thành một lần đẩy (`test_message_arriving_during_the_three_second_wait_goes_out_in_the_same_push`: tin thứ hai tới giữa lúc chờ đi cùng lượt);
+  - không có tin thì vẫn có nhịp tim mỗi phút (`test_heartbeat_goes_out_every_minute_even_with_no_new_message`);
+  - dựng đêm làm rỗng delta (`test_rebuild_from_scratch_when_cursor_cannot_be_trusted`, ca `nightly`).
+- [x] Unit `ChatStore` (`tests/test_v7_zalo_chat.py`, lớp `ZaloDeltaTest`):
+  - đọc thêm delta mà không lập lại chỉ mục gói gốc (`test_report_change_reads_only_new_delta`);
+  - `message_id` trùng chỉ còn một, bản mới nhất thắng (`test_edit_replaces_and_deleted_line_shows_like_a_full_build`);
+  - `after=` (thay bằng `since=` ở ZALO-AGENT-01) trả đúng tin mới hơn, kể cả tin tới muộn, tin sửa, tin xóa (`test_since_returns_everything_that_arrived_after_the_token_even_old_edits_and_late_messages`, `test_since_asks_for_a_reload_when_the_bundle_was_rebuilt`).
+- [x] Unit `v7_cash_chat.py` (`tests/test_v7_cash_chat.py`):
+  - mọi cách viết số ở [Luồng 1](#luồng-1-gửi-thu-chi-vào-nhóm-mọi-người-trên-zalo) ra đúng VND (`test_amount_forms`);
+  - số không đọc được thành NULL (`test_unreadable_amount_is_none_not_zero`);
+  - đối tượng khớp hai sổ thành "chưa rõ" (`test_two_books_is_unknown_but_longest_name_wins`);
+  - mỗi trạng thái đối chiếu có ít nhất một ca (`test_every_status`; `NOT_CASH` ở `ReviewTests`);
+  - một phiếu không ứng với hai khoản (`test_one_receipt_matches_one_report`, `test_matching_is_maximum_not_greedy_in_both_orders`);
+  - phiếu đã hủy không tính (`test_voided_receipt_is_not_counted`).
+- [x] Unit máy canh: Zalo quá 15 phút trong giờ làm việc thì báo, ngoài giờ không báo, chưa chọn nhóm thì không kiểm (`tests/test_v7_watchdog.py`: `test_silent_status_reports_during_work_hours_only`, `test_waiting_for_zalo_reports_after_15_minutes`, `test_no_selected_group_means_no_check`).
+- [x] Playwright, máy chủ giả, 1280×720 và 390×844 (`test-thu-chi-browser.js`; 22/11/2026 thêm hai ca "Thu chi ở điện thoại 390×844" chạy hành vi, không chỉ bố cục):
+  - khoản mới tự hiện sau một lượt hỏi (ca "khoản mới tự hiện sau một lượt hỏi"; 390×844);
+  - đang đọc tin cũ thì hiện nút "N tin mới" (ca "đang đọc (cuộn xuống)…", "tiêu điểm đang ở trong danh sách…"; 390×844: nút ≥ 40px, trong màn);
+  - lọc Chưa vào sổ đúng số (ca "lọc Chưa vào sổ, Lệch số, Chưa rõ đối tượng…"; 390×844);
+  - Mở tin sang đúng tin (ca "Mở tin sang đúng tin của Chat Zalo…"; Chat Zalo: "?c=&m= mở đúng tin ở giữa hội thoại…");
+  - Zalo cũ hiện câu "cập nhật lần cuối" (ca "Zalo cũ hiện "cập nhật lần cuối"…"; 390×844; trang Chat Zalo ở PR #574);
+  - dùng được bằng bàn phím (chip lọc bằng Tab/Space/Enter; khung Xử lý: Enter lưu, Esc đóng; 390×844: Space trên chip).
 - [x] PR-4b, test với gói chat, `money-reads.json` và sổ bịa (`tests/test_v7_cash_chat.py`, `test-thu-chi-*.js`):
   - ảnh có kết luận thành khoản thu, đối tượng theo hội thoại gắn đúng một sổ;
   - ảnh mình gửi không thành khoản;

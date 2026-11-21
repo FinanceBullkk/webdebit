@@ -46,17 +46,15 @@
   const SOURCE_NAMES = { receipt: 'phiếu thu', fleet: 'sổ Đội xe', directory: 'danh sách khách và xe', marks: 'dấu khách báo đã chuyển', links: 'danh sách nhóm gắn sổ' };
   // Tuổi dữ liệu Zalo: lấy từ nhịp tim của máy Zalo, không giả là mới. Máy im hoặc Zalo chưa mở thì có dòng cảnh báo riêng.
   function paintZalo(data) {
-    const zalo = data.zalo ?? {};
-    const at = zalo.state === 'ok' || zalo.state === 'silent' ? zalo.at : data.bundle_at;
-    const stale = zalo.state === 'silent' || (zalo.identity === 'waiting_for_zalo' && (zalo.quiet_minutes ?? 0) >= 5);
+    // Cùng luật và cùng câu với trang Chat Zalo (CongNoFormat.zaloFreshness).
+    const fresh = F.zaloFreshness(data.zalo, data.bundle_at, iso => stamp(iso, data.today));
     const label = $('zalo-at');
-    label.textContent = at ? `Zalo cập nhật ${stale ? 'lần cuối ' : ''}lúc ${stamp(at, data.today)}` : 'Zalo: chưa có tin';
-    label.classList.toggle('stale', stale);
+    label.textContent = fresh.label;
+    label.classList.toggle('stale', fresh.stale);
     label.dataset.tip = data.last_message_at ? `Tin gần nhất lúc ${clock(data.last_message_at)}` : '';
     label.title = label.dataset.tip;
     const warn = $('zalo-warn');
-    warn.textContent = zalo.state === 'silent' ? `Máy Zalo không báo về từ ${stamp(zalo.at, data.today)}. Tin mới có thể chưa lên.`
-      : stale ? `Zalo chưa mở trên máy Zalo (${count(zalo.quiet_minutes)} phút). Tin mới chưa lên.` : '';
+    warn.textContent = fresh.warn;
     warn.hidden = !warn.textContent;
     // Nguồn sổ đọc lỗi: các khoản liên quan ghi "Chưa đối chiếu được", không kết luận chưa vào sổ.
     // File kết quả đọc ảnh hỏng thì khoản từ ảnh không hiện: nói rõ để không ai tưởng là không có ảnh chuyển khoản nào.

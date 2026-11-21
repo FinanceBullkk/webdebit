@@ -5,7 +5,7 @@
   // tải cả bản xuất; không ghi nội dung tin ra console hay nơi nào khác.
   const $ = id => document.getElementById(id);
   // Thoát HTML và so khớp không phân biệt hoa thường/dấu tiếng Việt (foldText: cùng quy tắc với máy chủ) từ CongNoFormat.
-  const { esc, foldText, loadError, full, dateText, vnDay } = CongNoFormat;
+  const { esc, foldText, loadError, full, dateText, vnDay, zaloFreshness } = CongNoFormat;
   const TZ = 'Asia/Ho_Chi_Minh';
   const PAGE_LIMIT = 50;
   // page: trang cũ nhất đã tải; newest: trang mới nhất đã tải (khác 0 khi mở thẳng một tin bằng ?m=).
@@ -20,9 +20,11 @@
   const timeText = ms => (ms ? new Date(ms).toLocaleTimeString('vi-VN', { timeZone: TZ, hour: '2-digit', minute: '2-digit' }) : '');
   const shortId = id => (id ? String(id).slice(0, 8) : '');
   const nameOf = row => row.display_name || `Chưa rõ tên · ${shortId(row.conversation_id)}`;
+  // Giờ "Zalo cập nhật lúc …": hôm nay thì chỉ giờ, ngày khác thì kèm ngày (giờ ISO có múi, đổi sang giờ Việt Nam).
   const updatedText = iso => {
     const ms = Date.parse(iso ?? '');
-    return Number.isNaN(ms) ? 'không rõ' : `${timeText(ms)} ${dayKey(ms)}`;
+    if (Number.isNaN(ms)) return 'không rõ';
+    return vnDay(ms) === vnDay(Date.now()) ? timeText(ms) : `${timeText(ms)} ${dayKey(ms)}`;
   };
   const number = value => Number(value ?? 0).toLocaleString('vi-VN');
   // Kích thước tệp (không phải tiền): số nguyên phần mười MB để khỏi dùng số thực.
@@ -686,12 +688,12 @@
   }
   function schedulePoll() {
     clearTimeout(pollTimer);
-    pollTimer = document.hidden ? null : setTimeout(async () => { await pollNew(); schedulePoll(); }, POLL_MS);
+    pollTimer = document.hidden ? null : setTimeout(async () => { await Promise.all([pollNew(), refreshSummary()]); schedulePoll(); }, POLL_MS);
   }
   document.addEventListener('visibilitychange', () => {
     clearTimeout(pollTimer);
     if (document.hidden) return;
-    pollNew().then(schedulePoll);   // tab hiện lại: hỏi ngay một lượt rồi theo nhịp 5 giây
+    Promise.all([pollNew(), refreshSummary()]).then(schedulePoll);   // tab hiện lại: hỏi ngay một lượt rồi theo nhịp 5 giây
   });
   $('messages').addEventListener('scroll', () => { if (unseen && atBottom($('messages'))) resetUnseen(); }, { passive: true });
   $('new-pill').addEventListener('click', () => { $('messages').scrollTop = $('messages').scrollHeight; resetUnseen(); });
@@ -755,6 +757,44 @@
     chat.classList.remove('show-detail');
   });
 
+  // Dòng đầu trang. Gói web (ZALO-GROUP-01): đếm + "Zalo cập nhật (lần cuối) lúc …" theo nhịp tim máy Zalo, cùng luật trang Thu chi
+  // (giờ dựng gói chỉ đổi lúc dựng lại đầy đủ, còn tin lên liên tục qua delta); máy im hay Zalo chưa mở thì thêm dòng cảnh báo.
+  // Bản xuất cũ 30/10 thì giữ dòng đếm như trước.
+  let reportAt = 0;
+  function paintSummary(summary) {
+    reportAt = Date.now();
+    const warn = $('zalo-warn');
+    if (summary.status !== 'BUNDLED') {
+      $('summary').textContent = `${number(summary.conversation_count)} hội thoại · ${number(summary.message_count)} tin · ${number(summary.named_conversations)} có tên khách · ${number(summary.attachment_unmatched)} đính kèm chưa khớp · chỉ xem`;
+      warn.hidden = true;
+      fitChat();
+      return;
+    }
+    const fresh = zaloFreshness(summary.zalo, summary.built_at, updatedText);
+    $('summary').textContent = `${number(summary.conversation_count)} group · ${number(summary.message_count)} tin · ${number(summary.media_count)} ảnh · ${fresh.label} · chỉ xem`;
+    $('summary').classList.toggle('stale', fresh.stale);
+    warn.textContent = fresh.warn;
+    warn.hidden = !fresh.warn;
+    fitChat();
+  }
+  // Khung chat cao cố định theo màn (cuộn trong khung, không cuộn cả trang). Đo từ đỉnh khung tới đáy màn thay cho số đoán: đầu trang
+  // điện thoại xuống hai dòng, dòng cảnh báo máy Zalo lúc có lúc không; đoán sai thì tin mới nhất ở đáy khung bị đẩy dưới mép màn
+  // (390×844 lố 18px trước 22/11/2026). Màn quá thấp thì giữ tối thiểu 320px, trang cuộn.
+  function fitChat() {
+    const box = $('chat');
+    if (box.hidden) return;
+    const top = box.getBoundingClientRect().top + window.scrollY;
+    const pad = Number.parseInt(getComputedStyle(box.closest('.app-page') ?? document.body).paddingBottom, 10) || 0;   // lề px nguyên
+    document.documentElement.style.setProperty('--chat-h', `${Math.max(320, Math.floor(window.innerHeight - top - pad))}px`);
+  }
+  window.addEventListener('resize', fitChat, { passive: true });
+  // Hỏi lại dòng đầu mỗi phút khi tab đang hiện, để "lần cuối" và cảnh báo tự hiện khi máy Zalo im, không cần tải lại trang.
+  const REPORT_MS = 60_000;
+  async function refreshSummary() {
+    if (document.hidden || !state.conversations.length || Date.now() - reportAt < REPORT_MS) return;
+    try { paintSummary(await json('/api/v7/zalo/report')); } catch { reportAt = Date.now(); /* lỗi mạng: một phút sau hỏi lại, dòng cũ giữ nguyên */ }
+  }
+
   async function init() {
     const params = new URLSearchParams(location.search);
     state.filter = params.get('q') ?? '';
@@ -763,12 +803,10 @@
     try {
       const [summary, list] = await Promise.all([json('/api/v7/zalo/report'), json('/api/v7/zalo/conversations'), loadLinks()]);
       state.conversations = list.conversations ?? [];
-      // Gói web (ZALO-GROUP-01) ghi giờ dựng; bản xuất cũ 30/10 thì giữ dòng đếm như trước.
-      $('summary').textContent = summary.status === 'BUNDLED'
-        ? `${number(summary.conversation_count)} group · ${number(summary.message_count)} tin · ${number(summary.media_count)} ảnh · cập nhật ${updatedText(summary.built_at)} · chỉ xem`
-        : `${number(summary.conversation_count)} hội thoại · ${number(summary.message_count)} tin · ${number(summary.named_conversations)} có tên khách · ${number(summary.attachment_unmatched)} đính kèm chưa khớp · chỉ xem`;
+      paintSummary(summary);
       chat.hidden = false;
       $('error').hidden = true;
+      fitChat();
       paintList();
       const wanted = params.get('c');
       const matches = filtered();

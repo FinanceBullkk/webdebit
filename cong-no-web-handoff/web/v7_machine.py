@@ -339,6 +339,16 @@ def zalo(now: float | None = None) -> dict[str, Any]:
             "push_error_minutes": _error_minutes(push, _code(push.get("error")), now), "latency": _latency(data.get("latency"))}
 
 
+ZALO_BRIEF = ("state", "at", "silent_minutes", "identity", "quiet_minutes")
+
+
+def zalo_brief(now: float | None = None) -> dict[str, Any]:
+    """Tuổi dữ liệu Zalo cho trang Thu chi và Chat Zalo (ZALO-THU-CHI-01 "Bị chặn"): máy im, Zalo chưa mở và số phút, chỉ mã, giờ và số.
+    Chat Zalo là trang của người dùng thường nên phần này không có tên bộ xử lý, lỗi hay độ trễ như `/api/v7/machine`."""
+    view = zalo(now)
+    return {key: view.get(key) for key in ZALO_BRIEF}
+
+
 def now_view(now: float | None = None) -> dict[str, Any]:
     """Phần đổi nhanh, gọi 2 giây một lần khi tab đang mở."""
     now = time.time() if now is None else now

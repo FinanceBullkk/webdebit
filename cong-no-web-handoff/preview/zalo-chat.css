@@ -9,7 +9,9 @@
 .chat {
   flex: none; min-height: 0; display: grid; gap: 16px;
   grid-template-columns: minmax(250px, 330px) minmax(0, 1fr);
-  height: calc(100vh - 52px - 16px - 40px);
+  /* --chat-h: zalo-chat.js đo từ đỉnh khung tới đáy màn (đầu trang và dòng cảnh báo máy Zalo cao bao nhiêu thì trừ bấy nhiêu);
+     chưa đo thì đoán như cũ. */
+  height: var(--chat-h, calc(100vh - 52px - 16px - 40px));
 }
 .chat[hidden] { display: none; }
 .pane { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -145,11 +147,15 @@
 
 #error { margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: var(--critical-soft); color: var(--critical); }
 #error code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+/* Máy Zalo im hoặc Zalo chưa mở: cùng màu cảnh báo với trang Thu chi; dòng đầu đổi sang "lần cuối" và in đậm màu cảnh báo. */
+.chat-warn { margin: 0 0 12px; padding: 10px 14px; border: 1px solid #f0d49b; border-radius: 8px; background: var(--warning-soft); color: var(--warning); font-weight: 600; }
+.chat-warn[hidden] { display: none; }
+.chat-page .page-head .summary.stale { color: var(--warning); font-weight: 700; }
 
 @media (max-width: 760px) {
   .chat-page .page-head { flex-wrap: wrap; gap: 8px 12px; }
   .chat-page .page-head .summary { flex-basis: 100%; margin-left: 0; }
-  .chat { grid-template-columns: 1fr; height: calc(100vh - 76px - 16px - 20px); }
+  .chat { grid-template-columns: 1fr; height: var(--chat-h, calc(100vh - 76px - 16px - 20px)); }
   .chat .detail-pane { display: none; }
   .chat.show-detail .list-pane { display: none; }
   .chat.show-detail .detail-pane { display: flex; }

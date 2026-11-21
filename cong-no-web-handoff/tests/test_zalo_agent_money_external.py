@@ -451,6 +451,17 @@ class ExternalTest(MaskedBase):
         self.assertEqual((processor.state()["members"][SHA_LOCAL]["by"], processor.state()["members"][SHA_JXL]["by"]), ("ocr", None))
         self.assertEqual({sha for sha, member in processor.state()["members"].items() if member["by"]}, {SHA_LOCAL})   # chỉ ảnh có kết luận mới vào file xuất
 
+    def test_image_where_ocr_finds_no_text_at_all_is_never_sent(self):
+        """PR-4 (spec zalo-agent): OCR không thấy chữ nào (ảnh trắng, ảnh chụp đồ vật) thì không gửi ra ngoài, không ghi dòng gửi, không kết luận."""
+        self.engine.script[JPEG_LOCAL] = []
+        self.engine.script[JXL_AS_JPEG] = []
+        processor = self.make()
+        result = self.drain(processor)
+        self.assertEqual((self.gemini.calls, self.sent_lines()), ([], []))
+        self.assertEqual({member["by"] for member in processor.state()["members"].values()}, {None})
+        self.assertEqual((result["counts"]["review"], result["counts"]["asking"]), (0, 0))
+        self.assertFalse(list((self.root / "redacted-w1").glob("*.jpg")) if (self.root / "redacted-w1").is_dir() else [])   # không có ảnh đã che nào
+
     def test_two_routes_disagreeing_or_not_a_transfer_goes_to_human(self):
         self.gemini.answers["gemini-api"] = {**AGREE, "amount_vnd": 1_600_000}
         processor = self.make()
