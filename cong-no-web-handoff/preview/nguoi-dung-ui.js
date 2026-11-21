@@ -164,9 +164,10 @@
       const response = await fetch(URL_USERS, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, version: data.version }) });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        fail(result?.message || 'Chưa lưu được. Thử lại sau.');
+        // Bản cũ: đọc lại rồi mới báo, như nhánh thành công bên dưới; báo trước thì câu "Trang đã đọc lại" hiện khi bảng còn số cũ
+        // (ô chọn còn giá trị vừa bấm), và load() thành công còn xóa câu đó đi.
         if (result?.error === 'STALE') { confirming = editing = menuFor = null; await load(); fail(result.message); }
-        else drawUsers();
+        else { fail(result?.message || 'Chưa lưu được. Thử lại sau.'); drawUsers(); }
         return false;
       }
       // Báo "Đã …" chỉ sau khi đọc lại và vẽ xong bảng: không để câu báo đi trước số trên bảng.
