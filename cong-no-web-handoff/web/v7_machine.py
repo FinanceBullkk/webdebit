@@ -361,6 +361,10 @@ def _streaks(traces: list[dict[str, Any]]) -> dict[str, int]:
     return streak
 
 
+# Vòng phản hồi đọc ảnh tuần này (ZALO-AGENT-01 Phần 5): v7_cash_chat ghi mỗi lần dựng trang Thu chi có hôm nay; chỉ số đếm và mã cố định.
+FEEDBACK: dict[str, Any] = {}
+
+
 def summary(now: float | None = None) -> dict[str, Any]:
     """Bản đưa cho Hermes. Thêm trường nào vào đây phải là số, mã cố định hoặc câu cố định."""
     now = time.time() if now is None else now
@@ -388,6 +392,7 @@ def summary(now: float | None = None) -> dict[str, Any]:
         "last_run_failed": isinstance(latest, dict) and latest.get("state") == "failed",
         "jobs": {job["id"]: job["state"] for job in jobs(now)},
         "zalo": _zalo_summary(now),
+        "thu_chi_anh_tuan": dict(FEEDBACK) or None,   # None: chưa ai mở trang Thu chi từ lần khởi động API
     }
 
 
