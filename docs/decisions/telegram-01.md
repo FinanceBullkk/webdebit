@@ -28,7 +28,25 @@ Người dùng chốt ngày 20/11/2026: **`hao` gửi tin báo thu chi vào mộ
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 20/11/2026. Chưa code. Phụ thuộc phần máy tự đọc ảnh và che ảnh (ZALO-AGENT-01 PR-4a) và trang Thu chi hiện số máy đọc (PR-4b).
+ĐÃ CHỐT 20/11/2026. **Code xong 22/11/2026, cờ tắt mặc định: chưa gửi tin nào.** Phụ thuộc phần máy tự đọc ảnh và che ảnh (ZALO-AGENT-01 PR-4a) và trang Thu chi hiện số máy đọc (PR-4b), cả hai đã có.
+
+Khuôn đã code (`web/v7_telegram.py`, luồng nền của API):
+
+- Sự kiện lấy từ trang Thu chi:
+  - khoản mới trong 3 ngày;
+  - lệch số (`AMOUNT_DIFF`, khóa gồm cả hai số, nên số đổi thì báo lại);
+  - quá 3 ngày chưa vào sổ (`MISSING`);
+  - tổng ngày sau 20:00 giờ VN.
+- Tin có nhóm hoặc khách, số tiền, giờ, trạng thái, link `thu-chi.html?m=`. Không chữ gốc của tin chat, không lý do loại.
+- Ảnh chỉ gửi bản `redacted-w1/<mã ảnh>.jpg` máy Zalo đã đẩy lên; không có bản che thì chỉ gửi chữ.
+- Hộp gửi `/srv/v7/telegram/outbox.json`, mỗi khóa sự kiện tối đa một lần:
+  - ghi `sending` trước khi gọi Telegram; chết giữa chừng thì thành `uncertain`, không gửi lại;
+  - lỗi mạng thử lại tối đa 5 lượt; Telegram từ chối thì dừng;
+  - tối đa 10 tin mỗi phút;
+  - lần bật đầu chỉ ghi mốc, không xả khoản cũ.
+- Test với Telegram và trang Thu chi giả: `tests/test_v7_telegram.py`.
+
+Bật: người dùng tạo bot và nhóm, đặt `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (và `TELEGRAM_LINK_BASE` nếu muốn link) vào `/etc/webdebit/telegram.env` trên `hao`, rồi Claude đặt `WEBDEBIT_TELEGRAM=1` cho API **sau khi hỏi người dùng**.
 
 Người dùng tự làm: tạo bot qua @BotFather, tạo nhóm Telegram, thêm bot vào nhóm, đặt token lên `hao`.
 

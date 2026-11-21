@@ -44,6 +44,7 @@ import v7_presence
 import v7_read_cache
 import v7_role
 import v7_sheet_refresh
+import v7_telegram
 import v7_zalo_chat
 from v7_api_sheet import (
     apply_sheet_price,
@@ -954,6 +955,7 @@ def main() -> None:
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm
     v7_nhat_ky.journal().start()       # NHAT-KY-01: hỏi GitHub PR mới mỗi 5 phút
+    v7_telegram.start(Handler.runner)  # TELEGRAM-01: chỉ chạy khi WEBDEBIT_TELEGRAM=1 và có /etc/webdebit/telegram.env (mặc định tắt)
     if secure is not None:
         threading.Thread(target=secure.serve_forever, daemon=True).start()
     plain.serve_forever()
