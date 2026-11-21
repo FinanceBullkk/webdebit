@@ -48,6 +48,25 @@ const groupRows = Array.from({ length: 120 }, (_, i) => {
   return row;
 });
 
+// ZALO-AGENT-01 (21/11/2026): một group có avatar, trả lời tin, cảm xúc, sticker, ghi âm. 60 tin để tin được trả lời x0 nằm ngoài trang đầu.
+const EXTRA = '6'.repeat(64);
+const KETOAN = 'c'.repeat(64);
+const GONE = 'f'.repeat(64);   // avatar máy chủ trả 404 (ảnh đã bị Zalo xóa)
+const quoted = (id, sender, name, text) => ({ message_id: id, found: true, sender_id: sender, sender_name: name, type_label: 'Văn bản', deleted: false, body_text: text });
+const extra = (i, sender, text, more = {}) => msg(`x${i}`, sender === OWNER, DAY + i * 60_000, text, { sender_id: sender, sender_name: people[sender], media: [], deleted: false,
+  sender_avatar: sender === KHACH ? PIC : sender === KETOAN ? GONE : null, quote: null, reactions: [], sticker: null, ...more });
+const extraRows = [
+  extra(0, KHACH, 'Hóa đơn tháng 10'),
+  ...Array.from({ length: 52 }, (_, n) => extra(n + 1, n % 2 ? OWNER : KHACH, `Tin phụ ${n + 1}`)),   // x52 là của Mình
+  extra(53, KHACH, 'Trả lời tin gần', { quote: quoted('x52', OWNER, 'Hào', 'Tin phụ 52'), reactions: [{ emoji: '❤️', count: 3 }, { emoji: '👍', count: 1 }] }),
+  extra(54, KETOAN, 'Trả lời tin cũ', { quote: quoted('x0', KHACH, 'Mẫu', 'Hóa đơn tháng 10') }),
+  extra(55, KHACH, 'Trả lời tin đã mất', { quote: { message_id: 'x-mat', found: false } }),
+  extra(56, KETOAN, null, { message_type: 36, type_label: 'Sticker', body_kind: 'card', sticker: { id: PIC, mime: 'image/png', width: 240, height: 240 } }),
+  extra(57, KHACH, null, { message_type: 3, type_label: 'Ghi âm', body_kind: 'card', media: [{ id: '7'.repeat(64), mime: 'audio/aac', width: null, height: null }] }),
+  extra(58, KHACH, null, { message_type: 3, type_label: 'Ghi âm', body_kind: 'card', media: [{ id: '8'.repeat(64), mime: 'audio/amr', width: null, height: null }] }),
+  extra(59, OWNER, 'Ok'),
+];
+
 // ZALO-GROUP-01 G4: sổ công nợ giả cho gắn group ↔ sổ và dấu tin, theo hợp đồng /api/v7/zalo/link(s), /api/v7/marks.
 // Trạng thái dấu như hàm get_marks lúc chưa có phiếu thu: hứa trả "pending", khách báo đã chuyển "waiting".
 const todayVn = (days = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(Date.now() + days * 86_400_000);
@@ -104,7 +123,7 @@ function withLive(base, live) {
   for (const row of live) rows.set(row.message_id, row);
   return sorted([...rows.values()]);
 }
-function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, world = null, live = [], control = { prefix: 'abcd1234' } } = {}) {
+function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, extras = false, world = null, live = [], control = { prefix: 'abcd1234' } } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (drop.has(url.pathname)) { req.socket.destroy(); return; }
@@ -122,17 +141,22 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
       if (url.pathname === '/api/v7/zalo/report') {
         return json(200, bundled ? { ...report(), status: 'BUNDLED', conversation_count: 1, message_count: 120, media_count: 1, built_at: '2026-11-01T14:12:19+07:00' } : report());
       }
+      if (url.pathname === '/api/v7/zalo/conversations' && extras) {
+        return json(200, { total: 1, conversations: [{ conversation_id: EXTRA, display_name: 'Nhóm có avatar', name_status: 'name_index', message_count: 60,
+          last_message_at: DAY + 59 * 60_000, last_own_message_at: DAY + 59 * 60_000, participant_count: 3, is_group: true, avatar: PIC }] });
+      }
       if (url.pathname === '/api/v7/zalo/conversations') {
         return json(200, bundled ? { total: 1, conversations: [{ conversation_id: GROUP, display_name: 'Nhóm Mẫu - công nợ', name_status: 'name_index', message_count: 120,
           last_message_at: DAY + 119 * 60_000, last_own_message_at: DAY + 117 * 60_000, participant_count: 3, is_group: true }] } : conversations());
       }
       if (url.pathname === '/api/v7/zalo/messages') {
         const id = url.searchParams.get('conversation');
-        if (![CONV_A, CONV_B, GROUP].includes(id)) return json(404, { error: 'CONVERSATION_NOT_FOUND', message: 'Không có hội thoại này.' });
+        if (![CONV_A, CONV_B, GROUP, EXTRA].includes(id)) return json(404, { error: 'CONVERSATION_NOT_FOUND', message: 'Không có hội thoại này.' });
         let page = Number(url.searchParams.get('page') ?? 0);
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const q = fold(url.searchParams.get('q') ?? '');
-        const rows = withLive(id === GROUP ? groupRows : id === CONV_B ? [msg('x1', false, DAY, 'Khuyến mãi hôm nay')] : ALL, id === CONV_B ? [] : live);
+        const base = id === EXTRA ? extraRows : id === GROUP ? groupRows : id === CONV_B ? [msg('x1', false, DAY, 'Khuyến mãi hôm nay')] : ALL;
+        const rows = withLive(base, id === CONV_B ? [] : live);
         if (url.searchParams.has('since')) {   // A3: mọi dòng đến sau token, theo thứ tự đến
           const [prefix, offset] = url.searchParams.get('since').split(':');
           if (prefix !== control.prefix) return json(200, { conversation_id: id, reset: true, token: `${control.prefix}:${live.length}` });
@@ -683,3 +707,77 @@ test('Chat Zalo tự cập nhật: gói được dựng lại (token khác) thì
     assert.equal(loads(), 2);
   }, { clock: true });
 });
+
+// ---- ZALO-AGENT-01 (21/11/2026): avatar, trả lời tin, cảm xúc, sticker, ghi âm. Dữ liệu bịa. ----
+const openExtra = async (page, requests) => {
+  await page.locator('.conv').first().click();
+  await page.locator('.msg[data-id="x59"]').waitFor();
+  return requests;
+};
+
+test('Chat Zalo: avatar ở danh sách và ở tin đầu cụm của người khác; ảnh hỏng thì hiện chữ cái đầu; tin của mình không có avatar', () => withPage({ extras: true }, async page => {
+  await page.locator('.conv').first().waitFor();
+  assert.equal(await page.locator('.conv .conv-ava').getAttribute('src'), `/api/v7/zalo/media/${PIC}`);
+  await openExtra(page);
+  assert.equal(await page.locator('.msg[data-id="x53"] .msg-ava').getAttribute('src'), `/api/v7/zalo/media/${PIC}`);
+  await page.locator('.msg[data-id="x54"] span.msg-ava.none').waitFor();   // 404 → chữ cái đầu của "Kế toán A"
+  assert.equal(await page.locator('.msg[data-id="x54"] .msg-ava').innerText(), 'K');
+  assert.equal(await page.locator('.msg[data-id="x59"] .msg-ava').count(), 0);
+  assert.equal(await page.locator('.msg[data-id="x58"] .msg-ava').count(), 0);   // tin thứ hai của cụm: không lặp avatar
+  assert.equal(await page.locator('.msg[data-id="x58"] .who').count(), 0);
+}));
+
+test('Chat Zalo: trả lời tin hiện tên và đoạn trích; bấm thì nhảy tới tin gốc (đang hiện hoặc ở trang cũ hơn) và tô sáng', () => {
+  const requests = [];
+  return withPage({ extras: true, requests }, async page => {
+    await openExtra(page, requests);
+    const near = page.locator('.msg[data-id="x53"] .reply');
+    assert.deepEqual([await near.locator('.q-who').innerText(), await near.locator('.q-text').innerText()], ['↩ Mình', 'Tin phụ 52']);   // x52 do mình gửi
+    assert.match(await page.locator('.msg[data-id="x53"]').innerText(), /Trả lời tin gần/);
+    await near.click();
+    await page.locator('.msg.focus[data-id="x52"]').waitFor();
+    assert.equal(await page.locator('.msg[data-id="x52"]').evaluate(node => {
+      const box = node.getBoundingClientRect(), pane = document.getElementById('messages').getBoundingClientRect();
+      return box.top >= pane.top && box.bottom <= pane.bottom;
+    }), true, 'tin gốc nằm trong khung đang thấy');
+    assert.match(await page.locator('.msg[data-id="x54"] .reply').innerText(), /↩ Mẫu\s+Hóa đơn tháng 10/);
+    await page.locator('.msg[data-id="x54"] .reply').click();   // x0 không có ở trang đầu: mở đúng trang chứa nó
+    await page.locator('.msg.focus[data-id="x0"]').waitFor();
+    assert.ok(requests.some(item => item.includes('message=x0')));
+  });
+});
+
+test('Chat Zalo: tin gốc không còn thì ghi rõ, không bấm được; cảm xúc là chip có số người; sticker là ảnh, không ghi [Sticker]', () => withPage({ extras: true }, async page => {
+  await openExtra(page);
+  assert.equal(await page.locator('.msg[data-id="x55"] .reply.gone').innerText(), '↩ Trả lời một tin không còn trên web');
+  assert.equal(await page.locator('.msg[data-id="x55"] [data-quote]').count(), 0);
+  assert.deepEqual(await page.locator('.msg[data-id="x53"] .react').evaluateAll(nodes => nodes.map(node => node.textContent)), ['❤️3', '👍']);
+  assert.equal(await page.locator('.msg[data-id="x53"] .react').first().getAttribute('title'), '3 người thả ❤️');
+  const sticker = page.locator('.msg[data-id="x56"] img.sticker');
+  assert.deepEqual([await sticker.getAttribute('width'), await sticker.getAttribute('height')], ['120', '120']);
+  assert.doesNotMatch(await page.locator('.msg[data-id="x56"]').innerText(), /\[Sticker\]/);
+}));
+
+test('Chat Zalo: ghi âm AAC nghe ngay trên trang, AMR thì tải về; không tải trước khi bấm', () => {
+  const requests = [];
+  return withPage({ extras: true, requests }, async page => {
+    await openExtra(page, requests);
+    const voice = page.locator('.msg[data-id="x57"] audio.voice');
+    assert.deepEqual([await voice.getAttribute('src'), await voice.getAttribute('preload')], [`/api/v7/zalo/media/${'7'.repeat(64)}`, 'none']);
+    const file = page.locator('.msg[data-id="x58"] a.voice-file');
+    assert.equal(await file.innerText(), 'Ghi âm · tải về để nghe');
+    assert.equal(await file.getAttribute('download'), '');
+    assert.equal(requests.filter(item => item.includes('7'.repeat(64)) || item.includes('8'.repeat(64))).length, 0);
+    assert.doesNotMatch(await page.locator('.msg[data-id="x57"]').innerText(), /\[Ghi âm\]/);
+  });
+});
+
+test('Chat Zalo: điện thoại 390px, trích dẫn dài bị cắt trong bong bóng, không tràn ngang', () => withPage({ extras: true }, async page => {
+  await openExtra(page);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  const fit = await page.locator('.msg[data-id="x53"]').evaluate(node => {
+    const box = node.getBoundingClientRect(), quote = node.querySelector('.reply').getBoundingClientRect();
+    return quote.left >= box.left && quote.right <= box.right + 1;
+  });
+  assert.equal(fit, true);
+}, { viewport: { width: 390, height: 844 } }));
