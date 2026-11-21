@@ -152,6 +152,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="nhat-ky-01"></a>[NHAT-KY-01](decisions/nhat-ky-01.md) | Trang Nhật ký công việc trên web (bản tin theo ngày từ 20/11/2026, trước đó bố cục trang hồ sơ GitHub; chỉ xem): máy chủ tự đọc PR đã merge của repo mỗi 5 phút, Claude trên máy chủ viết tóm tắt ngày, lưu file ngoài DB; mục ở cuối menu trái | Chốt 20/11/2026. [Spec](../specs/nhat-ky-01.md) |
 | <a id="quyen-01"></a>[QUYEN-01](decisions/quyen-01.md) | Hai vai trò theo login: quản lý thấy mọi trang; người dùng chỉ Tìm khách, Tổng quan, Công nợ theo tháng, Sổ khách, Bảng thu, Báo cáo tháng (và Chat Zalo từ Sổ khách); máy chủ trả 403 cho trang và API quản lý; quyền ghi tiền không đổi | Danh sách quản lý đặt trên `hao` (drop-in), ngoài Git; thay điểm (4) của [NHAT-KY-01](#nhat-ky-01) |
 | <a id="quyen-02"></a>[QUYEN-02](decisions/quyen-02.md) | Mục Quản trị trên menu (vào thẳng Việc cần làm, dải thẻ đổi màn) và trang Người dùng: cho vào login bị chặn, thêm, đổi vai trò, bỏ quyền, lịch sử; danh sách cố định trong unit là đường cứu | File danh sách trên `hao` ngoài Git; thay mục Nhật ký dưới menu của [NHAT-KY-01](#nhat-ky-01); đóng CÒN MỞ (3) của [ACCESS-01](#access-01) |
+| <a id="tu-lam-01"></a>[TU-LAM-01](decisions/tu-lam-01.md) | Claude tự nạp dữ liệu, ghi Google Sheet, thao tác DB legacy và đổi quyền ngoài runbook, không hỏi trước | Thay một phần danh sách "vẫn hỏi" của [DEPLOY-CLAUDE-01](#deploy-claude-01) |
 
 ## Cập nhật khóa tháng 24/10/2026
 
