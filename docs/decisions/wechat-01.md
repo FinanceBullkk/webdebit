@@ -19,7 +19,7 @@ Người dùng chốt ngày 20/11/2026 ("Làm nguồn WeChat ngay", sau khi ch�
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 20/11/2026. ĐÃ KIỂM CHỨNG chỉ-đọc trên máy `msi` (số đếm trong nhật ký PR). Chưa bật: agent chưa chạy với `--wechat` trên máy thật.
+ĐÃ CHỐT 20/11/2026. ĐÃ KIỂM CHỨNG chỉ-đọc trên máy `msi` (số đếm trong nhật ký PR). ĐÃ TRIỂN KHAI 22/11/2026 (người dùng bấm "Bật WeChat (chữ)"): task `ZaloAgent` chạy với `--wechat`, không `--wechat-images`, một nhóm được chọn; `status.json` trên `hao` lúc 04:42 ngày 22/11 có bộ xử lý `wechat` không lỗi, 53 tin.
 
 Vẫn phải hỏi người dùng trước khi bật `--wechat` trong lệnh của task `ZaloAgent`, và trước khi thêm nhóm WeChat nào khác vào danh sách chọn.
 
@@ -27,7 +27,7 @@ CÒN MỞ:
 
 - **Giải mã ảnh WeChat (PR-W2):** upstream có bộ giải mã `.dat` (`MediaDownloader`), nhưng khóa AES chỉ suy ra được ngoại tuyến khi có `cfg_dword`; máy này chưa có, nên tin ảnh hiện "Ảnh WeChat (chưa đọc được)". **Người dùng cho phép quét bộ nhớ WeChat (Weixin.exe) trên máy để lấy khóa đọc ảnh** (20/11/2026: người dùng tự trả lời "Cho phép" trong chat với phiên điều phối, cho câu hỏi "Cho phép quét bộ nhớ WeChat trên máy để lấy khóa đọc ảnh?"). Khóa chỉ ở máy (thư mục `private-state` có ACL hạn chế của pilot hoặc tương đương), không ghi vào log, repo, `status.json` hay `hao`. Thực tế upstream đã đọc bộ nhớ mỗi lần tạo `WeChatDB` (`extract_master_key()` khi `cfg_dword is None`, `extract_keys()` khi có mảnh DB chưa có khóa; `db.py` khoảng dòng 715–728), nên bộ đọc giữ một tiến trình sống lâu để quét một lần. Phần giải mã ảnh làm ở PR-W2; PR-W1 có cờ `--wechat-images` mặc định tắt.
 - **Thu hồi chưa kiểm chứng với tin thật:** cách WeChat 4.x ghi thu hồi chưa quan sát được (nhóm chưa có tin thu hồi). Đã dựng cách an toàn cho cả hai khả năng (đọc lại cửa sổ 6 giờ, dòng bị sửa tại chỗ thành tin hệ thống thu hồi thì phát dòng xóa); cần một tin thu hồi thật để xác nhận.
-- **Tách tiền tệ RMB:** khoản có đơn vị tệ (元, 块, ¥, RMB, tệ) phải tách khỏi tổng VND ở trang Thu chi (`web/v7_cash_chat.py` chưa sửa; PR sau).
+- ~~**Tách tiền tệ RMB**~~ (xong ở PR-W2, #568): khoản có đơn vị tệ (元, 块, ¥, RMB, tệ) có `currency: "CNY"`, `amount_cny`, tổng riêng `totals.cny`, không vào tổng VND.
 - **Nhóm chỉ có tin từ lúc được thêm vào:** lịch sử trước đó không có; số tin đo được còn ít nên chưa biết độ phủ mẫu `thu|chi|ứng`.
-- **Máy chạy / máy canh:** `hao` mới liệt kê bộ xử lý `bundle`, `insurance`, `money_images`; dòng `wechat` trong `status.json` chưa hiện ở tab Máy chạy (PR sau).
+- ~~**Máy chạy / máy canh**~~ (xong): `hao` liệt kê `wechat` từ #568 (ổn hay lỗi, kèm số tin đã nhập); từ 22/11/2026 tab Máy chạy ghi "WeChat: Đang chạy, N tin đã nhập" và Zalo chưa mở không làm dòng WeChat thành "Zalo chưa mở" (WeChat đọc kho riêng).
 - **Chưa có nhóm Zalo nào được chọn** thì `bundle` không chạy (cả hai nguồn dùng chung bản dựng); hiện luôn có nhóm Zalo nên chưa chặn.
