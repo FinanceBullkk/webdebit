@@ -114,7 +114,7 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
 ### Bị chặn
 
 - **Máy có Zalo tắt:**
-  - trang Thu chi và Chat Zalo ghi rõ "Zalo cập nhật lần cuối lúc …", không giả là đang mới;
+  - trang Thu chi và Chat Zalo ghi rõ "Zalo cập nhật lần cuối lúc …", không giả là đang mới (22/11/2026: hai trang dùng chung `CongNoFormat.zaloFreshness`; Chat Zalo hỏi lại dòng đầu mỗi phút khi tab hiện; Zalo chưa mở thì cảnh báo nói "tin Zalo", vì WeChat đọc kho riêng);
   - quá 15 phút trong giờ làm việc thì máy canh gửi email ([Phần A](#phần-a-gần-thời-gian-thực), A4).
 - **Không có quyền (ngoài Tailscale):** 403 như mọi trang.
 - **Nhóm chưa chọn lên web:** không có tin. Hội thoại riêng tư không rời máy (ZALO-GROUP-01).
@@ -270,7 +270,7 @@ Chỉ đọc, chạy ở máy có Zalo, chỉ báo số đếm trong chat, khôn
 | Route (qua xác thực như mọi `/api/v7/*`) | Trả về |
 | --- | --- |
 | `GET /api/v7/zalo/messages?…&after=<ms>` | như hiện có, chỉ tin có `timestamp_ms > after`; thêm `bundle_at` |
-| `GET /api/v7/zalo/report` | thêm `pushed_at`, `last_message_at`, `age_seconds` |
+| `GET /api/v7/zalo/report` | thêm `zalo {state, at, silent_minutes, identity, quiet_minutes}` (nhịp tim máy Zalo, chỉ mã, giờ, số phút; cùng phần `zalo` của `/api/v7/cash-chat`). Sửa 22/11/2026: thay `pushed_at`, `last_message_at`, `age_seconds` của bản đề xuất |
 | `GET /api/v7/cash-chat?from=YYYY-MM-DD&to=YYYY-MM-DD&status=` | `{items:[{…khoản B1, status, ledger_ref, ledger_vnd, message}], totals:{thu_vnd, chi_vnd, ung_vnd, missing, amount_diff}, zalo_age_seconds}`; thiếu gói → `{unavailable: true}` |
 | `POST /api/v7/cash-chat/review` (PR-3) | `{message_id, action, value, reason, request_id}` → dòng đã ghi; lỗi `REASON_REQUIRED`, `MESSAGE_NOT_FOUND`, `TARGET_NOT_FOUND` |
 | `GET /api/v7/cash-chat/targets` (PR-3b) | `{so, xe, tai_xe: [{id, label}], failed}`: danh sách cho ô "Gắn sổ/xe"; mọi sổ, xe và người còn dùng |
