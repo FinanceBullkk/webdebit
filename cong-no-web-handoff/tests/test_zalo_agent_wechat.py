@@ -4,6 +4,8 @@ import contextlib
 import hashlib
 import io
 import json
+import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,7 @@ from zalo_agent import __main__ as agent_main  # noqa: E402
 from zalo_agent import cursor as cursors  # noqa: E402
 from zalo_agent import push as pusher  # noqa: E402
 from zalo_agent import status as status_file  # noqa: E402
+from zalo_agent import wechat_dat as dat  # noqa: E402
 from zalo_agent import wechat_export as export  # noqa: E402
 from zalo_agent.processors import wechat as wc  # noqa: E402
 from zalo_agent.processors.bundle import CLEAN_KEYS, BundleProcessor  # noqa: E402
@@ -37,6 +40,138 @@ def msg(local_id, seq, text="tin bịa", kind="文本", sender="wxid_a", name="K
             "type": kind, "is_self": own, "sender": "" if own else sender, "sender_name": "" if own else name, "content": text, "image": None, **extra}
 
 
+def jpeg(width: int, height: int) -> bytes:
+    """JPEG nhỏ nhất có khối SOF0 (đủ để đọc kích thước); ảnh khác cỡ thì khác mã sha256."""
+    return b"\xff\xd8\xff\xc0\x00\x11\x08" + struct.pack(">HH", height, width) + b"\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01\xff\xd9"
+
+
+FULL_JPEG = b"\xff\xd8\xff\xe0" + bytes(range(256)) * 8 + b"\xff\xd9"
+FULL_PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 8 + b"\x00\x00\x00\x00IEND\xaeB`\x82"
+WXID, CODE = "wxid_demo_35b6", "123456"
+GOOD_KEY = hashlib.md5(b"123456wxid_demo").hexdigest()[:16]   # mã kvcomm + wxid bỏ đuôi `_35b6`
+
+
+def wechat_dirs(root: Path, code: str | None = CODE, area: str = "net", samples=((FULL_PNG, GOOD_KEY), (FULL_JPEG, GOOD_KEY))) -> Path:
+    """APPDATA giả có file kvcomm và thư mục tài khoản có các file `.dat` V2 thật (mã hóa bằng bộ mã của repo)."""
+    if code is not None:
+        kvcomm = root / "appdata" / "Tencent" / "xwechat" / area / "kvcomm"
+        kvcomm.mkdir(parents=True, exist_ok=True)
+        (kvcomm / f"key_{code}_1000000001_1_1.statistic").write_bytes(b"")
+    img = root / "account" / "msg" / "attach" / "a1b2" / "2026-11" / "Img"
+    img.mkdir(parents=True, exist_ok=True)
+    for index, (image, key) in enumerate(samples):
+        (img / f"{index:02d}.dat").write_bytes(dat.encode_v2(image, key.encode(), int(CODE) & 0xFF))
+    return root / "account"
+
+
+class OfflineImageKeyTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for cache in (export.KEYS, export.MISSES):
+            patcher = unittest.mock.patch.dict(cache, clear=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def key(self, account, wxid=WXID, appdata=None):
+        db = unittest.mock.Mock(wxid=wxid, account_dir=str(account))
+        with unittest.mock.patch.dict(os.environ, {"APPDATA": str(appdata or self.root / "appdata")}):
+            return export.offline_image_key(db)
+
+    def test_kvcomm_code_and_clean_account_id_open_png_and_jpeg_samples(self):
+        account = wechat_dirs(self.root)   # một mẫu PNG, một JPEG, đòi cả hai mở: bộ thử chỉ-JPEG của upstream loại khóa khi gặp mẫu PNG
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
+
+    def test_ilink_kvcomm_and_newest_code_first(self):
+        account = wechat_dirs(self.root, code="999", area="ilink")
+        old = self.root / "appdata" / "Tencent" / "xwechat" / "ilink" / "kvcomm" / "key_999_1000000001_1_1.statistic"
+        os.utime(old, (1_700_000_000, 1_700_000_000))
+        wechat_dirs(self.root, area="ilink", samples=())
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
+        self.assertEqual(export.kvcomm_codes(self.root / "appdata"), [CODE, "999"])
+
+    def test_no_key_without_appdata_kvcomm_matching_samples_or_v2_files(self):
+        account = wechat_dirs(self.root)
+        db = unittest.mock.Mock(wxid=WXID, account_dir=str(account))
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(export.offline_image_key(db))   # APPDATA trống không được hiểu là thư mục hiện tại
+        self.assertIsNone(self.key(account, appdata=self.root / "khong-co"))
+        other = Path(self.tmp.name) / "khac"
+        self.assertIsNone(self.key(wechat_dirs(other, samples=((FULL_JPEG, "0" * 16), (FULL_PNG, "0" * 16))), appdata=other / "appdata"))
+        legacy = self.root / "cu"
+        img = wechat_dirs(legacy, samples=()) / "msg" / "attach" / "a1b2" / "2026-11" / "Img"
+        (img / "00.dat").write_bytes(bytes(b ^ 0x37 for b in FULL_JPEG))   # khuôn cũ XOR: không phải mẫu thử khóa V2
+        self.assertIsNone(self.key(legacy / "account", appdata=legacy / "appdata"))
+
+    def test_one_lucky_block_is_not_enough_when_there_are_two_samples(self):
+        account = wechat_dirs(self.root, samples=((FULL_JPEG, GOOD_KEY), (FULL_JPEG, "f" * 16)))
+        self.assertEqual(len(export.v2_probes(str(account))), 2)
+        self.assertIsNone(self.key(account))   # một mẫu mở, một mẫu không: chưa đủ để nhận
+        probe = lambda image, key: (dat.encode_v2(image, key.encode(), 1)[dat.V2_HEADER.size:dat.V2_HEADER.size + 16], b"")  # noqa: E731
+        good, bad, png = probe(FULL_JPEG, GOOD_KEY), probe(FULL_JPEG, "f" * 16), probe(FULL_PNG, GOOD_KEY)
+        self.assertFalse(export.opens(GOOD_KEY, [good, bad]))
+        self.assertTrue(export.opens(GOOD_KEY, [good]))
+        self.assertTrue(export.opens(GOOD_KEY, [bad, good, png]))
+        self.assertEqual(export.v2_probes(str(account), limit=1), export.v2_probes(str(account))[:1])
+
+    def test_a_checked_key_is_remembered_until_its_kvcomm_file_disappears(self):
+        account = wechat_dirs(self.root)
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
+        for path in (account / "msg" / "attach" / "a1b2" / "2026-11" / "Img").iterdir():
+            path.unlink()   # không còn mẫu: lượt sau vẫn có khóa nhờ bộ nhớ của tiến trình `serve`, không đọc lại mẫu
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
+        (self.root / "appdata" / "Tencent" / "xwechat" / "net" / "kvcomm" / f"key_{CODE}_1000000001_1_1.statistic").unlink()
+        self.assertIsNone(self.key(account))
+
+    def test_a_miss_is_not_rescanned_for_ten_minutes_unless_a_new_kvcomm_code_appears(self):
+        account = wechat_dirs(self.root, samples=((FULL_JPEG, "0" * 16), (FULL_PNG, "0" * 16)))   # mẫu của khóa khác: không suy được
+        with unittest.mock.patch.object(export, "v2_probes", wraps=export.v2_probes) as scan:
+            self.assertIsNone(self.key(account))
+            self.assertIsNone(self.key(account))   # lượt 10 giây sau: không quét lại thư mục ảnh
+            self.assertEqual(scan.call_count, 1)
+            wechat_dirs(self.root, code="777", samples=())
+            self.assertIsNone(self.key(account))   # có mã kvcomm mới: thử ngay
+            self.assertEqual(scan.call_count, 2)
+            os.utime(next((self.root / "appdata").rglob(f"key_{CODE}_*")), (2_000_000_000, 2_000_000_000))
+            self.assertIsNone(self.key(account))   # chỉ đổi thứ tự (file cũ bị chạm): vẫn là cùng tập mã, không quét lại
+            self.assertEqual(scan.call_count, 2)
+            with unittest.mock.patch.object(export.time, "monotonic", return_value=time.monotonic() + export.MISS_RETRY + 1):
+                self.assertIsNone(self.key(account))
+            self.assertEqual(scan.call_count, 3)
+            self.assertEqual(len(export.MISSES), 1)   # mục cũ được dọn, không phình
+
+    def test_xor_byte_comes_from_image_endings_when_two_samples_agree(self):
+        samples = ((FULL_JPEG, GOOD_KEY), (FULL_PNG, GOOD_KEY))
+        account = wechat_dirs(self.root, samples=())
+        img = account / "msg" / "attach" / "a1b2" / "2026-11" / "Img"
+        for index, (image, key) in enumerate(samples):   # XOR 0x00, khác mã & 0xFF = 0x40: phải lấy byte suy từ đuôi ảnh
+            (img / f"{index:02d}.dat").write_bytes(dat.encode_v2(image, key.encode(), 0x00))
+        self.assertEqual(self.key(account), (GOOD_KEY, 0x00))
+        probes = export.v2_probes(str(account))
+        self.assertIsNone(export.tail_xor(GOOD_KEY, probes[:1]))   # một mẫu thì chưa đủ tin: dùng mã & 0xFF
+        odd = dat.encode_v2(FULL_JPEG + b"thua", GOOD_KEY.encode(), 0x00)   # dữ liệu thừa sau FF D9: mẫu này không suy được, còn một mẫu
+        (img / "00.dat").write_bytes(odd)
+        self.assertIsNone(export.tail_xor(GOOD_KEY, export.v2_probes(str(account))))
+        gif = b"GIF89a" + bytes(range(256)) * 4 + b"\x3b" + b"\x00" * 6   # GIF có đệm 0: đuôi một byte "khớp" với byte sai
+        for index in range(2):
+            (img / f"{index:02d}.dat").write_bytes(dat.encode_v2(gif, GOOD_KEY.encode(), 0x40))
+        self.assertIsNone(export.tail_xor(GOOD_KEY, export.v2_probes(str(account))))   # không dùng GIF: quay về mã & 0xFF
+
+    def test_export_only_decodes_when_upstream_finds_this_exact_message(self):
+        downloader = unittest.mock.Mock()
+        downloader.download_image.return_value = str(self.root / "anh.jpg")
+        tools = (downloader, GOOD_KEY, 0x40)
+        downloader.db.get_message_row.return_value = {"local_id": 7, "sort_seq": 9000}
+        self.assertEqual(export.export_image(tools, USER, 7, 9000, str(self.root)), "anh.jpg")
+        downloader.download_image.reset_mock()
+        # local_id 7 cũng có ở mảnh DB khác với sort_seq lớn hơn: upstream sẽ trả ảnh của tin KIA, nên không giải
+        self.assertIsNone(export.export_image(tools, USER, 7, 5000, str(self.root)))
+        downloader.download_image.assert_not_called()
+        downloader.db.get_message_row.side_effect = RuntimeError("hỏng")
+        self.assertIsNone(export.export_image(tools, USER, 7, 9000, str(self.root)))
+
+
 class FakeDb:
     """Nguồn của tiến trình con giả: lọc đúng như `wechat_export.read_group` bằng `is_new`."""
 
@@ -46,6 +181,8 @@ class FakeDb:
         self.fail = None      # (mã trả về) hoặc ngoại lệ sẽ ném
         self.gate = None      # threading.Event: chặn cho tới khi test cho chạy
         self.window = []      # tin đọc lại trong cửa sổ (đã đổi tại chỗ), phát kèm ở mỗi lượt
+        self.image_keys = True   # dòng `end` báo tiến trình con có khóa ảnh
+        self.end_extra = {}      # trường thêm vào dòng `end` (image_budget_hit, images…)
 
     def __call__(self, python, pilot, command, request, timeout=None):
         self.requests.append((command, request))
@@ -57,7 +194,8 @@ class FakeDb:
             return self.fail, ""
         groups = request.get("groups") or {}
         items = [item for item in self.feed if item["username"] in groups and export.is_new(item, groups[item["username"]])]
-        return 0, "".join(json.dumps(item) + "\n" for item in [*items, *self.window, {"kind": "end", "messages": len(items)}])
+        end = {"kind": "end", "messages": len(items), "image_keys": self.image_keys, **self.end_extra}
+        return 0, "".join(json.dumps(item) + "\n" for item in [*items, *self.window, end])
 
 
 class WeChatBase(unittest.TestCase):
@@ -840,6 +978,17 @@ class RoundTwoProcessorTest(WeChatBase):
         self.poll()
         self.assertEqual([(row["body"], bool(row.get("media"))) for row in self.store.rows_after(0)[0]], [("Ảnh WeChat", True)])
 
+    def test_a_window_pass_backfills_an_image_that_was_previously_missing(self):
+        self.processor = self.make_processor(images=True)
+        self.db.feed = [msg(1, 1000, "", "图片")]
+        self.poll()
+        (self.store.dir / "incoming").mkdir(exist_ok=True)
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(JPEG)
+        self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True)]
+        self.poll()
+        self.assertEqual([(row["body"], bool(row.get("media"))) for row in self.store.rows_after(0)[0]], [("Ảnh WeChat", True)])
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 2)
+
     def test_a_group_unselected_while_the_child_was_reading_is_neither_stored_nor_given_a_cursor(self):
         self.processor.apply(None, [msg(1, 1000, "đến sau khi bỏ chọn")], {}, {})
         self.assertEqual(self.store.rows_after(0), ([], 0))
@@ -972,6 +1121,377 @@ class RoundThreeProcessorTest(WeChatBase):
         self.assertNotIn("wxid", json.dumps(files["users"]))
         self.assertEqual(wc.safe_name("wxid_abc123"), wc.MEMBER_NAME)
         self.assertEqual(wc.safe_name("Anh Hùng"), "Anh Hùng")
+
+
+class ImageRetryExportTest(unittest.TestCase):
+    """Tiến trình con: tin ảnh trong cửa sổ mà bộ xử lý chưa có thì giải lại; lượt sâu chỉ thêm tin ảnh cũ hơn cửa sổ thường."""
+
+    NOW = 1_793_100_000
+
+    class Db(ExportTest.Db):
+        def __init__(self, rows):
+            super().__init__([(USER, NAME)])
+            self.fixed = rows
+
+        def rows(self):
+            return self.fixed
+
+    def row(self, local_id, kind, age_hours):
+        return {"local_id": local_id, "type": kind, "sender_id": 5, "sender_username": "wxid_a", "content": "tin",
+                "create_time": int(self.NOW - age_hours * 3600), "sort_seq": local_id * 1000}
+
+    def setUp(self):
+        self.db = self.Db([self.row(1, "图片", 9 * 24), self.row(2, "文本", 48), self.row(3, "图片", 48), self.row(4, "文本", 1),
+                           self.row(5, "图片", 1), self.row(6, "图片", 0.5)])
+        self.request = {"groups": {USER: {"sort_seq": 6000, "tail": [6]}}, "window_hours": 6, "images_dir": "incoming"}
+
+    def run_read(self, request, tools=("downloader", "khoa", 1)):
+        lines, decoded = [], []
+
+        def fake_export(_tools, username, local_id, sort_seq, directory):
+            decoded.append(local_id)
+            return f"{local_id}.jpg"
+
+        with unittest.mock.patch.object(export, "emit", lines.append), \
+                unittest.mock.patch.object(export, "image_tools", return_value=tools), \
+                unittest.mock.patch.object(export, "export_image", side_effect=fake_export), \
+                unittest.mock.patch.object(export.time, "time", return_value=float(self.NOW)):
+            export.cmd_read(self.db, request)
+        return [line for line in lines if line["kind"] == "message"], lines[-1], decoded
+
+    def test_window_images_the_parent_still_lacks_are_decoded_again_known_ones_are_not(self):
+        first, end, decoded = self.run_read(self.request)
+        self.assertEqual([(m["local_id"], m["image"]) for m in first], [(4, None), (5, "5.jpg"), (6, "6.jpg")])
+        self.assertEqual((decoded, end["images"], end["window"]), ([5, 6], 2, 3))
+        known = {USER: {f"{m['local_id']}:{m['sort_seq']}": m["fp"] for m in first if m["local_id"] in (4, 6)}}   # ảnh 5 vẫn thiếu
+        again, end, decoded = self.run_read({**self.request, "known_fp": known})
+        self.assertEqual(([m["local_id"] for m in again], decoded, end["window_same"]), ([5], [5], 2))
+
+    def test_the_deep_pass_adds_only_older_image_rows_and_only_when_there_is_a_key(self):
+        deep = {**self.request, "deep_image_hours": 7 * 24}
+        rows, _, decoded = self.run_read(deep)
+        self.assertEqual([m["local_id"] for m in rows], [3, 4, 5, 6])   # tin chữ 2 ngày và ảnh 9 ngày không vào
+        self.assertEqual([m["local_id"] for m in rows if m.get("deep")], [3])   # chỉ phần ngoài cửa sổ thường mang cờ `deep`
+        self.assertEqual(decoded, [3, 5, 6])
+        rows, end, decoded = self.run_read(deep, tools=None)
+        self.assertEqual(([m["local_id"] for m in rows], decoded, end["image_keys"]), ([4, 5, 6], [], False))
+        with unittest.mock.patch.object(export, "DEEP_IMAGE_BUDGET", 0):   # trần ảnh của lượt sâu: yêu cầu luôn xong trong timeout
+            rows, _, decoded = self.run_read(deep)
+        self.assertEqual(([m["local_id"] for m in rows], decoded), ([4, 5, 6], [5, 6]))
+
+    def test_out_of_image_time_new_messages_still_flow_without_images_and_the_end_line_says_so(self):
+        self.db.fixed = [*self.db.fixed, self.row(7, "图片", 0.1), self.row(8, "文本", 0.1)]   # hai tin mới sau con trỏ
+        with unittest.mock.patch.object(export, "IMAGE_SECONDS", 0):   # sau đợt máy tắt lâu: hết giờ giải ảnh ngay
+            rows, end, decoded = self.run_read({**self.request, "deep_image_hours": 7 * 24})
+        fresh = [m for m in rows if not m.get("window")]
+        self.assertEqual([(m["local_id"], m["image"]) for m in fresh], [(7, None), (8, None)])   # tin mới vẫn đi, con trỏ vẫn tiến
+        self.assertEqual([m["local_id"] for m in rows if m.get("window")], [4])   # tin ảnh cửa sổ/7 ngày không ảnh thì không phát
+        self.assertEqual((decoded, end.get("image_budget_hit")), ([], True))
+        _, end, _ = self.run_read(self.request)
+        self.assertNotIn("image_budget_hit", end)   # còn giờ: dòng `end` như cũ
+
+    def test_an_hevc_image_without_ffmpeg_falls_back_to_the_thumbnail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            downloader = unittest.mock.Mock()
+            downloader.db.get_message_row.return_value = {"local_id": 7, "sort_seq": 7000}
+            for name in ("a.wxgf", "a_thumb.jpg"):
+                (Path(tmp) / name).write_bytes(b"x")
+            downloader.download_image.side_effect = lambda *a, tier=None, **k: str(Path(tmp) / ("a.wxgf" if tier == "best" else "a_thumb.jpg"))
+            self.assertEqual(export.export_image((downloader, "k", 1), USER, 7, 7000, tmp), "a_thumb.jpg")
+            self.assertFalse((Path(tmp) / "a.wxgf").exists())
+            downloader.download_image.side_effect = lambda *a, tier=None, **k: str(Path(tmp) / "b.wxgf")
+            self.assertEqual(export.export_image((downloader, "k", 1), USER, 7, 7000, tmp), "b.wxgf")   # để bộ xử lý thôi thử
+
+
+class ImageRetryProcessorTest(WeChatBase):
+    def setUp(self):
+        super().setUp()
+        self.processor = self.make_processor(images=True)
+        (self.store.dir / "incoming").mkdir(parents=True, exist_ok=True)
+
+    def images(self):
+        return sorted((row["body"], bool(row.get("media"))) for row in self.store.rows_after(0)[0])
+
+    def test_an_image_still_missing_is_offered_again_until_it_decodes_then_remembered(self):
+        self.now = 1_793_000_100.0   # cùng thời với giờ tin của msg()
+        self.db.feed = [msg(1, 1000, "", "图片", fp="a" * 16)]
+        self.poll()
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {USER: {"1:1000": "a" * 16}})   # không giải lại mỗi 10 giây
+        self.now += wc.MISSING_RETRY
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {})   # còn thiếu ảnh: sau 1 phút quên fp, cửa sổ sau gửi lại
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(JPEG)
+        self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True, fp="a" * 16)]
+        self.poll()
+        self.poll()   # ảnh đã lấy (file incoming đã chuyển vào kho): cửa sổ không ảnh không đè `media`
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {USER: {"1:1000": "a" * 16}})
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)])
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 2)
+
+    def test_first_read_after_start_carries_the_seven_day_image_pass_until_it_succeeds_with_a_key(self):
+        deep = lambda: self.db.requests[-1][1]["deep_image_hours"]  # noqa: E731
+        self.db.fail = 3
+        self.poll()
+        self.assertEqual(deep(), wc.DEEP_IMAGE_HOURS)
+        self.db.fail = None
+        self.db.image_keys = False
+        self.now += 3600   # qua thời gian lùi sau lỗi
+        self.poll()
+        self.assertEqual(deep(), wc.DEEP_IMAGE_HOURS)   # lượt lỗi không tính: làm lại
+        self.poll()
+        self.assertEqual(deep(), wc.DEEP_IMAGE_HOURS)   # chưa có khóa thì tiến trình con bỏ qua lượt sâu: giữ tới khi có khóa
+        self.db.image_keys = True
+        self.poll()
+        self.assertEqual(deep(), wc.DEEP_IMAGE_HOURS)
+        self.poll()
+        self.assertEqual(deep(), 0)
+        self.processor = self.make_processor(images=True)   # agent chạy lại
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], wc.DEEP_IMAGE_HOURS)
+        self.processor = self.make_processor()   # không bật ảnh: không bao giờ có lượt sâu
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], 0)
+
+    def test_two_timed_out_seven_day_passes_are_dropped_so_text_never_stays_stuck(self):
+        self.db.fail = 3   # lỗi khác (mở DB…) không phải do lượt 7 ngày: không tính
+        self.poll()
+        self.db.fail = subprocess.TimeoutExpired("py", 60)
+        for _ in range(2):
+            self.now += 3600
+            self.poll()
+            self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], wc.DEEP_IMAGE_HOURS)
+        self.db.fail = None
+        self.now += 3600
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], 0)
+
+    def test_a_seven_day_pass_cut_short_by_the_time_budget_continues_while_it_makes_progress(self):
+        self.now = 1_793_000_100.0 + 2 * 86400   # tin của msg() đã cũ 2 ngày: chỉ lượt 7 ngày còn thấy
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(jpeg(1280, 720))
+        self.processor.known = {wc.message_id(USER, 1, 1000): wc.trace(wc.convert(msg(1, 1000, "", "图片"))[0])}
+        self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True, deep=True, fp="a" * 16)]
+        self.db.end_extra = {"image_budget_hit": True, "images": 1}
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)])
+        self.db.window, self.db.end_extra = [], {"image_budget_hit": True, "images": 0}
+        self.poll()
+        request = self.db.requests[-1][1]
+        self.assertEqual(request["deep_image_hours"], wc.DEEP_IMAGE_HOURS)   # còn dở, có tiến: làm tiếp
+        self.assertEqual(request["known_fp"], {USER: {"1:1000": "a" * 16}})   # phần đã giải được nhớ cả 7 ngày, không giải lại
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], 0)   # hết giờ mà không giải thêm được ảnh nào: thôi
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {})   # xong lượt 7 ngày: nhớ `fp` lại theo cửa sổ thường
+
+    def incoming(self, name, data):
+        (self.store.dir / "incoming" / name).write_bytes(data)
+
+    def test_a_thumbnail_is_retried_every_ten_minutes_and_replaced_only_by_a_larger_version(self):
+        self.now = 1_793_000_100.0
+        known = lambda: self.db.requests[-1][1]["known_fp"]  # noqa: E731
+        self.incoming("t.jpg", jpeg(180, 102))   # cỡ ảnh thu nhỏ của WeChat
+        self.db.feed = [msg(1, 1000, "", "图片", image="t.jpg", fp="a" * 16)]
+        self.poll()
+        self.poll()
+        self.assertEqual(known(), {USER: {"1:1000": "a" * 16}})   # có ảnh rồi: không giải lại mỗi 10 giây
+        self.now += wc.SMALL_RETRY + 1
+        self.poll()
+        self.assertEqual(known(), {})   # sau 10 phút quên `fp`: tiến trình con giải lại, tìm bản lớn hơn
+        self.incoming("lon.jpg", jpeg(1280, 720))
+        self.db.window = [msg(1, 1000, "", "图片", image="lon.jpg", window=True, fp="a" * 16)]
+        self.poll()
+        self.db.window = []
+        self.now += wc.SMALL_RETRY + 1
+        self.poll()
+        self.assertEqual(known(), {USER: {"1:1000": "a" * 16}})   # bản lớn: nhớ luôn
+        self.incoming("vua.jpg", jpeg(640, 360))   # bản nhỏ hơn bản đang có (ảnh gốc bị dọn chẳng hạn): không lùi
+        self.db.window = [msg(1, 1000, "", "图片", image="vua.jpg", window=True, fp="a" * 16)]
+        self.poll()
+        rows = self.store.log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(rows), 2)
+        final = self.store.rows_after(0)[0][0]
+        self.assertEqual(self.store.media_quality(final["media"][0]), (True, 1280 * 720))
+        self.assertEqual(len(list((self.store.dir / "media").iterdir())), 2)   # bản bị bỏ không thành file mồ côi
+        self.assertEqual(list((self.store.dir / "incoming").iterdir()), [])
+
+    def test_a_half_downloaded_image_never_beats_a_whole_one_and_is_replaced_when_whole(self):
+        self.now = 1_793_000_100.0
+        cut = jpeg(1280, 720)[:-2]   # WeChat còn đang ghi file: đầu file đủ kích thước, thiếu `FF D9`
+        self.assertEqual(wc.quality(cut), (False, 1280 * 720))
+        self.incoming("t.jpg", jpeg(180, 102))
+        self.db.feed = [msg(1, 1000, "", "图片", image="t.jpg", fp="a" * 16)]
+        self.poll()
+        self.incoming("cut.jpg", cut)
+        self.db.window = [msg(1, 1000, "", "图片", image="cut.jpg", window=True, fp="a" * 16)]
+        self.poll()   # ảnh trọn (dù nhỏ) thắng ảnh dở: giữ nguyên
+        self.assertEqual(self.store.media_quality(self.store.rows_after(0)[0][0]["media"][0]), (True, 180 * 102))
+        self.incoming("lon.jpg", jpeg(1280, 720))
+        self.db.window = [msg(1, 1000, "", "图片", image="lon.jpg", window=True, fp="a" * 16)]
+        self.poll()
+        self.assertEqual(self.store.media_quality(self.store.rows_after(0)[0][0]["media"][0]), (True, 1280 * 720))
+        # Chưa có ảnh nào thì ảnh dở vẫn hơn không có, và được thử lại sau 10 phút để lấy bản trọn.
+        self.incoming("cut2.jpg", jpeg(800, 600)[:-2])
+        self.db.feed = [msg(2, 2000, "", "图片", image="cut2.jpg", fp="b" * 16)]
+        self.poll()
+        self.assertEqual(self.processor.retry_at[(USER, 2, 2000)], self.now + wc.SMALL_RETRY)
+
+    def test_a_read_error_retries_in_a_minute_and_a_failed_delete_keeps_the_image(self):
+        self.now = 1_793_000_100.0
+        self.db.feed = [msg(1, 1000, "", "图片", image="khong-co.jpg", fp="a" * 16)]   # file biến mất / đang bị khóa khi đọc
+        self.poll()
+        self.assertEqual(self.processor.retry_at[(USER, 1, 1000)], self.now + wc.MISSING_RETRY)
+        self.incoming("a.jpg", jpeg(1280, 720))
+        self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True, fp="a" * 16)]
+        real_unlink = Path.unlink
+
+        def locked(path, *args, **kwargs):   # phần mềm diệt virus đang giữ file trong incoming/
+            if path.name == "a.jpg":
+                raise PermissionError(32, "file đang bị giữ")
+            return real_unlink(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(Path, "unlink", locked):
+            self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)])
+
+    def test_heic_or_video_bytes_are_not_taken_as_an_image(self):
+        self.incoming("a.heic", b"\x00\x00\x00\x18ftypheic" + bytes(64))
+        self.db.feed = [msg(1, 1000, "", "图片", image="a.heic", fp="a" * 16)]
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)])
+        self.assertNotIn((USER, 1, 1000), self.processor.retry_at)   # giải ra mà không dùng được: thôi thử
+
+    def test_a_decoded_file_that_is_not_a_usable_image_stops_the_retries(self):
+        self.now = 1_793_000_100.0
+        self.db.feed = [msg(1, 1000, "", "图片", fp="a" * 16)]
+        self.poll()
+        self.incoming("x.wxgf", b"wxgf-khong-chuyen-duoc")   # upstream không có ffmpeg: ra file .wxgf
+        self.db.window = [msg(1, 1000, "", "图片", image="x.wxgf", window=True, fp="a" * 16)]
+        self.poll()
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {USER: {"1:1000": "a" * 16}})
+        self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)])
+        self.assertFalse((self.store.dir / "media").exists() and any((self.store.dir / "media").iterdir()))
+
+    def test_the_deep_pass_never_imports_a_message_for_the_first_time(self):
+        self.incoming("a.jpg", JPEG)
+        self.db.window = [msg(9, 9000, "", "图片", image="a.jpg", window=True, deep=True)]   # tin lần đọc đầu đã cố ý bỏ
+        self.poll()
+        self.assertEqual(self.store.rows_after(0), ([], 0))
+
+    def test_a_reread_without_the_key_never_overwrites_a_decoded_image_and_the_cursor_still_moves(self):
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(JPEG)
+        self.db.feed = [msg(1, 1000, "", "图片", image="a.jpg")]
+        self.poll()
+        self.processor.cursors = {}   # con trỏ mất (state bị xóa) đúng lúc không có khóa: đọc lại từ đầu, ảnh không có
+        self.db.feed = [msg(1, 1000, "", "图片"), msg(2, 2000, "tin sau")]
+        self.poll()
+        self.assertEqual(self.images(), [("tin sau", False), ("Ảnh WeChat", True)])
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 2)
+        self.assertEqual(self.processor.cursors[USER]["sort_seq"], 2000)
+
+
+class RealChildImageTest(WeChatBase):
+    """Đường thật: bộ xử lý + `Session` (tiến trình con thật `wechat_export.py serve`, chạy bằng `-I`) + pilot giả có `wechatauto.media`
+    giả. Phần thật được kiểm: suy khóa từ kvcomm và mẫu `.dat` V2 (bộ mã của repo nạp theo đường dẫn trong tiến trình con), thử lại
+    ảnh ở lượt cửa sổ khi khóa có muộn, ảnh mới, và tiến trình con chết rồi tạo lại vẫn có khóa."""
+
+    PILOT = (
+        "import json, os, sys, types\n"
+        "HERE = os.path.dirname(os.path.abspath(__file__))\n"
+        "class MediaDownloader:\n"
+        "    def __init__(self, db):\n"
+        "        self.db = db\n"
+        "    def _derive_cfg_key(self):\n"
+        "        return None\n"
+        "    def download_image(self, username, local_id, save_dir=None, aes_key=None, xor_key=None, tier=None):\n"
+        "        with open(os.path.join(HERE, 'expected.json'), encoding='utf-8') as f:\n"
+        "            if [aes_key, xor_key] != json.load(f):\n"
+        "                return None\n"
+        "        path = os.path.join(save_dir, 'anh-%d.jpg' % local_id)\n"
+        "        with open(path, 'wb') as f:\n"
+        "            f.write(b'\\xff\\xd8\\xff\\xe0wechat-jpeg-%d' % local_id)\n"
+        "        return path\n"
+        "media = types.ModuleType('wechatauto.media')\n"
+        "media.MediaDownloader = MediaDownloader\n"
+        "package = types.ModuleType('wechatauto')\n"
+        "package.media = media\n"
+        "sys.modules['wechatauto'], sys.modules['wechatauto.media'] = package, media\n"
+        "class Db:\n"
+        "    wxid, account_dir = WXID_VALUE, ACCOUNT_VALUE\n"
+        "    def rows(self):\n"
+        "        with open(os.path.join(HERE, 'rows.json'), encoding='utf-8') as f:\n"
+        "            return json.load(f)\n"
+        "    def get_groups(self):\n"
+        "        return [{'username': USER_VALUE, 'name': 'Nhóm', 'members': [1]}]\n"
+        "    def get_messages(self, username, limit=20, offset=0):\n"
+        "        return list(reversed(self.rows()))[offset:offset + limit]\n"
+        "    def get_new_messages(self, username, since_seq=0, limit=200):\n"
+        "        return [row for row in self.rows() if row['sort_seq'] > since_seq][:limit]\n"
+        "    def get_message_row(self, user, local_id, local_type=None):\n"
+        "        same = sorted((row for row in self.rows() if row['local_id'] == local_id), key=lambda row: row['sort_seq'])\n"
+        "        return same[-1] if same else None   # như upstream: local_id lặp giữa các mảnh thì lấy sort_seq lớn nhất\n"
+        "    def nickname_map(self, refresh=False):\n"
+        "        return {'wxid_a': 'Khách A'}\n"
+        "def open_database():\n"
+        "    return Db()\n"
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.wx = Path(self.tmp.name) / "wx"
+        account = wechat_dirs(self.wx, code=None)   # mẫu `.dat` có sẵn nhưng chưa có kvcomm: chưa suy được khóa
+        self.pilot = Path(self.tmp.name) / "pilot"
+        self.pilot.mkdir()
+        source = self.PILOT.replace("WXID_VALUE", repr(WXID)).replace("ACCOUNT_VALUE", repr(str(account))).replace("USER_VALUE", repr(USER))
+        (self.pilot / "db_adapter.py").write_text(source, encoding="utf-8")
+        (self.pilot / "expected.json").write_text(json.dumps([GOOD_KEY, int(CODE) & 0xFF]), encoding="utf-8")
+        self.rows = []
+        env = unittest.mock.patch.dict(os.environ, {"APPDATA": str(self.wx / "appdata")})   # tiến trình con thừa hưởng
+        env.start()
+        self.addCleanup(env.stop)
+        self.session = wc.Session()
+        self.addCleanup(self.session.stop)
+        self.processor = self.make_processor(images=True, run=self.session, python=sys.executable, pilot=str(self.pilot))
+
+    def add_image(self, local_id, sort_seq=None):
+        self.rows.append({"local_id": local_id, "type": "图片", "sender_id": 5, "sender_username": "wxid_a", "content": "<msg><img/></msg>",
+                          "create_time": int(time.time()) - 60, "sort_seq": sort_seq or local_id * 1000})
+        self.rows.sort(key=lambda row: row["sort_seq"])
+        (self.pilot / "rows.json").write_text(json.dumps(self.rows), encoding="utf-8")
+
+    def test_two_shards_with_the_same_local_id_never_swap_images(self):
+        wechat_dirs(self.wx, samples=())   # có khóa ngay từ đầu
+        self.add_image(1, sort_seq=1000)   # mảnh DB cũ
+        self.add_image(1, sort_seq=5000)   # mảnh DB mới, local_id đếm lại từ 1
+        self.poll()
+        rows = self.store.rows_after(0)[0]
+        self.assertEqual(sorted((row["body"], bool(row.get("media"))) for row in rows),
+                         [("Ảnh WeChat", True), ("Ảnh WeChat (chưa đọc được)", False)])
+        decoded = [row for row in rows if row.get("media")]
+        self.assertEqual(decoded[0]["message_id"], wc.message_id(USER, 1, 5000))   # ảnh thuộc đúng tin mới, tin cũ không nhận nhầm
+
+    def images(self):
+        return sorted((row["body"], bool(row.get("media"))) for row in self.store.rows_after(0)[0])
+
+    def test_late_key_then_new_image_then_a_restarted_child_all_decode(self):
+        self.add_image(1)
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)])
+        wechat_dirs(self.wx, samples=())   # kvcomm có sau (WeChat đăng nhập lại…): lượt thử lại kế tiếp bổ sung, không cần chạy lại serve
+        self.now += wc.MISSING_RETRY   # tin thiếu ảnh được thử lại mỗi phút
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)])
+        self.add_image(2)
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)] * 2)
+        self.session.proc.kill()
+        self.session.proc.wait(10)
+        self.add_image(3)
+        self.poll()   # Session tạo tiến trình con mới: khóa suy lại từ đầu
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)] * 3)
+        self.assertEqual(len(self.store.log.read_text(encoding="utf-8").splitlines()), 4)   # ảnh 1 hai dòng (thiếu, rồi bổ sung)
+        self.assertEqual(len(list((self.store.dir / "media").iterdir())), 3)
+        self.assertEqual(list((self.store.dir / "incoming").iterdir()), [])
 
 
 if __name__ == "__main__":

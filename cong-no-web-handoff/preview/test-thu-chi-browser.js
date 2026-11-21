@@ -691,3 +691,47 @@ test('Xử lý: 1280×720, mở khung gắn thì nút Lưu nằm trong khung th�
   const rights = await page.locator('.tc-day').first().locator('.tc-amt').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().right)));
   assert.equal(new Set(rights).size, 1, `mép phải số tiền: ${rights}`);
 }));
+
+// Spec ZALO-THU-CHI-01, tiêu chí Playwright "1280×720 và 390×844": các hành vi chính chạy cả trên điện thoại, không chỉ bố cục.
+test('Thu chi ở điện thoại 390×844: khoản mới tự hiện, đang đọc thì có nút (đủ lớn, trong màn), lọc Chưa vào sổ đúng số, Mở tin đúng tin, bàn phím bấm chip', () => {
+  let phase = 0;
+  const added = item('n1', TODAY, 12, 'thu', 8_000_000, 'WAITING', { target: so(5, 'SỔ E') });
+  const more = item('n2', TODAY, 13, 'chi', 1_000_000, 'WAITING');
+  return withPage(() => ({ body: body(phase === 2 ? [more, added, ...ITEMS] : phase ? [added, ...ITEMS] : ITEMS) }), async page => {
+    await ready(page);
+    phase = 1;
+    let answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    await page.locator('.tc-row.is-new').waitFor();
+    assert.equal(await page.locator('.tc-row').count(), 10);
+    await page.evaluate(() => window.scrollTo(0, 900));   // đang đọc khoản cũ ở dưới
+    assert.ok(await page.evaluate(() => window.scrollY) > 120);
+    phase = 2;
+    answered = answer(page);
+    await page.clock.runFor(5000);
+    await answered;
+    await page.locator('#new-pill').waitFor();
+    const pill = await page.locator('#new-pill').boundingBox();
+    assert.ok(pill.height >= 40 && pill.x >= 0 && pill.x + pill.width <= 390, `nút khoản mới: ${JSON.stringify(pill)}`);
+    assert.ok(pill.y >= 0 && pill.y + pill.height <= 844, 'nút khoản mới nằm trong màn đang thấy (dính đầu khi cuộn)');
+    assert.equal(await page.locator('.tc-row').count(), 10, 'không vẽ lại dưới tay người đọc');
+    await page.locator('#new-pill').click();
+    assert.equal(await page.locator('.tc-row').count(), 11);
+    await page.locator('.tc-chip', { hasText: 'Chưa vào sổ' }).focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('.tc-chip[aria-pressed="true"]').innerText().then(clean), 'Chưa vào sổ1');
+    assert.equal(await page.locator('.tc-row').count(), 1);
+    assert.equal(await page.locator('.tc-row .tc-open').getAttribute('href'), `/zalo-chat.html?c=${GROUP}&m=t5`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  }, { clock: true, viewport: { width: 390, height: 844 } });
+});
+
+test('Thu chi ở điện thoại 390×844: Zalo cũ ghi "cập nhật lần cuối" và cảnh báo gọn trong màn', () => withPage(
+  () => ({ body: body(ITEMS, { zalo: { state: 'silent', at: '2026-11-20T08:05:00+07:00', silent_minutes: 200, identity: 'attached', quiet_minutes: 0 } }) }), async page => {
+    await ready(page);
+    assert.equal(await page.locator('#zalo-at').innerText(), 'Zalo cập nhật lần cuối lúc 08:05');
+    const warn = await page.locator('#zalo-warn').boundingBox();
+    assert.ok(warn && warn.x >= 0 && warn.x + warn.width <= 390, `cảnh báo: ${JSON.stringify(warn)}`);
+    assert.match(await page.locator('#zalo-warn').innerText(), /Máy Zalo không báo về từ 08:05/);
+  }, { viewport: { width: 390, height: 844 } }));
