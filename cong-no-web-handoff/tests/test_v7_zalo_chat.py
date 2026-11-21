@@ -158,6 +158,23 @@ class ZaloChatApiTest(unittest.TestCase):
     def get(self, path):
         return api.handle("GET", path, HEADERS, b"", None, port=8780, host="127.0.0.1", actor="server")
 
+    def test_report_carries_the_zalo_heartbeat_codes_only(self):
+        """Chat Zalo ghi "Zalo cập nhật (lần cuối) lúc …" theo nhịp tim máy Zalo như trang Thu chi; chỉ mã, giờ, số phút."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "status.json"
+            with patch.dict(os.environ, {"WEBDEBIT_ZALO_AGENT_STATUS": str(path)}):
+                _, report = self.get("/api/v7/zalo/report")
+                self.assertEqual(report["zalo"], {"state": "missing", "at": None, "silent_minutes": None, "identity": None, "quiet_minutes": None})
+                at = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - 60))
+                since = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - 7 * 60))
+                path.write_text(json.dumps({"schema": 1, "at": at, "processors": {"bundle": {"error": "secret_path_should_not_leak"}},
+                                            "live_sync": {"identity": "waiting_for_zalo", "identity_since": since}}), encoding="utf-8")
+                _, report = self.get("/api/v7/zalo/report")
+        self.assertEqual(set(report["zalo"]), {"state", "at", "silent_minutes", "identity", "quiet_minutes"})
+        self.assertEqual((report["zalo"]["state"], report["zalo"]["identity"], report["zalo"]["quiet_minutes"]), ("ok", "waiting_for_zalo", 7))
+        self.assertNotIn("secret_path_should_not_leak", json.dumps(report))   # trang người dùng thường: không có lỗi bộ xử lý
+        self.assertEqual(report["conversation_count"], 4)   # phần đếm của gói giữ nguyên
+
     def test_routes(self):
         status, report = self.get("/api/v7/zalo/report")
         self.assertEqual((status, report["conversation_count"], report["message_count"]), (200, 4, 9))

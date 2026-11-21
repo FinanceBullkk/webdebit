@@ -225,8 +225,22 @@ const CongNoFormat = (() => {
     return lines.join('\n');
   }
 
+  /** Tuổi dữ liệu Zalo (ZALO-THU-CHI-01 "Bị chặn"), dùng chung cho trang Thu chi và Chat Zalo để hai trang nói cùng một câu.
+   *  `zalo`: nhịp tim máy Zalo của máy chủ ({state, at, identity, quiet_minutes}); `fallbackAt`: giờ dựng gói khi chưa có máy Zalo báo về;
+   *  `stamp(iso)`: định dạng giờ theo trang. Máy im, hoặc Zalo chưa mở từ 5 phút, thì "lần cuối" kèm một câu cảnh báo: không giả là đang mới.
+   *  Zalo chưa mở chỉ chặn tin Zalo (WeChat đọc kho riêng); máy im thì mọi tin. */
+  function zaloFreshness(zalo, fallbackAt, stamp) {
+    const beat = zalo ?? {};
+    const at = beat.state === 'ok' || beat.state === 'silent' ? beat.at : fallbackAt;
+    const stale = beat.state === 'silent' || (beat.identity === 'waiting_for_zalo' && (beat.quiet_minutes ?? 0) >= 5);
+    const label = at ? `Zalo cập nhật ${stale ? 'lần cuối ' : ''}lúc ${stamp(at)}` : 'Zalo: chưa có tin';
+    const warn = beat.state === 'silent' ? `Máy Zalo không báo về${beat.at ? ` từ ${stamp(beat.at)}` : ''}. Tin mới có thể chưa lên.`
+      : stale ? `Zalo chưa mở trên máy Zalo (${Number(beat.quiet_minutes).toLocaleString('vi-VN')} phút). Tin Zalo mới chưa lên.` : '';
+    return { label, stale, warn };
+  }
+
   return { toBig, full, short, billions, millions, percent, barWidth, sum, heatStep,
     UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
-    dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText, newCustomer };
+    dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText, newCustomer, zaloFreshness };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;

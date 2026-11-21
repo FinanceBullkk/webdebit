@@ -881,8 +881,7 @@ def totals(items: list[dict]) -> dict:
 def zalo_view(now: float) -> dict:
     """Tuổi dữ liệu Zalo theo `status.json` của máy Zalo (ZALO-AGENT-01 Phần 6) thay cho `zalo_age_seconds` của spec cũ: có đủ tín hiệu
     "máy im", "Zalo chưa mở" và số phút, không phải đoán từ giờ tin cuối."""
-    view = v7_machine.zalo(now)
-    return {key: view.get(key) for key in ("state", "at", "silent_minutes", "identity", "quiet_minutes")}
+    return v7_machine.zalo_brief(now)
 
 
 def _single_flight(key: tuple, now: float, compute) -> dict:
