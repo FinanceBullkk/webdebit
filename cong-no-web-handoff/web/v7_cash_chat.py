@@ -388,6 +388,8 @@ def link_targets(images: list[dict], sources: Sources, directory: Directory) -> 
     failed = "links" in sources.failed
     names = {book_id: name for book_id, name, _ in directory.books}
     for image in images:
+        if image.get("target_reviewed"):   # người dùng đã gắn đối tượng (PR-3): không đè
+            continue
         found = linked.get(image["conversation_id"], {})
         if len(found) == 1:
             customer, name = next(iter(found.items()))
@@ -590,7 +592,7 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
         elif direction == "thu" and kind == "so":
             item["track"] = "receipt"
             item["rows"] = lambda one=item: [row for row in _near(sources.receipts(one["day"]), one["day"]) if row["customer"] == one["target"]["id"]]
-        elif direction == "ung" and kind == "xe" and directory.xe[entity].get("tai_xe_id"):
+        elif direction == "ung" and kind == "xe" and directory.xe.get(entity, {}).get("tai_xe_id"):   # xe gắn tay mà danh mục đọc lỗi: không sập trang
             item["track"] = "fleet"
             item["rows"] = lambda one=item: _near(sources.fleet_rows("tai_xe", directory.xe[one["target"]["id"]]["tai_xe_id"], "ung", one["day"]), one["day"])
         elif (direction == "ung" and kind == "tai_xe") or (direction == "chi" and kind in ("xe", "tai_xe")):
@@ -690,11 +692,16 @@ def read_reviews(items: list[dict], sources: Sources) -> dict[str, dict]:
 
 
 def apply_reviews(items: list[dict], reviews: dict[str, dict], directory: Directory) -> list[dict]:
-    """Số và đối tượng người dùng sửa thay cho số đọc từ tin; trả các khoản đã loại (không đối chiếu, không cộng tổng). Giá trị lạ thì bỏ."""
+    """Số và đối tượng người dùng sửa thay cho số đọc từ tin; trả các khoản đã loại (không đối chiếu, không cộng tổng). Giá trị lạ thì bỏ.
+
+    Tin sinh nhiều khoản (một tin nhiều ảnh chuyển khoản) thì không áp: xác nhận theo tin không biết là ảnh nào (route cũng từ chối)."""
     dropped = []
+    per_message: dict[str, int] = {}
+    for item in items:
+        per_message[item["message_id"]] = per_message.get(item["message_id"], 0) + 1
     for item in items:
         state = reviews.get(item["message_id"])
-        if not state:
+        if not state or per_message[item["message_id"]] > 1:
             continue
         item["review"] = {key: state.get(key) for key in ("decision", "reason", "reviews", "last_action", "last_by", "last_at")}
         amount = _int(state.get("amount_vnd"))
@@ -704,6 +711,7 @@ def apply_reviews(items: list[dict], reviews: dict[str, dict], directory: Direct
         target = state.get("target")
         if isinstance(target, dict) and target.get("kind") in TARGET_KINDS and positive_int(target.get("id")):
             item["target"] = {"kind": target["kind"], "id": target["id"], "label": directory.label(target["kind"], target["id"]), "ambiguous": False}
+            item["target_reviewed"] = True
             item.pop("link", None)
         if state.get("decision") == "not_cash":   # như một khoản đã đối chiếu xong: không phiếu, không dòng sổ
             item.update(status="NOT_CASH", shared=False, ledger_ref=None, ledger_vnd=None, unchecked=False)
@@ -744,15 +752,19 @@ def handle_review(raw: bytes, runner, actor: str) -> tuple[int, dict]:
         payload["target"] = {"kind": value["kind"], "id": value["id"]}
     elif value is not None:
         bad("INVALID_CASH_REVIEW", invalid)
-    payload["conversation_id"] = message_conversation(message)
+    conversation, shaped = message_conversation(message)
+    reads, _ = load_reads()
+    if sum(1 for media in shaped["media"] if media.get("id") in reads) > 1:
+        bad("MULTIPLE_IMAGES", ERRORS["MULTIPLE_IMAGES"][1])
+    payload["conversation_id"] = conversation
     result = runner.run("record_cash_review", payload, actor)
     with _LOCK:
         _CACHE.clear()   # lần hỏi kế tiếp của trang thấy ngay kết quả bấm, không đợi hết thời gian giữ kết quả
     return 200, result
 
 
-def message_conversation(message: str) -> str:
-    """Mã hội thoại của một tin còn trong gói chat; tin không có (gói chưa tới, nhóm bỏ chọn) hay đã xóa thì MESSAGE_NOT_FOUND."""
+def message_conversation(message: str) -> tuple[str, dict]:
+    """(mã hội thoại, tin) của một tin còn trong gói chat; tin không có (gói chưa tới, nhóm bỏ chọn) hay đã xóa thì MESSAGE_NOT_FOUND."""
     try:
         store = v7_zalo_chat.get_store()
         found = store.latest.get(message)
@@ -763,7 +775,7 @@ def message_conversation(message: str) -> str:
         page = None
     if not page or not page["messages"] or page["messages"][0]["deleted"]:
         bad("MESSAGE_NOT_FOUND", ERRORS["MESSAGE_NOT_FOUND"][1])
-    return found[0]
+    return found[0], page["messages"][0]
 
 
 def _public(item: dict) -> dict:
@@ -779,13 +791,12 @@ def _public(item: dict) -> dict:
 
 
 def totals(items: list[dict]) -> dict:
+    items = [item for item in items if item["status"] != "NOT_CASH"]   # người dùng đã loại (PR-3): không phải thu chi, không đếm, không cộng
     out = {"thu_vnd": 0, "chi_vnd": 0, "ung_vnd": 0, "thu_count": 0, "chi_count": 0, "ung_count": 0, "no_amount": 0,
            "missing": sum(item["status"] == "MISSING" for item in items),
            "amount_diff": sum(item["status"] == "AMOUNT_DIFF" or bool(item.get("image_diff")) for item in items),
            "from_image": sum(item.get("source") == "anh" and item["amount_vnd"] is not None for item in items)}
     for item in items:
-        if item["status"] == "NOT_CASH":   # người dùng đã loại (PR-3): không phải thu chi, không cộng
-            continue
         if item["amount_vnd"] is None:
             out["no_amount"] += 1
         else:
@@ -887,14 +898,17 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
     before = sum(image["day"] < start for image in images)   # ảnh cũ gửi lại: giao dịch trước khoảng xem, không cộng vào khoảng này
     images = [image for image in images if image["day"] >= start]
     marks = read_marks(conversations, sources, start, end) if conversations else []
+    # PR-3: số và đối tượng người dùng sửa có hiệu lực trước khi gộp ảnh chứng (số sửa có thể khớp đúng ảnh của khoản đó) và trước khi
+    # đối chiếu; khoản đã loại không giữ ảnh, không đối chiếu, không cộng tổng.
+    reviews = read_reviews(items + images, sources) if items or images else {}
+    dropped = apply_reviews(items + images, reviews, directory_of()) if reviews else []
+    if dropped:
+        items = [item for item in items if item.get("status") != "NOT_CASH"]
+        images = [image for image in images if image.get("status") != "NOT_CASH"]
     images = attach_images(items, marks, images, reads)
     if images:
         link_targets(images, sources, directory_of())
         items += images
-    # PR-3: số và đối tượng người dùng sửa thay số đọc từ tin trước khi đối chiếu; khoản đã loại không đối chiếu, không cộng tổng.
-    dropped = apply_reviews(items, read_reviews(items, sources), directory_of()) if items else []
-    if dropped:
-        items = [item for item in items if item.get("status") != "NOT_CASH"]
     if items:
         held = frozenset(pid for mark in marks if isinstance(pid := mark["raw"].get("receipt_pid"), str))
         reconcile(items, directory_of(), sources, today, held)
@@ -914,11 +928,13 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
 
 
 def handle_get(query: str, runner, actor: str, now: float | None = None) -> dict:
-    """GET /api/v7/cash-chat?from=YYYY-MM-DD&to=YYYY-MM-DD&status=CODE[,CODE]: mặc định 7 ngày tới hôm nay (giờ VN), mọi trạng thái.
-    Tổng và `counts` tính trên cả khoảng, không theo `status`; `status` chỉ lọc `items`."""
+    """GET /api/v7/cash-chat?from=YYYY-MM-DD&to=YYYY-MM-DD&status=CODE[,CODE]: mặc định 7 ngày tới hôm nay (giờ VN), mọi trạng thái trừ
+    NOT_CASH (khoản người dùng đã loại, PR-3: chỉ hiện khi hỏi `status=NOT_CASH`). Tổng và `counts` tính trên cả khoảng, không theo `status`;
+    `status` chỉ lọc `items`."""
     now = time.time() if now is None else now
     start, end, wanted = parse_query(query, datetime.fromtimestamp(now, VN).date())
     body = build(start, end, runner, actor, now)
-    if wanted and not body.get("unavailable"):
-        body = {**body, "items": [item for item in body["items"] if item["status"] in wanted]}
+    if not body.get("unavailable"):
+        keep = wanted or set(STATUSES) - {"NOT_CASH"}
+        body = {**body, "items": [item for item in body["items"] if item["status"] in keep]}
     return body

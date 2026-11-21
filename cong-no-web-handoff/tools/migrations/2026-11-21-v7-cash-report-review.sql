@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS sokhach.cash_report_review (
     target_kind text CHECK (target_kind IS NULL OR target_kind IN ('so', 'xe', 'tai_xe')),
     target_id bigint CHECK (target_id IS NULL OR target_id > 0),
     amount_vnd bigint CHECK (amount_vnd IS NULL OR amount_vnd > 0),
-    before jsonb NOT NULL CHECK (jsonb_typeof(before) = 'object' AND octet_length(before::text) <= 2000),
+    before jsonb NOT NULL CHECK (jsonb_typeof(before) = 'object' AND octet_length(before::text) <= 10000),
     reason text CHECK (reason IS NULL OR (btrim(reason) <> '' AND char_length(reason) <= 500)),
     request_id text NOT NULL UNIQUE CHECK (btrim(request_id) <> '' AND char_length(request_id) <= 200),
     created_by text NOT NULL CHECK (btrim(created_by) <> ''),
@@ -57,19 +57,13 @@ CREATE OR REPLACE FUNCTION sokhach.record_cash_review(p jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
 DECLARE
  v_action text := p->>'action'; v_message text := p->>'message_id'; v_key text := p->>'request_id';
- v_reason text := nullif(btrim(p->>'reason'),''); v_amount bigint; v_kind text; v_id bigint;
+ v_conversation text := p->>'conversation_id'; v_reason text := nullif(btrim(p->>'reason'),''); v_amount bigint; v_kind text; v_id bigint;
  v_old sokhach.cash_report_review; v_row sokhach.cash_report_review; v_found boolean;
 BEGIN
  IF jsonb_typeof(p)<>'object' OR v_action IS NULL OR v_action NOT IN ('confirm','target','amount','not_cash')
-    OR coalesce(p->>'conversation_id','') !~ '^[0-9a-f]{64}$' OR coalesce(v_message,'') !~ '^[0-9A-Za-z_-]{1,128}$'
+    OR coalesce(v_conversation,'') !~ '^[0-9a-f]{64}$' OR coalesce(v_message,'') !~ '^[0-9A-Za-z_-]{1,128}$'
     OR v_key IS NULL OR btrim(v_key)='' OR char_length(v_key)>200 OR char_length(coalesce(v_reason,''))>500 THEN
    RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
- SELECT * INTO v_old FROM sokhach.cash_report_review c WHERE c.request_id=v_key;
- IF FOUND THEN
-   IF v_old.message_id<>v_message OR v_old.action<>v_action THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
-   RETURN sokhach._cash_review_json(v_old)||jsonb_build_object('replayed',true);
- END IF;
- IF v_action='not_cash' AND v_reason IS NULL THEN RAISE EXCEPTION 'REASON_REQUIRED'; END IF;
  IF v_action='amount' THEN
    IF coalesce(p->>'amount_vnd','') !~ '^[1-9][0-9]{0,17}$' THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
    v_amount:=(p->>'amount_vnd')::bigint;
@@ -80,24 +74,35 @@ BEGIN
    IF jsonb_typeof(p->'target')<>'object' OR v_kind IS NULL OR v_kind NOT IN ('so','xe','tai_xe')
       OR coalesce(p->'target'->>'id','') !~ '^[1-9][0-9]{0,17}$' THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
    v_id:=(p->'target'->>'id')::bigint;
+ ELSIF p ? 'target' AND p->'target'<>'null'::jsonb THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW';
+ END IF;
+ IF v_action='not_cash' AND v_reason IS NULL THEN RAISE EXCEPTION 'REASON_REQUIRED'; END IF;
+ -- Bấm lặp (mất mạng rồi gửi lại cùng mã): đúng nội dung cũ thì trả dòng đã ghi; khác bất kỳ trường nào thì từ chối, như record_mark.
+ SELECT * INTO v_old FROM sokhach.cash_report_review c WHERE c.request_id=v_key;
+ IF FOUND THEN
+   IF (v_old.conversation_id,v_old.message_id,v_old.action,v_old.amount_vnd,v_old.target_kind,v_old.target_id,v_old.reason)
+      IS DISTINCT FROM (v_conversation,v_message,v_action,v_amount,v_kind,v_id,v_reason) THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
+   RETURN sokhach._cash_review_json(v_old)||jsonb_build_object('replayed',true);
+ END IF;
+ IF v_action='target' THEN
    -- Mỗi bảng một câu: PL/pgSQL chỉ lập kế hoạch câu khi chạy tới, nên DB chưa có Đội xe vẫn gắn được sổ.
    IF v_kind='so' THEN v_found:=EXISTS(SELECT 1 FROM sokhach.customer c WHERE c.id=v_id);
    ELSIF v_kind='xe' AND to_regclass('doixe.xe') IS NOT NULL THEN v_found:=EXISTS(SELECT 1 FROM doixe.xe x WHERE x.id=v_id);
    ELSIF v_kind='tai_xe' AND to_regclass('doixe.nguoi') IS NOT NULL THEN v_found:=EXISTS(SELECT 1 FROM doixe.nguoi n WHERE n.id=v_id);
    END IF;
    IF NOT coalesce(v_found,false) THEN RAISE EXCEPTION 'TARGET_NOT_FOUND'; END IF;
- ELSIF p ? 'target' AND p->'target'<>'null'::jsonb THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW';
  END IF;
  -- Hai người bấm cùng lúc trên một tin: xếp hàng theo tin, để `before` của người sau là trạng thái sau lượt của người trước.
  PERFORM pg_advisory_xact_lock(hashtextextended('cash_report_review:'||v_message,0));
  INSERT INTO sokhach.cash_report_review(conversation_id,message_id,action,target_kind,target_id,amount_vnd,before,reason,request_id,created_by)
-   VALUES(p->>'conversation_id',v_message,v_action,v_kind,v_id,v_amount,
+   VALUES(v_conversation,v_message,v_action,v_kind,v_id,v_amount,
           sokhach._cash_review_state(v_message,NULL)-'last_by'-'last_at'-'last_action'-'reviews',v_reason,v_key,sokhach._actor())
    ON CONFLICT (request_id) DO NOTHING
    RETURNING * INTO v_row;
  IF v_row.id IS NULL THEN   -- cùng request_id vừa được người khác ghi giữa lúc kiểm và lúc ghi
    SELECT * INTO v_old FROM sokhach.cash_report_review c WHERE c.request_id=v_key;
-   IF v_old.message_id<>v_message OR v_old.action<>v_action THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
+   IF (v_old.conversation_id,v_old.message_id,v_old.action,v_old.amount_vnd,v_old.target_kind,v_old.target_id,v_old.reason)
+      IS DISTINCT FROM (v_conversation,v_message,v_action,v_amount,v_kind,v_id,v_reason) THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
    RETURN sokhach._cash_review_json(v_old)||jsonb_build_object('replayed',true);
  END IF;
  RETURN sokhach._cash_review_json(v_row);

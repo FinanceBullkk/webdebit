@@ -71,6 +71,18 @@ def check_cash_review(pg: Pg) -> None:
             f"get_cash_reviews: {states}")
     require(pg.value("SELECT string_agg(action, ',' ORDER BY id) FROM sokhach.cash_report_review") == "confirm,amount,target,not_cash,confirm",
             "reviews must only be appended")
+    # Gửi lại cùng request_id: đúng nội dung thì trả dòng cũ; khác số, đối tượng hay lý do thì từ chối (không âm thầm giữ số cũ).
+    call(pg, "record_cash_review", review("amount", "m4", "cr-a", amount_vnd="5000000"))
+    require(call(pg, "record_cash_review", review("amount", "m4", "cr-a", amount_vnd="5000000")).get("replayed") is True, "exact replay")
+    reject_call(pg, "record_cash_review", review("amount", "m4", "cr-a", amount_vnd="4500000"), error="IDEMPOTENCY_CONFLICT")
+    call(pg, "record_cash_review", review("target", "m4", "cr-b", target={"kind": "so", "id": book}))
+    reject_call(pg, "record_cash_review", review("target", "m4", "cr-b", target={"kind": "so", "id": other}), error="IDEMPOTENCY_CONFLICT")
+    call(pg, "record_cash_review", review("not_cash", "m4", "cr-c", reason="trùng tin"))
+    require(call(pg, "record_cash_review", review("not_cash", "m4", "cr-c", reason="  trùng tin ")).get("replayed") is True, "replay trims reason")
+    reject_call(pg, "record_cash_review", review("not_cash", "m4", "cr-c", reason="lý do khác"), error="IDEMPOTENCY_CONFLICT")
+    reject_call(pg, "record_cash_review", json.dumps({**json.loads(review("not_cash", "m4", "cr-c", reason="trùng tin")), "conversation_id": "d4" * 32}),
+                error="IDEMPOTENCY_CONFLICT")
+    require(pg.value("SELECT count(*) FROM sokhach.cash_report_review WHERE message_id='m4'") == "3", "conflicting replays must not write")
     reject_call(pg, "get_cash_reviews", json.dumps({"message_ids": ["../x"]}), error="INVALID_CASH_REVIEW")
     reject_call(pg, "get_cash_reviews", json.dumps({"message_ids": "m1"}), error="INVALID_CASH_REVIEW")
 

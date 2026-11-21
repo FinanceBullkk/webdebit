@@ -842,20 +842,56 @@ class ReviewTests(CashChatCase):
 
     def test_reviews_replace_amount_and_target_and_drop_items_from_totals(self):
         rows = [row("a", at(19), "thu 5tr khách a"), row("b", at(19, 10), "chi 2tr xe 51C-123.45"), row("c", at(19, 11), "thu 3tr khách b")]
+        rows.append(row("d", at(19, 12), "thu 2tr khách c"))
         reviews = {"a": {"amount_vnd": "4500000", "decision": "confirm", "reviews": 2, "last_action": "confirm", "last_by": "tester"},
                    "b": {"target": {"kind": "tai_xe", "id": 21}, "decision": None, "reviews": 1, "last_action": "target"},
                    "c": {"decision": "not_cash", "reason": "tin hỏi giá", "reviews": 1, "last_action": "not_cash"},
-                   "x": {"amount_vnd": "rác", "target": {"kind": "so", "id": "1"}}}
-        body = self.get(rows, FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 4_500_000)], reviews=reviews))
-        by = {item["message_id"]: item for item in body["items"]}
+                   "d": {"amount_vnd": "rác", "target": {"kind": "so", "id": "1"}, "decision": "khac"}}   # giá trị lạ: bỏ
+        runner = FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 4_500_000)], reviews=reviews)
+        body = self.get(rows, runner)
+        self.assertNotIn("c", {item["message_id"] for item in body["items"]})   # khoản đã loại ẩn khỏi danh sách mặc định
+        cash._CACHE.clear()
+        by = {item["message_id"]: item for item in cash.handle_get("from=2026-11-01&to=2026-11-20&status=NOT_CASH,RECORDED,MISSING,WAITING,UNKNOWN_TARGET",
+                                                                    runner, "tester", NOW)["items"]}
+        self.assertEqual((by["d"]["amount_vnd"], by["d"]["target"]["id"], by["d"]["amount_from"]), (2_000_000, 3, None))
         self.assertEqual((by["a"]["amount_vnd"], by["a"]["amount_from"], by["a"]["status"], by["a"]["review"]["decision"]),
                          (4_500_000, "sua", "RECORDED", "confirm"))   # số đã sửa khớp phiếu
         self.assertEqual(by["b"]["target"], {"kind": "tai_xe", "id": 21, "label": "Cường"})
         self.assertEqual((by["c"]["status"], by["c"]["review"]["reason"], by["c"]["ledger_ref"]), ("NOT_CASH", "tin hỏi giá", None))
-        self.assertEqual((body["totals"]["thu_vnd"], body["totals"]["thu_count"], body["counts"]["NOT_CASH"]), (4_500_000, 1, 1))
+        self.assertEqual((body["totals"]["thu_vnd"], body["totals"]["thu_count"], body["counts"]["NOT_CASH"]), (6_500_000, 2, 1))
         self.assertEqual(body["sources_failed"], [])
         failed = self.get(rows, FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 4_500_000)], reviews=reviews, fail={"get_cash_reviews"}))
         self.assertEqual((failed["sources_failed"], failed["counts"]["NOT_CASH"]), (["reviews"], 0))   # đọc lỗi thì báo, không im
+
+    def test_a_corrected_typo_takes_its_screenshot_and_a_dropped_text_keeps_the_real_transfer(self):
+        self.reads.parent.mkdir(exist_ok=True)
+        self.reads.write_text(json.dumps({"schema": 1, "redact": "w1", "reads": {PAY[0]: read_entry(4_500_000)}}), encoding="utf-8")
+        rows = [row("a", at(19), "thu 5tr khách a"), row("p", at(19, 9, 30), "", media=[PAY[0]])]
+        fixed = self.get(rows, FakeRunner(reviews={"a": {"amount_vnd": "4500000", "reviews": 1, "last_action": "amount"}}))
+        self.assertEqual(([item["message_id"] for item in fixed["items"]], fixed["totals"]["thu_vnd"]), (["a"], 4_500_000))   # không cộng hai lần
+        self.assertEqual([media["id"] for media in fixed["items"][0]["media"]], [PAY[0]])
+        rows = [row("a", at(19), "thu 4500k khách a"), row("p", at(19, 9, 30), "", media=[PAY[0]])]
+        kept = self.get(rows, FakeRunner(reviews={"a": {"decision": "not_cash", "reason": "gõ nhầm", "reviews": 1}}))
+        self.assertEqual(([(item["message_id"], item["source"]) for item in kept["items"]], kept["totals"]["thu_vnd"], kept["counts"]["NOT_CASH"]),
+                         ([("p", "anh")], 4_500_000, 1))   # khoản gõ đã loại không kéo theo ảnh chuyển khoản thật
+
+    def test_a_vehicle_set_by_hand_survives_an_unreadable_fleet_list(self):
+        body = self.get([row("u", at(19), "ứng 2tr xe 29H-678.90")],
+                        FakeRunner(fail={"doixe_get_tong"}, reviews={"u": {"target": {"kind": "xe", "id": 10}, "reviews": 1}}))
+        self.assertEqual((body["unavailable"], body["items"][0]["target"]["id"]), (False, 10))
+
+    def test_a_message_with_two_read_images_is_not_reviewed(self):
+        self.reads.parent.mkdir(exist_ok=True)
+        self.reads.write_text(json.dumps({"schema": 1, "redact": "w1", "reads": {PAY[0]: read_entry(1_000_000), PAY[1]: read_entry(2_000_000)}}),
+                              encoding="utf-8")
+        write_bundle(self.dir, [row("p", at(19), "", media=[PAY[0], PAY[1]])])
+        chat._STORE, chat._STORE_DIR = None, None
+        runner = FakeRunner(reviews={"p": {"amount_vnd": "9000000", "reviews": 1}})
+        with self.assertRaises(ApiError) as caught:
+            cash.handle_review(json.dumps({"message_id": "p", "action": "confirm", "request_id": "r"}).encode(), runner, "tester")
+        self.assertEqual((caught.exception.code, runner.recorded), ("MULTIPLE_IMAGES", []))
+        body = self.get([row("p", at(19), "", media=[PAY[0], PAY[1]])], runner)
+        self.assertEqual(sorted(item["amount_vnd"] for item in body["items"]), [1_000_000, 2_000_000])   # không áp cho cả hai ảnh
 
     def test_only_managers_may_review(self):
         self.assertTrue(v7_role.admin_api("/api/v7/cash-chat/review"))

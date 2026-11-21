@@ -99,7 +99,7 @@ CREATE TABLE sokhach.cash_report_review (
     target_kind text CHECK (target_kind IS NULL OR target_kind IN ('so', 'xe', 'tai_xe')),
     target_id bigint CHECK (target_id IS NULL OR target_id > 0),
     amount_vnd bigint CHECK (amount_vnd IS NULL OR amount_vnd > 0),
-    before jsonb NOT NULL CHECK (jsonb_typeof(before) = 'object' AND octet_length(before::text) <= 2000),
+    before jsonb NOT NULL CHECK (jsonb_typeof(before) = 'object' AND octet_length(before::text) <= 10000),
     reason text CHECK (reason IS NULL OR (btrim(reason) <> '' AND char_length(reason) <= 500)),
     request_id text NOT NULL UNIQUE CHECK (btrim(request_id) <> '' AND char_length(request_id) <= 200),
     created_by text NOT NULL CHECK (btrim(created_by) <> ''),

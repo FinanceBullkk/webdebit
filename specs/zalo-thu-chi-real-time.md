@@ -294,12 +294,13 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 - `POST /api/v7/cash-chat/review`, chỉ quản lý (cùng tiền tố `/api/v7/cash-chat`). Thân `{message_id, action, value, reason, request_id}`:
   - `confirm` xác nhận; `amount` sửa số (`value` là chuỗi VND số nguyên dương); `target` gắn đối tượng (`value` là `{kind: so|xe|tai_xe, id}`); `not_cash` loại, bắt buộc `reason`;
   - tin phải còn trong gói chat và chưa xóa (`MESSAGE_NOT_FOUND`); mã hội thoại lấy từ gói, không lấy từ trang;
-  - lỗi khác: `INVALID_CASH_REVIEW`, `REASON_REQUIRED`, `TARGET_NOT_FOUND` (sổ, xe, người không có), `IDEMPOTENCY_CONFLICT` (cùng `request_id` cho việc khác). Bấm lặp cùng `request_id` trả dòng đã ghi (`replayed: true`).
+  - lỗi khác: `INVALID_CASH_REVIEW`, `REASON_REQUIRED`, `TARGET_NOT_FOUND` (sổ, xe, người không có), `MULTIPLE_IMAGES` (một tin có nhiều ảnh chuyển khoản: xác nhận theo tin không biết là ảnh nào);
+  - bấm lặp cùng `request_id` và đúng nội dung cũ thì trả dòng đã ghi (`replayed: true`); khác bất kỳ trường nào (số, đối tượng, lý do, tin) thì `IDEMPOTENCY_CONFLICT`, như `record_mark`.
 - `sokhach.cash_report_review` chỉ thêm dòng. Trạng thái hiệu lực của một tin là các dòng gộp theo thứ tự: sửa số hay gắn đối tượng thì bỏ quyết định cũ (đã xác nhận số cũ), xác nhận và loại thay nhau. Mỗi dòng ghi `before` (trạng thái ngay trước; `{}` là giá trị đọc từ tin), người làm, lúc làm. Hai người bấm cùng một tin thì xếp hàng theo tin.
 - `GET /api/v7/cash-chat`:
   - khoản đã có dòng thì có `review` (`decision`, `reason`, `reviews`, `last_action`, `last_by`, `last_at`);
-  - số sửa thay số đọc từ tin (`amount_from: "sua"`), đối tượng gắn tay thay đối tượng tự khớp, đều trước khi đối chiếu;
-  - khoản đã loại có `status: NOT_CASH`, không đối chiếu, không cộng vào tổng;
+  - số sửa thay số đọc từ tin (`amount_from: "sua"`), đối tượng gắn tay thay đối tượng tự khớp, đều trước khi gộp ảnh chứng và trước khi đối chiếu (số sửa có thể khớp đúng ảnh của khoản đó, nên không cộng hai lần);
+  - khoản đã loại có `status: NOT_CASH`: không giữ ảnh chứng, không đối chiếu, không đếm và không cộng vào tổng, không hiện trong danh sách mặc định (hỏi `status=NOT_CASH` để xem); `counts.NOT_CASH` đếm số khoản đã loại;
   - đọc trạng thái lỗi thì `sources_failed` có `reviews`. Bấm xong thì bỏ kết quả đang giữ, lần hỏi kế tiếp thấy ngay.
 
 ## Nguồn quyết định

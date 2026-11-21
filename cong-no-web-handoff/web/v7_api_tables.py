@@ -122,6 +122,7 @@ ERRORS = {
     "INVALID_CASH_REVIEW": (422, "Dữ liệu xác nhận khoản thu chi không hợp lệ."),
     "TARGET_NOT_FOUND": (422, "Không tìm thấy sổ, xe hay người này."),
     "MESSAGE_NOT_FOUND": (422, "Tin này không còn trong dữ liệu chat Zalo. Tải lại trang."),
+    "MULTIPLE_IMAGES": (422, "Tin này có nhiều ảnh chuyển khoản, chưa xác nhận riêng từng ảnh được."),
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "FEE_LINE_NOT_FOUND": (409, "Không tìm thấy khoản phụ phí. Tải lại sổ."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
