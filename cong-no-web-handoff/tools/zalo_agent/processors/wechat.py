@@ -33,6 +33,7 @@ NAME = "wechat"
 SCRIPT = Path(__file__).resolve().parents[1] / "wechat_export.py"
 INTERVAL, MAX_BACKOFF, TIMEOUT = 10, 15 * 60, 60
 RECHECK_HOURS = 6      # đọc lại các tin trong khoảng này mỗi lượt để thấy tin bị sửa tại chỗ (thu hồi)
+DEEP_IMAGE_HOURS = 7 * 24   # lượt đầu sau khi agent chạy: thử lại ảnh còn thiếu của 7 ngày (bật ảnh muộn, sửa khóa xong rồi chạy lại)
 SELF_NAME = "Tôi (WeChat)"
 # local_type của WeChat 4.x (tên do upstream đặt) → message_type của gói Zalo (TYPE_NAMES trong web/v7_zalo_chat.py).
 KINDS = {"文本": 1, "图片": 2, "文件/链接/卡片": 19, "系统消息": -4, "语音": 3, "视频": 18, "位置": 17, "动画表情": 4,
@@ -101,10 +102,11 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
 
 
 def trace(row: dict) -> dict:
-    """Dấu vết đủ để so một dòng với bản đã ghi: chữ ký (loại, chữ, người gửi, đã xóa) và các trường cần cho dòng xóa. Có người gửi
-    để dòng gửi thiếu người (tra chưa ra) tự được sửa khi tra ra."""
-    body = json.dumps([row.get("message_type"), row.get("body"), row.get("sender_id"), bool(row.get("deleted"))], ensure_ascii=False, sort_keys=True)
-    return {"sig": sha(body), "deleted": bool(row.get("deleted")), "sender_id": row.get("sender_id"), "message_type": row.get("message_type"), "status": row.get("status")}
+    """Dấu vết đủ để so một dòng với bản đã ghi, gồm cả việc ảnh đã có media hay chưa."""
+    body = json.dumps([row.get("message_type"), row.get("body"), row.get("sender_id"), bool(row.get("deleted")), bool(row.get("media"))],
+                      ensure_ascii=False, sort_keys=True)
+    return {"sig": sha(body), "deleted": bool(row.get("deleted")), "media": bool(row.get("media")), "sender_id": row.get("sender_id"),
+            "message_type": row.get("message_type"), "status": row.get("status")}
 
 
 class Selection:
@@ -355,6 +357,8 @@ class WeChatProcessor:
         self.store, self.state, self.python, self.pilot = store, Path(state), python, pilot
         self.interval, self.first_limit, self.images, self.recheck_hours = interval, first_limit, images, recheck_hours
         self.fps: dict[tuple, tuple[str, int]] = {}   # (nhóm, local_id, sort_seq) → (dấu vân tay, giờ tin): cửa sổ chỉ gửi nội dung khi khác
+        self.deep_pending = True                      # lượt đọc thành công đầu tiên CÓ KHÓA của tiến trình này kèm lượt thử lại ảnh 7 ngày
+        self.deep_sent = False
         self.appended = 0                             # số dòng THẬT SỰ ghi ở lượt nhập gần nhất
         self.names: dict[str, str] | None = None   # users.json của kho; nạp lười, cập nhật khi ghi
         self.known: dict[str, dict] | None = None   # dấu vết bản cuối của mỗi mã tin trong log; nạp lười ở lượt nhập đầu
@@ -381,8 +385,9 @@ class WeChatProcessor:
         for (username, local_id, seq), (fp, _) in self.fps.items():
             if username in groups:
                 known.setdefault(username, {})[f"{local_id}:{seq}"] = fp
+        self.deep_sent = bool(images) and self.deep_pending
         return {"groups": {u: self.cursors.get(u) or {} for u in groups}, "first_limit": self.first_limit, "images_dir": images,
-                "window_hours": self.recheck_hours, "known_fp": known}
+                "window_hours": self.recheck_hours, "deep_image_hours": DEEP_IMAGE_HOURS if self.deep_sent else 0, "known_fp": known}
 
     def poll(self, groups: dict[str, str]) -> tuple[str | None, list[dict], dict]:
         """Chạy tiến trình con (có thể ở luồng nền). Trả (mã lỗi, các dòng tin, dòng `end`)."""
@@ -429,6 +434,8 @@ class WeChatProcessor:
         self.failures = self.failures + 1 if error else 0
         if error:
             self.next_at = now + min(MAX_BACKOFF, self.interval * 2 ** self.failures)
+        elif self.deep_sent and (end or {}).get("image_keys"):
+            self.deep_pending = False   # lượt ảnh 7 ngày đã chạy có khóa; lỗi hay chưa có khóa thì lượt sau làm lại (con bỏ qua khi không khóa)
         # "poll" (và thay đổi trạng thái) chỉ khi có dòng THẬT SỰ được ghi: cửa sổ đọc lại không làm log và đẩy status mỗi lượt
         self.last = {"action": "poll" if not error and self.appended else "idle", "revision": None, "error": error, "messages": self.total}
 
@@ -452,10 +459,15 @@ class WeChatProcessor:
                 row["media"] = [image[0]]
             window = bool(item.get("window"))
             prior = staged.get(row["message_id"]) or self.known.get(row["message_id"])
-            if isinstance(item.get("fp"), str):
+            photo = item.get("type") == "图片"
+            # Tin ảnh còn thiếu ảnh: KHÔNG nhớ `fp`, để lượt cửa sổ sau tiến trình con gửi lại và giải thử lần nữa (file `.dat` tải
+            # chậm, khóa có muộn). Có ảnh rồi thì nhớ như mọi tin, tiến trình con dừng giải lại.
+            waiting = self.images and photo and not image and not (prior or {}).get("media")
+            if isinstance(item.get("fp"), str) and not waiting:
                 seen_fp[(item["username"], item["local_id"], item["sort_seq"])] = (item["fp"], item["create_time"])
-            if window and prior is not None and item.get("type") == "图片":
-                continue   # cửa sổ không dựng lại ảnh (không có khóa/ảnh): đừng ghi đè bản đã có `media`
+            if window and prior is not None and photo and (prior.get("media") or not image):
+                continue   # không để lượt thiếu ảnh ghi đè media; lượt có ảnh được phép bổ sung cho dòng cũ
+            keep_media = prior is not None and photo and prior.get("media") and not image   # đọc lại (con trỏ mất) lúc không có khóa
             if window and prior is not None:
                 # Cửa sổ đọc lại: chỉ phát khi dòng đã đổi. WeChat thu hồi bằng cách biến dòng cũ thành tin hệ thống: dòng đó
                 # trở thành dòng xóa (giữ người gửi, loại tin cũ) và không bao giờ bị tin hệ thống ghi đè lại.
@@ -465,7 +477,7 @@ class WeChatProcessor:
                     row = {**row, "sender_id": prior["sender_id"], "message_type": prior["message_type"], "status": prior["status"],
                            "body": None, "deleted": True}
                     row.pop("media", None)
-            duplicate = prior is not None and prior["sig"] == trace(row)["sig"]
+            duplicate = prior is not None and (prior["sig"] == trace(row)["sig"] or bool(keep_media))
             if not duplicate:
                 rows.append(row)
                 staged[row["message_id"]] = trace(row)
