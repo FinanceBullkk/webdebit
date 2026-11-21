@@ -8,13 +8,14 @@
 `{"groups": {"<username>": {"sort_seq": N, "tail": [local_id, …]}}, "first_limit": 5000, "images_dir": null, "window_hours": 6,
 "deep_image_hours": 0, "known_fp": {}}` và in JSONL: mỗi tin mới hơn con trỏ (đọc tăng dần theo `sort_seq`, nhiều trang, không giới
 hạn tổng: thiếu thì chỉ chậm), các tin trong cửa sổ `window_hours` giờ gần nhất (có cờ `window`, để bắt tin bị sửa tại chỗ như thu
-hồi), thêm tin ẢNH trong `deep_image_hours` giờ (lượt thử lại ảnh còn thiếu), rồi một dòng `end` có số đếm. Tin ảnh trong cửa sổ mà
-bộ xử lý chưa có (`fp` không nằm trong `known_fp`) được giải ảnh lại khi có khóa.
+hồi), thêm tối đa `DEEP_IMAGE_BUDGET` tin ẢNH mới nhất trong `deep_image_hours` giờ (cờ `deep`: lượt thử lại ảnh), rồi một dòng
+`end` có số đếm. Tin ảnh trong cửa sổ mà bộ xử lý chưa có (`fp` không nằm trong `known_fp`) được giải ảnh lại khi có khóa.
 `serve` giữ `WeChatDB` mở giữa các yêu cầu (lấy khóa một lần) và mở lại sau lỗi. Chỉ đọc các nhóm trong yêu cầu.
 
 Nội dung được LÀM SẠCH ngay trong tiến trình con: tin tệp/liên kết/hệ thống chỉ ra phần chữ người đọc được (tiêu đề, mô tả,
 chữ thông báo), không bao giờ ra XML, URL, khóa CDN hay mã; tiền tố `wxid…:` của tin nhóm bị bỏ. Không in khóa, không đọc
-`private-state` trực tiếp: mọi thứ qua `db_adapter.open_database()` của dự án pilot. Lỗi chỉ in mã ngắn. Chỉ dùng stdlib.
+`private-state` trực tiếp: tin và ảnh qua `db_adapter.open_database()` của dự án pilot; riêng khóa ảnh suy từ TÊN file trong
+thư mục `kvcomm` của WeChat và vài chục byte đầu/cuối của file `.dat` (xem `offline_image_key`). Lỗi chỉ in mã ngắn. Chỉ dùng stdlib.
 """
 from __future__ import annotations
 
@@ -54,10 +55,11 @@ XMLISH = re.compile(r"<\s*/?\s*(?:msg|sysmsg|appmsg|revokemsg)\b", re.IGNORECASE
 REFER = re.compile(r"<refermsg>.*?</refermsg>", re.DOTALL)
 REVOKE = re.compile(r"revokemsg|撤回|recalled a message|recalled", re.IGNORECASE)
 KVCOMM = re.compile(r"key_(\d+)_.*\.statistic")
-SAMPLES = 24        # số file `.dat` V2 dùng để thử khóa ảnh (mỗi file chỉ đọc 31 byte đầu)
+SAMPLES = 24        # số file `.dat` V2 dùng để thử khóa ảnh (mỗi file chỉ đọc 31 byte đầu và 16 byte cuối)
 KEYS: dict = {}     # (tài khoản, wxid) → (mã kvcomm, khóa AES, byte XOR) đã kiểm đúng; chỉ trong bộ nhớ, `serve` sống lâu nên không kiểm lại
-MISSES: dict = {}   # (tài khoản, wxid, các mã) → giờ thử hụt gần nhất: không quét lại thư mục ảnh mỗi 10 giây khi chưa suy được khóa
+MISSES: dict = {}   # (tài khoản, wxid, tập mã) → giờ thử hụt (monotonic): không quét lại thư mục ảnh mỗi 10 giây khi chưa suy được khóa
 MISS_RETRY = 600    # giây; có mã kvcomm mới thì thử ngay
+DEEP_IMAGE_BUDGET = 200   # mỗi nhóm, mỗi yêu cầu: lượt ảnh 7 ngày giải tối đa chừng này ảnh mới nhất, để yêu cầu luôn xong trong timeout
 
 
 def open_db(pilot: str):
@@ -173,8 +175,15 @@ def image_tools(db):
         import importlib
         media = importlib.import_module("wechatauto.media")   # `db_adapter` đã đăng ký gói `wechatauto` trong sys.modules
         downloader = media.MediaDownloader(db)
-        derived = downloader._derive_cfg_key() or offline_image_key(db)
-    except Exception:   # noqa: BLE001  (thiếu thư viện, thiếu khóa…: không có ảnh, vẫn đọc chữ)
+    except Exception:   # noqa: BLE001  (thiếu thư viện…: không có ảnh, vẫn đọc chữ)
+        return None
+    try:
+        derived = downloader._derive_cfg_key()
+    except Exception:   # noqa: BLE001  (đường `cfg_dword` của upstream hỏng thì vẫn thử đường ngoại tuyến)
+        derived = None
+    try:
+        derived = derived or offline_image_key(db)
+    except Exception:   # noqa: BLE001
         return None
     return (downloader, derived[0], derived[1]) if derived else None
 
@@ -182,9 +191,10 @@ def image_tools(db):
 def offline_image_key(db) -> tuple[str, int] | None:
     """(khóa AES, byte XOR) của ảnh V2 suy hoàn toàn ngoại tuyến, hoặc None. Không quét bộ nhớ, không ghi khóa ra đâu.
 
-    Khóa = 16 ký tự đầu của md5(mã trong tên `key_<mã>_….statistic` ở thư mục `kvcomm` của WeChat + wxid), byte XOR = mã & 0xFF.
-    wxid thử ba dạng (bỏ đuôi `_xxxx` của thư mục tài khoản…). Chỉ nhận khóa giải được khối đầu của file `.dat` V2 thật thành chữ ký
-    ảnh (JPEG, PNG, GIF, WEBP, wxgf): bộ thử của upstream chỉ nhận JPEG trên MỘT file, mẫu là PNG thì loại cả khóa đúng."""
+    Khóa = 16 ký tự đầu của md5(mã trong tên `key_<mã>_….statistic` ở thư mục `kvcomm` của WeChat + wxid). wxid thử ba dạng (bỏ
+    đuôi `_xxxx` của thư mục tài khoản…). Chỉ nhận khóa giải được khối đầu của file `.dat` V2 thật thành chữ ký ảnh (JPEG, PNG, GIF,
+    WEBP, wxgf): bộ thử của upstream chỉ nhận JPEG trên MỘT file, mẫu là PNG thì loại cả khóa đúng. Byte XOR suy từ đuôi ảnh của các
+    mẫu khi ít nhất hai mẫu cùng ra một byte (XOR sai thì ảnh vẫn qua kiểm đầu file nhưng hỏng đuôi), không thì mã & 0xFF."""
     appdata = os.environ.get("APPDATA")
     wxid = str(getattr(db, "wxid", "") or getattr(db, "account", "") or "")
     if not appdata or not wxid:
@@ -195,8 +205,11 @@ def offline_image_key(db) -> tuple[str, int] | None:
     cached = KEYS.get((account, wxid))
     if cached and cached[0] in codes:
         return cached[1], cached[2]
-    miss = (account, wxid, tuple(codes))
-    if not codes or not account or time.time() - MISSES.get(miss, float("-inf")) < MISS_RETRY:
+    now = time.monotonic()
+    for stale in [key for key, at in MISSES.items() if now - at >= MISS_RETRY]:
+        del MISSES[stale]
+    miss = (account, wxid, frozenset(codes))
+    if not codes or not account or miss in MISSES:
         return None
     variants = list(dict.fromkeys(("_".join(wxid.split("_")[:2]), re.sub(r"_[0-9a-fA-F]{4}$", "", wxid), wxid)))
     probes = v2_probes(account)
@@ -204,9 +217,10 @@ def offline_image_key(db) -> tuple[str, int] | None:
         for candidate in variants:
             aes = hashlib.md5((code + candidate).encode()).hexdigest()[:16]
             if opens(aes, probes):
-                KEYS[(account, wxid)] = (code, aes, int(code) & 0xFF)
-                return aes, int(code) & 0xFF
-    MISSES[miss] = time.time()
+                xor = tail_xor(aes, probes)
+                KEYS[(account, wxid)] = (code, aes, int(code) & 0xFF if xor is None else xor)
+                return KEYS[(account, wxid)][1:]
+    MISSES[miss] = now
     return None
 
 
@@ -227,9 +241,9 @@ def kvcomm_codes(appdata: Path) -> list[str]:
     return list(dict.fromkeys(code for _, code in sorted(found, reverse=True)))
 
 
-def v2_probes(account_dir: str, limit: int = SAMPLES) -> list[bytes]:
-    """Khối mã hóa đầu (16 byte sau phần đầu 15 byte) của tối đa `limit` file `.dat` V2 ở `msg/attach/<nhóm>/<tháng>/Img`, tháng
-    mới trước. Mỗi file chỉ đọc 31 byte; không giải ảnh nào."""
+def v2_probes(account_dir: str, limit: int = SAMPLES) -> list[tuple[bytes, bytes]]:
+    """(khối mã hóa đầu, 16 byte cuối của phần XOR hoặc b"") của tối đa `limit` file `.dat` V2 ở
+    `msg/attach/<nhóm>/<tháng>/Img`, tháng mới trước. Mỗi file chỉ đọc 31 byte đầu và tối đa 16 byte cuối; không giải ảnh nào."""
     attach = Path(account_dir) / "msg" / "attach"
     months = []
     try:
@@ -239,7 +253,7 @@ def v2_probes(account_dir: str, limit: int = SAMPLES) -> list[bytes]:
     for chat in chats:
         with contextlib.suppress(OSError):
             months += [(entry.name, entry.path) for entry in os.scandir(chat) if entry.is_dir()]
-    probes: list[bytes] = []
+    probes: list[tuple[bytes, bytes]] = []
     for _, month in sorted(months, reverse=True):
         try:
             names = sorted((entry.name for entry in os.scandir(Path(month) / "Img") if entry.name.endswith(".dat")), reverse=True)
@@ -249,22 +263,28 @@ def v2_probes(account_dir: str, limit: int = SAMPLES) -> list[bytes]:
             try:
                 with open(Path(month) / "Img" / name, "rb") as stream:
                     head = stream.read(dat.V2_HEADER.size + 16)
+                    if len(head) < dat.V2_HEADER.size + 16 or not head.startswith(dat.V2_MAGIC):
+                        continue
+                    xor_size = dat.V2_HEADER.unpack_from(head)[2]
+                    tail = b""
+                    if xor_size:
+                        stream.seek(-min(16, xor_size), os.SEEK_END)
+                        tail = stream.read(16)
             except OSError:
                 continue
-            if len(head) == dat.V2_HEADER.size + 16 and head.startswith(dat.V2_MAGIC):
-                probes.append(head[dat.V2_HEADER.size:])
-                if len(probes) >= limit:
-                    return probes
+            probes.append((head[dat.V2_HEADER.size:], tail))
+            if len(probes) >= limit:
+                return probes
     return probes
 
 
-def opens(aes: str, probes: list[bytes]) -> bool:
+def opens(aes: str, probes: list[tuple[bytes, bytes]]) -> bool:
     """Khóa giải được ít nhất hai mẫu (một, nếu chỉ có một) thành chữ ký ảnh: một khối 16 byte ngẫu nhiên tình cờ ra `FF D8 FF` là
     2⁻²⁴, đòi hai mẫu thì gần như không thể nhận nhầm khóa."""
     keys = dat.expand_key(aes.encode("ascii"))
     hits = 0
-    for probe in probes:
-        plain = dat.decrypt_block(keys, probe)
+    for block, _ in probes:
+        plain = dat.decrypt_block(keys, block)
         if dat.sniff(plain) or plain.startswith(b"wxgf"):
             hits += 1
             if hits >= min(2, len(probes)):
@@ -272,10 +292,34 @@ def opens(aes: str, probes: list[bytes]) -> bool:
     return False
 
 
-def export_image(tools, username: str, local_id: int, directory: str) -> str | None:
-    """Giải mã ảnh `.dat` của một tin ra `directory`; trả tên file hoặc None. Chỉ đọc file cục bộ, không đụng giao diện WeChat."""
+def tail_xor(aes: str, probes: list[tuple[bytes, bytes]]) -> int | None:
+    """Byte XOR suy từ đuôi chắc chắn của ảnh (JPEG `FF D9`, PNG khối IEND, GIF `3B`) ở các mẫu giải được; chỉ trả khi ít nhất hai
+    mẫu suy được và cùng một byte (một ảnh JPEG có thể có dữ liệu thừa sau `FF D9`)."""
+    keys = dat.expand_key(aes.encode("ascii"))
+    found = set()
+    count = 0
+    for block, tail in probes:
+        mime = dat.sniff(dat.decrypt_block(keys, block))
+        ending = dat.ENDINGS.get(mime or "")
+        if not ending or len(tail) < len(ending):
+            continue
+        key = tail[-1] ^ ending[-1]
+        if all(tail[-len(ending) + i] ^ key == byte for i, byte in enumerate(ending)):
+            found.add(key)
+            count += 1
+    return found.pop() if count >= 2 and len(found) == 1 else None
+
+
+def export_image(tools, username: str, local_id: int, sort_seq, directory: str) -> str | None:
+    """Giải mã ảnh `.dat` của một tin ra `directory`; trả tên file hoặc None. Chỉ đọc file cục bộ, không đụng giao diện WeChat.
+
+    `local_id` lặp giữa các mảnh DB và upstream tìm ảnh theo `local_id`, lấy tin ảnh có `sort_seq` lớn nhất: tin ảnh cũ trùng số
+    với tin ảnh mới sẽ nhận NHẦM ảnh của tin mới. Nên chỉ giải khi tin upstream tìm ra đúng là tin này (cùng `sort_seq`)."""
     downloader, aes, xor = tools
     try:
+        row = downloader.db.get_message_row(username, local_id, local_type=3)
+        if not isinstance(row, dict) or row.get("sort_seq") != sort_seq:
+            return None
         path = downloader.download_image(username, local_id, save_dir=directory, aes_key=aes, xor_key=xor, tier="best")
     except Exception:   # noqa: BLE001
         return None
@@ -328,7 +372,7 @@ def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None,
     if kind == "系统消息" and REVOKE.search(raw):
         out["revoked"] = True   # chỉ cờ; chữ gốc không ra ngoài
     if tools and images_dir and kind == "图片" and isinstance(row.get("local_id"), int):
-        out["image"] = export_image(tools, username, row["local_id"], images_dir)
+        out["image"] = export_image(tools, username, row["local_id"], row.get("sort_seq"), images_dir)
     out["fp"] = fingerprint(out)
     return out
 
@@ -369,10 +413,13 @@ def cmd_read(db, request: dict) -> int:
             seen = {key(row) for row in fresh}
             now = time.time()
             span = max(hours, deep)
-            late = read_window(db, username, span, now) if span > 0 and (have or {}).get("sort_seq") else []
-            # Ngoài cửa sổ thường chỉ giữ tin ảnh: phần dài hơn (`deep_image_hours`) chỉ để thử lại ảnh còn thiếu.
-            late = [row for row in late if key(row) not in seen
-                    and (row.get("type") == "图片" or (isinstance(row.get("create_time"), int) and row["create_time"] >= now - hours * 3600))]
+            late = [row for row in (read_window(db, username, span, now) if span > 0 and (have or {}).get("sort_seq") else [])
+                    if key(row) not in seen]
+            recent = {key(row) for row in late if isinstance(row.get("create_time"), int) and row["create_time"] >= now - hours * 3600}
+            # Ngoài cửa sổ thường chỉ giữ tin ẢNH, tối đa `DEEP_IMAGE_BUDGET` tin mới nhất: phần đó chỉ để thử lại/nâng ảnh.
+            older = {key(row) for row in late if key(row) not in recent and row.get("type") == "图片"}
+            older = set(sorted(older, key=lambda k: (k[1] if isinstance(k[1], int) else 0), reverse=True)[:DEEP_IMAGE_BUDGET])
+            late = [row for row in late if key(row) in recent or key(row) in older]
             # Chỉ tin MỚI mới đáng làm mới bộ nhớ đệm; người gửi đã thử mà vẫn không ra (đã rời nhóm…) thì không thử lại trong 6 giờ.
             missing = {k for k in (stale_key(row, nicks) for row in fresh) if k is not None and time.time() - TRIED.get(k, 0) > RETRY_AFTER}
             if attempt == 0 and not refreshed and missing:
@@ -391,13 +438,15 @@ def cmd_read(db, request: dict) -> int:
             emit(item)
         for row in late:
             item = record(nicks, username, row, None, None, window=True)
+            if key(row) not in recent:
+                item["deep"] = True   # chỉ để thử lại/nâng ảnh: bộ xử lý không nhập tin mới từ phần này
             if (sent.get(username) or {}).get(f"{item['local_id']}:{item['sort_seq']}") == item["fp"]:
                 counts["window_same"] += 1   # đã có đúng bản này: không gửi lại nội dung qua ống
                 continue
             if tools and images_dir and item["type"] == "图片" and isinstance(item["local_id"], int):
-                # Bộ xử lý không giữ `fp` của tin ảnh còn thiếu ảnh, nên tin đó về đây mỗi lượt: thử giải lại (file `.dat` tải chậm,
-                # khóa có muộn). Tin ảnh đã có `media` thì bộ xử lý giữ `fp` và tin đó dừng ở trên, không giải lại.
-                item["image"] = export_image(tools, username, item["local_id"], images_dir)
+                # Bộ xử lý không giữ `fp` của tin ảnh còn thiếu ảnh (và giữ ngắn với ảnh thu nhỏ), nên tin đó về đây: thử giải lại
+                # (file `.dat` tải chậm, khóa có muộn, bản nén có sau ảnh thu nhỏ). Ảnh đủ cỡ thì bộ xử lý giữ `fp`, tin dừng ở trên.
+                item["image"] = export_image(tools, username, item["local_id"], item["sort_seq"], images_dir)
                 counts["images"] += bool(item["image"])
             counts["window"] += 1
             emit(item)

@@ -17,6 +17,7 @@ import json
 import os
 import queue
 import re
+import struct
 import subprocess
 import sys
 import threading
@@ -34,6 +35,9 @@ SCRIPT = Path(__file__).resolve().parents[1] / "wechat_export.py"
 INTERVAL, MAX_BACKOFF, TIMEOUT = 10, 15 * 60, 60
 RECHECK_HOURS = 6      # đọc lại các tin trong khoảng này mỗi lượt để thấy tin bị sửa tại chỗ (thu hồi)
 DEEP_IMAGE_HOURS = 7 * 24   # lượt đầu sau khi agent chạy: thử lại ảnh còn thiếu của 7 ngày (bật ảnh muộn, sửa khóa xong rồi chạy lại)
+DEEP_TRIES = 2              # lượt 7 ngày lỗi (quá giờ…) chừng này lần thì bỏ: tin chữ không bao giờ bị kẹt sau một yêu cầu quá nặng
+THUMB_PIXELS = 240 * 240    # ảnh từ chừng này điểm ảnh trở xuống coi là ảnh thu nhỏ của WeChat (cạnh dài ~120–240): còn tìm bản lớn hơn
+SMALL_RETRY = 600           # giây: ảnh thu nhỏ thử tìm bản lớn hơn mỗi 10 phút trong cửa sổ (ảnh thiếu hẳn thì mỗi lượt)
 SELF_NAME = "Tôi (WeChat)"
 # local_type của WeChat 4.x (tên do upstream đặt) → message_type của gói Zalo (TYPE_NAMES trong web/v7_zalo_chat.py).
 KINDS = {"文本": 1, "图片": 2, "文件/链接/卡片": 19, "系统消息": -4, "语音": 3, "视频": 18, "位置": 17, "动画表情": 4,
@@ -102,11 +106,41 @@ def convert(item: dict, image: str | None = None) -> tuple[dict, tuple[str, str]
 
 
 def trace(row: dict) -> dict:
-    """Dấu vết đủ để so một dòng với bản đã ghi, gồm cả việc ảnh đã có media hay chưa."""
-    body = json.dumps([row.get("message_type"), row.get("body"), row.get("sender_id"), bool(row.get("deleted")), bool(row.get("media"))],
+    """Dấu vết đủ để so một dòng với bản đã ghi: chữ ký (loại, chữ, người gửi, đã xóa, ảnh nào) và các trường cần cho dòng xóa.
+    `media` là danh sách mã ảnh của bản đã ghi, để biết tin ảnh đã có ảnh chưa và ảnh mới có khác không."""
+    media = [digest for digest in (row.get("media") or []) if isinstance(digest, str)]
+    body = json.dumps([row.get("message_type"), row.get("body"), row.get("sender_id"), bool(row.get("deleted")), media],
                       ensure_ascii=False, sort_keys=True)
-    return {"sig": sha(body), "deleted": bool(row.get("deleted")), "media": bool(row.get("media")), "sender_id": row.get("sender_id"),
+    return {"sig": sha(body), "deleted": bool(row.get("deleted")), "media": media, "sender_id": row.get("sender_id"),
             "message_type": row.get("message_type"), "status": row.get("status")}
+
+
+def pixels(data: bytes) -> int | None:
+    """Số điểm ảnh (rộng × cao) đọc từ phần đầu file JPEG, PNG hoặc GIF; None khi không đọc được."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        width, height = struct.unpack(">II", data[16:24])
+        return width * height
+    if data[:4] == b"GIF8" and len(data) >= 10:
+        width, height = struct.unpack("<HH", data[6:10])
+        return width * height
+    if data[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 4 <= len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker == 0xFF or marker == 0x01 or 0xD0 <= marker <= 0xD8:   # đệm và mốc không có độ dài
+            i += 1 if marker == 0xFF else 2
+            continue
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):   # SOF: cao, rộng nằm sau 1 byte độ chính xác
+            if i + 9 > len(data):
+                return None
+            height, width = struct.unpack(">HH", data[i + 5:i + 9])
+            return width * height
+        i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+    return None
 
 
 class Selection:
@@ -159,6 +193,17 @@ class Store:
                 stream.write(b"".join(wb.dump(row) + b"\n" for row in rows))
                 stream.flush()
                 os.fsync(stream.fileno())
+
+    def media_pixels(self, digest: str) -> int | None:
+        """Số điểm ảnh của một ảnh đã lưu trong `media/` (None: không có file, hoặc không đọc được kích thước)."""
+        for extension in sorted(set(wb.EXTENSIONS.values())):
+            path = self.dir / "media" / (digest + extension)
+            if path.is_file():
+                try:
+                    return pixels(path.read_bytes())
+                except OSError:
+                    return None
+        return None
 
     def store_image(self, data: bytes) -> tuple[str, dict] | None:
         mime = wb.sniff(data)
@@ -357,8 +402,10 @@ class WeChatProcessor:
         self.store, self.state, self.python, self.pilot = store, Path(state), python, pilot
         self.interval, self.first_limit, self.images, self.recheck_hours = interval, first_limit, images, recheck_hours
         self.fps: dict[tuple, tuple[str, int]] = {}   # (nhóm, local_id, sort_seq) → (dấu vân tay, giờ tin): cửa sổ chỉ gửi nội dung khi khác
+        self.retry_at: dict[tuple, float] = {}        # tin có ảnh thu nhỏ → lúc quên `fp` để tiến trình con giải lại tìm bản lớn hơn
         self.deep_pending = True                      # lượt đọc thành công đầu tiên CÓ KHÓA của tiến trình này kèm lượt thử lại ảnh 7 ngày
         self.deep_sent = False
+        self.deep_failures = 0
         self.appended = 0                             # số dòng THẬT SỰ ghi ở lượt nhập gần nhất
         self.names: dict[str, str] | None = None   # users.json của kho; nạp lười, cập nhật khi ghi
         self.known: dict[str, dict] | None = None   # dấu vết bản cuối của mỗi mã tin trong log; nạp lười ở lượt nhập đầu
@@ -379,8 +426,10 @@ class WeChatProcessor:
         images = str(self.store.dir / "incoming") if self.images else None
         if images:
             Path(images).mkdir(exist_ok=True)
-        floor = self.clock() - (self.recheck_hours + 1) * 3600
-        self.fps = {key: value for key, value in self.fps.items() if value[1] >= floor}
+        now = self.clock()
+        floor = now - (self.recheck_hours + 1) * 3600
+        self.fps = {key: value for key, value in self.fps.items() if value[1] >= floor and self.retry_at.get(key, now + 1) > now}
+        self.retry_at = {key: at for key, at in self.retry_at.items() if key in self.fps}
         known: dict[str, dict] = {}
         for (username, local_id, seq), (fp, _) in self.fps.items():
             if username in groups:
@@ -434,8 +483,11 @@ class WeChatProcessor:
         self.failures = self.failures + 1 if error else 0
         if error:
             self.next_at = now + min(MAX_BACKOFF, self.interval * 2 ** self.failures)
+            if self.deep_sent:
+                self.deep_failures += 1
+                self.deep_pending = self.deep_failures < DEEP_TRIES   # lỗi hai lần thì bỏ lượt 7 ngày, đọc tin như thường
         elif self.deep_sent and (end or {}).get("image_keys"):
-            self.deep_pending = False   # lượt ảnh 7 ngày đã chạy có khóa; lỗi hay chưa có khóa thì lượt sau làm lại (con bỏ qua khi không khóa)
+            self.deep_pending = False   # lượt ảnh 7 ngày đã chạy có khóa; chưa có khóa thì lượt sau làm lại (con bỏ qua khi không khóa)
         # "poll" (và thay đổi trạng thái) chỉ khi có dòng THẬT SỰ được ghi: cửa sổ đọc lại không làm log và đẩy status mỗi lượt
         self.last = {"action": "poll" if not error and self.appended else "idle", "revision": None, "error": error, "messages": self.total}
 
@@ -443,31 +495,55 @@ class WeChatProcessor:
         if self.known is None:
             self.known = self.store.known()
         rows, users, media, moved, staged, seen_fp = [], {}, {}, {}, {}, {}   # staged: dấu vết chỉ nhớ sau khi nối log thành công
+        retry: dict[tuple, float | None] = {}
         for item in items:
             if item.get("username") not in groups:   # nhóm vừa bỏ chọn giữa lượt đọc nền: không nhập, không trả con trỏ
                 continue
-            image = None
-            if item.get("image") and self.images:
-                image = self.read_image(item["image"])
-                if image:
-                    media[image[0]] = image[1]
+            photo = item.get("type") == "图片"
+            made = bool(item.get("image")) and self.images   # tiến trình con có giải ra file
+            data = self.read_image(item["image"]) if made else None
+            image = None   # (mã sha256, dữ liệu, số điểm ảnh) khi file là ảnh dùng được; CHƯA lưu vào media/ (chỉ lưu khi dùng)
+            if data is not None and wb.sniff(data) in wb.EXTENSIONS:
+                image = (hashlib.sha256(data).hexdigest(), data, pixels(data))
             converted = convert(item, image[0] if image else None)
             if converted is None:
                 continue
             row, user = converted
-            if image:
-                row["media"] = [image[0]]
             window = bool(item.get("window"))
             prior = staged.get(row["message_id"]) or self.known.get(row["message_id"])
-            photo = item.get("type") == "图片"
-            # Tin ảnh còn thiếu ảnh: KHÔNG nhớ `fp`, để lượt cửa sổ sau tiến trình con gửi lại và giải thử lần nữa (file `.dat` tải
-            # chậm, khóa có muộn). Có ảnh rồi thì nhớ như mọi tin, tiến trình con dừng giải lại.
-            waiting = self.images and photo and not image and not (prior or {}).get("media")
-            if isinstance(item.get("fp"), str) and not waiting:
-                seen_fp[(item["username"], item["local_id"], item["sort_seq"])] = (item["fp"], item["create_time"])
-            if window and prior is not None and photo and (prior.get("media") or not image):
-                continue   # không để lượt thiếu ảnh ghi đè media; lượt có ảnh được phép bổ sung cho dòng cũ
-            keep_media = prior is not None and photo and prior.get("media") and not image   # đọc lại (con trỏ mất) lúc không có khóa
+            if item.get("deep") and prior is None:
+                continue   # lượt ảnh 7 ngày chỉ thử lại/nâng ảnh cho tin đã có; tin lần đọc đầu đã cố ý bỏ thì không nhập
+            had = list((prior or {}).get("media") or [])
+            had_pixels = self.store.media_pixels(had[0]) if photo and had and (image or self.images) else None
+            if photo and image and had:   # đã có ảnh: chỉ thay bằng bản LỚN HƠN (thu nhỏ → nén/gốc), không bao giờ lùi
+                accepted = image[0] not in had and image[2] is not None and image[2] > (had_pixels or 0)
+            else:
+                accepted = bool(image)
+            stored = self.store.store_image(image[1]) if accepted else None
+            accepted = stored is not None
+            if accepted:
+                media[stored[0]] = stored[1]
+                row["media"] = [stored[0]]
+            elif image is not None:   # có ảnh mà không dùng (trùng, nhỏ hơn, không lưu được): dòng giữ đúng như bản đang có
+                row = convert(item, had[0] if had else None)[0]
+                if had:
+                    row["media"] = had
+            final_pixels = image[2] if accepted else had_pixels
+            has_media = accepted or bool(had)
+            # Tin ảnh còn thiếu ảnh (file `.dat` tải chậm, khóa có muộn): KHÔNG nhớ `fp`, lượt cửa sổ sau tiến trình con giải lại.
+            # Ảnh thu nhỏ: nhớ `fp` 10 phút rồi quên, để thử tìm bản lớn hơn. File giải ra mà không dùng được: nhớ, thôi thử.
+            missing = self.images and photo and not has_media and not made
+            small = self.images and photo and has_media and final_pixels is not None and final_pixels <= THUMB_PIXELS
+            if isinstance(item.get("fp"), str) and not missing:
+                key = (item["username"], item["local_id"], item["sort_seq"])
+                seen_fp[key] = (item["fp"], item["create_time"])
+                retry[key] = self.clock() + SMALL_RETRY if small else None
+            if photo and prior is not None and not accepted:
+                if window:
+                    continue   # không có gì tốt hơn bản đang có: không ghi đè, không phát lại
+                keep_media = True   # đọc lại (con trỏ mất) lúc không có khóa / chỉ có bản nhỏ hơn: giữ bản đang có, con trỏ vẫn tiến
+            else:
+                keep_media = False
             if window and prior is not None:
                 # Cửa sổ đọc lại: chỉ phát khi dòng đã đổi. WeChat thu hồi bằng cách biến dòng cũ thành tin hệ thống: dòng đó
                 # trở thành dòng xóa (giữ người gửi, loại tin cũ) và không bao giờ bị tin hệ thống ghi đè lại.
@@ -477,7 +553,7 @@ class WeChatProcessor:
                     row = {**row, "sender_id": prior["sender_id"], "message_type": prior["message_type"], "status": prior["status"],
                            "body": None, "deleted": True}
                     row.pop("media", None)
-            duplicate = prior is not None and (prior["sig"] == trace(row)["sig"] or bool(keep_media))
+            duplicate = prior is not None and (prior["sig"] == trace(row)["sig"] or keep_media)
             if not duplicate:
                 rows.append(row)
                 staged[row["message_id"]] = trace(row)
@@ -497,6 +573,11 @@ class WeChatProcessor:
         self.known.update(staged)
         self.names = {**(self.names or {}), **users}
         self.fps.update(seen_fp)
+        for key, at in retry.items():
+            if at is None:
+                self.retry_at.pop(key, None)
+            else:
+                self.retry_at[key] = at
         self.appended = len(rows)
         self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **{u: c for u, c in moved.items() if u in groups}}
         self.total += len(rows)
@@ -504,14 +585,15 @@ class WeChatProcessor:
             cursors.save(self.state, NAME, {"groups": self.cursors, "messages": self.total}, self.clock())
         return None
 
-    def read_image(self, name: str) -> tuple[str, dict] | None:
+    def read_image(self, name: str) -> bytes | None:
+        """Byte của file tiến trình con vừa giải ra trong `incoming/` (đọc xong là xóa); None khi không đọc được."""
         path = self.store.dir / "incoming" / Path(name).name
         try:
             data = path.read_bytes()
             path.unlink(missing_ok=True)
         except OSError:
             return None
-        return self.store.store_image(data)
+        return data
 
 
 # ---- lệnh chọn nhóm: `zalo_agent wechat-list | wechat-add <tên> | wechat-remove <tên>` ----
