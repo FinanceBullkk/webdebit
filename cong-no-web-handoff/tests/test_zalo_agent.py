@@ -322,6 +322,54 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(len(self.remote.calls), calls)
         self.assertEqual(cursors.load(self.root / "state", "bundle")["revision"], 88)
 
+    def run_agent(self, sleep=lambda seconds: None):
+        """Agent thật (vòng `tick`) trên kho live-sync bịa của ca này; đồng hồ là `self.now`, `sleep` do test cầm."""
+        agent = agent_main.Agent(self.live, self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote, clock=lambda: self.now,
+                                 sleep=sleep, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
+        self.addCleanup(agent.release)
+        return agent
+
+    def test_message_arriving_during_the_three_second_wait_goes_out_in_the_same_push(self):
+        """Spec Thu chi, unit `watch`: gom 3 giây thành một lần đẩy. Tin thứ hai tới giữa lúc agent đang chờ thì đi cùng lượt với tin đầu."""
+        slept = []
+        first, second = self.message(body="tin bịa thứ nhất"), self.message(body="tin bịa thứ hai")
+
+        def sleep(seconds):
+            slept.append(seconds)
+            self.now += seconds
+            if len(slept) == 1:
+                self.publish(added=[second])   # live-sync ghi revision kế tiếp trong lúc agent đang chờ
+        agent = self.run_agent(sleep)
+        agent.cycle(force_status=True)          # dựng đầy đủ lần đầu
+        applies = self.remote.applies()
+        self.publish(added=[first])
+        agent.tick()
+        self.assertEqual(slept, [agent_main.SETTLE])
+        self.assertEqual(self.remote.applies(), applies + 1)   # một lượt đẩy, không phải hai
+        self.assertEqual([item["message_id"] for item in self.remote_delta()], [first["message_id"], second["message_id"]])
+        self.assertEqual(self.remote_report()["revision"], self.live.revision())
+        agent.tick()                                            # không còn gì mới: không chờ, không đẩy gói
+        self.assertEqual((slept, self.remote.applies()), ([agent_main.SETTLE], applies + 1))
+
+    def test_heartbeat_goes_out_every_minute_even_with_no_new_message(self):
+        """Spec Thu chi, unit `watch`: không có tin thì vẫn có nhịp tim mỗi phút (máy canh dựa vào `at` của status.json)."""
+        agent = self.run_agent()
+        agent.cycle(force_status=True)
+        agent.cycle()                                            # dựng đầy đủ → nghỉ cũng là một thay đổi, có một lần báo
+        bundles, beats = self.remote.applies(), self.remote.applies(STATUS_REMOTE)
+        self.now += agent_main.STATUS_EVERY - 1
+        agent.tick()
+        self.assertEqual(self.remote.applies(STATUS_REMOTE), beats)   # chưa đủ một phút, không đổi gì: im
+        self.now += 1
+        agent.tick()
+        self.assertEqual(self.remote.applies(STATUS_REMOTE), beats + 1)   # đủ một phút: nhịp tim
+        sent = json.loads((self.remote.dirs[STATUS_REMOTE] / "status.json").read_text(encoding="utf-8"))
+        self.assertEqual(sent["at"], cursors.now_iso(self.now))
+        self.assertEqual(self.remote.applies(), bundles)               # nhịp tim không gửi lại gói
+        self.now += agent_main.STATUS_EVERY
+        agent.tick()
+        self.assertEqual(self.remote.applies(STATUS_REMOTE), beats + 2)
+
     def test_dropped_connection_resends_without_duplicate_lines(self):
         self.processor.step()
         first = self.message(body="một")

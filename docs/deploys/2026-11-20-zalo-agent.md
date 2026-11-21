@@ -64,9 +64,17 @@ Người dùng bấm "Đồng ý bật" sau khi FinanceBullkk/webdebit#548 và #
 ## CÒN MỞ
 
 - Đo một ngày làm việc: tin mới lên web trong 30 giây (p95), khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp (tiêu chí bước Chuyển).
-- `--dry-run` không nên lưu con trỏ.
+- ~~`--dry-run` không nên lưu con trỏ.~~ Đã sửa: bộ xử lý gói giữ con trỏ trong bộ nhớ khi `--dry-run`; `test_cycle_pushes_bundle_and_heartbeat_and_dry_run_pushes_nothing` kiểm thư mục trạng thái chỉ còn file khóa (đối chiếu 22/11/2026).
 
 ## Rollback
 
 - Máy có Zalo: `Disable-ScheduledTask ZaloAgent`, `Enable-ScheduledTask WebdebitZaloSync`, `Enable-ScheduledTask ZaloInsurancePush`. Chỉ lùi phần bảo hiểm: bỏ `--insurance-target` khỏi task `ZaloAgent` rồi bật lại `ZaloInsurancePush`. Gói trên `hao` vẫn đọc được vì thiếu phần thêm thì chỉ đọc gói gốc.
 - `hao`: `/srv/v7/zalo-agent` xóa được; thiếu `status.json` thì tab Máy chạy hiện "Chưa có máy Zalo báo về", máy canh im.
+
+## Đo thêm 22/11/2026
+
+Chỉ đọc trên máy có Zalo, ghi số đếm và thời gian, không nội dung tin.
+
+- **Quét 131 MB (tiêu chí PR-1):** `LiveSync.rows_for` với 446 mã tin không có (buộc quét hết file) trên `messages.jsonl` 125,1 MiB (≈ 131 MB): nhanh nhất **0,33 giây** trong 3 lượt, dưới ngưỡng 2 giây.
+- **`logs/` sau hai ngày (tiêu chí PR-0):** thư mục `live-sync-20261030/logs` 25 MB, dưới 40 MB; `poller.log` đã xoay một lần (`poller.log.1` 22 MB từ 20/11).
+- **Heap probe:** chỉ chạy khi poller gắn lại. Từ lúc áp PR-0: `exit=0` lúc 09:52 ngày 20/11, `exit=1` lúc 18:57 ngày 20/11 và 14:06 ngày 21/11, trùng các lúc Zalo PC tắt. Sáng 22/11 Zalo PC đang tắt (`waiting_for_zalo` trên `hao`), watchdog, `live_sync.py`, `server.py` vẫn chạy. Còn chờ một lần gắn lại khi Zalo mở để thấy `exit=0`.
