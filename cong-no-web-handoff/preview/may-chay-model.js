@@ -274,16 +274,20 @@ const MayChayModel = (() => {
 
   // ZALO-AGENT-01: nhóm "Máy Zalo", mỗi bộ xử lý một dòng câu thường. `zalo` là phần `zalo` của /api/v7/machine (chỉ mã, số, giờ).
   // Thứ tự ưu tiên của một dòng: không nghe máy > Zalo chưa mở > lỗi > chậm > đang đuổi kịp > bình thường.
-  const ZALO_NAMES = { bundle: 'Gói chat', insurance: 'Bảo hiểm', money_images: 'Ảnh chuyển khoản' };
+  const ZALO_NAMES = { bundle: 'Gói chat', insurance: 'Bảo hiểm', money_images: 'Ảnh chuyển khoản', wechat: 'WeChat' };
   const TONE_RANK = { ok: 0, warn: 1, bad: 2 };
+  // WECHAT-01: WeChat đọc kho riêng, không theo revision của Zalo: Zalo chưa mở không làm WeChat dừng, và "kịp tin mới" không đo được;
+  // máy chủ gửi số tin đã nhập kho (`messages`, null là không rõ, không phải 0).
+  const wechatText = item => (Number.isInteger(item.messages) ? `Đang chạy, ${item.messages.toLocaleString('vi-VN')} tin đã nhập` : 'Đang chạy');
   function zaloLines(zalo) {
     if (!zalo || zalo.state === 'missing') return { tone: 'off', head: 'Chưa có máy Zalo báo về', rows: [] };
     const silent = zalo.state === 'silent';
     const lost = zalo.at ? `Không nghe máy Zalo từ ${hhmm(zalo.at)}` : 'Không nghe máy Zalo';
     const rows = (zalo.processors ?? []).map(item => {
-      let text = 'Đang chạy, kịp tin mới', tone = 'ok';
+      const wechat = item.id === 'wechat';
+      let text = wechat ? wechatText(item) : 'Đang chạy, kịp tin mới', tone = 'ok';
       if (silent) { text = lost; tone = 'bad'; }
-      else if (zalo.identity === 'waiting_for_zalo') { text = 'Zalo chưa mở trên máy Zalo'; tone = 'warn'; }
+      else if (zalo.identity === 'waiting_for_zalo' && !wechat) { text = 'Zalo chưa mở trên máy Zalo'; tone = 'warn'; }
       else if (item.state === 'error') { text = `Gặp lỗi, mã: ${item.error}`; tone = 'bad'; }
       else if (item.state === 'slow') { text = item.minutes === null ? 'Chậm, chưa xong lần nào' : `Chậm ${item.minutes} phút`; tone = 'warn'; }
       else if (item.state === 'catching_up') text = 'Đang đuổi kịp tin mới';

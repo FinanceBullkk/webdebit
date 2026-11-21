@@ -176,3 +176,19 @@ test('receiptReference giữ tiền tố và đuôi của máy khi sửa chữ, 
   assert.equal(F.receiptReference('REF-A', ''), '');
   assert.equal(F.receiptReference(null, 'mới'), 'mới');
 });
+
+test('zaloFreshness: cùng một câu cho Thu chi và Chat Zalo; máy im hay Zalo chưa mở từ 5 phút thì "lần cuối" và cảnh báo', () => {
+  const stamp = iso => iso.slice(11, 16);
+  const ok = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'attached', quiet_minutes: 0 }, '2026-11-22T03:00:00+07:00', stamp);
+  assert.deepEqual(ok, { label: 'Zalo cập nhật lúc 09:30', stale: false, warn: '' });   // nhịp tim thắng giờ dựng gói
+  const silent = F.zaloFreshness({ state: 'silent', at: '2026-11-22T08:05:00+07:00' }, null, stamp);
+  assert.deepEqual(silent, { label: 'Zalo cập nhật lần cuối lúc 08:05', stale: true, warn: 'Máy Zalo không báo về từ 08:05. Tin mới có thể chưa lên.' });
+  const unknown = F.zaloFreshness({ state: 'silent', at: null }, '2026-11-22T03:00:00+07:00', stamp);
+  assert.equal(unknown.warn, 'Máy Zalo không báo về. Tin mới có thể chưa lên.');   // không ghi "từ ." khi không có giờ
+  const waiting = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'waiting_for_zalo', quiet_minutes: 1234 }, null, stamp);
+  assert.deepEqual(waiting, { label: 'Zalo cập nhật lần cuối lúc 09:30', stale: true, warn: 'Zalo chưa mở trên máy Zalo (1.234 phút). Tin Zalo mới chưa lên.' });
+  const brief = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'waiting_for_zalo', quiet_minutes: 4 }, null, stamp);
+  assert.deepEqual([brief.stale, brief.warn], [false, '']);   // dưới 5 phút: chưa nói
+  assert.deepEqual(F.zaloFreshness({ state: 'missing' }, '2026-11-22T03:00:00+07:00', stamp), { label: 'Zalo cập nhật lúc 03:00', stale: false, warn: '' });
+  assert.deepEqual(F.zaloFreshness(undefined, null, stamp), { label: 'Zalo: chưa có tin', stale: false, warn: '' });
+});

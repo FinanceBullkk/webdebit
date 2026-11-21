@@ -239,4 +239,16 @@ test('Máy Zalo: im lặng mà không còn biết bộ xử lý nào thì một 
   assert.deepEqual(texts(M.zaloLines(zalo({}, [{ id: 'money_images', state: 'error', error: 'ocr_failed' }]))), ['Ảnh chuyển khoản: Gặp lỗi, mã: ocr_failed']);
 });
 
+test('Máy Zalo: WeChat có tên riêng, ghi số tin đã nhập; Zalo chưa mở không làm dòng WeChat thành "Zalo chưa mở"', () => {
+  const both = [{ id: 'bundle', state: 'ok', lag: 0 }, { id: 'wechat', state: 'ok', lag: null, minutes: null, error: null, messages: 1053 }];
+  assert.deepEqual(texts(M.zaloLines(zalo({}, both))), ['Gói chat: Đang chạy, kịp tin mới', 'WeChat: Đang chạy, 1.053 tin đã nhập']);
+  const waiting = M.zaloLines(zalo({ identity: 'waiting_for_zalo' }, both));
+  assert.deepEqual(texts(waiting), ['Gói chat: Zalo chưa mở trên máy Zalo', 'WeChat: Đang chạy, 1.053 tin đã nhập']);
+  assert.equal(waiting.tone, 'warn');
+  assert.deepEqual(texts(M.zaloLines(zalo({}, [{ id: 'wechat', state: 'ok', messages: null }]))), ['WeChat: Đang chạy']);   // không rõ số tin: không ghi 0
+  assert.deepEqual(texts(M.zaloLines(zalo({}, [{ id: 'wechat', state: 'error', error: 'db_locked', messages: 53 }]))), ['WeChat: Gặp lỗi, mã: db_locked']);
+  const silent = M.zaloLines(zalo({ state: 'silent', at: at(8, 5) }, [{ id: 'wechat', state: 'ok', messages: 53 }]));
+  assert.deepEqual([texts(silent), silent.tone], [['WeChat: Không nghe máy Zalo từ 08:05'], 'bad']);   // máy im thì WeChat cũng không biết
+});
+
 console.log('may-chay-model: OK');

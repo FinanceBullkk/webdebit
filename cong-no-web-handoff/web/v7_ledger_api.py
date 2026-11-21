@@ -435,9 +435,14 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         # ZALO-CHAT-01: đọc bản xuất chat ngoài DB; vẫn qua xác thực danh tính như mọi route.
         # /api/v7/zalo/links (ZALO-GROUP-01) là bảng gắn sổ trong DB nên đi đường đọc DB như mọi route.
         try:
-            return v7_zalo_chat.handle_get(parts.path, parts.query)
+            status, body = v7_zalo_chat.handle_get(parts.path, parts.query)
         except v7_zalo_chat.ChatError as exc:
             raise ApiError(exc.status, exc.code, exc.message) from exc
+        if parts.path == "/api/v7/zalo/report":
+            # Giờ dựng gói chỉ đổi lúc dựng lại đầy đủ; tin lên liên tục qua delta. Trang Chat Zalo cần nhịp tim máy Zalo để ghi
+            # "cập nhật lúc …" cho đúng và "lần cuối" khi máy im (ZALO-THU-CHI-01 "Bị chặn"), cùng luật trang Thu chi.
+            body = {**body, "zalo": v7_machine.zalo_brief()}
+        return status, body
     else:
         function, payload = validate_get(parts.path, parts.query)
     # HIEU-NANG-01: GET đọc nặng qua bộ nhớ theo dấu dữ liệu (dấu mới mỗi lượt: đọc ngay sau ghi thấy bản mới); POST đi thẳng.
