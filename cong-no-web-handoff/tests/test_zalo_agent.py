@@ -23,6 +23,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "web"))
+import v7_zalo_chat as chat  # noqa: E402
 import zalo_web_bundle as wb  # noqa: E402
 from test_zalo_web_bundle import (  # noqa: E402
     AVATAR_BAN,
@@ -412,6 +414,150 @@ class AgentTest(unittest.TestCase):
         self.assertEqual((result["action"], result["reason"], result["error"]), ("rebuild", "first_run", None))
         self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / wb.REPORT).is_file())
         self.assertEqual(cursors.load(self.root / "state", "bundle")["revision"], 87)
+
+    # --- Chịu lỗi (việc 7 của chuỗi backend Zalo 21/11/2026). Máy chủ là nơi giữ trạng thái: lượt hỏng nào cũng để nguyên file chốt
+    # cũ (gói cũ đủ để hao đọc), lượt sau tự khớp lại; con trỏ chỉ tiến khi đã đẩy xong. ---
+    def remote_ids(self, root: Path | None = None) -> list[str]:
+        """Mã tin `hao` đọc được, lặp lại nếu có: messages.jsonl của thư mục trong file chốt rồi delta tới đúng `delta_bytes`."""
+        root = root or self.remote.dirs[BUNDLE_REMOTE]
+        report = json.loads((root / wb.REPORT).read_text(encoding="utf-8"))
+        data = root / report["data_dir"]
+        lines = (data / "messages.jsonl").read_text(encoding="utf-8").splitlines()
+        if report["delta_bytes"]:
+            lines += (data / "messages-delta.jsonl").read_bytes()[:report["delta_bytes"]].decode("utf-8").splitlines()
+        return [json.loads(line)["message_id"] for line in lines]
+
+    def source_ids(self) -> set[str]:
+        ids = set()
+        for line in (self.src / "messages.jsonl").read_text(encoding="utf-8").splitlines():
+            with contextlib.suppress(ValueError):
+                if json.loads(line).get("conversation_id") == GROUP:
+                    ids.add(json.loads(line)["message_id"])
+        return ids
+
+    def assert_whole(self, root: Path | None = None):
+        """Không gói dở: file chốt trỏ tới thư mục dữ liệu đủ bốn file, delta trên máy chủ dài ít nhất `delta_bytes`."""
+        root = root or self.remote.dirs[BUNDLE_REMOTE]
+        report = json.loads((root / wb.REPORT).read_text(encoding="utf-8"))
+        data = root / report["data_dir"]
+        self.assertEqual([name for name in ("conversations.json", "users.json", "messages.jsonl", "media.json") if not (data / name).is_file()], [])
+        delta = data / "messages-delta.jsonl"
+        self.assertGreaterEqual(delta.stat().st_size if delta.is_file() else 0, report["delta_bytes"])
+
+    def assert_caught_up(self):
+        saved = cursors.load(self.root / "state", "bundle")
+        self.assertEqual((saved["revision"], "pending" in saved), (self.live.revision(), False))
+
+    def assert_every_message_once(self, root: Path | None = None):
+        ids = self.remote_ids(root)
+        self.assertEqual((sorted(ids), set(ids)), (sorted(set(ids)), self.source_ids()))   # không mất tin, không tin nào hai lần
+
+    def test_agent_killed_while_sending_resumes_from_pending_without_loss_or_repeat(self):
+        class Killed(BaseException):
+            """Tiến trình bị giết: không khối except nào của agent bắt được."""
+
+        self.processor.step()
+        for when in ("before_apply", "after_apply"):
+            with self.subTest(when=when):
+                self.publish(added=[self.message(body=f"tin bịa {when} {n}") for n in range(3)])
+                def dying(host, command, stdin=None, when=when, remote=self.remote):
+                    if stdin is None:
+                        return remote(host, command)
+                    if when == "after_apply":
+                        remote(host, command, stdin)   # máy chủ đã áp xong, agent chết trước khi kịp tiến con trỏ
+                    raise Killed()
+
+                with self.assertRaises(Killed):
+                    self.make(run=dying).step()
+                self.assertTrue(cursors.load(self.root / "state", "bundle").get("pending"))   # pending lưu trước khi đẩy
+                self.assert_whole()
+                applies = self.remote.applies()
+                result = self.make().step()   # agent chạy lại: con trỏ đọc từ đĩa, đẩy nốt pending, không dựng lại
+                self.assertEqual((result["action"], result["error"]), ("delta", None))
+                if when == "after_apply":   # máy chủ đã có đủ: lượt gửi lại không cần tar
+                    self.assertEqual(self.remote.applies(), applies)
+                self.assert_whole()
+                self.assert_every_message_once()
+                self.assert_caught_up()
+
+    @unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn shell phía máy chủ")
+    def test_ssh_cut_in_the_middle_of_the_tar_leaves_the_old_bundle_whole(self):
+        (self.base / "remote-shell").mkdir()
+        shell = Remote(self.base / "remote-shell", fast=False)   # bash + tar thật: đúng đoạn shell máy chủ chạy
+        root = shell.dirs[BUNDLE_REMOTE]
+        cut = {"left": 1}
+
+        def cutting(host, command, stdin=None):
+            if stdin is not None and cut["left"]:
+                cut["left"] -= 1
+                data = stdin.read()
+                remote = next(path for path in shell.dirs if path in command)
+                # Cắt trong khối dữ liệu của thành viên đầu (byte 700): cắt ở giữa độ dài thì phần đệm cuối tar có thể đã chứa đủ mọi file.
+                with contextlib.suppress(AssertionError):   # tar -x gặp hết dòng giữa chừng: đoạn shell thoát khác 0
+                    shell.shell(remote, command, data[:700])
+                raise pusher.PushError("ssh đứt giữa lúc gửi tar")
+            return shell(host, command, stdin)
+
+        processor = self.make(run=cutting)
+        self.assertEqual(processor.step()["error"], "push_failed")
+        self.assertEqual(sorted(path.name for path in root.iterdir()), [])   # lượt đầu đứt: máy chủ trống, kể cả thư mục tạm
+        self.assertEqual(processor.step()["action"], "rebuild")
+        self.assert_whole(root)
+        self.publish(added=[self.message(body="tin đi qua đường đứt")])
+        before = (root / wb.REPORT).read_bytes()
+        cut["left"] = 1
+        self.assertEqual(processor.step()["error"], "push_failed")
+        self.assertEqual((root / wb.REPORT).read_bytes(), before)   # file chốt cũ nguyên vẹn: hao vẫn đọc gói cũ đủ
+        self.assert_whole(root)
+        self.assertEqual(list(root.glob(".incoming-*")), [])
+        self.assertEqual(processor.step()["action"], "delta")
+        self.assert_whole(root)
+        self.assert_every_message_once(root)
+        self.assert_caught_up()
+
+    def test_full_disk_on_hao_keeps_pending_and_the_old_bundle_until_space_returns(self):
+        self.processor.step()
+        self.publish(added=[self.message(body=f"tin khi đầy đĩa {n}") for n in range(2)])
+        root = self.remote.dirs[BUNDLE_REMOTE]
+        before = (root / wb.REPORT).read_bytes()
+        full = {"left": 2}
+
+        def disk_full(host, command, stdin=None):
+            if stdin is not None and full["left"]:
+                full["left"] -= 1
+                (root / ".incoming-full01").mkdir(exist_ok=True)   # tar ghi dở vào thư mục tạm rồi hết chỗ
+                (root / ".incoming-full01" / "messages-delta.jsonl").write_bytes(b'{"do')
+                raise pusher.PushError("tar: write error: No space left on device")
+            return self.remote(host, command, stdin)
+
+        processor = self.make(run=disk_full)
+        for _ in range(2):
+            self.assertEqual(processor.step(), processor.result("retry", 87, "push_failed", reason="delta"))
+            self.assertEqual((root / wb.REPORT).read_bytes(), before)
+            self.assert_whole()
+        result = processor.step()   # đã dọn chỗ
+        self.assertEqual((result["action"], result["error"]), ("delta", None))
+        self.assert_whole()
+        self.assert_every_message_once()
+        self.assert_caught_up()
+
+    def test_zalo_reopened_after_hours_delivers_late_messages_in_one_delta_and_since_sees_them(self):
+        self.processor.step()
+        token = chat.ChatStore(self.remote.dirs[BUNDLE_REMOTE]).token()
+        # Zalo tắt nhiều giờ: không revision nào. Mở lại thì live-sync đọc bù nhiều revision liền, có tin giờ gửi cũ hơn tin mới nhất đã lên.
+        late = [row(GROUP, f"tre{n}", KHACH, 1_700_000_000_500 + n, f"tin tới muộn {n}") for n in range(3)]
+        self.publish(added=late[:2])
+        self.publish(added=late[2:], updated=[row(GROUP, "m1", OWNER, 1_700_000_001_000, "tin sửa khi Zalo tắt")])
+        self.publish(deleted=["m3"])
+        self.assertTrue(self.processor.wants_work())
+        result = self.processor.step()
+        self.assertEqual((result["action"], result["reason"]), ("delta", "delta"))   # một lượt delta đuổi kịp, không dựng lại
+        self.assert_whole()
+        self.assert_caught_up()
+        self.assertEqual(self.source_ids() - set(self.remote_ids()), set())
+        since = chat.ChatStore(self.remote.dirs[BUNDLE_REMOTE]).messages_since(GROUP, token, 50)
+        self.assertEqual((since["reset"], sorted(message["message_id"] for message in since["messages"])),
+                         (False, ["m1", "m3", "tre0", "tre1", "tre2"]))   # trang đang mở nhận cả tin tới muộn, tin sửa, tin xóa
 
     def test_failed_first_push_keeps_pending_and_retry_does_not_rebuild(self):
         def broken(host, command, stdin=None):

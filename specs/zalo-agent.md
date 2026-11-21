@@ -461,6 +461,13 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 - [ ] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `since=` trả cả tin tới muộn (giờ gửi cũ hơn), tin sửa, tin xóa; token gói cũ thì `reset`.
 - [ ] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm.
 - [ ] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px.
+- [x] Chịu lỗi, test với kho live-sync và máy chủ bịa (21/11/2026), mỗi ca kiểm không mất tin, không gói dở (file chốt luôn trỏ tới thư mục đủ file, delta dài ít nhất `delta_bytes`), con trỏ đuổi kịp:
+  - agent bị giết lúc gửi tar và sau khi máy chủ đã áp: chạy lại thì đẩy nốt `pending`, không tin nào hai lần;
+  - ssh đứt giữa tar (bash + tar thật): máy chủ giữ nguyên file chốt cũ, không sót thư mục tạm, lượt sau đẩy đủ;
+  - ổ đĩa `hao` đầy: hai lượt `push_failed`, gói cũ nguyên, có chỗ thì đẩy đủ;
+  - Zalo mở lại sau nhiều giờ: một lượt delta mang tin tới muộn (giờ gửi cũ hơn), tin sửa, tin xóa; `since=` của trang đang mở nhận đủ.
+
+  Tên test: `test_agent_killed_while_sending_resumes_from_pending_without_loss_or_repeat`, `test_ssh_cut_in_the_middle_of_the_tar_leaves_the_old_bundle_whole`, `test_full_disk_on_hao_keeps_pending_and_the_old_bundle_until_space_returns`, `test_zalo_reopened_after_hours_delivers_late_messages_in_one_delta_and_since_sees_them`.
 - [ ] Chuyển: một ngày làm việc trên máy thật, tin mới lên web trong **30 giây** (p95, từ `revision_at` tới `status.json` trên `hao`); khởi động lại máy rồi mở Zalo thì agent tự đuổi kịp, không mất tin. Ghi số trong nhật ký.
 - [x] PR-3, test với snapshot, PDF và máy chủ bịa (`tests/test_zalo_agent_insurance.py`): bản gọn trùng từng byte với golden của code gốc; PDF mới gửi, PDF cũ dọn, PDF mất ở máy thì giữ trên máy chủ; 0 dòng không đẩy; snapshot không đổi thì không gửi tar; lỗi đẩy thì `error_since` có mốc; băm PDF theo cache; `--dry-run` không lưu gì.
 - [ ] PR-3, ở bước bật: task bảo hiểm không còn phụ thuộc worktree, chạy cả khi dùng pin; mọi giấy hiện như trước trên `hao` (hỏi người dùng trước khi tắt `ZaloInsurancePush`).
