@@ -30,6 +30,7 @@ from test_zalo_web_bundle import (  # noqa: E402
     write_source,
 )
 from zalo_agent import __main__ as agent_main  # noqa: E402
+from zalo_agent import cursor as cursors  # noqa: E402
 from zalo_agent import gemini, ocr, reads  # noqa: E402
 from zalo_agent.processors.money_images import MoneyImagesProcessor  # noqa: E402
 from zalo_agent.source import LiveSync  # noqa: E402
@@ -215,6 +216,14 @@ class ProcessorTest(MoneyBase):
         self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0})
         self.assertEqual((result["action"], result["error"], result["revision"]), ("idle", None, self.feed.revision()))
         self.assertEqual(sorted(path.name for path in (self.root / "reads").iterdir()), sorted([SHA_LOCAL, SHA_JXL]))
+
+    def test_drain_counts_images_leaving_the_queue_and_when_the_queue_filled(self):
+        waiting = self.make(executor=Stuck()).step()
+        self.assertEqual(waiting["drain"], {"done_1h": 0, "pending_since": cursors.now_iso(self.now), "last_done_at": None})
+        processor = self.make()
+        self.assertEqual(self.drain(processor)["drain"], {"done_1h": 2, "pending_since": None, "last_done_at": cursors.now_iso(self.now)})
+        self.now += 3601
+        self.assertEqual(processor.step()["drain"]["done_1h"], 0)   # quá 60 phút thì không còn tính vào tốc độ
 
     def test_unselected_group_image_never_enters_the_store(self):
         other = self.feed.add_image(OTHER, b"\xff\xd8\xff\xe0other-group")

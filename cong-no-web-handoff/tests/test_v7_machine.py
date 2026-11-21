@@ -214,6 +214,25 @@ class MachineTests(unittest.TestCase):
         self.assertEqual([(row["id"], row["state"], row["minutes"]) for row in view["processors"]],
                          [("bundle", "ok", None), ("insurance", "slow", 5), ("money_images", "ok", None)])
 
+    def test_zalo_latency_and_ocr_drain_are_numbers_only(self):
+        money = lambda **drain: {"lag_revisions": 0, "last_ok_at": ago(1), "error": None, "counts": {"pending": 4}, "drain": drain}  # noqa: E731
+        self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(1), "error": None},
+                                "money_images": money(done_1h=2, pending_since=ago(30), last_done_at=ago(18))},
+                    latency={"hour": {"total": {"n": 4, "p50": 6.5, "p95": 40}, "push": {"n": True, "p50": -1, "p95": "9"}, "lạ": {"n": 1}},
+                             "week": {"total": {"n": 1}}})
+        view = machine.zalo()
+        self.assertEqual(view["latency"], {"hour": {"total": {"n": 4, "p50": 6.5, "p95": 40.0}, "push": {"n": 0, "p50": None, "p95": None}}})
+        bundle, images = view["processors"]
+        self.assertNotIn("pending", bundle)
+        self.assertEqual((images["pending"], images["done_1h"], images["stalled_minutes"]), (4, 2, 18))
+        for drain, expected in (({"pending_since": ago(30)}, 30), ({"last_done_at": ago(30)}, None), ({"pending_since": "hôm qua"}, None)):
+            self.status(processors={"money_images": money(**drain)})
+            self.assertEqual(machine.zalo()["processors"][0]["stalled_minutes"], expected, drain)
+        self.status(processors={"money_images": {"lag_revisions": 0, "error": None, "counts": {"pending": 0}, "drain": {"pending_since": ago(30)}}})
+        self.assertIsNone(machine.zalo()["processors"][0]["stalled_minutes"])   # hết ảnh chờ thì không đứng
+        self.status(latency="chữ")
+        self.assertEqual(machine.zalo()["latency"], {})
+
     def test_zalo_processor_states(self):
         for lag, last_ok, error, expected in ((0, ago(300), None, "ok"), (2, ago(1), None, "catching_up"), (2, ago(3), None, "slow"),
                                               (2, None, None, "slow"), (0, ago(1), "push_failed", "error")):

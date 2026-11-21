@@ -35,6 +35,7 @@ import os
 import re
 import threading
 import time
+from collections import deque
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -59,6 +60,7 @@ FAILED_BAN = 24 * 3600   # giây: ảnh đã thử đủ 3 lần rồi bỏ thì
 BROKEN = 60              # giây: lần đầu engine chưa dùng được (`ocr_unavailable`) thì không hỏi lại và không đòi gom revision trong chừng này
 COOL = 60                # giây: lần đầu nghỉ sau khi tiến trình OCR chết hoặc quá giờ
 MAX_WAIT = 3600          # giây: cả hai đều lùi lũy thừa (x2 mỗi lần liên tiếp) tới tối đa chừng này
+DRAIN_WINDOW = 3600     # giây: tốc độ xả hàng chờ OCR = số ảnh rời hàng chờ (đọc xong hoặc bỏ sau 3 lần) trong chừng này
 
 
 def wait_for(first: int, failures: int) -> int:
@@ -100,6 +102,10 @@ class MoneyImagesProcessor:
         self.hidden_dir = self.reads.parent / f"redacted-{redact.RULE}"   # phiên bản luật che nằm trong tên thư mục: đổi luật thì không dùng lại ảnh cũ
         self.export_scope = None
         self.export_dirty = True   # có gì đổi kể từ lần xuất trước (hoặc chưa xuất lần nào): chỉ khi đó mới dựng lại `money-reads.json`
+        # Tốc độ xả hàng chờ OCR (status.json `drain`), chỉ nhớ trong tiến trình: chạy lại agent thì đo lại từ lúc khởi động.
+        self.drained_at: deque[float] = deque()
+        self.pending_since: float | None = None   # lúc hàng chờ từ rỗng sang có ảnh
+        self.last_drained: float | None = None
 
     # ---------------------------------------------------------------- con trỏ (nguồn thật là bản trong bộ nhớ)
     def state(self) -> dict:
@@ -127,7 +133,25 @@ class MoneyImagesProcessor:
 
     def result(self, action: str, error: str | None = None) -> dict:
         cursor = self.state()
-        return {"action": action, "revision": cursor.get("revision"), "error": error, "bytes_sent": 0, "reason": None, "counts": self.counts()}
+        return {"action": action, "revision": cursor.get("revision"), "error": error, "bytes_sent": 0, "reason": None, "counts": self.counts(),
+                "drain": self.drain()}
+
+    def drain(self) -> dict:
+        """Tốc độ xả hàng chờ: `done_1h` ảnh rời hàng chờ trong 60 phút qua, `pending_since` (hàng chờ có ảnh từ lúc nào),
+        `last_done_at`. `hao` coi hàng chờ đứng khi còn ảnh mà quá 15 phút kể từ mốc muộn hơn trong hai mốc đó không ảnh nào xong."""
+        now = self.clock()
+        while self.drained_at and now - self.drained_at[0] > DRAIN_WINDOW:
+            self.drained_at.popleft()
+        if not self.state()["todo"]:
+            self.pending_since = None
+        elif self.pending_since is None:
+            self.pending_since = now
+        return {"done_1h": len(self.drained_at), "pending_since": None if self.pending_since is None else cursors.now_iso(self.pending_since),
+                "last_done_at": None if self.last_drained is None else cursors.now_iso(self.last_drained)}
+
+    def drained(self, now: float) -> None:
+        self.drained_at.append(now)
+        self.last_drained = now
 
     # ---------------------------------------------------------------- kết luận (ANH-GEMINI-01 mục 4)
     def asking(self) -> bool:
@@ -430,10 +454,12 @@ class MoneyImagesProcessor:
             cursor["members"][sha] = {"raw": item["raw"], "file": item["file"], "ts": item["ts"], "verdict": outcome["verdict"],
                                       "by": self.decide(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version))}
             cursor["todo"].remove(item)
+            self.drained(now)
         else:
             item["tries"] += 1
             if item["tries"] >= TRIES:
                 cursor["todo"].remove(item)
+                self.drained(now)
                 cursor["failed"][item["raw"]] = {"file": item["file"], "ts": item["ts"], "at": now}
                 for old in sorted(cursor["failed"], key=lambda raw: cursor["failed"][raw]["at"])[:-MAX_FAILED]:
                     del cursor["failed"][old]

@@ -1,7 +1,8 @@
 """ZALO-AGENT-01: `python -X utf8 -I …\\zalo_agent run [--once] [--dry-run]`, một tiến trình nền ở máy có Zalo.
 
 Cấu hình đọc từ tham số hoặc biến môi trường (`ZALO_LIVE_SYNC`, `ZALO_AGENT_ROOT`, `ZALO_AGENT_TARGET`,
-`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_WECHAT` (=1 bật nguồn WeChat), `ZALO_WECHAT_PYTHON`, `ZALO_WECHAT_PILOT`, `ZALO_WECHAT_GROUPS`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`, `ZALO_AGENT_MONEY_IMAGES`, `ZALO_AGENT_READS_TARGET`; gửi ảnh đã che ra Gemini: `ZALO_AGENT_EXTERNAL`, `ZALO_AGENT_GEMINI_*`, `GEMINI_API_KEY`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),, không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json),
+`ZALO_AGENT_STATUS_TARGET`, `ZALO_AGENT_WECHAT` (=1 bật nguồn WeChat), `ZALO_WECHAT_PYTHON`, `ZALO_WECHAT_PILOT`, `ZALO_WECHAT_GROUPS`, `ZALO_AGENT_INSURANCE_TARGET`, `ZALO_INSURANCE_SNAPSHOT`, `ZALO_INSURANCE_STORE`, `ZALO_AGENT_MONEY_IMAGES`, `ZALO_AGENT_READS_TARGET`; gửi ảnh đã che ra Gemini: `ZALO_AGENT_EXTERNAL`, `ZALO_AGENT_GEMINI_*`, `GEMINI_API_KEY`), không có bí mật trong repo. Thư mục gốc `D:\\zalo-agent`: `state/` (con trỏ, status.json,
+latency.json),
 `bundle/` (gói chat dựng tại máy), `insurance/` (bản gọn bảo hiểm), `reads/` (kết quả OCR ảnh, chỉ ở máy), `logs/` (xoay vòng 10 MB x 3). Chỉ đọc thư mục live-sync.
 """
 from __future__ import annotations
@@ -20,6 +21,7 @@ if __package__ in (None, ""):   # chạy `python -I …\zalo_agent`: đưa thư 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zalo_agent import cursor as cursors
+from zalo_agent import latency as latencies
 from zalo_agent import ocr
 from zalo_agent import push as pusher
 from zalo_agent import status as status_file
@@ -70,6 +72,7 @@ class Agent:
         self.push_error = None
         self.lock_handle = None
         self.last_identity = None
+        self.latency = latencies.Latency(self.state, persist=not dry_run)   # độ trễ từng chặng, `--dry-run` không ghi file
 
     def lock(self) -> bool:
         """Khóa của hệ điều hành trên handle mở suốt đời tiến trình: tiến trình chết (kể cả bị giết, máy khởi động lại) thì
@@ -113,6 +116,12 @@ class Agent:
                 saved = cursors.load(self.state, processor.name)
                 results[processor.name] = {"action": "idle", "revision": (saved or {}).get("revision"), "error": "unexpected"}
                 self.log.error("%s: %s", processor.name, type(exc).__name__)
+            samples = results[processor.name].pop("samples", None)
+            if samples:
+                try:
+                    self.latency.record(samples, self.clock())
+                except Exception as exc:  # noqa: BLE001  (chỉ là số đo: ghi file lỗi không được chặn việc đẩy)
+                    self.log.error("latency: %s", type(exc).__name__)
         now = self.clock()
         for name, result in results.items():
             if result["action"] != "idle" or result["error"] != (self.last.get(name) or {}).get("error"):
@@ -129,7 +138,8 @@ class Agent:
         try:
             status = status_file.compose(status_file.load(self.state), now, self.version, len(self.live.selection()), self.live,
                                          results, self.push_ok_at, self.push_error,
-                                         (identity, status_file.track_identity(self.state, identity, now, persist=not self.dry_run)))
+                                         (identity, status_file.track_identity(self.state, identity, now, persist=not self.dry_run)),
+                                         latency=self.latency.summary(now))
             data = status_file.write(self.state, status, persist=not self.dry_run)
         except Exception as exc:  # noqa: BLE001  (file trạng thái bị giữ, ổ đĩa lỗi…: bỏ lượt này, không làm chết agent)
             self.log.error("status: %s", type(exc).__name__)

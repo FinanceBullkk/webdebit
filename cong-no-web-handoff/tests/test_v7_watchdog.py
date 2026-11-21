@@ -362,6 +362,28 @@ class ZaloTests(Base):
         self.report(ten, processors=self.slow(ten, 120, lag=0))      # kịp tin (lag 0): lần ok cũ chỉ vì không có tin mới
         self.assertEqual(dog.check_zalo(ten), [])
 
+    def test_slow_delivery_p95_and_stalled_image_queue(self):
+        ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
+        stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        hour = lambda n, p95: {"hour": {"total": {"n": n, "p50": 20.0, "p95": p95}}}  # noqa: E731
+        self.report(ten, latency=hour(5, 420.0))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: tin mới lên web chậm, 95% lượt trong 60 phút qua mất tới 7 phút (5 lượt)."])
+        for quiet in (hour(2, 900.0), hour(5, 300.0), {"day": {"total": {"n": 50, "p50": 400.0, "p95": 900.0}}}):
+            self.report(ten, latency=quiet)
+            self.assertEqual(dog.check_zalo(ten), [], quiet)   # ít lượt, đúng ngưỡng chưa quá, hay chỉ cửa sổ ngày: không báo
+
+        def money(error=None, pending=3, **drain):
+            return {"money_images": {"revision": 5, "lag_revisions": 0, "last_ok_at": stamp(1), "error": error,
+                                     **({"error_since": stamp(20)} if error else {}), "counts": {"pending": pending}, "drain": drain}}
+        self.report(ten, processors=money(done_1h=0, pending_since=stamp(20), last_done_at=stamp(40)))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: đọc ảnh chuyển khoản đứng 20 phút (3 ảnh chờ, không ảnh nào xong)."])
+        for quiet in (money(done_1h=4, pending_since=stamp(60), last_done_at=stamp(3)), money(pending_since=stamp(14)),
+                      money(pending=0, pending_since=stamp(60)), money(last_done_at=stamp(60))):
+            self.report(ten, processors=quiet)
+            self.assertEqual(dog.check_zalo(ten), [], quiet)
+        self.report(ten, processors=money(error="ocr_unavailable", pending_since=stamp(60)))   # đã có cảnh báo lỗi: không báo đứng thêm
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: ảnh chuyển khoản lỗi ocr_unavailable, 20 phút."])
+
     def test_error_reports_by_how_long_it_has_lasted(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
         stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731

@@ -218,11 +218,18 @@ def check_offsite_pulls(now: dt.datetime) -> list[str]:
 
 ZALO_HOURS = (7, 20)   # ZALO-AGENT-01: chỉ canh máy Zalo từ 7:00 tới trước 20:00 giờ VN (máy có thể tắt ban đêm)
 ZALO_PROCESSOR_NAMES = {"bundle": "gói chat", "insurance": "bảo hiểm", "money_images": "ảnh chuyển khoản"}
+# Độ trễ tin mới, chặng `total` (live-sync ghi revision → hao áp gói) trong 60 phút qua: mục tiêu p95 30 giây (spec, bước Chuyển);
+# báo khi p95 quá 5 phút và có ít nhất 3 lượt (ít hơn thì một lượt chậm đã thành p95). Chặng `zalo` không xét: tin đọc bù sau khi
+# máy tắt qua đêm luôn dài và không do agent.
+ZALO_LATENCY_P95 = 300
+ZALO_LATENCY_MIN = 3
 
 
 def check_zalo(now: dt.datetime) -> list[str]:
     """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, một bộ xử lý chậm quá
-    15 phút, hoặc một bộ xử lý / việc đẩy lên báo lỗi quá 15 phút (đo từ `error_since`, thiếu thì `last_ok_at`, thiếu cả hai thì báo ngay). Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm.
+    15 phút, hoặc một bộ xử lý / việc đẩy lên báo lỗi quá 15 phút (đo từ `error_since`, thiếu thì `last_ok_at`, thiếu cả hai thì báo ngay),
+    tin mới lên web chậm (p95 trong 60 phút quá 5 phút), hoặc hàng chờ đọc ảnh còn ảnh mà quá 15 phút không ảnh nào xong (không lỗi).
+    Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm.
     Không có file thì im: chưa bật máy Zalo. Dùng chung bộ đọc của tab Máy chạy; import muộn như lưới an toàn (tools dùng được
     tầng web, không có chiều ngược lại)."""
     if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
@@ -242,6 +249,9 @@ def check_zalo(now: dt.datetime) -> list[str]:
     quiet = view["quiet_minutes"]
     if view["identity"] == "waiting_for_zalo" and quiet is not None and quiet > limit:
         found.append(f"Zalo chưa mở trên máy Zalo: không đọc được tin mới {quiet} phút.")
+    total = view.get("latency", {}).get("hour", {}).get("total") or {}
+    if total.get("n", 0) >= ZALO_LATENCY_MIN and (total.get("p95") or 0) > ZALO_LATENCY_P95:
+        found.append(f"Máy Zalo: tin mới lên web chậm, 95% lượt trong 60 phút qua mất tới {int(total['p95'] // 60)} phút ({total['n']} lượt).")
     for row in view["processors"]:
         name = ZALO_PROCESSOR_NAMES[row["id"]]
         if row["error"] and (row["error_minutes"] is None or row["error_minutes"] > limit):
@@ -249,6 +259,8 @@ def check_zalo(now: dt.datetime) -> list[str]:
             found.append(f"Máy Zalo: {name} lỗi {row['error']}, {how}.")
         elif row["state"] == "slow" and row["minutes"] is not None and row["minutes"] > limit:
             found.append(f"Máy Zalo xử lý {name} chậm {row['minutes']} phút ({row['lag']} lần thay đổi chưa xong).")
+        elif row.get("stalled_minutes") is not None and row["stalled_minutes"] > limit:
+            found.append(f"Máy Zalo: đọc {name} đứng {row['stalled_minutes']} phút ({row['pending']} ảnh chờ, không ảnh nào xong).")
     if view["push_error"] and (view["push_error_minutes"] is None or view["push_error_minutes"] > limit):
         how = "chưa từng đẩy được" if view["push_error_minutes"] is None else f"{view['push_error_minutes']} phút"
         found.append(f"Máy Zalo: đẩy lên máy chủ lỗi {view['push_error']}, {how}.")

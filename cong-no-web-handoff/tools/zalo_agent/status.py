@@ -18,6 +18,7 @@ from .source import read_json, retry_io
 SCHEMA = 1
 FILE = "status.json"
 CODE = re.compile(r"[a-z_]{1,40}")
+STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+07:00")
 
 
 def code(error: object) -> str | None:
@@ -62,10 +63,24 @@ def error_since(before: dict | None, error: str | None, now: float) -> str | Non
     return kept if (before or {}).get("error") is not None and isinstance(kept, str) else now_iso(now)
 
 
+def drain(value: object) -> dict | None:
+    """Tốc độ xả hàng chờ OCR của `money_images`: một số đếm và hai mốc giờ đúng khuôn; còn lại bỏ."""
+    if not isinstance(value, dict):
+        return None
+    done = value.get("done_1h")
+
+    def stamp(key: str) -> str | None:
+        found = value.get(key)
+        return found if isinstance(found, str) and STAMP.fullmatch(found) else None
+
+    return {"done_1h": done if isinstance(done, int) and not isinstance(done, bool) and done >= 0 else 0,
+            "pending_since": stamp("pending_since"), "last_done_at": stamp("last_done_at")}
+
+
 def compose(previous: dict | None, now: float, version: str, selected: int, live, results: dict[str, dict],
-            push_ok_at: str | None, push_error: str | None, identity: tuple[str, str]) -> dict:
+            push_ok_at: str | None, push_error: str | None, identity: tuple[str, str], latency: dict | None = None) -> dict:
     """`live`: LiveSync. `results`: kết quả `step()` từng bộ xử lý. `identity`: (giá trị, lúc đổi sang giá trị đó).
-    `last_ok_at` giữ giá trị lượt trước khi lượt này lỗi; `error_since` xem `error_since()`."""
+    `last_ok_at` giữ giá trị lượt trước khi lượt này lỗi; `error_since` xem `error_since()`. `latency`: `Latency.summary()`."""
     before = (previous or {}).get("processors", {}) if isinstance((previous or {}).get("processors"), dict) else {}
     revision = live.revision()
     processors = {}
@@ -83,12 +98,16 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
                   if CODE.fullmatch(key) and isinstance(value, int) and not isinstance(value, bool)}
         if counts:   # chỉ số đếm của bộ xử lý (money_images: read, pending, review, failed), không chữ tự do
             processors[name]["counts"] = counts
+        cleaned = drain(result.get("drain"))
+        if cleaned:
+            processors[name]["drain"] = cleaned
     push_failure = code(push_error)   # chỉ đường đẩy nhịp tim (chính file này); lỗi đẩy từng bộ xử lý nằm ở processors.<tên>.error
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
             "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},
             "processors": processors,
             "push": {"last_ok_at": push_ok_at or ((previous or {}).get("push") or {}).get("last_ok_at"), "error": push_failure,
-                     "error_since": error_since((previous or {}).get("push"), push_failure, now)}}
+                     "error_since": error_since((previous or {}).get("push"), push_failure, now)},
+            **({"latency": latency} if latency is not None else {})}
 
 
 def write(state: Path, status: dict, persist: bool = True) -> bytes:
