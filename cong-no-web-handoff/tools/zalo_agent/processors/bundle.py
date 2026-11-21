@@ -7,9 +7,11 @@ Giữa hai lần dựng chỉ nối vào `data-<…>/messages-delta.jsonl` nhữ
 - tin xóa: đúng dòng mà bản dựng đầy đủ sinh cho tin đó (các trường làm sạch + `deleted: true`, nên có đủ
   `message_id`, `conversation_id`, `timestamp` của hợp đồng).
 
-`users.json` và `media.json` của thư mục dữ liệu hiện tại được gộp thêm người gửi và ảnh mới của các dòng delta
+`users.json` và `media.json` của thư mục dữ liệu hiện tại được gộp thêm người gửi (tên, avatar) và ảnh mới của các dòng delta
 (`bundle_sha256` giữ giá trị của lần dựng đầy đủ). `export-report.json` thêm `delta_bytes`, `delta_lines`, `revision`.
 Thứ tự: viết delta cục bộ, lưu con trỏ `pending`, đẩy (file chốt `mv` sau cùng), rồi mới tiến con trỏ.
+Dòng delta mang `card`, `quote_id`, `reactions`, `sticker` như bản dựng đầy đủ. Con trỏ ghi `format` (khuôn gói); agent mới
+gặp con trỏ khuôn cũ thì dựng lại đầy đủ ngay, không chờ tới đêm.
 
 Nguồn WeChat (WECHAT-01): `overlay` (kho của bộ xử lý `wechat`) là nguồn tin thứ hai, cùng gói và cùng delta. Dựng đầy đủ xong
 thì `overlay.merge_into` gộp nhóm, người gửi, tin, ảnh WeChat vào thư mục dữ liệu mới; giữa hai lần dựng, tin mới của kho nối
@@ -33,12 +35,13 @@ NAME = "bundle"
 DELTA = "messages-delta.jsonl"
 MUTABLE = {DELTA, "media.json", "users.json"}   # file của thư mục dữ liệu hiện tại có thể đổi giữa hai lần dựng
 PRUNE = ("data-*", "media/*")
-CLEAN_KEYS = ("message_id", "conversation_id", "sender_id", "timestamp", "server_time", "message_type", "status", "body_state")
+CLEAN_KEYS = wb.CLEAN_KEYS
+FORMAT = 2   # khuôn gói; 2 (21/11/2026): card, quote_id, reactions, sticker, avatars, ghi âm/video
 
 
 def clean_row(row: dict) -> dict:
     """Cùng làm sạch như `wb.build`: không URL, không đường dẫn máy, không băm URL."""
-    return {**{key: row.get(key) for key in CLEAN_KEYS}, "body": wb.clean_body(row.get("body"))}
+    return wb.clean_message(row)
 
 
 class BundleProcessor:
@@ -68,6 +71,8 @@ class BundleProcessor:
 
     def damaged(self, current: dict) -> str | None:
         """Gói cục bộ không còn khớp con trỏ (thư mục dữ liệu mất, báo cáo trỏ chỗ khác, delta ngắn hơn đã ghi): dựng lại."""
+        if current.get("format") != FORMAT:
+            return "format_changed"
         directory = self.out / current["data_dir"]
         if not directory.is_dir():
             return "data_dir_missing"
@@ -138,7 +143,8 @@ class BundleProcessor:
                       "conversation_count": report["conversation_count"] + merged["conversations"], "media_count": merged["media"]}
         wb.write_atomic(self.out / wb.REPORT, wb.dump({**report, "delta_bytes": 0, "delta_lines": 0, "revision": revision}))
         return {"revision": revision, "baseline_sha256": self.live.baseline_sha256(), "selection_sha256": cursors.selection_sha256(selection),
-                "data_dir": report["data_dir"], "delta_bytes": 0, "delta_lines": 0, "built_at": cursors.now_iso(now), "reason": reason, **wechat}
+                "data_dir": report["data_dir"], "delta_bytes": 0, "delta_lines": 0, "built_at": cursors.now_iso(now), "reason": reason,
+                "format": FORMAT, **wechat}
 
     def delta(self, current: dict, ids: set[str], revision: int, now: float, wechat: list[dict] = (), offset: int = 0,
               published: float | None = None) -> dict | None:
@@ -161,13 +167,15 @@ class BundleProcessor:
         known = read_json(directory / "media.json", {})
         media.items = dict(known)
         users = read_json(directory / "users.json", {"self_user": source.self_user, "users": {}})
+        extras = wb.Extras(source)
         lines = []
         for row in rows:
             if row.get("deleted"):
                 lines.append({**clean_row(row), "deleted": True})   # giống hệt dòng tin xóa của một bản dựng đầy đủ
                 continue
             clean = clean_row(row)
-            if row.get("message_type") in wb.IMAGE_TYPES or row.get("client_message_id") in media.local:
+            extras.enrich(clean, row, media)
+            if wb.wants_media(row, media):
                 found = media.for_message(row, row.get("body"))
                 if found:
                     clean["media"] = found
@@ -175,6 +183,9 @@ class BundleProcessor:
             sender = row.get("sender_id")
             if isinstance(sender, str) and sender in source.users:
                 users.setdefault("users", {}).setdefault(sender, source.users[sender])
+            avatars = users.setdefault("avatars", {})
+            if isinstance(sender, str) and sender not in avatars and (sha := extras.avatar("U:" + sender, media)):
+                avatars[sender] = sha
         if wechat:   # đã là khuôn dòng của gói (làm sạch xong ở bộ xử lý wechat); người gửi và ảnh vào users.json, media.json
             wechat = self.overlay.adopt(wechat, users.get("self_user"))   # tin chính chủ gửi từ WeChat mang mã chủ Zalo
             lines.extend(wechat)

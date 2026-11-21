@@ -289,6 +289,23 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 - **Bản cuối cùng theo `message_id` thắng**, xét theo thứ tự: `messages.jsonl` rồi tới delta từ trên xuống.
 - Dòng `deleted` trong delta hiện **giống hệt** tin có `deleted: true` trong một bản dựng đầy đủ (cùng nhãn, cùng chỗ), để lần dựng lại mỗi đêm không đổi những gì người dùng thấy.
 - `data-<…>/media.json` và `data-<…>/users.json` có thể được **thay tại chỗ** khi delta có ảnh hoặc người gửi mới. `hao` đọc lại hai file này mỗi khi `export-report.json` đổi.
+- Trường thêm của dòng tin (21/11/2026; gói và delta như nhau; thiếu khóa nghĩa là không có):
+  - `card`: mã thẻ suy từ `msgType` và `action` của Zalo: `link`, `missed_call`, `call`, `contact`, `poll`, `bank_card`, `system`. Là phần làm sạch nên dòng tin xóa cũng có;
+  - `quote_id`: `message_id` của tin được trích dẫn, cùng hội thoại (từ `quote-index.json` của viewer);
+  - `reactions`: `[{"emoji": "<chuỗi 1–16 ký tự>", "count": <số người>}]`, tối đa 20, nhiều người trước. Đếm người, không đếm lần bấm, không ghi ai thả;
+  - `sticker`: sha256 của ảnh sticker trong `media/` (có trong `media.json`);
+  - `media` của ghi âm (loại 3, `audio/aac` hoặc `audio/amr`) và video (loại 18, `video/mp4`): bản có trong máy Zalo hoặc bản CDN viewer đã tải sẵn. Bộ dựng không tự tải hai loại này từ CDN;
+  - tin xóa không có `quote_id`, `reactions`, `sticker`.
+- `users.json` thêm `avatars` (`{<sender_id>: <sha256 trong media/>}`); mỗi mục `conversations.json` thêm `avatar` (sha256 hoặc `null`). Sticker, avatar và bản tải sẵn chỉ được chép khi sha256 khớp chỉ mục của viewer.
+- Trích dẫn hay cảm xúc tới sau khi tin đã vào delta (viewer dựng chỉ mục sau `revision.json`) hiện ở lần dựng lại đầy đủ kế tiếp. Con trỏ của agent ghi `format` (hiện 2); agent gặp con trỏ khuôn cũ thì dựng lại đầy đủ ngay.
+- `GET /api/v7/zalo/messages` trả thêm cho mỗi tin:
+  - `card`;
+  - `quote`: `{message_id, found, sender_id, sender_name, type_label, deleted, body_text}` với `body_text` tối đa 120 ký tự, `found: false` khi không đọc được tin gốc;
+  - `reactions`;
+  - `sticker`: `{id, mime, width, height}`;
+  - `sender_avatar`: mã ảnh.
+
+  `GET /api/v7/zalo/conversations` thêm `avatar`. `type_label` theo `card` trước (loại 6 phần lớn là liên kết), rồi theo loại tin (thêm tên cho 25, 26, 27, 52, -27, -1909). Giá trị sai khuôn thì bỏ.
 - `export-report.json` thêm ba trường; các trường cũ giữ nguyên, kể cả `bundle_sha256` (băm của `messages.jsonl`):
   - `delta_bytes` (int): số byte hợp lệ của delta, 0 khi chưa có;
   - `delta_lines` (int);
@@ -456,6 +473,11 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 - [ ] PR-4: trên 20 ảnh của P0, OCR với ngưỡng T vẫn đúng 20/20; số ảnh phải gửi Gemini được báo trong chat.
 - [ ] PR-5: với dòng xác nhận giả, số đo tuần đúng theo engine; không chữ tự do nào vào `summary()`.
 - [x] Đo độ trễ từng chặng và tốc độ xả hàng chờ OCR (21/11/2026), test với dữ liệu bịa: `LatencyTest` (p50/p95 hạng gần nhất, hai cửa sổ, mẫu quá 24 giờ bị bỏ, sống qua lần chạy lại, số lạ bị bỏ, `--dry-run` không ghi file); `test_delta_push_measures_each_stage_and_a_retry_counts_the_wait` (năm chặng đúng từng mốc, tin sửa và nhóm chưa chọn không là mẫu `zalo`, đẩy lỗi chưa có mẫu, gửi lại tính cả thời gian chờ); `test_drain_counts_images_leaving_the_queue_and_when_the_queue_filled`; phía `hao`: `test_zalo_latency_and_ocr_drain_are_numbers_only`, `test_slow_delivery_p95_and_stalled_image_queue` (p95 quá 5 phút với ≥ 3 lượt thì báo, ít lượt hay đúng ngưỡng thì không; hàng chờ đứng 20 phút thì báo, đang lỗi thì chỉ báo lỗi).
+- [x] Mở rộng hợp đồng gói chat (21/11/2026), test với kho viewer bịa:
+  - `test_extras_quote_reactions_sticker_avatar_voice_and_cards`: trích dẫn; cảm xúc đếm theo người; sticker và avatar chép khi sha256 khớp; ghi âm lấy bản viewer tải sẵn, không tải CDN; mã thẻ; tin xóa không có ba trường; chỉ mục hỏng thì gói vẫn dựng; không lộ URL hay băm URL;
+  - `test_delta_carries_quote_reactions_sticker_avatar_and_voice_like_a_full_build`: delta giống hệt bản dựng đầy đủ; người gửi mới mang avatar;
+  - ca `format_changed`: con trỏ khuôn cũ thì dựng lại ngay;
+  - phía `hao`: `test_extras_reach_the_api_and_bad_values_are_dropped`.
 - [ ] Người dùng tự đi Luồng 1–2 (tắt Zalo 20 phút trong giờ làm, nhận email, mở lại, nhận email "đã ổn") và Luồng 3 trên trang Thu chi.
 
 ## Hoàn tác

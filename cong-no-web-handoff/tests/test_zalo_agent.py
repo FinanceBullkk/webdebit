@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import zalo_web_bundle as wb  # noqa: E402
 from test_zalo_web_bundle import (  # noqa: E402
+    AVATAR_BAN,
     BAN,
     BASH,
     GROUP,
@@ -33,10 +34,15 @@ from test_zalo_web_bundle import (  # noqa: E402
     OTHER,
     OWNER,
     PRIVATE,
+    STICKER_PNG,
+    VOICE_AAC,
+    VOICE_URL,
     FakeCdn,
     cdn_bytes,
     no_jxl,
     row,
+    sha,
+    write_extras,
     write_source,
 )
 from zalo_agent import __main__ as agent_main  # noqa: E402
@@ -232,6 +238,30 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(delta[0]["body"], [{"title": "Thẻ"}])   # URL không lọt vào gói
         self.assertTrue(built["m3"]["deleted"])
 
+    def test_delta_carries_quote_reactions_sticker_avatar_and_voice_like_a_full_build(self):
+        write_extras(self.src)
+        self.processor.step()
+        quote = row(GROUP, "q2", OWNER, 1_700_000_200_000, "Anh gửi lại bảng")
+        sticker = row(GROUP, "s2", BAN, 1_700_000_201_000, {"type": 7, "id": 42, "catId": 7}, 4)
+        voice = row(GROUP, "v2", KHACH, 1_700_000_202_000, {"title": "", "description": "", "href": VOICE_URL, "action": "", "params": "{}"}, 3)
+        self.publish(added=[quote, sticker, voice])
+        self.publish(deleted=["q1"])
+        self.assertEqual(self.processor.step()["action"], "delta")
+        full = wb.build(wb.Source(self.src), Path(self.tmp.name) / "full", fetch=FakeCdn(), transcode=no_jxl, now=NOW + 5, max_age_days=None)
+        built = {item["message_id"]: item for item in (json.loads(line) for line in
+                 (Path(self.tmp.name) / "full" / full["data_dir"] / "messages.jsonl").read_text(encoding="utf-8").splitlines())}
+        delta = {line["message_id"]: line for line in self.remote_delta()}
+        self.assertEqual(sorted(delta), ["q1", "q2", "s2", "v2"])
+        for mid, line in delta.items():   # trích dẫn, cảm xúc, sticker, ghi âm giống hệt bản dựng đầy đủ; tin xóa không có
+            self.assertEqual(line, built[mid])
+        self.assertEqual((delta["q2"]["quote_id"], delta["q2"]["reactions"], delta["s2"]["sticker"], delta["v2"]["media"]),
+                         ("m1", [{"emoji": "/-strong", "count": 1}], sha(STICKER_PNG), [sha(VOICE_AAC)]))
+        self.assertFalse({"quote_id", "reactions"} & set(delta["q1"]))
+        data = next(self.remote.dirs[BUNDLE_REMOTE].glob("data-*"))
+        self.assertEqual(json.loads((data / "users.json").read_text(encoding="utf-8"))["avatars"].get(BAN), sha(AVATAR_BAN))
+        self.assertIn(sha(AVATAR_BAN), json.loads((data / "media.json").read_text(encoding="utf-8")))
+        self.assertTrue((self.remote.dirs[BUNDLE_REMOTE] / "media" / (sha(AVATAR_BAN) + ".jpg")).is_file())
+
     def test_delta_of_new_image_adds_media_and_is_sent(self):
         self.processor.step()
         url = "https://f5.photo.zdn.vn/new.jpg"
@@ -336,6 +366,7 @@ class AgentTest(unittest.TestCase):
             "data_dir_missing": lambda: shutil.rmtree(next(self.out.glob("data-*"))),
             "report_mismatch": lambda: (self.out / wb.REPORT).write_text(json.dumps({"data_dir": "data-khac"}), encoding="utf-8"),
             "delta_short": lambda: (next(self.out.glob("data-*")) / "messages-delta.jsonl").write_bytes(b""),
+            "format_changed": lambda: cursors.save(self.root / "state", "bundle", {**cursors.load(self.root / "state", "bundle"), "format": 1}, self.now),
         }
         for reason, change in cases.items():
             with self.subTest(reason=reason):

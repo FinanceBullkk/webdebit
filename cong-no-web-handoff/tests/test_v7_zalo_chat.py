@@ -220,6 +220,31 @@ class ZaloWebBundleStoreTest(unittest.TestCase):
         chat._RELOAD["running"] = False
         self.addCleanup(setattr, chat, "_STORE", None)
 
+    def test_extras_reach_the_api_and_bad_values_are_dropped(self):
+        plain = chat.ChatStore(self.out)   # gói dựng khi chưa có chỉ mục phụ: trường mới rỗng
+        old = {m["message_id"]: m for m in plain.messages(fixture.GROUP, 0, 100)["messages"]}["m1"]
+        self.assertEqual((old["quote"], old["reactions"], old["sticker"], old["sender_avatar"], old["card"]), (None, [], None, None, None))
+        fixture.write_extras(self.src)
+        bundle.build(bundle.Source(self.src), self.out, fetch=fixture.FakeCdn(), transcode=fixture.no_jxl, now=fixture.NOW + 60)
+        store = chat.ChatStore(self.out)
+        rows = {m["message_id"]: m for m in store.messages(fixture.GROUP, 0, 100)["messages"]}
+        parent = rows["m1"]
+        self.assertEqual(rows["q1"]["quote"], {"message_id": "m1", "found": True, "sender_id": fixture.OWNER, "sender_name": parent["sender_name"],
+                                               "type_label": "Văn bản", "deleted": False, "body_text": parent["body_text"][:chat.QUOTE_CHARS]})
+        self.assertEqual(parent["reactions"], [{"emoji": "/-heart", "count": 2}, {"emoji": "/-strong", "count": 1}])
+        self.assertEqual((rows["m7"]["deleted"], rows["m7"]["quote"], rows["m7"]["reactions"]), (True, None, []))
+        self.assertEqual(rows["s1"]["sticker"], {"id": fixture.sha(fixture.STICKER_PNG), "mime": "image/png", "width": None, "height": None})
+        self.assertEqual(store.media_file(rows["v1"]["media"][0]["id"]), ("audio/aac", fixture.VOICE_AAC))
+        self.assertEqual([(rows[key]["card"], rows[key]["type_label"]) for key in ("c1", "c2")], [("link", "Liên kết"), ("poll", "Bình chọn")])
+        self.assertEqual((rows["q1"]["sender_avatar"], parent["sender_avatar"]), (fixture.sha(fixture.AVATAR_JPEG), None))
+        self.assertEqual(store.conversations()[0]["avatar"], fixture.sha(fixture.GROUP_PNG))
+        bad = store.shape({"message_id": "x1", "conversation_id": fixture.GROUP, "message_type": 6, "card": "khac", "quote_id": "../m1",
+                           "reactions": [{"emoji": "x" * 17, "count": 1}, {"emoji": "ok", "count": True}, "rác"], "sticker": "e" * 64})
+        self.assertEqual((bad["card"], bad["type_label"], bad["quote"], bad["reactions"], bad["sticker"]), (None, "Cuộc gọi", None, [], None))
+        self.assertIsNone(store.shape({"message_id": "x3", "conversation_id": fixture.GROUP, "card": ["link"], "reactions": {"emoji": "x"}})["card"])
+        self.assertEqual(store.shape({"message_id": "x2", "conversation_id": fixture.GROUP, "quote_id": "khong-co"}, {})["quote"],
+                         {"message_id": "khong-co", "found": False})
+
     def test_names_owner_media_and_album(self):
         store = chat.ChatStore(self.out)
         self.assertEqual(store.owner_id, fixture.OWNER)        # self_user của viewer, không đoán
