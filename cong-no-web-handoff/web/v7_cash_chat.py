@@ -151,6 +151,10 @@ class Directory:
         self.labels = {**{("so", row["id"]): row["name"] for row in customers if isinstance(row.get("id"), int) and isinstance(row.get("name"), str)},
                        **{("xe", xid): row["bien_so"] for xid, row in self.xe.items()},
                        **{("tai_xe", row["id"]): row["ten"] for row in nguoi if isinstance(row.get("id"), int) and isinstance(row.get("ten"), str)}}
+        # Xe và người còn dùng: ô "Gắn sổ/xe" chỉ cho chọn những đối tượng này (sổ khách thì mọi sổ).
+        self.active = {("xe", xid) for xid, row in self.xe.items() if row.get("dang_dung", True) is not False} | {
+            ("tai_xe", row["id"]) for row in nguoi
+            if isinstance(row.get("id"), int) and isinstance(row.get("ten"), str) and row.get("dang_dung", True) is not False}
 
     def label(self, kind: str, entity: int) -> str | None:
         return self.labels.get((kind, entity))
@@ -843,6 +847,7 @@ def _public(item: dict) -> dict:
                                           "link", "review", "amount_cny")}
     out["currency"] = item.get("currency", "VND")
     out["image_diff"] = bool(item.get("image_diff"))
+    out["target_from"] = "sua" if item.get("target_reviewed") else None   # Luồng 3: đối tượng người dùng gắn tay, không phải máy tự khớp
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
     out["target"] = {key: item["target"].get(key) for key in ("kind", "id", "label")}
@@ -929,6 +934,39 @@ def build(start: date, end: date, runner, actor: str, now: float | None = None) 
             "bundle_at": store.report.get("built_at") if isinstance(store.report.get("built_at"), str) else None, "last_message_at": last_ms, **core}
 
 
+def load_directory(sources: Sources) -> Directory:
+    """Sổ khách, xe và người của Đội xe qua hai hàm đọc có sẵn; đọc lỗi thì `sources.failed` có `directory` và danh sách thiếu phần đó."""
+    try:
+        body = sources.read("directory", "list_customers", {})
+        rows = [row for row in _dicts(body.get("customers")) if isinstance(row.get("id"), int) and isinstance(row.get("name"), str)]   # một dòng lạ không làm mất cả danh sách
+        customers = v7_api_sheet.with_display_names({**body, "customers": rows}).get("customers", [])
+    except DATA_ERRORS:
+        customers = []
+        sources.failed.add("directory")
+    fleet = sources.read("directory", "doixe_get_tong", {"thang": None}).get("danh_muc")
+    fleet = fleet if isinstance(fleet, dict) else {}
+    return Directory(_dicts(customers), _dicts(fleet.get("xe")), _dicts(fleet.get("nguoi")))
+
+
+def handle_targets(query: str, runner, actor: str, now: float | None = None) -> dict:
+    """GET /api/v7/cash-chat/targets (Luồng 3): sổ, xe, tài xế cho ô "Gắn sổ/xe" của trang Thu chi; chỉ quản lý (cùng tiền tố).
+
+    Trang chỉ hỏi khi người dùng mở ô gắn. Xe và người đã thôi dùng không vào danh sách chọn (vẫn hiện đúng tên nếu đã gắn từ trước).
+    Đọc lỗi thì `failed: true` kèm phần đọc được, không 500."""
+    if query:
+        bad()
+    now = time.time() if now is None else now
+    failed: set[str] = set()
+    directory = load_directory(Sources(runner, actor, datetime.fromtimestamp(now, VN).date(), failed))
+    rows = {kind: [] for kind in TARGET_KINDS}
+    for (kind, entity), label in directory.labels.items():
+        if kind == "so" or (kind, entity) in directory.active:
+            rows[kind].append({"id": entity, "label": label})
+    for kind in rows:
+        rows[kind].sort(key=lambda row: (v7_zalo_chat.fold(row["label"]), row["id"]))
+    return {**rows, "failed": bool(failed)}
+
+
 def _core(store, start: date, end: date, runner, actor: str, today: date) -> dict:
     start_ms = int(datetime.combine(start, datetime.min.time(), VN).timestamp() * 1000)
     end_ms = int(datetime.combine(end + timedelta(1), datetime.min.time(), VN).timestamp() * 1000)
@@ -938,16 +976,7 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
 
     def directory_of() -> Directory:
         if "directory" not in holder:
-            try:
-                body = sources.read("directory", "list_customers", {})
-                rows = [row for row in _dicts(body.get("customers")) if isinstance(row.get("id"), int) and isinstance(row.get("name"), str)]   # một dòng lạ không làm mất cả danh sách
-                customers = v7_api_sheet.with_display_names({**body, "customers": rows}).get("customers", [])
-            except DATA_ERRORS:
-                customers = []
-                failed.add("directory")
-            fleet = sources.read("directory", "doixe_get_tong", {"thang": None}).get("danh_muc")
-            fleet = fleet if isinstance(fleet, dict) else {}
-            holder["directory"] = Directory(_dicts(customers), _dicts(fleet.get("xe")), _dicts(fleet.get("nguoi")))
+            holder["directory"] = load_directory(sources)
         return holder["directory"]
 
     # Một giới hạn số nhóm cho cả tin chat, ảnh và dấu: nhóm có tin mới nhất trước.

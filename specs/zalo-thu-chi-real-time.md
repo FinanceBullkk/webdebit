@@ -273,6 +273,7 @@ Chỉ đọc, chạy ở máy có Zalo, chỉ báo số đếm trong chat, khôn
 | `GET /api/v7/zalo/report` | thêm `pushed_at`, `last_message_at`, `age_seconds` |
 | `GET /api/v7/cash-chat?from=YYYY-MM-DD&to=YYYY-MM-DD&status=` | `{items:[{…khoản B1, status, ledger_ref, ledger_vnd, message}], totals:{thu_vnd, chi_vnd, ung_vnd, missing, amount_diff}, zalo_age_seconds}`; thiếu gói → `{unavailable: true}` |
 | `POST /api/v7/cash-chat/review` (PR-3) | `{message_id, action, value, reason, request_id}` → dòng đã ghi; lỗi `REASON_REQUIRED`, `MESSAGE_NOT_FOUND`, `TARGET_NOT_FOUND` |
+| `GET /api/v7/cash-chat/targets` (PR-3b) | `{so, xe, tai_xe: [{id, label}], failed}`: danh sách cho ô "Gắn sổ/xe"; mọi sổ, xe và người còn dùng |
 
 Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và được đếm riêng.
 
@@ -289,7 +290,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 - Đọc DB chỉ qua hàm đọc có sẵn: `list_customers`, `doixe_get_tong`, `get_receipt_book` (theo tháng, gồm phiếu web chưa hủy và dòng thu sổ gốc), `doixe_get_so` (theo xe hoặc người, chỉ cho đối tượng đã gắn), `get_marks` (theo nhóm). Kết quả giữ 8 giây trong bộ nhớ vì trang hỏi vài giây một lần.
 - Chi hoặc ứng khớp một dòng phí (`dong_phi`) hoặc một lần ứng chưa hủy của Đội xe; chi không có xe/người mà có từ "lương", "văn phòng", "mặt bằng", "internet"… là `NO_LEDGER`, còn lại không rõ đối tượng là `UNKNOWN_TARGET`.
 
-**Khuôn đã code ở PR-3** (21/11/2026; đợt này chỉ DB và API, nút trên trang chưa làm):
+**Khuôn đã code ở PR-3** (21/11/2026; đợt này chỉ DB và API, nút trên trang làm ở PR-3b bên dưới):
 
 - `POST /api/v7/cash-chat/review`, chỉ quản lý (cùng tiền tố `/api/v7/cash-chat`). Thân `{message_id, action, value, reason, request_id}`:
   - `confirm` xác nhận; `amount` sửa số (`value` là chuỗi VND số nguyên dương); `target` gắn đối tượng (`value` là `{kind: so|xe|tai_xe, id}`); `not_cash` loại, bắt buộc `reason`;
@@ -302,6 +303,16 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
   - số sửa thay số đọc từ tin (`amount_from: "sua"`), đối tượng gắn tay thay đối tượng tự khớp, đều trước khi gộp ảnh chứng và trước khi đối chiếu (số sửa có thể khớp đúng ảnh của khoản đó, nên không cộng hai lần);
   - khoản đã loại có `status: NOT_CASH`: không giữ ảnh chứng, không đối chiếu, không đếm và không cộng vào tổng, không hiện trong danh sách mặc định (hỏi `status=NOT_CASH` để xem); `counts.NOT_CASH` đếm số khoản đã loại;
   - đọc trạng thái lỗi thì `sources_failed` có `reviews`. Bấm xong thì bỏ kết quả đang giữ, lần hỏi kế tiếp thấy ngay.
+
+**Khuôn đã code ở PR-3b** (22/11/2026; nút trên trang Thu chi, Luồng 3; không đổi DB):
+
+- Mỗi khoản gõ hoặc ảnh có nút **Xử lý**; bấm thì mở khung ngay dưới dòng (không hộp nổi, khoản đang sửa vẫn thấy ngay trên), một khung một lúc. Dấu khách báo không có nút (sửa ở Chat Zalo); tin có hai ảnh chuyển khoản không có nút và ghi lý do (máy chủ không biết xác nhận ảnh nào, `MULTIPLE_IMAGES`).
+- Bốn việc: **Đúng, xác nhận** (bấm thẳng; không hiện khi đã xác nhận hay khoản chưa có số), **Sửa số**, **Gắn sổ/xe**, **Không phải thu chi**. Khoản đã loại chỉ có **Đưa lại vào thu chi** (một lần xác nhận). Mỗi lúc một nút chính.
+- **Trước → sau** hiện trước khi bấm Lưu: "Số: X → Y", "Đối tượng: A → B". Ô số chỉ nhận chữ số và dấu ngăn nghìn, không đọc "tr", "k" (không đoán số); bằng số đang có hay đúng đối tượng đang có thì nút Lưu tắt. Thu chỉ gắn sổ; chi và ứng chọn xe hoặc tài xế; tìm bỏ dấu, biển số không cần gạch, giữ chữ Hán. Danh sách lấy từ `GET /api/v7/cash-chat/targets` (chỉ quản lý, cùng tiền tố), hỏi lần đầu mở ô gắn.
+- Loại bắt buộc lý do; xong thì có dòng báo kèm nút **Hoàn tác** (một lần xác nhận với mã yêu cầu mới). Khoản đã loại nằm ở chip "Đã loại" (chỉ hiện khi có), không đếm, không cộng; trang hỏi đủ mọi trạng thái (`status=` cả `NOT_CASH`) để chip không phải hỏi riêng.
+- Dòng ghi lần xử lý gần nhất trong ô trạng thái ("Đã xác nhận · người · giờ · N lần"); số sửa ghi "đã sửa tay" dưới số, đối tượng gắn tay ghi "gắn tay" (`target_from: "sua"` trong `GET`).
+- Mã yêu cầu tạo khi mở khung hay đổi việc, giữ qua lần bấm lại sau lỗi mạng ("Không chắc đã lưu… máy không ghi hai lần"); `IDEMPOTENCY_CONFLICT` thì đổi mã và tải lại. Lỗi khác hiện câu của máy chủ.
+- Khung đang mở thì nhịp 5 giây không vẽ lại (chữ đang gõ giữ nguyên), bản mới chờ ở nút "Có N khoản mới"; Esc hay Đóng thì nhận. Cột nút cố định 236px ở màn rộng để số tiền các dòng thẳng cột; dưới 1000px cụm nút xuống hàng riêng.
 
 ## Nguồn quyết định
 
@@ -365,6 +376,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 - [x] PR-3: harness PostgreSQL cho `cash_report_review`: không đổi dấu vân tay tổng khách, bấm lặp chỉ ghi một lần, loại mà thiếu lý do thì bị từ chối, quyền của role app và role reader (21/11/2026: ca `ZALO-THU-CHI.03` ở `tools/test_pg_v7_backend_cash_review.py`, danh mục quyền ở `tools/test_pg_v7_grants.py`; API: `ReviewTests` ở `tests/test_v7_cash_chat.py`).
 - [ ] `npm run check` xanh; `node scripts/check-secrets.js` xanh.
 - [ ] Trên `hao` (dữ liệu thật): gửi một tin thử vào nhóm thì tin lên web trong ≤ 30 giây; tắt Zalo 20 phút trong giờ làm việc thì có email.
+- [x] PR-3b: test nút Luồng 3 (`test-thu-chi-model.js`, `test-thu-chi-browser.js` nhóm "Xử lý", `ReviewTests` cho `/targets`): xác nhận, sửa số chỉ nhận chữ số và hiện trước → sau, gắn theo hướng thu/chi, loại bắt buộc lý do + Hoàn tác, đã loại không đếm không cộng, mất mạng bấm lại cùng mã, mã trùng thì đổi mã, khung mở thì không vẽ lại, 1280×720 nút Lưu trong khung thấy, 390px không tràn và nút ≥ 40px (22/11/2026).
 - [ ] Sếp và người dùng tự đi hết Luồng 1–2 (PR-3 thì thêm Luồng 3) trên bản thử và xác nhận.
 
 ## Chia PR và cổng
@@ -374,7 +386,8 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 | P0 | Đo, chỉ đọc | Không | Người dùng chọn nhóm |
 | PR-1 | A1–A4: `watch`, delta, `after=`, tự cập nhật trang Chat Zalo, nhịp tim, máy canh | Không | Thay task 15 phút bằng tiến trình chạy nền trên máy có Zalo |
 | PR-2 | B1–B2: `v7_cash_chat.py`, route đọc, trang Thu chi chỉ xem | Không | — |
-| PR-3 | B3: bảng `cash_report_review`, hàm, nút xác nhận/sửa/loại | Có, ngoài đường tiền | Tự triển khai theo `DEPLOY-CLAUDE-01` |
+| PR-3 | B3: bảng `cash_report_review`, hàm, route ghi | Có, ngoài đường tiền | Tự triển khai theo `DEPLOY-CLAUDE-01` |
+| PR-3b | B3 trên trang Thu chi: nút xác nhận/sửa số/gắn/loại, route danh sách đối tượng | Không | — |
 | PR-4 | B4: OCR ở máy có Zalo (P0 đạt 20/20), Gemini cho ảnh OCR đọc không chắc theo [`ANH-GEMINI-01`](../docs/decisions/anh-gemini-01.md) | Không | Khóa API và địa chỉ proxy đặt trên máy có Zalo |
 | PR-4b | B4 trên `hao`: trang Thu chi đọc `money-reads.json` | Không | — (số chỉ hiện khi máy Zalo bật `money_images` và `--reads-target`) |
 

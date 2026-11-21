@@ -895,7 +895,8 @@ class LedgerApiTest(unittest.TestCase):
                 status, page = call(staff, "/dashboard-v7.html")
                 self.assertIn(b'data-role="user"', page)
                 self.assertEqual(call(staff, "/api/v7/admin/users")[1]["error"], "ADMIN_ONLY")
-                self.assertEqual((call(staff, "/thu-chi.html")[0], call(staff, "/api/v7/cash-chat")[0]), (403, 403))   # ZALO-THU-CHI-01: chỉ quản lý
+                self.assertEqual((call(staff, "/thu-chi.html")[0], call(staff, "/api/v7/cash-chat")[0], call(staff, "/api/v7/cash-chat/targets")[0]),
+                                 (403, 403, 403))   # ZALO-THU-CHI-01: chỉ quản lý, cả danh sách cho ô gắn
                 self.assertEqual(call(boss, "/thu-chi.html")[0], 200)
                 self.assertEqual(call(staff, "/api/v7/admin/users", {"action": "remove", "login": boss, "version": 1})[1]["error"], "ADMIN_ONLY")
                 self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "add", "login": staff, "version": 0})[1]["error"], "STALE")

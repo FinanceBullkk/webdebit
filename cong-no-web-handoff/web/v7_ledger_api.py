@@ -373,6 +373,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == "/api/v7/cash-chat":
         # ZALO-THU-CHI-01: khoản thu/chi/ứng báo trong nhóm Zalo đã chọn, đối chiếu chỉ đọc với phiếu thu và Đội xe; tin chat không vào model.
         return 200, v7_cash_chat.handle_get(parts.query, runner, actor)
+    elif parts.path == "/api/v7/cash-chat/targets":
+        # Luồng 3: danh sách sổ, xe, tài xế cho ô "Gắn sổ/xe"; chỉ đọc qua list_customers và doixe_get_tong.
+        return 200, v7_cash_chat.handle_targets(parts.query, runner, actor)
     elif parts.path == "/api/v7/report/month":
         # BAO-CAO-THANG-01: chuyến theo tháng ngày chuyến, booking ↔ Sheet (file của phép kiểm booking) ↔ web (get_trip_month).
         return 200, v7_month_report.handle_get(parts.query, runner, READS, actor)

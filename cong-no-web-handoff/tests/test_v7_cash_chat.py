@@ -819,6 +819,29 @@ class ReviewTests(CashChatCase):
         self.post({"message_id": "a", "action": "not_cash", "reason": "  tin hỏi giá ", "request_id": "r3"}, runner)
         self.assertEqual((runner.recorded[1]["target"], runner.recorded[2]["reason"]), ({"kind": "xe", "id": 10}, "tin hỏi giá"))
 
+    def test_targets_list_books_and_vehicles_and_people_still_in_use(self):
+        """Ô "Gắn sổ/xe" (Luồng 3): mọi sổ, xe và người còn dùng, theo tên; chỉ hai hàm đọc danh mục, không ghi gì."""
+        class Retired(FakeRunner):
+            def run(self, function, payload, actor, **_):
+                body = super().run(function, payload, actor)
+                if function == "doixe_get_tong":
+                    body["danh_muc"]["xe"][1]["dang_dung"] = False
+                    body["danh_muc"]["nguoi"].append({"id": 22, "ten": "An", "dang_dung": False})
+                return body
+        runner = Retired()
+        body = cash.handle_targets("", runner, "tester", NOW)
+        self.assertEqual([row["label"] for row in body["so"]], ["AN", "AN LONG", "KHACH A", "KHACH B", "KHACH C", "KHACH D", "KHACH E"])
+        self.assertEqual(body["xe"], [{"id": 12, "label": "43C-999.45"}, {"id": 10, "label": "51C-123.45"}])   # 29H đã thôi dùng
+        self.assertEqual(body["tai_xe"], [{"id": 20, "label": "Bình"}, {"id": 21, "label": "Cường"}])   # An đã nghỉ
+        self.assertFalse(body["failed"])
+        self.assertEqual({call[0] for call in runner.calls}, {"list_customers", "doixe_get_tong"})
+        with self.assertRaises(ApiError):
+            cash.handle_targets("x=1", runner, "tester", NOW)
+
+    def test_targets_say_failed_and_keep_what_was_read(self):
+        body = cash.handle_targets("", FakeRunner(fail={"doixe_get_tong"}), "tester", NOW)
+        self.assertEqual((len(body["so"]), body["xe"], body["tai_xe"], body["failed"]), (7, [], [], True))
+
     def test_review_rejects_bad_bodies_before_the_database(self):
         cases = {
             "INVALID_CASH_REVIEW": [{"message_id": "a", "action": "xoa", "request_id": "r"}, {"message_id": "a", "action": "confirm"},
@@ -858,6 +881,7 @@ class ReviewTests(CashChatCase):
         self.assertEqual((by["a"]["amount_vnd"], by["a"]["amount_from"], by["a"]["status"], by["a"]["review"]["decision"]),
                          (4_500_000, "sua", "RECORDED", "confirm"))   # số đã sửa khớp phiếu
         self.assertEqual(by["b"]["target"], {"kind": "tai_xe", "id": 21, "label": "Cường"})
+        self.assertEqual((by["b"]["target_from"], by["a"]["target_from"]), ("sua", None))   # trang ghi "gắn tay" cạnh đối tượng
         self.assertEqual((by["c"]["status"], by["c"]["review"]["reason"], by["c"]["ledger_ref"]), ("NOT_CASH", "tin hỏi giá", None))
         self.assertEqual((body["totals"]["thu_vnd"], body["totals"]["thu_count"], body["counts"]["NOT_CASH"]), (6_500_000, 2, 1))
         self.assertEqual(body["sources_failed"], [])
