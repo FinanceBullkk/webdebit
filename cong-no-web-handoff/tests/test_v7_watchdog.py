@@ -384,6 +384,17 @@ class ZaloTests(Base):
         self.report(ten, processors=money(error="ocr_unavailable", pending_since=stamp(60)))   # đã có cảnh báo lỗi: không báo đứng thêm
         self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: ảnh chuyển khoản lỗi ocr_unavailable, 20 phút."])
 
+    def test_wechat_errors_alert_like_other_processors(self):
+        ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
+        stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        wechat = lambda **item: {"wechat": {"revision": None, "lag_revisions": None, "last_ok_at": stamp(30), "messages": 5, **item}}  # noqa: E731
+        self.report(ten, processors=wechat(error=None))
+        self.assertEqual(dog.check_zalo(ten), [])   # không có revision thì không có "chậm"
+        self.report(ten, processors=wechat(error="child_failed", error_since=stamp(20)))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: WeChat lỗi child_failed, 20 phút."])
+        self.report(ten, processors=wechat(error="child_timeout", error_since=stamp(5)))
+        self.assertEqual(dog.check_zalo(ten), [])   # lỗi mới 5 phút: chưa báo
+
     def test_error_reports_by_how_long_it_has_lasted(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
         stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731

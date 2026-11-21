@@ -223,6 +223,16 @@ class MachineTests(unittest.TestCase):
         self.assertEqual([(row["id"], row["state"], row["minutes"]) for row in view["processors"]],
                          [("bundle", "ok", None), ("insurance", "slow", 5), ("money_images", "ok", None)])
 
+    def test_zalo_lists_wechat_as_ok_or_error_with_its_message_count(self):
+        bundle = {"revision": 9, "lag_revisions": 0, "last_ok_at": ago(1), "error": None}
+        self.status(processors={"bundle": bundle, "wechat": {"revision": None, "lag_revisions": None, "last_ok_at": ago(1), "error": None, "messages": 12}})
+        row = machine.zalo()["processors"][-1]
+        self.assertEqual((row["id"], row["state"], row["lag"], row["messages"], row["error"]), ("wechat", "ok", None, 12, None))
+        self.status(processors={"bundle": bundle, "wechat": {"lag_revisions": None, "error": "child_failed", "error_since": ago(20), "messages": "x"}})
+        row = machine.zalo()["processors"][-1]
+        self.assertEqual((row["state"], row["error"], row["error_minutes"], row["messages"]), ("error", "child_failed", 20, None))
+        self.assertEqual(machine.summary()["zalo"]["processors"], {"bundle": "ok", "wechat": "error"})
+
     def test_zalo_latency_and_ocr_drain_are_numbers_only(self):
         money = lambda **drain: {"lag_revisions": 0, "last_ok_at": ago(1), "error": None, "counts": {"pending": 4}, "drain": drain}  # noqa: E731
         self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(1), "error": None},

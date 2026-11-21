@@ -46,8 +46,10 @@ MAX_CONVERSATIONS = 20
 CACHE_SECONDS = 8   # trang hỏi vài giây một lần; phần đọc DB giữ ngắn như vậy để nhiều người xem không nhân số lần đọc
 MARK_STATUS = {"received": "RECORDED", "not_seen": "MISSING", "waiting": "WAITING"}
 UNITS = {"trieu": 10**6, "tr": 10**6, "k": 10**3, "nghin": 10**3, "ngan": 10**3, "ty": 10**9}
-REPORT = re.compile(r"\s*(?P<verb>thu|chi|ung)(?![a-z])(?P<sep>[\s:.\-−–—]*)(?P<num>\d[\d.,]*)"
-                    r"(?:\s*(?P<unit>trieu|tr|k|nghin|ngan|ty|vnd|d)(?![a-z])(?P<tail>\d*))?(?P<rest>.*)", re.S)
+REPORT = re.compile(r"\s*(?P<verb>thu|chi|ung)(?![a-z])(?P<sep>[\s:.\-−–—]*)(?P<yen>[¥￥]\s*)?(?P<num>\d[\d.,]*)"
+                    r"(?:\s*(?P<unit>trieu|tr|k|nghin|ngan|ty|vnd|d|nhan dan te|ndt|rmb|cny|te|元|块)(?![a-z])(?P<tail>\d*))?(?P<rest>.*)", re.S)
+# Đơn vị tệ (WECHAT-01, đã chữ đã bỏ dấu): khoản tính bằng tệ có tổng riêng, không đổi ra VND, không đối chiếu với sổ VND.
+CNY_UNITS = frozenset({"nhan dan te", "ndt", "rmb", "cny", "te", "元", "块"})
 OFFICE = re.compile(r"(?<![a-z0-9])(luong|van phong|vpp|mat bang|thue nha|tien nha|internet)(?![a-z0-9])")
 # Biển số chỉ nhận khi có chữ cái của dãy biển (51C-123.45) hoặc đứng ngay sau "xe", "bks", "bs", "biển số": "15.11", "2026" không phải biển.
 PLATE = re.compile(r"(?<![a-z0-9])(?:\d{2}(?!tr|ty)[a-z]{1,2}[\s.\-]*|(?:xe|bks|bs|bien so)[\s:.\-]*(?:so\s*)?)(\d[\d.\-]*\d)(?![a-z])")
@@ -100,11 +102,19 @@ def read_report(text: str) -> dict | None:
     match = REPORT.match(v7_zalo_chat.fold(text))
     if match is None:
         return None
-    amount = amount_vnd(match["num"], match["unit"], match["tail"] or "")
+    cny = bool(match["yen"]) or match["unit"] in CNY_UNITS
+    num = match["num"].rstrip(".,")
+    if cny:   # số nguyên tệ ("500 tệ", "1.200元", "¥300"); số lẻ hay dạng lạ thì để trống, không đoán
+        whole = num.isdigit() or re.fullmatch(r"\d{1,3}([.,]\d{3})+", num)
+        amount = int(re.sub(r"\D", "", num)) if whole and not match["tail"] else None
+        amount = amount if amount is not None and 0 < amount <= MAX_AMOUNT else None
+    else:
+        amount = amount_vnd(match["num"], match["unit"], match["tail"] or "")
     # "chi -500k" (dấu trừ dính vào số) và "chi 1 triệu 2" (số rời sau đơn vị) không đoán: số để trống.
     if match["sep"].endswith(("-", "−", "–", "—")) or SPLIT_AMOUNT.match(match["rest"]):
         amount = None
-    return {"direction": {"thu": "thu", "chi": "chi", "ung": "ung"}[match["verb"]], "amount_vnd": amount, "rest": match["rest"]}
+    return {"direction": {"thu": "thu", "chi": "chi", "ung": "ung"}[match["verb"]], "amount_vnd": None if cny else amount,
+            "amount_cny": amount if cny else None, "currency": "CNY" if cny else "VND", "rest": match["rest"]}
 
 
 def _has(text: str, needle: str) -> bool:
@@ -196,7 +206,8 @@ def collect(store, directory_of, start_ms: int, end_ms: int, conversations: list
             directory = directory or directory_of()
             last = {"message_id": row["message_id"], "conversation_id": cid, "conversation_name": names.get(cid), "sent_at": stamp,
                     "sender_name": row["sender_name"], "sender": row["sender_id"], "direction": report["direction"],
-                    "amount_vnd": report["amount_vnd"], "text": row["body_text"][:300], "media": [],
+                    "amount_vnd": report["amount_vnd"], "currency": report["currency"], "amount_cny": report["amount_cny"],
+                    "text": row["body_text"][:300], "media": [],
                     "target": directory.target(report["direction"], report["rest"]), "rest": report["rest"]}
             items.append(last)
         elif row["media"] and last and row["sender_id"] == last["sender"] and 0 <= stamp - last["sent_at"] <= IMAGE_GAP_MS:
@@ -591,7 +602,9 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
     claimed: set = set()
     for item in items:
         kind, entity, direction = item["target"]["kind"], item["target"]["id"], item["direction"]
-        if item["amount_vnd"] is None:
+        if item.get("currency") == "CNY":   # tiền tệ: sổ khách và Đội xe tính VND, không có dòng nào để ghép
+            item["status"] = "NO_LEDGER"
+        elif item["amount_vnd"] is None:
             item["status"] = "NO_AMOUNT"
         elif direction == "thu" and kind == "so":
             item["track"] = "receipt"
@@ -827,7 +840,8 @@ def message_conversation(message: str) -> tuple[str, dict]:
 def _public(item: dict) -> dict:
     out = {key: item.get(key) for key in ("message_id", "conversation_id", "conversation_name", "sent_at", "sender_name", "direction", "amount_vnd", "text",
                                           "media", "status", "shared", "unchecked", "ledger_ref", "ledger_vnd", "image_vnd", "amount_from", "image",
-                                          "link", "review")}
+                                          "link", "review", "amount_cny")}
+    out["currency"] = item.get("currency", "VND")
     out["image_diff"] = bool(item.get("image_diff"))
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
@@ -842,7 +856,15 @@ def totals(items: list[dict]) -> dict:
            "missing": sum(item["status"] == "MISSING" for item in items),
            "amount_diff": sum(item["status"] == "AMOUNT_DIFF" or bool(item.get("image_diff")) for item in items),
            "from_image": sum(item.get("source") == "anh" and item["amount_vnd"] is not None for item in items)}
+    out["cny"] = {"thu": 0, "chi": 0, "ung": 0, "count": 0, "no_amount": 0}   # khoản tính bằng tệ: tổng riêng, không vào tổng VND
     for item in items:
+        if item.get("currency") == "CNY":
+            if item.get("amount_cny") is None:
+                out["cny"]["no_amount"] += 1
+            else:
+                out["cny"][item["direction"]] += item["amount_cny"]
+                out["cny"]["count"] += 1
+            continue
         if item["amount_vnd"] is None:
             out["no_amount"] += 1
         else:
@@ -938,7 +960,7 @@ def _core(store, start: date, end: date, runner, actor: str, today: date) -> dic
     # Số ảnh chứng của khoản gõ (chỉ ảnh chứng) có trước khi gộp, để ảnh gộp sau không xóa mất cảnh báo "mẫu X, ảnh Y".
     for item in items:
         item["image_vnd"], item["amount_from"] = image_amount(item["media"], reads), None
-        if item["amount_vnd"] is None and item["image_vnd"] is not None:   # mẫu không đọc được số mà ảnh chứng đọc được
+        if item["amount_vnd"] is None and item["image_vnd"] is not None and item.get("currency") != "CNY":   # mẫu không đọc được số mà ảnh chứng đọc được
             item["amount_vnd"], item["amount_from"] = item["image_vnd"], "anh"
         item["image_diff"] = item["image_vnd"] is not None and item["amount_from"] is None and item["amount_vnd"] not in (None, item["image_vnd"])
     before = sum(image["day"] < start for image in images)   # ảnh cũ gửi lại: giao dịch trước khoảng xem, không cộng vào khoảng này

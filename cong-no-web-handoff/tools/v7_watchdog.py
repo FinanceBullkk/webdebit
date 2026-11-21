@@ -217,7 +217,7 @@ def check_offsite_pulls(now: dt.datetime) -> list[str]:
 
 
 ZALO_HOURS = (7, 20)   # ZALO-AGENT-01: chỉ canh máy Zalo từ 7:00 tới trước 20:00 giờ VN (máy có thể tắt ban đêm)
-ZALO_PROCESSOR_NAMES = {"bundle": "gói chat", "insurance": "bảo hiểm", "money_images": "ảnh chuyển khoản"}
+ZALO_PROCESSOR_NAMES = {"bundle": "gói chat", "insurance": "bảo hiểm", "money_images": "ảnh chuyển khoản", "wechat": "WeChat"}
 # Độ trễ tin mới, chặng `total` (live-sync ghi revision → hao áp gói) trong 60 phút qua: mục tiêu p95 30 giây (spec, bước Chuyển);
 # báo khi p95 quá 5 phút và có ít nhất 3 lượt (ít hơn thì một lượt chậm đã thành p95). Chặng `zalo` không xét: tin đọc bù sau khi
 # máy tắt qua đêm luôn dài và không do agent.
