@@ -19,7 +19,7 @@ GRANT USAGE ON SCHEMA sokhach TO sokhach_reader;
 -- ALTER DEFAULT PRIVILEGES FOR ROLE sokhach_owner ON FUNCTIONS: ACL còn lại {sokhach_owner=X/sokhach_owner} (không có '=' đầu = PUBLIC bị thu)
 
 -- ------------------------------------------------------------------------------------------------------------
--- BẢNG (34)
+-- BẢNG (35)
 -- ------------------------------------------------------------------------------------------------------------
 
 CREATE TABLE sokhach.adjustment (
@@ -83,6 +83,39 @@ CREATE TABLE sokhach.book_fee_column (
     CONSTRAINT book_fee_column_position_check CHECK (("position" > 0))
 );
 ALTER TABLE sokhach.book_fee_column OWNER TO sokhach_owner;
+
+CREATE TABLE sokhach.cash_report_review (
+    id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+    conversation_id text NOT NULL,
+    message_id text NOT NULL,
+    action text NOT NULL,
+    target_kind text,
+    target_id bigint,
+    amount_vnd bigint,
+    before jsonb NOT NULL,
+    reason text,
+    request_id text NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT cash_report_review_action_check CHECK ((action = ANY (ARRAY['confirm'::text, 'target'::text, 'amount'::text, 'not_cash'::text]))),
+    CONSTRAINT cash_report_review_amount_vnd_check CHECK (((amount_vnd IS NULL) OR (amount_vnd > 0))),
+    CONSTRAINT cash_report_review_before_check CHECK (((jsonb_typeof(before) = 'object'::text) AND (octet_length((before)::text) <= 2000))),
+    CONSTRAINT cash_report_review_check CHECK ((((action = 'target'::text) = (target_kind IS NOT NULL)) AND ((target_kind IS NULL) = (target_id IS NULL)))),
+    CONSTRAINT cash_report_review_check1 CHECK (((action = 'amount'::text) = (amount_vnd IS NOT NULL))),
+    CONSTRAINT cash_report_review_check2 CHECK (((action <> 'not_cash'::text) OR (reason IS NOT NULL))),
+    CONSTRAINT cash_report_review_conversation_id_check CHECK ((conversation_id ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT cash_report_review_created_by_check CHECK ((btrim(created_by) <> ''::text)),
+    CONSTRAINT cash_report_review_message_id_check CHECK ((message_id ~ '^[0-9A-Za-z_-]{1,128}$'::text)),
+    CONSTRAINT cash_report_review_pkey PRIMARY KEY (id),
+    CONSTRAINT cash_report_review_reason_check CHECK (((reason IS NULL) OR ((btrim(reason) <> ''::text) AND (char_length(reason) <= 500)))),
+    CONSTRAINT cash_report_review_request_id_check CHECK (((btrim(request_id) <> ''::text) AND (char_length(request_id) <= 200))),
+    CONSTRAINT cash_report_review_request_id_key UNIQUE (request_id),
+    CONSTRAINT cash_report_review_target_id_check CHECK (((target_id IS NULL) OR (target_id > 0))),
+    CONSTRAINT cash_report_review_target_kind_check CHECK (((target_kind IS NULL) OR (target_kind = ANY (ARRAY['so'::text, 'xe'::text, 'tai_xe'::text]))))
+);
+ALTER TABLE sokhach.cash_report_review OWNER TO sokhach_owner;
+CREATE INDEX cash_report_review_message ON sokhach.cash_report_review USING btree (message_id, id);
+COMMENT ON TABLE sokhach.cash_report_review IS 'ZALO-THU-CHI-01 PR-3: xác nhận/sửa số/gắn đối tượng/loại một khoản thu chi báo trong nhóm Zalo; chỉ thêm dòng, gộp theo thứ tự; không tham gia tính tiền.';
 
 CREATE TABLE sokhach.commodity (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -1034,7 +1067,7 @@ ALTER VIEW sokhach.v_trip_current OWNER TO sokhach_owner;
 
 
 -- ------------------------------------------------------------------------------------------------------------
--- HÀM (137), sắp theo tên + chữ ký
+-- HÀM (141), sắp theo tên + chữ ký
 -- ------------------------------------------------------------------------------------------------------------
 
 -- FUNCTION sokhach._actor()
@@ -1178,6 +1211,45 @@ AS $function$
 $function$;
 ALTER FUNCTION sokhach._booking_key(text,text,date) OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach._booking_key(text,text,date) FROM PUBLIC;
+
+-- FUNCTION sokhach._cash_review_json(sokhach.cash_report_review)
+CREATE OR REPLACE FUNCTION sokhach._cash_review_json(r sokhach.cash_report_review)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+AS $function$
+ SELECT jsonb_build_object('id',r.id,'conversation_id',r.conversation_id,'message_id',r.message_id,'action',r.action,
+   'target',CASE WHEN r.target_kind IS NULL THEN NULL ELSE jsonb_build_object('kind',r.target_kind,'id',r.target_id) END,
+   'amount_vnd',r.amount_vnd::text,'before',r.before,'reason',r.reason,'request_id',r.request_id,'created_by',r.created_by,
+   'created_at',r.created_at,'state',sokhach._cash_review_state(r.message_id,r.id+1))
+$function$;
+ALTER FUNCTION sokhach._cash_review_json(sokhach.cash_report_review) OWNER TO sokhach_owner;
+REVOKE ALL ON FUNCTION sokhach._cash_review_json(sokhach.cash_report_review) FROM PUBLIC;
+
+-- FUNCTION sokhach._cash_review_state(text,bigint)
+CREATE OR REPLACE FUNCTION sokhach._cash_review_state(p_message text, p_before bigint)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+AS $function$
+DECLARE r sokhach.cash_report_review; v_last sokhach.cash_report_review; v_amount bigint; v_kind text; v_id bigint;
+ v_decision text; v_reason text; v_count int := 0;
+BEGIN
+ FOR r IN SELECT * FROM sokhach.cash_report_review c WHERE c.message_id=p_message AND (p_before IS NULL OR c.id<p_before) ORDER BY c.id LOOP
+   v_count:=v_count+1; v_last:=r;
+   IF r.action='amount' THEN v_amount:=r.amount_vnd; v_decision:=NULL; v_reason:=NULL;
+   ELSIF r.action='target' THEN v_kind:=r.target_kind; v_id:=r.target_id; v_decision:=NULL; v_reason:=NULL;
+   ELSE v_decision:=r.action; v_reason:=r.reason; END IF;
+ END LOOP;
+ IF v_count=0 THEN RETURN '{}'::jsonb; END IF;
+ RETURN jsonb_build_object('amount_vnd',v_amount::text,
+   'target',CASE WHEN v_kind IS NULL THEN NULL ELSE jsonb_build_object('kind',v_kind,'id',v_id) END,
+   'decision',v_decision,'reason',v_reason,'reviews',v_count,'last_action',v_last.action,'last_by',v_last.created_by,'last_at',v_last.created_at);
+END $function$;
+ALTER FUNCTION sokhach._cash_review_state(text,bigint) OWNER TO sokhach_owner;
+REVOKE ALL ON FUNCTION sokhach._cash_review_state(text,bigint) FROM PUBLIC;
 
 -- FUNCTION sokhach._change_fee_type(text,text,bigint,text,text)
 CREATE OR REPLACE FUNCTION sokhach._change_fee_type(p_key text, p_command text, p_id bigint, p_value text, p_kind text)
@@ -3493,6 +3565,27 @@ ALTER FUNCTION sokhach.get_activity(date) OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach.get_activity(date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION sokhach.get_activity(date) TO sokhach_app;
 
+-- FUNCTION sokhach.get_cash_reviews(jsonb)
+CREATE OR REPLACE FUNCTION sokhach.get_cash_reviews(p jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+AS $function$
+DECLARE v_ids text[];
+BEGIN
+ IF jsonb_typeof(p)<>'object' OR jsonb_typeof(p->'message_ids')<>'array' OR jsonb_array_length(p->'message_ids')>5000
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(p->'message_ids') e WHERE jsonb_typeof(e)<>'string' OR e#>>'{}' !~ '^[0-9A-Za-z_-]{1,128}$') THEN
+   RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
+ v_ids:=ARRAY(SELECT jsonb_array_elements_text(p->'message_ids'));
+ RETURN jsonb_build_object('reviews',(SELECT coalesce(jsonb_object_agg(m.message_id,sokhach._cash_review_state(m.message_id,NULL)),'{}'::jsonb)
+   FROM (SELECT DISTINCT c.message_id FROM sokhach.cash_report_review c WHERE c.message_id=ANY(v_ids)) m));
+END $function$;
+ALTER FUNCTION sokhach.get_cash_reviews(jsonb) OWNER TO sokhach_owner;
+REVOKE ALL ON FUNCTION sokhach.get_cash_reviews(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION sokhach.get_cash_reviews(jsonb) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.get_cash_reviews(jsonb) TO sokhach_reader;
+
 -- FUNCTION sokhach.get_dashboard()
 CREATE OR REPLACE FUNCTION sokhach.get_dashboard()
  RETURNS jsonb
@@ -5284,6 +5377,64 @@ EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND';
 END $function$;
 ALTER FUNCTION sokhach.reallocate(bigint,text) OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach.reallocate(bigint,text) FROM PUBLIC;
+
+-- FUNCTION sokhach.record_cash_review(jsonb)
+CREATE OR REPLACE FUNCTION sokhach.record_cash_review(p jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+AS $function$
+DECLARE
+ v_action text := p->>'action'; v_message text := p->>'message_id'; v_key text := p->>'request_id';
+ v_reason text := nullif(btrim(p->>'reason'),''); v_amount bigint; v_kind text; v_id bigint;
+ v_old sokhach.cash_report_review; v_row sokhach.cash_report_review; v_found boolean;
+BEGIN
+ IF jsonb_typeof(p)<>'object' OR v_action IS NULL OR v_action NOT IN ('confirm','target','amount','not_cash')
+    OR coalesce(p->>'conversation_id','') !~ '^[0-9a-f]{64}$' OR coalesce(v_message,'') !~ '^[0-9A-Za-z_-]{1,128}$'
+    OR v_key IS NULL OR btrim(v_key)='' OR char_length(v_key)>200 OR char_length(coalesce(v_reason,''))>500 THEN
+   RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
+ SELECT * INTO v_old FROM sokhach.cash_report_review c WHERE c.request_id=v_key;
+ IF FOUND THEN
+   IF v_old.message_id<>v_message OR v_old.action<>v_action THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
+   RETURN sokhach._cash_review_json(v_old)||jsonb_build_object('replayed',true);
+ END IF;
+ IF v_action='not_cash' AND v_reason IS NULL THEN RAISE EXCEPTION 'REASON_REQUIRED'; END IF;
+ IF v_action='amount' THEN
+   IF coalesce(p->>'amount_vnd','') !~ '^[1-9][0-9]{0,17}$' THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
+   v_amount:=(p->>'amount_vnd')::bigint;
+ ELSIF p ? 'amount_vnd' AND p->'amount_vnd'<>'null'::jsonb THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW';
+ END IF;
+ IF v_action='target' THEN
+   v_kind:=p->'target'->>'kind';
+   IF jsonb_typeof(p->'target')<>'object' OR v_kind IS NULL OR v_kind NOT IN ('so','xe','tai_xe')
+      OR coalesce(p->'target'->>'id','') !~ '^[1-9][0-9]{0,17}$' THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW'; END IF;
+   v_id:=(p->'target'->>'id')::bigint;
+   -- Mỗi bảng một câu: PL/pgSQL chỉ lập kế hoạch câu khi chạy tới, nên DB chưa có Đội xe vẫn gắn được sổ.
+   IF v_kind='so' THEN v_found:=EXISTS(SELECT 1 FROM sokhach.customer c WHERE c.id=v_id);
+   ELSIF v_kind='xe' AND to_regclass('doixe.xe') IS NOT NULL THEN v_found:=EXISTS(SELECT 1 FROM doixe.xe x WHERE x.id=v_id);
+   ELSIF v_kind='tai_xe' AND to_regclass('doixe.nguoi') IS NOT NULL THEN v_found:=EXISTS(SELECT 1 FROM doixe.nguoi n WHERE n.id=v_id);
+   END IF;
+   IF NOT coalesce(v_found,false) THEN RAISE EXCEPTION 'TARGET_NOT_FOUND'; END IF;
+ ELSIF p ? 'target' AND p->'target'<>'null'::jsonb THEN RAISE EXCEPTION 'INVALID_CASH_REVIEW';
+ END IF;
+ -- Hai người bấm cùng lúc trên một tin: xếp hàng theo tin, để `before` của người sau là trạng thái sau lượt của người trước.
+ PERFORM pg_advisory_xact_lock(hashtextextended('cash_report_review:'||v_message,0));
+ INSERT INTO sokhach.cash_report_review(conversation_id,message_id,action,target_kind,target_id,amount_vnd,before,reason,request_id,created_by)
+   VALUES(p->>'conversation_id',v_message,v_action,v_kind,v_id,v_amount,
+          sokhach._cash_review_state(v_message,NULL)-'last_by'-'last_at'-'last_action'-'reviews',v_reason,v_key,sokhach._actor())
+   ON CONFLICT (request_id) DO NOTHING
+   RETURNING * INTO v_row;
+ IF v_row.id IS NULL THEN   -- cùng request_id vừa được người khác ghi giữa lúc kiểm và lúc ghi
+   SELECT * INTO v_old FROM sokhach.cash_report_review c WHERE c.request_id=v_key;
+   IF v_old.message_id<>v_message OR v_old.action<>v_action THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
+   RETURN sokhach._cash_review_json(v_old)||jsonb_build_object('replayed',true);
+ END IF;
+ RETURN sokhach._cash_review_json(v_row);
+END $function$;
+ALTER FUNCTION sokhach.record_cash_review(jsonb) OWNER TO sokhach_owner;
+REVOKE ALL ON FUNCTION sokhach.record_cash_review(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION sokhach.record_cash_review(jsonb) TO sokhach_app;
 
 -- FUNCTION sokhach.record_mark(jsonb)
 CREATE OR REPLACE FUNCTION sokhach.record_mark(p jsonb)

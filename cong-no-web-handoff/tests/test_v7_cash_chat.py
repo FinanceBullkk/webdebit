@@ -58,9 +58,10 @@ def receipt(rid, customer, name, day, amount, source="web"):
 class FakeRunner:
     """Chỉ các hàm đọc mà trang Thu chi được phép gọi; hàm lạ thì nổ để test thấy ngay."""
 
-    def __init__(self, receipts=(), marks=(), voided=(), ung=(), chang=(), fail=(), slow=0.0, links=()):
+    def __init__(self, receipts=(), marks=(), voided=(), ung=(), chang=(), fail=(), slow=0.0, links=(), reviews=None):
         self.receipts, self.marks, self.voided, self.ung, self.chang = list(receipts), list(marks), list(voided), list(ung), list(chang)
         self.links = list(links)
+        self.reviews, self.recorded = dict(reviews or {}), []
         self.fail, self.slow = set(fail), slow
         self.calls = []
 
@@ -90,6 +91,11 @@ class FakeRunner:
             return {"marks": self.marks if payload["conversation_id"] == GROUP else []}
         if function == "get_zalo_links":
             return {"links": self.links}
+        if function == "get_cash_reviews":
+            return {"reviews": {key: value for key, value in self.reviews.items() if key in payload["message_ids"]}}
+        if function == "record_cash_review":   # PR-3: lệnh ghi duy nhất của trang Thu chi
+            self.recorded.append(payload)
+            return {"id": len(self.recorded), **payload, "state": {}}
         raise AssertionError(f"hàm không được đọc: {function}")
 
 
@@ -517,7 +523,8 @@ class BuildTests(CashChatCase):
         self.assertGreater(len(runner.calls), first)
 
     def test_only_read_functions_and_no_text_leaves_the_module(self):
-        source = (ROOT / "web" / "v7_cash_chat.py").read_text(encoding="utf-8")
+        # PR-3: lệnh ghi duy nhất là record_cash_review (xác nhận/sửa/loại, ngoài đường tiền); không lệnh ghi nào khác.
+        source = (ROOT / "web" / "v7_cash_chat.py").read_text(encoding="utf-8").replace("record_cash_review", "")
         self.assertNotIn("record_", source)
         self.assertNotIn("ghi_", source)
         self.assertNotRegex(source, r"v7_ai_explain|anthropic|gemini|openai")
@@ -789,6 +796,71 @@ class QueryAndRouteTests(CashChatCase):
         self.assertTrue(v7_role.admin_api("/api/v7/cash-chat"))
         self.assertFalse(v7_role.allowed("/api/v7/cash-chat", v7_role.USER, {}))
         self.assertTrue(v7_role.allowed("/api/v7/cash-chat", v7_role.ADMIN, {}))
+
+
+class ReviewTests(CashChatCase):
+    """ZALO-THU-CHI-01 PR-3: xác nhận, gắn đối tượng, sửa số, loại; không ghi tiền."""
+
+    def post(self, body, runner):
+        write_bundle(self.dir, [row("a", at(19), "thu 5tr khách a"), {**row("d", at(19), "chi 1tr xe 51C-123.45"), "deleted": True}])
+        chat._STORE, chat._STORE_DIR = None, None
+        return cash.handle_review(json.dumps(body).encode(), runner, "tester")
+
+    def test_review_goes_to_the_sql_function_with_the_bundle_conversation_and_clears_the_cache(self):
+        runner = FakeRunner()
+        cash._CACHE[("cu",)] = (NOW, {})
+        status, _ = self.post({"message_id": "a", "action": "amount", "value": "4500000", "request_id": "r1"}, runner)
+        self.assertEqual(status, 200)
+        self.assertEqual(runner.recorded, [{"message_id": "a", "action": "amount", "request_id": "r1", "reason": None, "amount_vnd": "4500000",
+                                            "conversation_id": GROUP}])
+        self.assertEqual(cash._CACHE, {})   # lần hỏi kế tiếp của trang thấy ngay kết quả bấm
+        self.post({"message_id": "a", "action": "target", "value": {"kind": "xe", "id": 10, "label": "51C"}, "request_id": "r2"}, runner)
+        self.post({"message_id": "a", "action": "not_cash", "reason": "  tin hỏi giá ", "request_id": "r3"}, runner)
+        self.assertEqual((runner.recorded[1]["target"], runner.recorded[2]["reason"]), ({"kind": "xe", "id": 10}, "tin hỏi giá"))
+
+    def test_review_rejects_bad_bodies_before_the_database(self):
+        cases = {
+            "INVALID_CASH_REVIEW": [{"message_id": "a", "action": "xoa", "request_id": "r"}, {"message_id": "a", "action": "confirm"},
+                                    {"message_id": "a", "action": "amount", "value": "0", "request_id": "r"},
+                                    {"message_id": "a", "action": "amount", "value": 5000, "request_id": "r"},
+                                    {"message_id": "a", "action": "target", "value": {"kind": "so", "id": "1"}, "request_id": "r"},
+                                    {"message_id": "a", "action": "target", "value": {"kind": "khac", "id": 1}, "request_id": "r"},
+                                    {"message_id": "a", "action": "confirm", "value": "1", "request_id": "r"},
+                                    {"message_id": "a", "action": "confirm", "request_id": "r", "khac": 1},
+                                    {"message_id": "../a", "action": "confirm", "request_id": "r"}],
+            "REASON_REQUIRED": [{"message_id": "a", "action": "not_cash", "request_id": "r"},
+                                {"message_id": "a", "action": "not_cash", "reason": "   ", "request_id": "r"}],
+            "MESSAGE_NOT_FOUND": [{"message_id": "khong-co", "action": "confirm", "request_id": "r"},
+                                  {"message_id": "d", "action": "confirm", "request_id": "r"}],   # tin đã xóa
+        }
+        for code, bodies in cases.items():
+            for body in bodies:
+                runner = FakeRunner()
+                with self.subTest(body=body), self.assertRaises(ApiError) as caught:
+                    self.post(body, runner)
+                self.assertEqual((caught.exception.code, runner.recorded), (code, []))
+
+    def test_reviews_replace_amount_and_target_and_drop_items_from_totals(self):
+        rows = [row("a", at(19), "thu 5tr khách a"), row("b", at(19, 10), "chi 2tr xe 51C-123.45"), row("c", at(19, 11), "thu 3tr khách b")]
+        reviews = {"a": {"amount_vnd": "4500000", "decision": "confirm", "reviews": 2, "last_action": "confirm", "last_by": "tester"},
+                   "b": {"target": {"kind": "tai_xe", "id": 21}, "decision": None, "reviews": 1, "last_action": "target"},
+                   "c": {"decision": "not_cash", "reason": "tin hỏi giá", "reviews": 1, "last_action": "not_cash"},
+                   "x": {"amount_vnd": "rác", "target": {"kind": "so", "id": "1"}}}
+        body = self.get(rows, FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 4_500_000)], reviews=reviews))
+        by = {item["message_id"]: item for item in body["items"]}
+        self.assertEqual((by["a"]["amount_vnd"], by["a"]["amount_from"], by["a"]["status"], by["a"]["review"]["decision"]),
+                         (4_500_000, "sua", "RECORDED", "confirm"))   # số đã sửa khớp phiếu
+        self.assertEqual(by["b"]["target"], {"kind": "tai_xe", "id": 21, "label": "Cường"})
+        self.assertEqual((by["c"]["status"], by["c"]["review"]["reason"], by["c"]["ledger_ref"]), ("NOT_CASH", "tin hỏi giá", None))
+        self.assertEqual((body["totals"]["thu_vnd"], body["totals"]["thu_count"], body["counts"]["NOT_CASH"]), (4_500_000, 1, 1))
+        self.assertEqual(body["sources_failed"], [])
+        failed = self.get(rows, FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 4_500_000)], reviews=reviews, fail={"get_cash_reviews"}))
+        self.assertEqual((failed["sources_failed"], failed["counts"]["NOT_CASH"]), (["reviews"], 0))   # đọc lỗi thì báo, không im
+
+    def test_only_managers_may_review(self):
+        self.assertTrue(v7_role.admin_api("/api/v7/cash-chat/review"))
+        self.assertFalse(v7_role.allowed("/api/v7/cash-chat/review", v7_role.USER, {}))
+        self.assertIs(api.POST_HANDLERS["/api/v7/cash-chat/review"], cash.handle_review)
 
 
 class SqlRuleSyncTests(unittest.TestCase):

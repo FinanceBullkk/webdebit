@@ -90,6 +90,27 @@ CREATE INDEX contact_mark_customer ON sokhach.contact_mark (customer_id, created
 CREATE INDEX contact_mark_conversation ON sokhach.contact_mark (conversation_id) WHERE conversation_id IS NOT NULL;
 COMMENT ON TABLE sokhach.contact_mark IS 'ZALO-GROUP-01/TRANG-KHACH-01 B2: dấu hứa trả, khách báo đã chuyển, ghi chú (có thể gắn một tin Zalo); trạng thái tính khi đọc; không tham gia tính tiền.';
 
+-- ZALO-THU-CHI-01 PR-3 (migration 2026-11-21-v7-cash-report-review.sql, kèm hàm record_cash_review/get_cash_reviews).
+CREATE TABLE sokhach.cash_report_review (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    conversation_id text NOT NULL CHECK (conversation_id ~ '^[0-9a-f]{64}$'),
+    message_id text NOT NULL CHECK (message_id ~ '^[0-9A-Za-z_-]{1,128}$'),
+    action text NOT NULL CHECK (action IN ('confirm', 'target', 'amount', 'not_cash')),
+    target_kind text CHECK (target_kind IS NULL OR target_kind IN ('so', 'xe', 'tai_xe')),
+    target_id bigint CHECK (target_id IS NULL OR target_id > 0),
+    amount_vnd bigint CHECK (amount_vnd IS NULL OR amount_vnd > 0),
+    before jsonb NOT NULL CHECK (jsonb_typeof(before) = 'object' AND octet_length(before::text) <= 2000),
+    reason text CHECK (reason IS NULL OR (btrim(reason) <> '' AND char_length(reason) <= 500)),
+    request_id text NOT NULL UNIQUE CHECK (btrim(request_id) <> '' AND char_length(request_id) <= 200),
+    created_by text NOT NULL CHECK (btrim(created_by) <> ''),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK ((action = 'target') = (target_kind IS NOT NULL) AND (target_kind IS NULL) = (target_id IS NULL)),
+    CHECK ((action = 'amount') = (amount_vnd IS NOT NULL)),
+    CHECK (action <> 'not_cash' OR reason IS NOT NULL)
+);
+CREATE INDEX cash_report_review_message ON sokhach.cash_report_review (message_id, id);
+COMMENT ON TABLE sokhach.cash_report_review IS 'ZALO-THU-CHI-01 PR-3: xác nhận/sửa số/gắn đối tượng/loại một khoản thu chi báo trong nhóm Zalo; chỉ thêm dòng, gộp theo thứ tự; không tham gia tính tiền.';
+
 CREATE TABLE sokhach.cutover (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name text NOT NULL CHECK (btrim(name) <> ''),

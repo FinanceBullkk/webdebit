@@ -289,6 +289,19 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 - Đọc DB chỉ qua hàm đọc có sẵn: `list_customers`, `doixe_get_tong`, `get_receipt_book` (theo tháng, gồm phiếu web chưa hủy và dòng thu sổ gốc), `doixe_get_so` (theo xe hoặc người, chỉ cho đối tượng đã gắn), `get_marks` (theo nhóm). Kết quả giữ 8 giây trong bộ nhớ vì trang hỏi vài giây một lần.
 - Chi hoặc ứng khớp một dòng phí (`dong_phi`) hoặc một lần ứng chưa hủy của Đội xe; chi không có xe/người mà có từ "lương", "văn phòng", "mặt bằng", "internet"… là `NO_LEDGER`, còn lại không rõ đối tượng là `UNKNOWN_TARGET`.
 
+**Khuôn đã code ở PR-3** (21/11/2026; đợt này chỉ DB và API, nút trên trang chưa làm):
+
+- `POST /api/v7/cash-chat/review`, chỉ quản lý (cùng tiền tố `/api/v7/cash-chat`). Thân `{message_id, action, value, reason, request_id}`:
+  - `confirm` xác nhận; `amount` sửa số (`value` là chuỗi VND số nguyên dương); `target` gắn đối tượng (`value` là `{kind: so|xe|tai_xe, id}`); `not_cash` loại, bắt buộc `reason`;
+  - tin phải còn trong gói chat và chưa xóa (`MESSAGE_NOT_FOUND`); mã hội thoại lấy từ gói, không lấy từ trang;
+  - lỗi khác: `INVALID_CASH_REVIEW`, `REASON_REQUIRED`, `TARGET_NOT_FOUND` (sổ, xe, người không có), `IDEMPOTENCY_CONFLICT` (cùng `request_id` cho việc khác). Bấm lặp cùng `request_id` trả dòng đã ghi (`replayed: true`).
+- `sokhach.cash_report_review` chỉ thêm dòng. Trạng thái hiệu lực của một tin là các dòng gộp theo thứ tự: sửa số hay gắn đối tượng thì bỏ quyết định cũ (đã xác nhận số cũ), xác nhận và loại thay nhau. Mỗi dòng ghi `before` (trạng thái ngay trước; `{}` là giá trị đọc từ tin), người làm, lúc làm. Hai người bấm cùng một tin thì xếp hàng theo tin.
+- `GET /api/v7/cash-chat`:
+  - khoản đã có dòng thì có `review` (`decision`, `reason`, `reviews`, `last_action`, `last_by`, `last_at`);
+  - số sửa thay số đọc từ tin (`amount_from: "sua"`), đối tượng gắn tay thay đối tượng tự khớp, đều trước khi đối chiếu;
+  - khoản đã loại có `status: NOT_CASH`, không đối chiếu, không cộng vào tổng;
+  - đọc trạng thái lỗi thì `sources_failed` có `reviews`. Bấm xong thì bỏ kết quả đang giữ, lần hỏi kế tiếp thấy ngay.
+
 ## Nguồn quyết định
 
 - Sếp và người dùng, chat 19/11/2026 (trích ở đầu spec).
@@ -348,7 +361,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
   - các luật không đếm hai lần, kể cả 8 tình huống của review #562 (ảnh chứng thắng bất kể thứ tự, giờ giao dịch khác là lần trả khác, ảnh cũ gửi lại, phiếu của dấu khách báo);
   - file thiếu, hỏng hoặc mục sai khuôn không làm hỏng trang;
   - trang hiện "đọc từ ảnh", "Ảnh chưa đọc chắc", "N khoản, M từ ảnh".
-- [ ] PR-3: harness PostgreSQL cho `cash_report_review`: không đổi dấu vân tay tổng khách, bấm lặp chỉ ghi một lần, loại mà thiếu lý do thì bị từ chối, quyền của role app và role reader.
+- [x] PR-3: harness PostgreSQL cho `cash_report_review`: không đổi dấu vân tay tổng khách, bấm lặp chỉ ghi một lần, loại mà thiếu lý do thì bị từ chối, quyền của role app và role reader (21/11/2026: ca `ZALO-THU-CHI.03` ở `tools/test_pg_v7_backend_cash_review.py`, danh mục quyền ở `tools/test_pg_v7_grants.py`; API: `ReviewTests` ở `tests/test_v7_cash_chat.py`).
 - [ ] `npm run check` xanh; `node scripts/check-secrets.js` xanh.
 - [ ] Trên `hao` (dữ liệu thật): gửi một tin thử vào nhóm thì tin lên web trong ≤ 30 giây; tắt Zalo 20 phút trong giờ làm việc thì có email.
 - [ ] Sếp và người dùng tự đi hết Luồng 1–2 (PR-3 thì thêm Luồng 3) trên bản thử và xác nhận.
