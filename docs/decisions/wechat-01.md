@@ -19,7 +19,7 @@ Người dùng chốt ngày 20/11/2026 ("Làm nguồn WeChat ngay", sau khi ch�
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 20/11/2026. ĐÃ KIỂM CHỨNG chỉ-đọc trên máy `msi` (số đếm trong nhật ký PR). ĐÃ TRIỂN KHAI 22/11/2026 (người dùng bấm "Bật WeChat (chữ)"): task `ZaloAgent` chạy với `--wechat`, không `--wechat-images`, một nhóm được chọn; `status.json` trên `hao` lúc 04:42 ngày 22/11 có bộ xử lý `wechat` không lỗi, 53 tin.
+ĐÃ CHỐT 20/11/2026. ĐÃ KIỂM CHỨNG chỉ-đọc trên máy `msi` (số đếm trong nhật ký PR). ĐÃ TRIỂN KHAI 22/11/2026 (người dùng bấm "Bật WeChat (chữ)"): task `ZaloAgent` chạy với `--wechat`, một nhóm được chọn; `status.json` trên `hao` lúc 04:42 ngày 22/11 có bộ xử lý `wechat` không lỗi, 53 tin. Lệnh của task kiểm lúc 05:11 cùng ngày có thêm `--wechat-images` (ảnh vẫn chờ khóa giải mã, xem mục giải mã ảnh bên dưới).
 
 Vẫn phải hỏi người dùng trước khi bật `--wechat` trong lệnh của task `ZaloAgent`, và trước khi thêm nhóm WeChat nào khác vào danh sách chọn.
 
