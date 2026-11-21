@@ -6,7 +6,8 @@ Hai khuôn:
 - **V2** (WeChat 4.x): `07 08 56 32 08 07` + 4 byte độ dài phần AES (little endian) + 4 byte độ dài phần XOR + 1 byte đệm.
   - Phần đầu là AES-128-ECB với khóa ảnh của máy, độ dài làm tròn lên bội 16 có đệm PKCS7.
   - Giữa để nguyên; cuối XOR một byte.
-  - Khóa AES là khóa của máy WeChat: lấy bằng cách quét bộ nhớ Weixin.exe, cần người dùng cho phép, chưa làm ở đây. Không có khóa thì trả None ("chưa đọc được").
+  - Khóa AES là khóa của máy WeChat, suy ngoại tuyến ở `wechat_export.offline_image_key` (tên file `kvcomm` + wxid, kiểm bằng các
+    hàm AES ở đây). Không có khóa thì trả None ("chưa đọc được").
   - Byte XOR không biết trước thì suy từ đuôi ảnh (JPEG kết thúc `FF D9`, PNG bằng khối IEND, GIF bằng `3B`).
 
 Kết quả chỉ nhận khi byte đầu đúng chữ ký ảnh; sai khóa, file cụt hay khuôn lạ đều là None, không bao giờ ra ảnh hỏng.
