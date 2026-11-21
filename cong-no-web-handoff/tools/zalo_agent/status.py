@@ -54,6 +54,21 @@ def track_identity(state: Path, identity: str, now: float, persist: bool = True)
     return now_iso(now)
 
 
+def track_value(state: Path, name: str, value: str, now: float, persist: bool = True) -> str:
+    """Như `track_identity` cho một trạng thái khác (`<state>/<name>.json`): lúc `value` bắt đầu giữ giá trị hiện tại."""
+    path = Path(state) / f"{name}.json"
+    saved = read_json(path)
+    if isinstance(saved, dict) and saved.get("value") == value and isinstance(saved.get("since"), str):
+        return saved["since"]
+    if not persist:
+        return now_iso(now)
+    Path(state).mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(json.dumps({"value": value, "since": now_iso(now)}), encoding="utf-8")
+    retry_io(lambda: os.replace(tmp, path))
+    return now_iso(now)
+
+
 def error_since(before: dict | None, error: str | None, now: float) -> str | None:
     """Lúc `error` chuyển từ null sang có lỗi: giữ mốc cũ khi vẫn lỗi (kể cả đổi sang mã khác), null khi hết lỗi.
     Mốc nằm trong status.json lượt trước, file này ở `<state>` nên chạy lại agent không mất."""
@@ -101,6 +116,11 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
         cleaned = drain(result.get("drain"))
         if cleaned:
             processors[name]["drain"] = cleaned
+        for key in ("app", "images"):   # WECHAT-01: trạng thái app WeChat và khóa ảnh, mỗi cái kèm lúc bắt đầu (chỉ mã và giờ)
+            value, since = result.get(key), result.get(f"{key}_since")
+            if isinstance(value, str) and CODE.fullmatch(value):
+                processors[name][key] = value
+                processors[name][f"{key}_since"] = since if isinstance(since, str) and STAMP.fullmatch(since) else None
     push_failure = code(push_error)   # chỉ đường đẩy nhịp tim (chính file này); lỗi đẩy từng bộ xử lý nằm ở processors.<tên>.error
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
             "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},

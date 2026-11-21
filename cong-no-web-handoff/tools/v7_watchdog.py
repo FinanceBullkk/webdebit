@@ -223,10 +223,15 @@ ZALO_PROCESSOR_NAMES = {"bundle": "gói chat", "insurance": "bảo hiểm", "mon
 # máy tắt qua đêm luôn dài và không do agent.
 ZALO_LATENCY_P95 = 300
 ZALO_LATENCY_MIN = 3
+# WECHAT-01: đọc DB và khóa ảnh vẫn chạy khi WeChat đã tắt hay chờ đăng nhập (22/11/2026: tắt từ khoảng 03:48 tới 06:10 mà không ai
+# biết), nên máy canh nhìn chính app WeChat do agent báo (`processors.wechat.app`).
+WECHAT_APP_TEXT = {"closed": "WeChat chưa mở trên máy Zalo", "update": "WeChat trên máy Zalo đang chờ cập nhật, chưa mở lại",
+                   "login": "WeChat trên máy Zalo đang chờ đăng nhập (xác nhận trên điện thoại)"}
 
 
 def check_zalo(now: dt.datetime) -> list[str]:
-    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, một bộ xử lý chậm quá
+    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, WeChat tắt / chờ cập nhật /
+    chờ đăng nhập hay không giải được ảnh quá 15 phút (WECHAT-01), một bộ xử lý chậm quá
     15 phút, hoặc một bộ xử lý / việc đẩy lên báo lỗi quá 15 phút (đo từ `error_since`, thiếu thì `last_ok_at`, thiếu cả hai thì báo ngay),
     tin mới lên web chậm (p95 trong 60 phút quá 5 phút), hoặc hàng chờ đọc ảnh còn ảnh mà quá 15 phút không ảnh nào xong (không lỗi).
     Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm.
@@ -254,6 +259,10 @@ def check_zalo(now: dt.datetime) -> list[str]:
         found.append(f"Máy Zalo: tin mới lên web chậm, 95% lượt trong 60 phút qua mất tới {int(total['p95'] // 60)} phút ({total['n']} lượt).")
     for row in view["processors"]:
         name = ZALO_PROCESSOR_NAMES[row["id"]]
+        if row["id"] == "wechat" and row.get("app") in WECHAT_APP_TEXT and (row.get("app_minutes") or 0) > limit:
+            found.append(f"{WECHAT_APP_TEXT[row['app']]}: {row['app_minutes']} phút, tin WeChat mới không về.")
+        elif row["id"] == "wechat" and row.get("images") == "no_key" and (row.get("images_minutes") or 0) > limit:
+            found.append(f"Máy Zalo: WeChat không giải được ảnh {row['images_minutes']} phút (không suy được khóa ảnh).")
         if row["error"] and (row["error_minutes"] is None or row["error_minutes"] > limit):
             how = "chưa từng xong lần nào" if row["error_minutes"] is None else f"{row['error_minutes']} phút"
             found.append(f"Máy Zalo: {name} lỗi {row['error']}, {how}.")
