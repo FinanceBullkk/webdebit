@@ -715,6 +715,7 @@ def apply_reviews(items: list[dict], reviews: dict[str, dict], directory: Direct
             item.pop("link", None)
         if state.get("decision") == "not_cash":   # như một khoản đã đối chiếu xong: không phiếu, không dòng sổ
             item.update(status="NOT_CASH", shared=False, ledger_ref=None, ledger_vnd=None, unchecked=False)
+            item.setdefault("target", {"kind": None, "id": None, "label": None, "ambiguous": False})   # ảnh bị loại bỏ qua bước gắn đối tượng
             if "day" not in item:   # ngày của khoản gõ do bước đối chiếu gán; khoản loại bỏ qua bước đó
                 item["day"] = datetime.fromtimestamp(item["sent_at"] / 1000, VN).date()
             dropped.append(item)

@@ -875,6 +875,15 @@ class ReviewTests(CashChatCase):
         self.assertEqual(([(item["message_id"], item["source"]) for item in kept["items"]], kept["totals"]["thu_vnd"], kept["counts"]["NOT_CASH"]),
                          ([("p", "anh")], 4_500_000, 1))   # khoản gõ đã loại không kéo theo ảnh chuyển khoản thật
 
+    def test_an_image_marked_not_cash_does_not_break_the_page(self):
+        self.reads.parent.mkdir(exist_ok=True)
+        self.reads.write_text(json.dumps({"schema": 1, "redact": "w1", "reads": {PAY[0]: read_entry(1_000_000)}}), encoding="utf-8")
+        body = self.get([row("p", at(19), "", sender=MINH, media=[PAY[0]])],
+                        FakeRunner(reviews={"p": {"decision": "not_cash", "reason": "ảnh cũ", "reviews": 1}}),
+                        query="from=2026-11-01&to=2026-11-20&status=NOT_CASH")
+        self.assertEqual((body["unavailable"], [item["status"] for item in body["items"]], body["totals"]["thu_vnd"]), (False, ["NOT_CASH"], 0))
+        self.assertEqual(body["items"][0]["target"], {"kind": None, "id": None, "label": None})
+
     def test_a_vehicle_set_by_hand_survives_an_unreadable_fleet_list(self):
         body = self.get([row("u", at(19), "ứng 2tr xe 29H-678.90")],
                         FakeRunner(fail={"doixe_get_tong"}, reviews={"u": {"target": {"kind": "xe", "id": 10}, "reviews": 1}}))
