@@ -153,6 +153,10 @@ class OfflineImageKeyTest(unittest.TestCase):
         odd = dat.encode_v2(FULL_JPEG + b"thua", GOOD_KEY.encode(), 0x00)   # dữ liệu thừa sau FF D9: mẫu này không suy được, còn một mẫu
         (img / "00.dat").write_bytes(odd)
         self.assertIsNone(export.tail_xor(GOOD_KEY, export.v2_probes(str(account))))
+        gif = b"GIF89a" + bytes(range(256)) * 4 + b"\x3b" + b"\x00" * 6   # GIF có đệm 0: đuôi một byte "khớp" với byte sai
+        for index in range(2):
+            (img / f"{index:02d}.dat").write_bytes(dat.encode_v2(gif, GOOD_KEY.encode(), 0x40))
+        self.assertIsNone(export.tail_xor(GOOD_KEY, export.v2_probes(str(account))))   # không dùng GIF: quay về mã & 0xFF
 
     def test_export_only_decodes_when_upstream_finds_this_exact_message(self):
         downloader = unittest.mock.Mock()
@@ -178,6 +182,7 @@ class FakeDb:
         self.gate = None      # threading.Event: chặn cho tới khi test cho chạy
         self.window = []      # tin đọc lại trong cửa sổ (đã đổi tại chỗ), phát kèm ở mỗi lượt
         self.image_keys = True   # dòng `end` báo tiến trình con có khóa ảnh
+        self.end_extra = {}      # trường thêm vào dòng `end` (image_budget_hit, images…)
 
     def __call__(self, python, pilot, command, request, timeout=None):
         self.requests.append((command, request))
@@ -189,7 +194,7 @@ class FakeDb:
             return self.fail, ""
         groups = request.get("groups") or {}
         items = [item for item in self.feed if item["username"] in groups and export.is_new(item, groups[item["username"]])]
-        end = {"kind": "end", "messages": len(items), "image_keys": self.image_keys}
+        end = {"kind": "end", "messages": len(items), "image_keys": self.image_keys, **self.end_extra}
         return 0, "".join(json.dumps(item) + "\n" for item in [*items, *self.window, end])
 
 
@@ -1174,6 +1179,29 @@ class ImageRetryExportTest(unittest.TestCase):
             rows, _, decoded = self.run_read(deep)
         self.assertEqual(([m["local_id"] for m in rows], decoded), ([4, 5, 6], [5, 6]))
 
+    def test_out_of_image_time_new_messages_still_flow_without_images_and_the_end_line_says_so(self):
+        self.db.fixed = [*self.db.fixed, self.row(7, "图片", 0.1), self.row(8, "文本", 0.1)]   # hai tin mới sau con trỏ
+        with unittest.mock.patch.object(export, "IMAGE_SECONDS", 0):   # sau đợt máy tắt lâu: hết giờ giải ảnh ngay
+            rows, end, decoded = self.run_read({**self.request, "deep_image_hours": 7 * 24})
+        fresh = [m for m in rows if not m.get("window")]
+        self.assertEqual([(m["local_id"], m["image"]) for m in fresh], [(7, None), (8, None)])   # tin mới vẫn đi, con trỏ vẫn tiến
+        self.assertEqual([m["local_id"] for m in rows if m.get("window")], [4])   # tin ảnh cửa sổ/7 ngày không ảnh thì không phát
+        self.assertEqual((decoded, end.get("image_budget_hit")), ([], True))
+        _, end, _ = self.run_read(self.request)
+        self.assertNotIn("image_budget_hit", end)   # còn giờ: dòng `end` như cũ
+
+    def test_an_hevc_image_without_ffmpeg_falls_back_to_the_thumbnail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            downloader = unittest.mock.Mock()
+            downloader.db.get_message_row.return_value = {"local_id": 7, "sort_seq": 7000}
+            for name in ("a.wxgf", "a_thumb.jpg"):
+                (Path(tmp) / name).write_bytes(b"x")
+            downloader.download_image.side_effect = lambda *a, tier=None, **k: str(Path(tmp) / ("a.wxgf" if tier == "best" else "a_thumb.jpg"))
+            self.assertEqual(export.export_image((downloader, "k", 1), USER, 7, 7000, tmp), "a_thumb.jpg")
+            self.assertFalse((Path(tmp) / "a.wxgf").exists())
+            downloader.download_image.side_effect = lambda *a, tier=None, **k: str(Path(tmp) / "b.wxgf")
+            self.assertEqual(export.export_image((downloader, "k", 1), USER, 7, 7000, tmp), "b.wxgf")   # để bộ xử lý thôi thử
+
 
 class ImageRetryProcessorTest(WeChatBase):
     def setUp(self):
@@ -1189,7 +1217,10 @@ class ImageRetryProcessorTest(WeChatBase):
         self.db.feed = [msg(1, 1000, "", "图片", fp="a" * 16)]
         self.poll()
         self.poll()
-        self.assertEqual(self.db.requests[-1][1]["known_fp"], {})   # còn thiếu ảnh: không nhớ fp nên cửa sổ sau gửi lại
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {USER: {"1:1000": "a" * 16}})   # không giải lại mỗi 10 giây
+        self.now += wc.MISSING_RETRY
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {})   # còn thiếu ảnh: sau 1 phút quên fp, cửa sổ sau gửi lại
         (self.store.dir / "incoming" / "a.jpg").write_bytes(JPEG)
         self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True, fp="a" * 16)]
         self.poll()
@@ -1222,8 +1253,10 @@ class ImageRetryProcessorTest(WeChatBase):
         self.poll()
         self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], 0)
 
-    def test_two_failed_seven_day_passes_are_dropped_so_text_never_stays_stuck(self):
-        self.db.fail = 3
+    def test_two_timed_out_seven_day_passes_are_dropped_so_text_never_stays_stuck(self):
+        self.db.fail = 3   # lỗi khác (mở DB…) không phải do lượt 7 ngày: không tính
+        self.poll()
+        self.db.fail = subprocess.TimeoutExpired("py", 60)
         for _ in range(2):
             self.now += 3600
             self.poll()
@@ -1232,6 +1265,23 @@ class ImageRetryProcessorTest(WeChatBase):
         self.now += 3600
         self.poll()
         self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], 0)
+
+    def test_a_seven_day_pass_cut_short_by_the_time_budget_continues_while_it_makes_progress(self):
+        self.now = 1_793_000_100.0 + 2 * 86400   # tin của msg() đã cũ 2 ngày: chỉ lượt 7 ngày còn thấy
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(jpeg(1280, 720))
+        self.processor.known = {wc.message_id(USER, 1, 1000): wc.trace(wc.convert(msg(1, 1000, "", "图片"))[0])}
+        self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True, deep=True, fp="a" * 16)]
+        self.db.end_extra = {"image_budget_hit": True, "images": 1}
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)])
+        self.db.window, self.db.end_extra = [], {"image_budget_hit": True, "images": 0}
+        self.poll()
+        request = self.db.requests[-1][1]
+        self.assertEqual(request["deep_image_hours"], wc.DEEP_IMAGE_HOURS)   # còn dở, có tiến: làm tiếp
+        self.assertEqual(request["known_fp"], {USER: {"1:1000": "a" * 16}})   # phần đã giải được nhớ cả 7 ngày, không giải lại
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["deep_image_hours"], 0)   # hết giờ mà không giải thêm được ảnh nào: thôi
+        self.assertEqual(self.db.requests[-1][1]["known_fp"], {})   # xong lượt 7 ngày: nhớ `fp` lại theo cửa sổ thường
 
     def incoming(self, name, data):
         (self.store.dir / "incoming" / name).write_bytes(data)
@@ -1260,9 +1310,55 @@ class ImageRetryProcessorTest(WeChatBase):
         rows = self.store.log.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(rows), 2)
         final = self.store.rows_after(0)[0][0]
-        self.assertEqual(self.store.media_pixels(final["media"][0]), 1280 * 720)
+        self.assertEqual(self.store.media_quality(final["media"][0]), (True, 1280 * 720))
         self.assertEqual(len(list((self.store.dir / "media").iterdir())), 2)   # bản bị bỏ không thành file mồ côi
         self.assertEqual(list((self.store.dir / "incoming").iterdir()), [])
+
+    def test_a_half_downloaded_image_never_beats_a_whole_one_and_is_replaced_when_whole(self):
+        self.now = 1_793_000_100.0
+        cut = jpeg(1280, 720)[:-2]   # WeChat còn đang ghi file: đầu file đủ kích thước, thiếu `FF D9`
+        self.assertEqual(wc.quality(cut), (False, 1280 * 720))
+        self.incoming("t.jpg", jpeg(180, 102))
+        self.db.feed = [msg(1, 1000, "", "图片", image="t.jpg", fp="a" * 16)]
+        self.poll()
+        self.incoming("cut.jpg", cut)
+        self.db.window = [msg(1, 1000, "", "图片", image="cut.jpg", window=True, fp="a" * 16)]
+        self.poll()   # ảnh trọn (dù nhỏ) thắng ảnh dở: giữ nguyên
+        self.assertEqual(self.store.media_quality(self.store.rows_after(0)[0][0]["media"][0]), (True, 180 * 102))
+        self.incoming("lon.jpg", jpeg(1280, 720))
+        self.db.window = [msg(1, 1000, "", "图片", image="lon.jpg", window=True, fp="a" * 16)]
+        self.poll()
+        self.assertEqual(self.store.media_quality(self.store.rows_after(0)[0][0]["media"][0]), (True, 1280 * 720))
+        # Chưa có ảnh nào thì ảnh dở vẫn hơn không có, và được thử lại sau 10 phút để lấy bản trọn.
+        self.incoming("cut2.jpg", jpeg(800, 600)[:-2])
+        self.db.feed = [msg(2, 2000, "", "图片", image="cut2.jpg", fp="b" * 16)]
+        self.poll()
+        self.assertEqual(self.processor.retry_at[(USER, 2, 2000)], self.now + wc.SMALL_RETRY)
+
+    def test_a_read_error_retries_in_a_minute_and_a_failed_delete_keeps_the_image(self):
+        self.now = 1_793_000_100.0
+        self.db.feed = [msg(1, 1000, "", "图片", image="khong-co.jpg", fp="a" * 16)]   # file biến mất / đang bị khóa khi đọc
+        self.poll()
+        self.assertEqual(self.processor.retry_at[(USER, 1, 1000)], self.now + wc.MISSING_RETRY)
+        self.incoming("a.jpg", jpeg(1280, 720))
+        self.db.window = [msg(1, 1000, "", "图片", image="a.jpg", window=True, fp="a" * 16)]
+        real_unlink = Path.unlink
+
+        def locked(path, *args, **kwargs):   # phần mềm diệt virus đang giữ file trong incoming/
+            if path.name == "a.jpg":
+                raise PermissionError(32, "file đang bị giữ")
+            return real_unlink(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(Path, "unlink", locked):
+            self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)])
+
+    def test_heic_or_video_bytes_are_not_taken_as_an_image(self):
+        self.incoming("a.heic", b"\x00\x00\x00\x18ftypheic" + bytes(64))
+        self.db.feed = [msg(1, 1000, "", "图片", image="a.heic", fp="a" * 16)]
+        self.poll()
+        self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)])
+        self.assertNotIn((USER, 1, 1000), self.processor.retry_at)   # giải ra mà không dùng được: thôi thử
 
     def test_a_decoded_file_that_is_not_a_usable_image_stops_the_retries(self):
         self.now = 1_793_000_100.0
@@ -1381,7 +1477,8 @@ class RealChildImageTest(WeChatBase):
         self.add_image(1)
         self.poll()
         self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)])
-        wechat_dirs(self.wx, samples=())   # kvcomm có sau (WeChat đăng nhập lại…): lượt cửa sổ kế tiếp bổ sung, không cần chạy lại serve
+        wechat_dirs(self.wx, samples=())   # kvcomm có sau (WeChat đăng nhập lại…): lượt thử lại kế tiếp bổ sung, không cần chạy lại serve
+        self.now += wc.MISSING_RETRY   # tin thiếu ảnh được thử lại mỗi phút
         self.poll()
         self.assertEqual(self.images(), [("Ảnh WeChat", True)])
         self.add_image(2)

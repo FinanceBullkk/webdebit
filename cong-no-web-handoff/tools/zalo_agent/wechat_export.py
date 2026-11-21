@@ -60,6 +60,9 @@ KEYS: dict = {}     # (tài khoản, wxid) → (mã kvcomm, khóa AES, byte XOR)
 MISSES: dict = {}   # (tài khoản, wxid, tập mã) → giờ thử hụt (monotonic): không quét lại thư mục ảnh mỗi 10 giây khi chưa suy được khóa
 MISS_RETRY = 600    # giây; có mã kvcomm mới thì thử ngay
 DEEP_IMAGE_BUDGET = 200   # mỗi nhóm, mỗi yêu cầu: lượt ảnh 7 ngày giải tối đa chừng này ảnh mới nhất, để yêu cầu luôn xong trong timeout
+IMAGE_SECONDS = 25        # mỗi yêu cầu chỉ giải ảnh trong chừng này giây (timeout của bộ xử lý là 60): sau đợt máy tắt lâu, tồn nhiều
+                          # ảnh không làm yêu cầu quá giờ mãi rồi kẹt cả tin chữ; ảnh chưa giải quay lại ở lượt sau (dòng `end` báo)
+IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
 
 def open_db(pilot: str):
@@ -293,14 +296,15 @@ def opens(aes: str, probes: list[tuple[bytes, bytes]]) -> bool:
 
 
 def tail_xor(aes: str, probes: list[tuple[bytes, bytes]]) -> int | None:
-    """Byte XOR suy từ đuôi chắc chắn của ảnh (JPEG `FF D9`, PNG khối IEND, GIF `3B`) ở các mẫu giải được; chỉ trả khi ít nhất hai
-    mẫu suy được và cùng một byte (một ảnh JPEG có thể có dữ liệu thừa sau `FF D9`)."""
+    """Byte XOR suy từ đuôi chắc chắn của ảnh (JPEG `FF D9`, PNG khối IEND) ở các mẫu giải được; chỉ trả khi ít nhất hai mẫu suy
+    được và cùng một byte (một ảnh JPEG có thể có dữ liệu thừa sau `FF D9`). Không dùng GIF: đuôi chỉ một byte `3B`, GIF có đệm số
+    0 thì mẫu nào cũng "khớp" một byte sai."""
     keys = dat.expand_key(aes.encode("ascii"))
     found = set()
     count = 0
     for block, tail in probes:
         mime = dat.sniff(dat.decrypt_block(keys, block))
-        ending = dat.ENDINGS.get(mime or "")
+        ending = dat.ENDINGS.get(mime) if mime in ("image/jpeg", "image/png") else None
         if not ending or len(tail) < len(ending):
             continue
         key = tail[-1] ^ ending[-1]
@@ -321,6 +325,14 @@ def export_image(tools, username: str, local_id: int, sort_seq, directory: str) 
         if not isinstance(row, dict) or row.get("sort_seq") != sort_seq:
             return None
         path = downloader.download_image(username, local_id, save_dir=directory, aes_key=aes, xor_key=xor, tier="best")
+        if path and Path(path).suffix.lower() not in IMAGE_SUFFIXES:
+            # Ảnh HEVC (`wxgf`) mà máy không có ffmpeg: upstream để nguyên `.wxgf`, web không hiện được. Thử ảnh thu nhỏ; vẫn không
+            # được thì trả file cũ để bộ xử lý biết "giải ra mà không dùng được" và thôi thử.
+            thumb = downloader.download_image(username, local_id, save_dir=directory, aes_key=aes, xor_key=xor, tier="thumb")
+            if thumb and Path(thumb).suffix.lower() in IMAGE_SUFFIXES:
+                with contextlib.suppress(OSError):
+                    Path(path).unlink()
+                path = thumb
     except Exception:   # noqa: BLE001
         return None
     return Path(path).name if path else None
@@ -399,6 +411,14 @@ def cmd_read(db, request: dict) -> int:
     nicks = db.nickname_map()
     tools = image_tools(db) if images_dir else None
     deep = deep if tools else 0   # không có khóa thì lượt thử lại ảnh cũ chẳng giải được gì: đừng đọc thêm
+    started = time.monotonic()
+    over: list[bool] = []   # có phần tử khi đã hết `IMAGE_SECONDS` của yêu cầu này (hết rồi thì hết hẳn tới cuối yêu cầu)
+
+    def in_budget() -> bool:
+        if not over and time.monotonic() - started >= IMAGE_SECONDS:
+            over.append(True)
+        return not over
+
     counts = {"messages": 0, "images": 0, "missing_groups": 0, "window": 0, "window_same": 0}
     present = [username for username, _ in sorted(groups.items()) if username in known]
     counts["missing_groups"] = len(groups) - len(present)
@@ -432,7 +452,8 @@ def cmd_read(db, request: dict) -> int:
                         TRIED[k] = time.time()
             break
         for row in fresh:
-            item = record(nicks, username, row, tools, images_dir)
+            # Tin mới luôn được phát (con trỏ phải tiến); hết giờ giải ảnh thì phát không ảnh, lượt cửa sổ sau giải tiếp.
+            item = record(nicks, username, row, tools if row.get("type") != "图片" or in_budget() else None, images_dir)
             counts["messages"] += 1
             counts["images"] += bool(item["image"])
             emit(item)
@@ -443,6 +464,8 @@ def cmd_read(db, request: dict) -> int:
             if (sent.get(username) or {}).get(f"{item['local_id']}:{item['sort_seq']}") == item["fp"]:
                 counts["window_same"] += 1   # đã có đúng bản này: không gửi lại nội dung qua ống
                 continue
+            if item["type"] == "图片" and tools and not in_budget():
+                continue   # hết giờ giải ảnh: tin ảnh cửa sổ/7 ngày không có ảnh thì phát cũng vô ích; bộ xử lý chưa nhớ nên lượt sau còn
             if tools and images_dir and item["type"] == "图片" and isinstance(item["local_id"], int):
                 # Bộ xử lý không giữ `fp` của tin ảnh còn thiếu ảnh (và giữ ngắn với ảnh thu nhỏ), nên tin đó về đây: thử giải lại
                 # (file `.dat` tải chậm, khóa có muộn, bản nén có sau ảnh thu nhỏ). Ảnh đủ cỡ thì bộ xử lý giữ `fp`, tin dừng ở trên.
@@ -450,7 +473,10 @@ def cmd_read(db, request: dict) -> int:
                 counts["images"] += bool(item["image"])
             counts["window"] += 1
             emit(item)
-    emit({"kind": "end", **counts, "image_keys": bool(tools)})
+    end = {"kind": "end", **counts, "image_keys": bool(tools)}
+    if over:
+        end["image_budget_hit"] = True   # còn ảnh chưa giải vì hết giờ: bộ xử lý giữ lượt 7 ngày để giải tiếp
+    emit(end)
     return 0
 
 
