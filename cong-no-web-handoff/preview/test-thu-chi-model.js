@@ -22,7 +22,7 @@ test('Bộ lọc: số đếm khớp danh sách sau khi lọc', () => {
   const items = [item('d', 'thu', 1, 'MISSING'), item('d', 'thu', 2, 'MISSING'), item('d', 'thu', 3, 'AMOUNT_DIFF'), item('d', 'thu', 4, 'SUGGEST'), item('d', 'chi', 5, 'UNKNOWN_TARGET'),
     item('d', 'thu', null, 'NO_AMOUNT'), item('d', 'thu', 6, 'RECORDED')];
   const counts = M.counts(items);
-  assert.deepEqual(counts, { all: 7, missing: 2, diff: 1, unknown: 2, noamount: 1 });
+  assert.deepEqual(counts, { all: 7, missing: 2, diff: 1, unknown: 2, noamount: 1, notcash: 0 });
   for (const filter of M.FILTERS) assert.equal(M.filterItems(items, filter.id).length, counts[filter.id]);
   assert.equal(M.filterItems(items, 'khong-co').length, 7);
 });
@@ -105,4 +105,63 @@ test('Ảnh: hai ảnh trong một tin là hai khoản khác nhau khi nhận kho
   const two = photo(2, 'WAITING', { media: [{ id: '2'.repeat(64) }] });
   assert.notEqual(M.keyOf(one), M.keyOf(two));
   assert.deepEqual(M.newKeys([one], [one, two]), [M.keyOf(two)]);
+});
+
+// Luồng 3: xác nhận, sửa số, gắn đối tượng, loại. Số và tên bịa.
+const loai = (extra = {}) => item('2026-11-19', 'thu', 5_000_000, 'NOT_CASH', { review: { decision: 'not_cash', reason: 'tin hỏi giá', reviews: 1, last_action: 'not_cash', last_by: 'lan' }, ...extra });
+
+test('Khoản đã loại: chỉ ở bộ lọc Đã loại, không đếm, không cộng tổng', () => {
+  const items = [item('d', 'thu', 1_000_000, 'MISSING'), loai()];
+  const counts = M.counts(items);
+  assert.deepEqual([counts.all, counts.missing, counts.notcash], [1, 1, 1]);
+  assert.deepEqual(M.filterItems(items, 'all').map(one => one.status), ['MISSING']);
+  assert.deepEqual(M.filterItems(items, 'notcash').map(one => one.status), ['NOT_CASH']);
+  assert.deepEqual(M.summarize(items).thu, { n: 1, img: 0, vnd: '1000000' });
+  assert.deepEqual([M.statusText(loai()).text, M.statusText(loai()).note], ['Đã loại: không phải thu chi', 'Lý do: tin hỏi giá']);
+  assert.ok(M.STATUSES.includes('NOT_CASH'));
+});
+
+test('Xử lý được: không cho dấu khách báo và tin có hai ảnh chuyển khoản, nói lý do', () => {
+  const chat = item('d', 'thu', 1, 'WAITING');
+  assert.deepEqual(M.reviewable(chat, [chat]), { ok: true, why: '' });
+  assert.equal(M.reviewable(item('d', 'thu', 1, 'WAITING', { source: 'mark' }), []).ok, false);
+  const one = photo(1, 'WAITING', { media: [{ id: '1'.repeat(64) }] });
+  const two = photo(2, 'WAITING', { media: [{ id: '2'.repeat(64) }] });
+  assert.match(M.reviewable(one, [one, two]).why, /nhiều ảnh/);
+});
+
+test('Nút theo trạng thái: đã xác nhận thì không còn nút xác nhận; không có số thì chưa xác nhận được; đã loại thì đưa lại', () => {
+  assert.deepEqual(M.actions(item('d', 'thu', 1, 'WAITING')), ['confirm', 'amount', 'target', 'not_cash']);
+  assert.deepEqual(M.actions(item('d', 'thu', 1, 'WAITING', { review: { decision: 'confirm' } })), ['amount', 'target', 'not_cash']);
+  assert.deepEqual(M.actions(item('d', 'thu', null, 'NO_AMOUNT')), ['amount', 'target', 'not_cash']);
+  assert.deepEqual(M.actions(loai()), ['restore']);
+  assert.deepEqual([M.targetKinds('thu'), M.targetKinds('chi'), M.targetKinds('ung')], [['so'], ['xe', 'tai_xe'], ['xe', 'tai_xe']]);
+});
+
+test('Ô số đúng: chỉ chữ số và dấu ngăn nghìn; không đoán "tr", "k", số lẻ, số 0 hay số quá lớn', () => {
+  assert.equal(M.parseAmount('4.500.000'), '4500000');
+  assert.equal(M.parseAmount(' 4 500 000 '), '4500000');
+  assert.equal(M.parseAmount('4,500,000'), '4500000');
+  assert.equal(M.parseAmount('1000000000000'), '1000000000000');
+  for (const bad of ['', '0', '000', '4,5tr', '500k', '-500000', '1000000000001', 'abc', '4.5e6', null]) assert.equal(M.parseAmount(bad), null, String(bad));
+});
+
+test('Tìm đối tượng bỏ dấu, biển số không cần gạch và chấm, giữ chữ Hán', () => {
+  const rows = [{ id: 1, label: 'KHÁCH ĐÔNG' }, { id: 2, label: '51C-123.45' }, { id: 3, label: '陈氏贸易 SỔ' }, { id: 4, label: 'Bình' }];
+  assert.deepEqual(M.searchTargets(rows, 'dong').map(row => row.id), [1]);
+  assert.deepEqual(M.searchTargets(rows, '51c12345').map(row => row.id), [2]);
+  assert.deepEqual(M.searchTargets(rows, '123.45').map(row => row.id), [2]);
+  assert.deepEqual(M.searchTargets(rows, '陈氏').map(row => row.id), [3]);
+  assert.deepEqual(M.searchTargets(rows, 'binh').map(row => row.id), [4]);
+  assert.equal(M.searchTargets(rows, '').length, 4);
+  assert.equal(M.searchTargets(rows, '', 2).length, 2);
+});
+
+test('Câu lần xử lý gần nhất', () => {
+  assert.equal(M.reviewSummary(item('d', 'thu', 1, 'WAITING')), null);
+  assert.deepEqual(M.reviewSummary(item('d', 'thu', 1, 'WAITING', { review: { decision: 'confirm', reviews: 2, last_action: 'confirm', last_by: 'lan', last_at: 'x' } })),
+    { what: 'Đã xác nhận', by: 'lan', at: 'x', times: 2 });
+  assert.equal(M.reviewSummary(item('d', 'thu', 1, 'WAITING', { review: { decision: null, reviews: 1, last_action: 'amount' } })).what, 'Đã sửa số');
+  assert.equal(M.reviewSummary(item('d', 'thu', 1, 'WAITING', { review: { decision: null, reviews: 1, last_action: 'target' } })).what, 'Đã gắn đối tượng');
+  assert.equal(M.reviewSummary(loai()).what, 'Đã loại');
 });

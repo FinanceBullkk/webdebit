@@ -1,17 +1,22 @@
 /* Phép tính cho trang Thu chi (ZALO-THU-CHI-01 PR-2): tổng theo ngày, đếm theo bộ lọc, gom ngày, câu trạng thái đối chiếu.
    Dữ liệu là `items` của GET /api/v7/cash-chat; số tiền cộng bằng BigInt ở đây, render (thu-chi-ui.js) chỉ định dạng (ARCH-03).
    Khoản không đọc được số (amount_vnd null) không bao giờ vào tổng, chỉ được đếm riêng.
-   PR-4b: khoản `source: 'anh'` là ảnh chuyển khoản máy đọc (không kèm mẫu); `image_vnd` là số đọc từ ảnh của khoản để so với số gõ. */
+   PR-4b: khoản `source: 'anh'` là ảnh chuyển khoản máy đọc (không kèm mẫu); `image_vnd` là số đọc từ ảnh của khoản để so với số gõ.
+   Luồng 3: khoản người dùng đã loại (`NOT_CASH`) chỉ hiện ở bộ lọc "Đã loại", không đếm và không cộng ở đâu khác. */
 const ThuChiModel = (() => {
   'use strict';
   const F = typeof CongNoFormat !== 'undefined' ? CongNoFormat : require('./cong-no-format.js');
   const KINDS = ['thu', 'chi', 'ung'];
+  // Mọi mã trạng thái của máy chủ: trang hỏi đủ, kể cả khoản đã loại, để bộ lọc "Đã loại" không phải hỏi riêng.
+  const STATUSES = ['RECORDED', 'WAITING', 'MISSING', 'AMOUNT_DIFF', 'SUGGEST', 'UNKNOWN_TARGET', 'NO_LEDGER', 'NO_AMOUNT', 'NOT_CASH'];
+  const dropped = item => item.status === 'NOT_CASH';
   const FILTERS = [
-    { id: 'all', label: 'Tất cả', match: () => true },
+    { id: 'all', label: 'Tất cả', match: item => !dropped(item) },
     { id: 'missing', label: 'Chưa vào sổ', match: item => item.status === 'MISSING' },
     { id: 'diff', label: 'Lệch số', match: item => item.status === 'AMOUNT_DIFF' || Boolean(item.image_diff) },
     { id: 'unknown', label: 'Chưa rõ đối tượng', match: item => item.status === 'UNKNOWN_TARGET' || item.status === 'SUGGEST' },
     { id: 'noamount', label: 'Không đọc được số', match: item => item.status === 'NO_AMOUNT' },
+    { id: 'notcash', label: 'Đã loại', match: dropped },
   ];
 
   /** Tổng và số khoản của một nhóm khoản: thu, chi, ứng (số khoản chỉ tính khoản đọc được số; `img` là số khoản trong đó đọc từ ảnh),
@@ -21,6 +26,7 @@ const ThuChiModel = (() => {
     for (const kind of KINDS) out[kind] = { n: 0, img: 0, vnd: '0' };
     const sums = { thu: 0n, chi: 0n, ung: 0n };
     for (const item of items) {
+      if (dropped(item)) continue;
       if (item.status === 'MISSING') out.missing += 1;
       if (item.status === 'AMOUNT_DIFF' || item.image_diff) out.diff += 1;
       if (item.amount_vnd == null) { out.noAmount += 1; continue; }
@@ -96,6 +102,7 @@ const ThuChiModel = (() => {
         }
         return { tone: 'info', text: 'Chưa rõ của ai', note: item.unchecked ? 'Không đọc được danh sách khách và xe lúc này.' : item.ambiguous ? 'Tin khớp nhiều hơn một tên.' : '' };
       case 'NO_LEDGER': return { tone: 'info', text: 'Web chưa có sổ chi này', note: 'Chỉ liệt kê.' };
+      case 'NOT_CASH': return { tone: 'info', text: 'Đã loại: không phải thu chi', note: item.review?.reason ? `Lý do: ${item.review.reason}` : '' };
       case 'NO_AMOUNT':
         if (image) {
           const seen = (item.image?.candidates ?? []).map(money);
@@ -109,7 +116,61 @@ const ThuChiModel = (() => {
 
   const KIND_LABEL = { thu: 'Thu', chi: 'Chi', ung: 'Ứng' };
 
-  const api = { FILTERS, KIND_LABEL, summarize, counts, filterItems, groupByDay, range, dayShift, keyOf, newKeys, statusText, imageDiff, money };
+  // ---- Luồng 3: xác nhận, sửa số, gắn đối tượng, loại (POST /api/v7/cash-chat/review). Không ghi tiền. ----
+
+  /** Khoản bấm xử lý được không, và vì sao không. Dấu "khách báo đã chuyển" có luồng riêng ở Chat Zalo; một tin có hai ảnh chuyển khoản
+      thì máy chủ không biết xác nhận ảnh nào (MULTIPLE_IMAGES), nên nói trước thay vì để người bấm rồi mới báo lỗi. */
+  function reviewable(item, items) {
+    if (item.source === 'mark') return { ok: false, why: 'Dấu khách báo: sửa ở Chat Zalo.' };
+    if (!item.message_id || !item.conversation_id) return { ok: false, why: '' };
+    const twins = items.filter(other => other.message_id === item.message_id).length;
+    if (twins > 1) return { ok: false, why: 'Tin có nhiều ảnh chuyển khoản: chưa xử lý riêng từng ảnh được.' };
+    return { ok: true, why: '' };
+  }
+
+  /** Việc bấm được ở một khoản. Khoản đã loại chỉ còn "Đưa lại vào thu chi" (là một lần xác nhận: xác nhận và loại thay nhau). */
+  function actions(item) {
+    if (dropped(item)) return ['restore'];
+    const out = [];
+    if (item.amount_vnd != null && item.review?.decision !== 'confirm') out.push('confirm');
+    return [...out, 'amount', 'target', 'not_cash'];
+  }
+  const ACTION_LABEL = { confirm: 'Đúng, xác nhận', restore: 'Đưa lại vào thu chi', amount: 'Sửa số', target: 'Gắn sổ/xe', not_cash: 'Không phải thu chi' };
+  const LAST_LABEL = { confirm: 'Xác nhận', amount: 'Sửa số', target: 'Gắn đối tượng', not_cash: 'Loại' };
+
+  /** Thu thì gắn sổ khách; chi và ứng thì gắn xe hoặc tài xế (như máy tự khớp). */
+  const targetKinds = direction => (direction === 'thu' ? ['so'] : ['xe', 'tai_xe']);
+  const TARGET_LABEL = { so: 'Sổ', xe: 'Xe', tai_xe: 'Tài xế' };
+
+  /** Số người gõ ở ô "Số đúng": chỉ chữ số và dấu ngăn nghìn (chấm, phẩy, khoảng trắng). Không đọc "tr", "k" hay số lẻ:
+      không đoán số (cùng luật đọc mẫu tin). Trả chuỗi VND nguyên dương ≤ 10^12, hoặc null. */
+  function parseAmount(text) {
+    const raw = String(text ?? '').trim();
+    if (!/^[0-9][0-9., ]*$/.test(raw)) return null;
+    const digits = raw.replace(/[., ]/g, '');
+    if (!/^[1-9][0-9]*$/.test(digits) || digits.length > 13) return null;
+    return F.toBig(digits) <= 10n ** 12n ? digits : null;
+  }
+
+  /** Tìm đối tượng theo tên hay biển số, bỏ dấu; "51c12345" khớp "51C-123.45". Giữ chữ Hán (foldText không xóa). */
+  function searchTargets(rows, query, limit = 8) {
+    const loose = F.foldText(query).trim();
+    const tight = F.fold(query).replace(/ /g, '');
+    if (!loose) return rows.slice(0, limit);
+    return rows.filter(row => F.foldText(row.label).includes(loose) || (tight && F.fold(row.label).replace(/ /g, '').includes(tight))).slice(0, limit);
+  }
+
+  /** Câu ngắn về lần xử lý gần nhất (người làm, việc, số lần); giờ do trang định dạng. */
+  function reviewSummary(item) {
+    const review = item.review;
+    if (!review || !review.last_action) return null;
+    const what = review.decision === 'confirm' ? 'Đã xác nhận' : review.decision === 'not_cash' ? 'Đã loại'
+      : LAST_LABEL[review.last_action] ? `Đã ${LAST_LABEL[review.last_action].toLowerCase()}` : 'Đã xử lý';
+    return { what, by: review.last_by ?? null, at: review.last_at ?? null, times: Number(review.reviews) || 1 };
+  }
+
+  const api = { STATUSES, FILTERS, KIND_LABEL, summarize, counts, filterItems, groupByDay, range, dayShift, keyOf, newKeys, statusText, imageDiff, money,
+    reviewable, actions, ACTION_LABEL, targetKinds, TARGET_LABEL, parseAmount, searchTargets, reviewSummary };
   return api;
 })();
 if (typeof module !== 'undefined') module.exports = ThuChiModel;
