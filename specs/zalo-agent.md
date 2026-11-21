@@ -410,8 +410,25 @@ WeChat DB ─► wechat_export.py (tiến trình con, venv WeChat, chỉ đọc)
 **Chưa làm (CÒN MỞ):**
 
 - Giải mã ảnh `.dat` (PR-W2): upstream có bộ giải mã (`MediaDownloader`) nhưng khóa AES cần `cfg_dword` (máy này chưa có) hoặc quét bộ nhớ Weixin.exe. Người dùng đã cho phép quét bộ nhớ (20/11/2026, [`WECHAT-01`](../docs/decisions/wechat-01.md)); khóa chỉ ở máy. PR này chưa dùng khóa đó: `--wechat-images` mặc định tắt và chỉ chạy khi khóa suy ra ngoại tuyến; ảnh để "chưa đọc được".
-- Tiền tệ: khoản có đơn vị tệ (元, 块, ¥, RMB, tệ) phải tách khỏi tổng VND ở trang Thu chi; `web/v7_cash_chat.py` chưa đổi (PR sau).
-- Tab Máy chạy và máy canh chưa liệt kê bộ xử lý `wechat` (`ZALO_PROCESSORS` ở `hao`).
+- Khóa ảnh V2 của máy: bộ giải mã đã có (dưới đây), còn lấy khóa bằng quét bộ nhớ Weixin.exe trên máy thật và bật `--wechat-images` thì chờ người dùng cho chạy.
+
+**Đã làm PR-W2 (21/11/2026):**
+
+- **Bộ giải mã `zalo_agent/wechat_dat.py`**, chỉ stdlib, AES-128 tự dựng có vector chuẩn FIPS-197:
+  - khuôn cũ XOR một byte: byte suy từ chữ ký ảnh, không cần khóa;
+  - khuôn V2 (`07 08 56 32 08 07`, độ dài phần AES và phần XOR, AES-128-ECB đệm PKCS7, giữa để nguyên, đuôi XOR): cần khóa ảnh của máy; byte XOR suy từ đuôi ảnh JPEG, PNG, GIF;
+  - sai khóa, file cụt, khuôn lạ đều trả None, không ra ảnh hỏng.
+
+  Test chỉ dùng ảnh và khóa giả (`tests/test_zalo_agent_wechat_dat.py`). `--wechat-images` vẫn mặc định tắt.
+- **Tiền tệ ở trang Thu chi:**
+  - nhận khoản có đơn vị tệ: tệ, nhân dân tệ, NDT, RMB, CNY, 元, 块, hoặc ¥ trước số;
+  - mỗi khoản có `currency` (`CNY`/`VND`) và `amount_cny` (số nguyên tệ; số lẻ hay dạng lạ thì để trống);
+  - không đổi ra VND, không lấy số từ ảnh chuyển khoản, `status` là `NO_LEDGER` (sổ khách và Đội xe tính VND);
+  - `totals.cny = {thu, chi, ung, count, no_amount}`, tách khỏi mọi tổng VND.
+- **Tab Máy chạy và máy canh** liệt kê `wechat`:
+  - không theo revision nên chỉ ổn hay lỗi, kèm `messages`;
+  - lỗi quá 15 phút thì máy canh báo như các bộ xử lý khác;
+  - không có cảnh báo "chậm".
 - Nhóm mới vào chỉ có tin từ lúc được thêm; độ phủ mẫu `thu|chi|ứng` chưa đo.
 
 ## Người dùng và luồng

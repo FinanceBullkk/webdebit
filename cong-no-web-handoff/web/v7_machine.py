@@ -70,7 +70,7 @@ ZALO_STATUS = "/srv/v7/zalo-agent/status.json"
 ZALO_LATE = 900         # im lặng, chờ Zalo hay xử lý chậm quá 15 phút thì máy canh báo
 ZALO_FUTURE = 300       # `at` ở tương lai quá chừng này giây thì coi như file hỏng
 ZALO_SLOW_SHOW = 120    # chậm dưới 2 phút chỉ là đang đuổi kịp
-ZALO_PROCESSORS = ("bundle", "insurance", "money_images")   # chỉ các bộ xử lý này được hiện, theo thứ tự này
+ZALO_PROCESSORS = ("bundle", "insurance", "money_images", "wechat")   # chỉ các bộ xử lý này được hiện, theo thứ tự này
 ZALO_IDENTITY = ("attached", "waiting_for_zalo", "reprobing", "unknown")
 ZALO_CODE = re.compile(r"^[a-z_]{1,40}$")
 # Độ trễ từng chặng (giây, p50/p95 theo cửa sổ 60 phút và 24 giờ), khuôn ở tools/zalo_agent/latency.py: chỉ nhận đúng các tên này.
@@ -319,6 +319,11 @@ def zalo(now: float | None = None) -> dict[str, Any]:
             continue
         lag, error = _count(item.get("lag_revisions")), _code(item.get("error"))
         late = _minutes_since(item.get("last_ok_at"), now)
+        if key == "wechat":   # WECHAT-01: không theo revision của live-sync (lag luôn null): chỉ ổn hay lỗi, kèm số tin đã nhập kho
+            rows.append({"id": key, "state": "error" if error else "ok", "lag": None, "minutes": None, "error": error,
+                         "error_minutes": _error_minutes(item, error, now),
+                         "messages": item["messages"] if isinstance(item.get("messages"), int) and not isinstance(item["messages"], bool) and item["messages"] >= 0 else None})   # lạ: không rõ, không phải 0
+            continue
         state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
         rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "error_minutes": _error_minutes(item, error, now),
                      **(_drain(item, now) if key == "money_images" else {})})

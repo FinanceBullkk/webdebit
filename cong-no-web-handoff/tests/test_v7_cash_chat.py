@@ -948,6 +948,32 @@ class FeedbackTests(CashChatCase):
             self.assertEqual(cash.v7_machine.FEEDBACK, {"week": "giữ nguyên"})
 
 
+class CurrencyTests(CashChatCase):
+    """WECHAT-01: khoản tính bằng tệ có tổng riêng, không vào tổng VND, không đối chiếu với sổ VND."""
+
+    def test_cny_units_are_read_without_converting(self):
+        cases = {"thu 500 tệ khách a": 500, "chi 1.200元 xe 51C-123.45": 1200, "ứng ¥300 tài xế Bình": 300, "thu 50 RMB": 50,
+                 "thu 80 ndt": 80, "chi 2000 nhân dân tệ": 2000, "thu 7块": 7, "thu 2,5 tệ khách a": None}
+        for text, amount in cases.items():
+            with self.subTest(text=text):
+                report = cash.read_report(text)
+                self.assertEqual((report["currency"], report["amount_cny"], report["amount_vnd"]), ("CNY", amount, None))
+        vnd = cash.read_report("thu 5tr khách a")
+        self.assertEqual((vnd["currency"], vnd["amount_vnd"], vnd["amount_cny"]), ("VND", 5_000_000, None))
+
+    def test_cny_items_have_their_own_totals_and_no_ledger_match(self):
+        rows = [row("a", at(19), "thu 500 tệ khách a"), row("b", at(19, 10), "chi 1.200元 xe 51C-123.45"),
+                row("c", at(19, 11), "ứng ¥300 tài xế Bình"), row("d", at(19, 12), "thu 2,5 tệ khách a"), row("e", at(19, 13), "thu 5tr khách b")]
+        body = self.get(rows, FakeRunner(receipts=[receipt(1, 1, "KHACH A", 19, 500)]))
+        by = {item["message_id"]: item for item in body["items"]}
+        self.assertEqual({key: (item["currency"], item["amount_cny"], item["status"]) for key, item in by.items() if key != "e"},
+                         {"a": ("CNY", 500, "NO_LEDGER"), "b": ("CNY", 1200, "NO_LEDGER"), "c": ("CNY", 300, "NO_LEDGER"),
+                          "d": ("CNY", None, "NO_LEDGER")})   # phiếu 500 VND không bị ghép nhầm với 500 tệ
+        self.assertEqual((by["e"]["currency"], by["e"]["amount_cny"]), ("VND", None))
+        self.assertEqual((body["totals"]["thu_vnd"], body["totals"]["thu_count"], body["totals"]["no_amount"]), (5_000_000, 1, 0))
+        self.assertEqual(body["totals"]["cny"], {"thu": 500, "chi": 1200, "ung": 300, "count": 3, "no_amount": 1})
+
+
 class SqlRuleSyncTests(unittest.TestCase):
     def test_window_matches_the_contact_mark_scoring_in_sql(self):
         """Hai nơi cùng chấm "khách báo đã chuyển": đổi một nơi mà quên nơi kia thì test này đỏ."""
