@@ -395,6 +395,28 @@ class ZaloTests(Base):
         self.report(ten, processors=wechat(error="child_timeout", error_since=stamp(5)))
         self.assertEqual(dog.check_zalo(ten), [])   # lỗi mới 5 phút: chưa báo
 
+    def test_wechat_closed_updating_or_waiting_for_login_alerts_after_fifteen_minutes(self):
+        ten = dt.datetime(2026, 11, 22, 10, 0, tzinfo=VN)
+        stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        wechat = lambda **item: {"wechat": {"lag_revisions": None, "last_ok_at": stamp(0), "error": None, "messages": 53, **item}}  # noqa: E731
+        self.report(ten, processors=wechat(app="logged_in", app_since=stamp(300), images="ok", images_since=stamp(300)))
+        self.assertEqual(dog.check_zalo(ten), [])
+        self.report(ten, processors=wechat(app="closed", app_since=stamp(10)))
+        self.assertEqual(dog.check_zalo(ten), [])   # mới 10 phút (WeChat tự cập nhật, mở lại…): chưa báo
+        self.report(ten, processors=wechat(app="closed", app_since=stamp(140)))
+        self.assertEqual(dog.check_zalo(ten), ["WeChat chưa mở trên máy Zalo: 140 phút, tin WeChat mới không về."])
+        self.report(ten, processors=wechat(app="update", app_since=stamp(20)))
+        self.assertEqual(dog.check_zalo(ten), ["WeChat trên máy Zalo đang chờ cập nhật, chưa mở lại: 20 phút, tin WeChat mới không về."])
+        self.report(ten, processors=wechat(app="login", app_since=stamp(16)))
+        self.assertEqual(dog.check_zalo(ten), ["WeChat trên máy Zalo đang chờ đăng nhập (xác nhận trên điện thoại): 16 phút, tin WeChat mới không về."])
+        self.report(ten, processors=wechat(app="unknown", app_since=stamp(600)))
+        self.assertEqual(dog.check_zalo(ten), [])   # không đọc được trạng thái app: không báo nhầm
+        self.report(ten, processors=wechat(app="logged_in", app_since=stamp(60), images="no_key", images_since=stamp(30)))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: WeChat không giải được ảnh 30 phút (không suy được khóa ảnh)."])
+        night = dt.datetime(2026, 11, 22, 22, 0, tzinfo=VN)
+        self.report(night, processors=wechat(app="closed", app_since=stamp(600)))
+        self.assertEqual(dog.check_zalo(night), [])   # ngoài 7:00–20:00 không canh (máy có thể tắt ban đêm)
+
     def test_error_reports_by_how_long_it_has_lasted(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)
         stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731

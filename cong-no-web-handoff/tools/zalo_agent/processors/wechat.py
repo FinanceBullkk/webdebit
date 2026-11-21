@@ -27,7 +27,9 @@ from pathlib import Path
 import zalo_web_bundle as wb
 
 from .. import cursor as cursors
+from .. import wechat_app
 from ..source import read_json, retry_io
+from ..status import track_value
 from ..wechat_export import XMLISH, clean_content
 
 NAME = "wechat"
@@ -36,6 +38,7 @@ INTERVAL, MAX_BACKOFF, TIMEOUT = 10, 15 * 60, 60
 RECHECK_HOURS = 6      # đọc lại các tin trong khoảng này mỗi lượt để thấy tin bị sửa tại chỗ (thu hồi)
 DEEP_IMAGE_HOURS = 7 * 24   # lượt đầu sau khi agent chạy: thử lại ảnh còn thiếu của 7 ngày (bật ảnh muộn, sửa khóa xong rồi chạy lại)
 DEEP_TRIES = 2              # lượt 7 ngày lỗi (quá giờ…) chừng này lần thì bỏ: tin chữ không bao giờ bị kẹt sau một yêu cầu quá nặng
+APP_EVERY = 30              # giây giữa hai lần xem app WeChat có chạy, có đăng nhập không
 THUMB_PIXELS = 240 * 240    # ảnh từ chừng này điểm ảnh trở xuống coi là ảnh thu nhỏ của WeChat (cạnh dài ~120–240): còn tìm bản lớn hơn
 SMALL_RETRY = 600           # giây: ảnh thu nhỏ hoặc tải dở thử tìm bản lớn/trọn hơn mỗi 10 phút trong cửa sổ
 MISSING_RETRY = 60          # giây: tin ảnh chưa có ảnh nào thử lại mỗi phút (không mỗi 10 giây: upstream duyệt cả cây ảnh mỗi lần thử)
@@ -428,8 +431,12 @@ class WeChatProcessor:
 
     def __init__(self, store: Store, state: Path, *, python: str, pilot: str, interval: float = INTERVAL, first_limit: int = 5000,
                  images: bool = False, run=run_child, clock=time.time, dry_run: bool = False, background: bool = True,
-                 recheck_hours: float = RECHECK_HOURS):
+                 recheck_hours: float = RECHECK_HOURS, app=None):
         self.store, self.state, self.python, self.pilot = store, Path(state), python, pilot
+        self.app_state = app or wechat_app.state   # app WeChat có chạy, có đăng nhập không (đọc DB vẫn được khi WeChat tắt)
+        self.app: tuple[str, str] | None = None     # (mã, lúc bắt đầu giữ mã đó)
+        self.app_checked: float | None = None
+        self.keys: tuple[str, str] | None = None    # khóa ảnh: ("ok" | "no_key", lúc bắt đầu), chỉ khi bật ảnh
         self.interval, self.first_limit, self.images, self.recheck_hours = interval, first_limit, images, recheck_hours
         self.fps: dict[tuple, tuple[str, int]] = {}   # (nhóm, local_id, sort_seq) → (dấu vân tay, giờ tin): cửa sổ chỉ gửi nội dung khi khác
         self.retry_at: dict[tuple, float] = {}        # tin có ảnh thu nhỏ → lúc quên `fp` để tiến trình con giải lại tìm bản lớn hơn
@@ -503,7 +510,21 @@ class WeChatProcessor:
                 return self.step()
         result = self.last
         self.last = {**result, "action": "idle"}   # kết quả một lần: vòng lặp gọi step mỗi giây, đừng ghi log "poll" mãi
-        return result
+        return {**result, **self.app_fields()}
+
+    def app_fields(self) -> dict:
+        """`app` (wechat_app.STATES) và `images` ("ok" | "no_key"), mỗi cái kèm `…_since`, cho `status.json` và máy canh. App kiểm
+        mỗi `APP_EVERY` giây (đọc danh sách tiến trình và cửa sổ khoảng 25 ms); mốc nhớ trong `<state>` nên chạy lại agent không mất."""
+        now = self.clock()
+        if self.app_checked is None or now - self.app_checked >= APP_EVERY:
+            self.app_checked = now
+            value = self.app_state()
+            value = value if value in wechat_app.STATES else wechat_app.UNKNOWN
+            self.app = (value, track_value(self.state, "wechat-app", value, now, persist=not self.dry_run))
+        out = {"app": self.app[0], "app_since": self.app[1]}
+        if self.images and self.keys:
+            out.update(images=self.keys[0], images_since=self.keys[1])
+        return out
 
     def apply(self, error: str | None, items: list[dict], end: dict, groups: dict[str, str]) -> None:
         now = self.clock()
@@ -514,6 +535,9 @@ class WeChatProcessor:
                 error = "store_failed"
         self.failures = self.failures + 1 if error else 0
         end = end or {}
+        if not error and self.images:   # lượt đọc thành công cho biết tiến trình con có suy được khóa ảnh không
+            value = "ok" if end.get("image_keys") else "no_key"
+            self.keys = (value, track_value(self.state, "wechat-images", value, now, persist=not self.dry_run))
         if error:
             self.next_at = now + min(MAX_BACKOFF, self.interval * 2 ** self.failures)
             if self.deep_sent and error == "child_timeout":   # chỉ quá giờ mới có thể do lượt 7 ngày quá nặng

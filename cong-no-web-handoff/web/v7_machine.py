@@ -72,6 +72,8 @@ ZALO_FUTURE = 300       # `at` ở tương lai quá chừng này giây thì coi 
 ZALO_SLOW_SHOW = 120    # chậm dưới 2 phút chỉ là đang đuổi kịp
 ZALO_PROCESSORS = ("bundle", "insurance", "money_images", "wechat")   # chỉ các bộ xử lý này được hiện, theo thứ tự này
 ZALO_IDENTITY = ("attached", "waiting_for_zalo", "reprobing", "unknown")
+WECHAT_APP = ("logged_in", "login", "closed", "update", "unknown")   # app WeChat trên máy Zalo (zalo_agent/wechat_app.py)
+WECHAT_IMAGES = ("ok", "no_key")                                     # tiến trình con có suy được khóa ảnh không
 ZALO_CODE = re.compile(r"^[a-z_]{1,40}$")
 # Độ trễ từng chặng (giây, p50/p95 theo cửa sổ 60 phút và 24 giờ), khuôn ở tools/zalo_agent/latency.py: chỉ nhận đúng các tên này.
 ZALO_STAGES = ("zalo", "agent", "build", "push", "total")
@@ -320,9 +322,14 @@ def zalo(now: float | None = None) -> dict[str, Any]:
         lag, error = _count(item.get("lag_revisions")), _code(item.get("error"))
         late = _minutes_since(item.get("last_ok_at"), now)
         if key == "wechat":   # WECHAT-01: không theo revision của live-sync (lag luôn null): chỉ ổn hay lỗi, kèm số tin đã nhập kho
+            app = item.get("app") if item.get("app") in WECHAT_APP else None              # bản agent cũ chưa ghi: không rõ
+            images = item.get("images") if item.get("images") in WECHAT_IMAGES else None  # không bật ảnh: không có
             rows.append({"id": key, "state": "error" if error else "ok", "lag": None, "minutes": None, "error": error,
                          "error_minutes": _error_minutes(item, error, now),
-                         "messages": item["messages"] if isinstance(item.get("messages"), int) and not isinstance(item["messages"], bool) and item["messages"] >= 0 else None})   # lạ: không rõ, không phải 0
+                         "messages": item["messages"] if isinstance(item.get("messages"), int) and not isinstance(item["messages"], bool) and item["messages"] >= 0 else None,   # lạ: không rõ, không phải 0
+                         # App WeChat đang chạy/đăng nhập không, khóa ảnh còn không: mỗi cái kèm số phút đã giữ trạng thái đó.
+                         "app": app, "app_minutes": _minutes_since(item.get("app_since"), now) if app else None,
+                         "images": images, "images_minutes": _minutes_since(item.get("images_since"), now) if images else None})
             continue
         state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
         rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "error_minutes": _error_minutes(item, error, now),
