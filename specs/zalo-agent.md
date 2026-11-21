@@ -317,6 +317,11 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
   - `sender_avatar`: mã ảnh.
 
   `GET /api/v7/zalo/conversations` thêm `avatar`. `type_label` theo `card` trước (loại 6 phần lớn là liên kết), rồi theo loại tin (thêm tên cho 25, 26, 27, 52, -27, -1909). Giá trị sai khuôn thì bỏ.
+- Trang Chat Zalo hiện các trường này (22/11/2026, `zalo-chat.js`; test ở `test-zalo-chat-browser.js`):
+  - avatar tròn ở danh sách hội thoại và ở tin đầu cụm của người khác (tin của mình không có); không có ảnh hay ảnh hỏng (404) thì chữ cái đầu của tên;
+  - tin trả lời có khung "↩ tên · đoạn trích" trên nội dung, tin gốc của mình ghi "Mình"; bấm thì cuộn tới tin gốc và tô sáng, tin gốc chưa tải thì mở đúng trang chứa nó (`message=`); `found: false` thì ghi "Trả lời một tin không còn trên web", không bấm được;
+  - cảm xúc là chip "biểu tượng + số người" dưới nội dung (một người thì không ghi số);
+  - sticker là ảnh tối đa 120px, không ghi "[Sticker]"; ghi âm AAC có nút nghe (`preload="none"`), AMR thì liên kết tải về vì trình duyệt không phát được.
 - `export-report.json` thêm ba trường; các trường cũ giữ nguyên, kể cả `bundle_sha256` (băm của `messages.jsonl`):
   - `delta_bytes` (int): số byte hợp lệ của delta, 0 khi chưa có;
   - `delta_lines` (int);

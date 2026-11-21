@@ -79,6 +79,7 @@
     $('conversations').innerHTML = rows.length ? rows.map(row => {
       const own = row.last_own_message_at ? `Mình nhắn gần nhất <b>${esc(dayKey(row.last_own_message_at))}</b>` : 'Mình chưa nhắn';
       return `<button type="button" class="conv" role="listitem" data-id="${esc(row.conversation_id)}" aria-current="${row.conversation_id === state.selected}" title="${esc(row.conversation_id)}">
+        ${avatarHtml(row.avatar, row.display_name, 'conv-ava')}
         <span class="nm${row.display_name ? '' : ' unnamed'}">${esc(nameOf(row))}</span>
         <span class="last">${esc(row.last_message_at ? dayKey(row.last_message_at) : '—')}</span>
         <span class="sub">${number(row.message_count)} tin · ${own}</span>
@@ -127,6 +128,53 @@
     return `Thành viên ${shortId(message.sender_id)}`;
   }
 
+  // ---- ZALO-AGENT-01 (21/11/2026): avatar, trả lời tin, cảm xúc, sticker, ghi âm. Dữ liệu từ gói chat, ảnh qua máy chủ, không từ CDN Zalo. ----
+
+  // Avatar tròn; không có ảnh (hay ảnh hỏng) thì chữ cái đầu của tên, để vẫn nhận ra ai đang nói.
+  function avatarHtml(id, name, cls) {
+    const letter = esc(String(name ?? '').trim().charAt(0).toUpperCase() || '?');
+    return id ? `<img class="ava ${cls}" src="${esc(MEDIA + encodeURIComponent(id))}" alt="" loading="lazy" data-letter="${letter}">`
+      : `<span class="ava ${cls} none" aria-hidden="true">${letter}</span>`;
+  }
+
+  // Tin được trả lời: tên người gửi như ở tin thường; tin đó của chủ tài khoản thì "Mình" (đoán từ tin đang hiện cùng người gửi).
+  function quoteHtml(message) {
+    const quote = message.quote;
+    if (!quote) return '';
+    if (!quote.found) return '<div class="reply gone">↩ Trả lời một tin không còn trên web</div>';
+    const own = state.messages.some(item => item.sender_id === quote.sender_id && item.is_own);
+    const who = own ? 'Mình' : quote.sender_name || `Thành viên ${shortId(quote.sender_id)}`;
+    const text = quote.deleted ? 'Tin đã bị thu hồi.' : quote.body_text || `[${quote.type_label ?? 'Tin'}]`;
+    return `<button type="button" class="reply" data-quote="${esc(quote.message_id)}" aria-label="Xem tin được trả lời của ${esc(who)}">`
+      + `<span class="q-who">↩ ${esc(who)}</span><span class="q-text">${esc(text)}</span></button>`;
+  }
+
+  // Cảm xúc: mỗi biểu tượng một chip kèm số người thả (máy chủ đã đếm người, không đếm lần bấm, không ghi ai thả).
+  function reactionsHtml(message) {
+    const rows = message.reactions ?? [];
+    if (!rows.length) return '';
+    return `<div class="reacts">${rows.map(row => `<span class="react" title="${esc(`${number(row.count)} người thả ${row.emoji}`)}">`
+      + `${esc(row.emoji)}${row.count > 1 ? `<b>${number(row.count)}</b>` : ''}</span>`).join('')}</div>`;
+  }
+
+  function stickerHtml(message) {
+    const sticker = message.sticker;
+    if (!sticker || message.deleted) return '';
+    const src = MEDIA + encodeURIComponent(sticker.id);
+    const scale = sticker.width > 0 && sticker.height > 0 ? Math.min(120 / sticker.width, 120 / sticker.height, 1) : 0;
+    const size = scale ? ` width="${Math.round(sticker.width * scale)}" height="${Math.round(sticker.height * scale)}"` : '';
+    return `<img class="sticker" src="${esc(src)}"${size} loading="lazy" alt="Sticker">`;
+  }
+
+  // Bấm khung trích dẫn: tin gốc đang hiện thì cuộn tới và tô sáng; chưa tải thì mở đúng trang chứa nó (như mở từ ?m=).
+  function jumpTo(id) {
+    const target = [...$('messages').querySelectorAll('.msg')].find(node => node.dataset.id === id);
+    if (!target) { loadPage(0, { focus: id }); return; }
+    target.scrollIntoView({ block: 'center' });
+    target.classList.add('focus');
+    setTimeout(() => target.classList.remove('focus'), 3000);
+  }
+
   // Ảnh/video của gói web (ZALO-GROUP-01): tải theo từng tin từ máy chủ, không bao giờ từ CDN của Zalo.
   function mediaHtml(message) {
     const items = message.media ?? [];
@@ -137,6 +185,9 @@
     return `<div class="pics">${items.map(item => {
       const src = MEDIA + encodeURIComponent(item.id);
       if (item.mime === 'video/mp4') return `<video class="vid" controls preload="none" src="${esc(src)}"></video>`;
+      // Ghi âm: AAC nghe ngay trên trang; AMR (Zalo cũ) trình duyệt không phát được nên cho tải về.
+      if (item.mime === 'audio/aac') return `<audio class="voice" controls preload="none" src="${esc(src)}" aria-label="Ghi âm"></audio>`;
+      if (String(item.mime).startsWith('audio/')) return `<a class="voice-file" href="${esc(src)}" download>Ghi âm · tải về để nghe</a>`;
       // Đặt sẵn khung đúng tỉ lệ (tối đa 280×320) trước khi ảnh tải, để khung tin không nhảy khi ảnh hiện dần.
       const scale = item.width > 0 && item.height > 0 ? Math.min(280 / item.width, 320 / item.height, 1) : 0;
       const size = scale ? ` style="width:${Math.round(item.width * scale)}px;height:${Math.round(item.height * scale)}px"` : '';
@@ -150,18 +201,21 @@
       return `<div class="body missing">Không đọc được nội dung tin này${message.body_state ? ` (${esc(message.body_state)})` : ''}.</div>`;
     }
     if (message.body_text) return `<div class="body${message.body_kind === 'card' ? ' card' : ''}">${highlight(message.body_text)}</div>`;
-    // Ảnh không chữ thì chỉ hiện ảnh; loại khác không có chữ thì ghi tên loại (Sticker, Ghi âm…).
-    return (message.media ?? []).length || [2, 7].includes(message.message_type) ? '' : `<div class="body card">[${esc(message.type_label)}]</div>`;
+    // Ảnh, sticker, ghi âm không chữ thì chỉ hiện chính nó; loại khác không có chữ thì ghi tên loại (Liên kết, Cuộc gọi nhỡ…).
+    return (message.media ?? []).length || message.sticker || [2, 7].includes(message.message_type) ? '' : `<div class="body card">[${esc(message.type_label)}]</div>`;
   }
 
   // Tin liền nhau cùng người gửi gộp thành một cụm như Zalo: tên ở tin đầu cụm, giờ ở mỗi tin.
   function renderMessage(message, first) {
-    const who = first ? `<span class="who">${esc(senderText(message))}</span>` : '';
+    const name = senderText(message);
+    // Avatar chỉ ở tin đầu cụm của người khác (như Zalo); tin của mình không cần.
+    const face = first && !message.is_own ? avatarHtml(message.sender_avatar, name, 'msg-ava') : '';
+    const who = first ? `${face}<span class="who">${esc(name)}</span>` : '';
     const action = links.ok && !message.deleted
       ? `<button type="button" class="mark-btn" data-mark="${esc(message.message_id)}" aria-label="Đánh dấu tin lúc ${esc(timeText(message.timestamp_ms))}">Đánh dấu</button>` : '';
     return `<article class="msg ${message.is_own ? 'own' : 'other'}${first ? ' first' : ''}${message.message_id === state.focus ? ' focus' : ''}" data-id="${esc(message.message_id)}">
       <div class="meta">${who}<time>${esc(timeText(message.timestamp_ms))}</time>${action}</div>
-      ${bodyHtml(message)}${mediaHtml(message)}${attachmentText(message.attachment)}${marksHtml(message.message_id)}
+      ${message.deleted ? '' : quoteHtml(message)}${bodyHtml(message)}${stickerHtml(message)}${mediaHtml(message)}${attachmentText(message.attachment)}${reactionsHtml(message)}${marksHtml(message.message_id)}
     </article>`;
   }
 
@@ -672,6 +726,8 @@
     if (retry) { loadPage(Number(retry.dataset.retryPage)); return; }
     const picture = event.target.closest('[data-pic]');
     if (picture) { showPicture(picture.dataset.pic); return; }
+    const quote = event.target.closest('[data-quote]');
+    if (quote) { jumpTo(quote.dataset.quote); return; }
     const mark = event.target.closest('[data-mark]');
     if (mark) { openMark(mark.dataset.mark); return; }
     const unmarkButton = event.target.closest('[data-unmark]');
@@ -685,6 +741,16 @@
     if (event.target.closest('#older') && state.hasOlder) loadPage(state.page + 1, { mode: 'older' });
     if (event.target.closest('#newer') && state.newest > 0) loadPage(state.newest - 1, { mode: 'newer' });
   });
+  // Avatar tải hỏng (ảnh đã bị Zalo xóa, máy chủ trả 404): thay bằng chữ cái đầu, không để biểu tượng ảnh vỡ.
+  document.addEventListener('error', event => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || !img.classList.contains('ava')) return;
+    const letter = document.createElement('span');
+    letter.className = `${img.className} none`;
+    letter.setAttribute('aria-hidden', 'true');
+    letter.textContent = img.dataset.letter || '?';
+    img.replaceWith(letter);
+  }, true);
   $('back-list').addEventListener('click', () => {
     chat.classList.remove('show-detail');
   });
