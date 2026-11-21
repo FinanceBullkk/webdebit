@@ -32,6 +32,21 @@ function makeServer(state) {
     const url = new URL(req.url, 'http://x');
     const send = (status, type, data) => { res.writeHead(status, { 'Content-Type': type }); res.end(data); };
     const json = (data, status = 200) => send(status, 'application/json', JSON.stringify(data));
+    if (url.pathname === '/api/v7/cash-chat/review' && req.method === 'POST') {   // Luồng 3: ghi lại thân lệnh, trả theo kịch bản của test
+      let raw = '';
+      req.on('data', chunk => { raw += chunk; });
+      req.on('end', () => {
+        const sent = JSON.parse(raw);
+        state.posts.push(sent);
+        const next = (state.review ?? (() => ({})))(sent);
+        return next.status ? json({ error: next.error, message: next.message }, next.status) : json({ id: state.posts.length, ...sent });
+      });
+      return undefined;
+    }
+    if (url.pathname === '/api/v7/cash-chat/targets') {
+      state.targetCalls += 1;
+      return json(TARGETS);
+    }
     if (url.pathname === '/api/v7/cash-chat') {
       state.calls.push(url.search);
       const next = state.respond();
@@ -48,8 +63,11 @@ function makeServer(state) {
   });
 }
 
-async function withPage(respond, fn, { viewport = { width: 1280, height: 720 }, clock = false } = {}) {
-  const state = { calls: [], respond };
+const TARGETS = { so: [{ id: 1, label: 'SỔ A' }, { id: 2, label: 'SỔ B' }, { id: 3, label: '陈氏贸易有限公司 RẤT DÀI TÊN SỔ ĐỂ THỬ BỐ CỤC' }],
+  xe: [{ id: 10, label: '51C-12345' }, { id: 11, label: '29H-67890' }], tai_xe: [{ id: 20, label: 'Bình' }, { id: 21, label: 'Cường' }], failed: false };
+
+async function withPage(respond, fn, { viewport = { width: 1280, height: 720 }, clock = false, review = null } = {}) {
+  const state = { calls: [], respond, posts: [], review, targetCalls: 0 };
   const server = makeServer(state);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await launchShared();
@@ -86,7 +104,7 @@ test('Thu chi: hôm nay và 7 ngày, gom theo ngày mới trên cùng, trạng t
   assert.match(clean(week), /Không đọc được số: 1/);
   assert.deepEqual((await page.locator('.tc-day h3').allInnerTexts()).map(clean), ['Hôm nay 20/11', 'Hôm qua 19/11', '18/11', '17/11', '16/11', '15/11']);
   const rows = await page.locator('.tc-row').allInnerTexts();
-  assert.match(clean(rows[0]), /^11:00 Lan Nhóm thu chi thử Thu 50\.000\.000 đ Sổ SỔ A .* Đã vào sổ Mở sổ Mở tin$/);
+  assert.match(clean(rows[0]), /^11:00 Lan Nhóm thu chi thử Thu 50\.000\.000 đ Sổ SỔ A .* Đã vào sổ Mở sổ Xử lý Mở tin$/);
   assert.match(clean(rows[1]), /Chi 2\.500\.000 đ Xe 51C-12345 .* Chờ vào sổ/);
   assert.match(clean(rows[2]), /Lệch: báo 30\.000\.000 đ, sổ 28\.000\.000 đ/);
   assert.match(clean(rows[3]), /Ứng 3\.000\.000 đ Tài xế Bình .* Đã vào sổ Mở Đội xe/);
@@ -389,7 +407,7 @@ test('Thu chi: ảnh chuyển khoản máy đọc hiện như khoản thu, ghi "
   assert.match(week, /16\.000\.000 đ Thu · 3 khoản, 2 từ ảnh/);
   assert.match(week, /Không đọc được số: 1/);
   const row = id => page.locator('.tc-row').filter({ has: page.locator(`a[href$="m=${id}"]`) });
-  assert.match(clean(await row('a1').innerText()), /^10:00 Lan Nhóm thu chi thử Thu 7\.000\.000 đ đọc từ ảnh Sổ SỔ A Giao dịch 09:58 · VIETCOMBANK Đã vào sổ Mở sổ Mở tin$/);
+  assert.match(clean(await row('a1').innerText()), /^10:00 Lan Nhóm thu chi thử Thu 7\.000\.000 đ đọc từ ảnh Sổ SỔ A Giao dịch 09:58 · VIETCOMBANK Đã vào sổ Mở sổ Xử lý Mở tin$/);
   assert.equal((await row('a2').locator('.tc-amt').innerText()).trim(), '—');
   assert.match(clean(await row('a2').innerText()), /Ảnh chưa đọc chắc Máy đọc ra 1\.050\.000 đ và 1\.500\.000 đ\. Mở ảnh để xem, không cộng vào tổng\./);
   assert.match(clean(await row('a3').innerText()), /— Ảnh chuyển khoản · MB Chưa rõ của ai Hội thoại chưa gắn sổ\./);
@@ -445,3 +463,231 @@ test('Thu chi: ảnh cũ gửi lại nằm ở ngày giao dịch, cột giờ gh
     assert.match(clean(await page.locator('.tc-row').innerText()), /^19\/11 15:12 Lan .* Giao dịch 10:15 · ACB Đã vào sổ/);
     assert.equal(clean(await page.locator('.tc-note').innerText()), '2 ảnh chuyển khoản gửi trong 7 ngày là giao dịch trước đó, không cộng vào tổng.');
   }));
+
+// ---- Luồng 3 (PR-3): xác nhận, sửa số, gắn đối tượng, loại. Không ghi tiền; số, tên, biển số bịa. ----
+const rowOf = (page, id) => page.locator(`.tc-row[data-k="chat:${id}"]`);
+const openRow = async (page, id) => {
+  await rowOf(page, id).locator('.tc-act').click();
+  await page.locator('.tc-panel').waitFor();
+};
+const sentGets = state => state.calls.length;
+
+test('Xử lý: hỏi đủ mọi trạng thái kể cả đã loại; Đúng, xác nhận ghi một lệnh, đóng khung, báo một dòng và tải lại ngay', () => withPage(ok(ITEMS), async (page, state) => {
+  await ready(page);
+  assert.match(state.calls[0], /&status=RECORDED,WAITING,MISSING,AMOUNT_DIFF,SUGGEST,UNKNOWN_TARGET,NO_LEDGER,NO_AMOUNT,NOT_CASH$/);
+  await openRow(page, 't2');
+  assert.equal(await rowOf(page, 't2').locator('.tc-act').getAttribute('aria-expanded'), 'true');
+  assert.deepEqual((await page.locator('.tc-acts .btn').allInnerTexts()).map(clean), ['Đúng, xác nhận', 'Sửa số', 'Gắn sổ/xe', 'Không phải thu chi', 'Đóng']);
+  assert.match(clean(await page.locator('.tc-panel .tc-hint').innerText()), /không ghi phiếu thu hay dòng chi/);
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Đúng, xác nhận');   // tiêu điểm vào khung
+  const before = sentGets(state);
+  await page.locator('[data-act="confirm"]').click();
+  await page.locator('#done:not([hidden])').waitFor();
+  assert.equal(state.posts.length, 1);
+  assert.deepEqual(Object.keys(state.posts[0]).sort(), ['action', 'message_id', 'request_id']);
+  assert.deepEqual([state.posts[0].message_id, state.posts[0].action], ['t2', 'confirm']);
+  assert.match(state.posts[0].request_id, /^[0-9a-f-]{36}$/);
+  assert.equal(clean(await page.locator('#done').innerText()), 'Đã xác nhận khoản chi 2.500.000 đ của Lan.');
+  assert.equal(await page.locator('.tc-panel').count(), 0);
+  assert.ok(sentGets(state) > before, 'hỏi lại ngay, không đợi nhịp 5 giây');
+}));
+
+test('Xử lý: khoản đã xác nhận hiện người làm và lúc làm, không còn nút xác nhận; khoản không có số chưa xác nhận được', () => withPage(ok([
+  item('r1', TODAY, 10, 'thu', 5_000_000, 'WAITING', { review: { decision: 'confirm', reviews: 2, last_action: 'confirm', last_by: 'lan', last_at: '2026-11-20T10:05:00+07:00' } }),
+  item('r2', TODAY, 9, 'thu', 4_500_000, 'WAITING', { amount_from: 'sua', target: so(1, 'SỔ A'), target_from: 'sua' }),
+  ...ITEMS]), async page => {
+  await ready(page);
+  assert.match(clean(await rowOf(page, 'r1').locator('.tc-status').innerText()), /Chờ vào sổ Đã xác nhận · lan · 10:05 · 2 lần/);
+  assert.match(clean(await rowOf(page, 'r2').innerText()), /4\.500\.000 đ đã sửa tay Sổ SỔ A gắn tay/);
+  await openRow(page, 'r1');
+  assert.equal(await page.locator('.tc-acts [data-act="confirm"]').count(), 0);
+  await openRow(page, 't8');   // mở dòng khác thì khung cũ đóng, chỉ một khung một lúc
+  assert.equal(await page.locator('.tc-panel').count(), 1);
+  assert.equal(await page.locator('.tc-acts [data-act="confirm"]').count(), 0);   // không đọc được số: chưa có gì để xác nhận
+}));
+
+test('Xử lý: sửa số chỉ nhận chữ số, hiện trước → sau, Enter lưu, gửi chuỗi VND nguyên', () => withPage(ok(ITEMS), async (page, state) => {
+  await ready(page);
+  await openRow(page, 't2');
+  await page.locator('[data-act="amount"]').click();
+  const input = page.locator('#tc-amount');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'tc-amount');
+  const save = page.locator('.tc-panel [data-act="save"]');
+  assert.equal(await save.isDisabled(), true);
+  assert.equal(await page.locator('.tc-acts [data-act="confirm"]').getAttribute('class'), 'btn');   // một nút chính mỗi lúc: nút Lưu
+  for (const bad of ['2,4tr', '500k', '0']) {
+    await input.fill(bad);
+    assert.match(await page.locator('#tc-preview').innerText(), /Chỉ gõ chữ số/);
+    assert.equal(await save.isDisabled(), true);
+  }
+  await input.fill('2.500.000');
+  assert.equal(await page.locator('#tc-preview').innerText(), 'Bằng số đang có, không cần sửa.');
+  assert.equal(await save.isDisabled(), true);
+  await input.fill('2.400.000');
+  assert.equal(clean(await page.locator('#tc-preview').innerText()), 'Số: 2.500.000 đ → 2.400.000 đ');
+  assert.equal(await save.isDisabled(), false);
+  await input.press('Enter');
+  await page.locator('#done:not([hidden])').waitFor();
+  assert.deepEqual([state.posts[0].action, state.posts[0].value], ['amount', '2400000']);
+  assert.equal(clean(await page.locator('#done').innerText()), 'Đã sửa số: 2.500.000 đ → 2.400.000 đ.');
+}));
+
+test('Xử lý: gắn đối tượng — thu chỉ chọn sổ, chi chọn xe hoặc tài xế; tìm bỏ dấu, biển số không cần gạch; danh sách hỏi một lần', () => withPage(ok(ITEMS), async (page, state) => {
+  await ready(page);
+  await openRow(page, 't9');   // thu chưa rõ của ai
+  await page.locator('[data-act="target"]').click();
+  await page.locator('.tc-opt').first().waitFor();
+  assert.equal(await page.locator('.tc-kinds').count(), 0);
+  assert.equal(await page.locator('.tc-field').innerText().then(clean), 'Tìm sổ');
+  await page.locator('#tc-q').fill('so b');
+  assert.deepEqual(await page.locator('.tc-opt').allInnerTexts(), ['SỔ B']);
+  await page.locator('#tc-q').fill('陈氏');
+  await page.locator('.tc-opt').click();
+  assert.equal(await page.locator('.tc-opt').getAttribute('aria-selected'), 'true');
+  assert.match(clean(await page.locator('#tc-preview').innerText()), /^Đối tượng: — → Sổ 陈氏贸易有限公司/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'tên dài không làm tràn ngang');
+  await page.locator('[data-act="close"]').click();
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.k), 'chat:t9');   // đóng thì tiêu điểm về nút Xử lý của dòng
+  await openRow(page, 't2');   // chi xe
+  await page.locator('[data-act="target"]').click();
+  assert.deepEqual((await page.locator('.tc-kinds [role="radio"]').allInnerTexts()).map(clean), ['Xe', 'Tài xế']);
+  assert.equal(await page.locator('[data-kind="xe"]').getAttribute('aria-checked'), 'true');   // đang gắn xe: mở đúng loại đang có
+  await page.locator('#tc-q').fill('51c12345');
+  await page.locator('.tc-opt').click();
+  assert.equal(clean(await page.locator('#tc-preview').innerText()), 'Đúng đối tượng đang có, không cần gắn lại.');
+  assert.equal(await page.locator('.tc-panel [data-act="save"]').isDisabled(), true);
+  await page.locator('[data-kind="tai_xe"]').click();
+  await page.locator('#tc-q').fill('cuong');
+  await page.locator('.tc-opt').click();
+  assert.equal(clean(await page.locator('#tc-preview').innerText()), 'Đối tượng: Xe 51C-12345 → Tài xế Cường');
+  await page.locator('.tc-panel [data-act="save"]').click();
+  await page.locator('#done:not([hidden])').waitFor();
+  assert.deepEqual(state.posts.map(post => [post.message_id, post.action, post.value]), [['t2', 'target', { kind: 'tai_xe', id: 21 }]]);
+  assert.equal(state.targetCalls, 1);
+}));
+
+test('Xử lý: loại bắt buộc lý do, ẩn khỏi danh sách, Hoàn tác đưa lại bằng một lần xác nhận với mã yêu cầu mới', () => {
+  let dropped = false;
+  const shown = () => ({ body: body(ITEMS.map(one => (dropped && one.message_id === 't7'
+    ? { ...one, status: 'NOT_CASH', review: { decision: 'not_cash', reason: 'chuyển nội bộ', reviews: 1, last_action: 'not_cash', last_by: 'lan' } } : one))) });
+  return withPage(shown, async (page, state) => {
+    await ready(page);
+    await openRow(page, 't7');
+    await page.locator('[data-act="not_cash"]').click();
+    const save = page.locator('.tc-panel [data-act="save"]');
+    assert.equal(await save.innerText(), 'Loại khoản');
+    assert.equal(await save.isDisabled(), true);
+    await page.locator('#tc-reason').fill('   ');
+    assert.equal(await save.isDisabled(), true);
+    await page.locator('#tc-reason').fill(' chuyển nội bộ ');
+    dropped = true;
+    await save.click();
+    await page.locator('#done:not([hidden])').waitFor();
+    assert.deepEqual([state.posts[0].action, state.posts[0].reason], ['not_cash', 'chuyển nội bộ']);
+    assert.match(clean(await page.locator('#done').innerText()), /^Đã loại khoản chi 5\.000\.000 đ của Lan\. Xem lại ở bộ lọc "Đã loại"\. Hoàn tác$/);
+    await rowOf(page, 't7').waitFor({ state: 'detached' });
+    assert.equal(await page.locator('.tc-chip', { hasText: 'Đã loại' }).innerText().then(clean), 'Đã loại1');
+    assert.match(clean(await page.locator('.tc-card').nth(1).innerText()), /2\.500\.000 đ Chi · 1 khoản/);   // còn khoản chi xe, khoản đã loại không cộng
+    await page.locator('.tc-chip', { hasText: 'Đã loại' }).click();
+    assert.match(clean(await rowOf(page, 't7').innerText()), /Đã loại: không phải thu chi Lý do: chuyển nội bộ/);
+    dropped = false;
+    await page.locator('#done [data-undo]').click();
+    await page.locator('#done', { hasText: 'Đã đưa khoản lại vào thu chi.' }).waitFor();
+    assert.deepEqual([state.posts[1].message_id, state.posts[1].action], ['t7', 'confirm']);
+    assert.notEqual(state.posts[1].request_id, state.posts[0].request_id);
+  });
+});
+
+test('Xử lý: khoản đã loại mở ra chỉ có "Đưa lại vào thu chi"', () => withPage(ok([item('x1', TODAY, 9, 'chi', 1_000_000, 'NOT_CASH',
+  { review: { decision: 'not_cash', reason: 'trùng', reviews: 1, last_action: 'not_cash' } }), ...ITEMS]), async (page, state) => {
+  await ready(page);
+  await page.locator('.tc-chip', { hasText: 'Đã loại' }).click();
+  await openRow(page, 'x1');
+  assert.deepEqual((await page.locator('.tc-acts .btn').allInnerTexts()).map(clean), ['Đưa lại vào thu chi', 'Đóng']);
+  await page.locator('[data-act="restore"]').click();
+  await page.locator('#done:not([hidden])').waitFor();
+  assert.deepEqual([state.posts[0].action, clean(await page.locator('#done').innerText())], ['confirm', 'Đã đưa lại khoản chi 1.000.000 đ của Lan vào thu chi.']);
+}));
+
+test('Xử lý: lỗi của máy chủ hiện câu của máy chủ; mất mạng thì bấm lại cùng mã yêu cầu; mã đã dùng cho nội dung khác thì đổi mã', () => {
+  const script = [{ status: 422, error: 'TARGET_NOT_FOUND', message: 'Không tìm thấy sổ, xe hay người này.' }, {},
+    { status: 409, error: 'IDEMPOTENCY_CONFLICT', message: 'Mã yêu cầu đã dùng cho nội dung khác.' }, {}];
+  return withPage(ok(ITEMS), async (page, state) => {
+    await ready(page);
+    await openRow(page, 't2');
+    await page.locator('[data-act="confirm"]').click();
+    await page.locator('.tc-perr:not([hidden])').waitFor();
+    assert.equal(await page.locator('.tc-perr').innerText(), 'Không tìm thấy sổ, xe hay người này.');
+    // Mất mạng: chặn ở trình duyệt (cắt socket thì Chrome tự gửi lại lệnh trên kết nối mới, không ra lỗi).
+    let lost = null;
+    await page.route('**/api/v7/cash-chat/review', route => { lost = route.request().postDataJSON(); return route.abort('failed'); });
+    await page.locator('[data-act="confirm"]').click();
+    await page.locator('.tc-perr', { hasText: 'Không chắc đã lưu' }).waitFor();
+    await page.unroute('**/api/v7/cash-chat/review');
+    await page.locator('[data-act="confirm"]').click();   // bấm lại sau mất mạng: cùng mã, máy chủ không ghi hai lần
+    await page.locator('#done:not([hidden])').waitFor();
+    assert.equal(state.posts[1].request_id, lost.request_id);
+    await openRow(page, 't3');
+    await page.locator('[data-act="confirm"]').click();
+    await page.locator('.tc-perr', { hasText: 'Lần bấm trước đã được ghi với nội dung cũ' }).waitFor();
+    await page.locator('[data-act="confirm"]').click();
+    await page.locator('#done:not([hidden])').waitFor();
+    assert.notEqual(state.posts[3].request_id, state.posts[2].request_id);
+  }, { review: () => script.shift() ?? {} });
+});
+
+test('Xử lý: khung đang mở thì nhịp 5 giây không vẽ lại (chữ đang gõ còn nguyên), Esc đóng rồi nhận bản mới', () => {
+  let phase = 0;
+  const added = item('n1', TODAY, 12, 'thu', 8_000_000, 'WAITING', { target: so(5, 'SỔ E') });
+  return withPage(() => ({ body: body(phase ? [added, ...ITEMS] : ITEMS) }), async page => {
+    await ready(page);
+    await openRow(page, 't2');
+    await page.locator('[data-act="amount"]').click();
+    await page.locator('#tc-amount').fill('2.400');
+    await page.locator('.tc-day h3').first().click();   // tiêu điểm rời ô nhưng khung vẫn mở
+    phase = 1;
+    await page.clock.runFor(5000);
+    await page.locator('#new-pill:not([hidden])').waitFor();
+    assert.equal(await page.locator('#tc-amount').inputValue(), '2.400');
+    assert.equal(await page.locator('.tc-row').count(), 9);
+    await page.locator('#tc-amount').press('Escape');
+    assert.equal(await page.locator('.tc-panel').count(), 0);
+    assert.equal(await page.locator('.tc-row').count(), 10);
+  }, { clock: true });
+});
+
+test('Xử lý: dấu khách báo và tin có hai ảnh chuyển khoản không có nút, tin hai ảnh nói lý do', () => withPage(ok([
+  photo('p2', TODAY, 10, 1_000_000, 'WAITING', { by: 'ocr', candidates: [] }, { media: [{ id: '1'.repeat(64) }] }),
+  photo('p2', TODAY, 10, 2_000_000, 'WAITING', { by: 'ocr', candidates: [] }, { media: [{ id: '2'.repeat(64) }] }),
+  item('k1', TODAY, 9, 'thu', 3_000_000, 'WAITING', { source: 'mark' }), ...ITEMS]), async page => {
+  await ready(page);
+  const twins = page.locator('.tc-row[data-k^="anh:p2"]');
+  assert.equal(await twins.locator('.tc-act').count(), 0);
+  assert.match(clean(await twins.first().innerText()), /Tin có nhiều ảnh chuyển khoản: chưa xử lý riêng từng ảnh được/);
+  assert.equal(await page.locator('.tc-row[data-k^="mark:k1"] .tc-act').count(), 0);
+  assert.equal(await page.locator('.tc-row[data-k="chat:t1"] .tc-act').count(), 1);
+}));
+
+test('Xử lý: điện thoại 390px, khung gọn trong màn, nút đủ lớn để chạm', () => withPage(ok(ITEMS), async page => {
+  await ready(page);
+  await openRow(page, 't2');
+  await page.locator('[data-act="not_cash"]').click();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'không có thanh cuộn ngang');
+  for (const box of await page.locator('.tc-panel .btn, .tc-act').evaluateAll(els => els.map(el => el.getBoundingClientRect().toJSON()))) {
+    assert.ok(box.height >= 40 && box.right <= 390, `nút ${JSON.stringify(box)}`);
+  }
+  const amount = await rowOf(page, 't2').locator('.tc-amt').boundingBox();
+  assert.ok(amount.x > 195, 'số tiền vẫn ở bên phải, cụm nút xuống hàng riêng');
+}, { viewport: { width: 390, height: 844 } }));
+
+test('Xử lý: 1280×720, mở khung gắn thì nút Lưu nằm trong khung thấy (không bị đẩy dưới mép)', () => withPage(ok(ITEMS), async page => {
+  await ready(page);
+  await openRow(page, 't5');
+  await page.locator('[data-act="target"]').click();
+  await page.locator('.tc-opt').first().waitFor();
+  const save = await page.locator('.tc-panel [data-act="save"]').boundingBox();
+  assert.ok(save.y + save.height <= 720, `nút Lưu ở ${save.y}`);
+  // Cột cuối cố định: số tiền các dòng thẳng một cột dù dòng có ảnh hay không.
+  const rights = await page.locator('.tc-day').first().locator('.tc-amt').evaluateAll(els => els.map(el => Math.round(el.getBoundingClientRect().right)));
+  assert.equal(new Set(rights).size, 1, `mép phải số tiền: ${rights}`);
+}));
