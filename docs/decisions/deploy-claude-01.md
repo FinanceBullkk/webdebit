@@ -14,7 +14,7 @@ Người dùng chốt: **Claude tự triển khai cả phần SQL/migration lên
 4. Lỗi hoặc lệch thì quay lại theo runbook mục 7 (mức A/B), giữ backup, báo người dùng kèm bằng chứng.
 5. Nhật ký mỗi đợt là một file mới trong [`docs/deploys/`](../deploys/README.md), không ghi bí mật hay số liệu khách.
 
-**Vẫn hỏi người dùng trước:** nạp dữ liệu hoặc bản mốc (`v7_load*`, cutover, nhập giao dịch), mọi ghi lên Google Sheet, mọi thao tác trên DB legacy `webdebit_ledger` (gồm rollback mức C), xóa dữ liệu, đổi role/quyền DB/pg_hba/Tailscale/systemd ngoài điều runbook đã ghi, force push, và đổi quy tắc tiền chưa chốt.
+**Vẫn hỏi người dùng trước:** nạp dữ liệu hoặc bản mốc (`v7_load*`, cutover, nhập giao dịch), mọi ghi lên Google Sheet, mọi thao tác trên DB legacy `webdebit_ledger` (gồm rollback mức C), xóa dữ liệu, đổi role/quyền DB/pg_hba/Tailscale/systemd ngoài điều runbook đã ghi, force push, và đổi quy tắc tiền chưa chốt. Từ 22/11/2026, bốn việc đầu (nạp dữ liệu/mốc, ghi Google Sheet, DB legacy, đổi quyền ngoài runbook) không cần hỏi nữa, theo [`TU-LAM-01`](tu-lam-01.md); xóa dữ liệu, force push và đổi quy tắc tiền chưa chốt vẫn hỏi.
 
 ## Ngày / nguồn
 
