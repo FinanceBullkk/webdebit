@@ -165,3 +165,15 @@ test('Câu lần xử lý gần nhất', () => {
   assert.equal(M.reviewSummary(item('d', 'thu', 1, 'WAITING', { review: { decision: null, reviews: 1, last_action: 'target' } })).what, 'Đã gắn đối tượng');
   assert.equal(M.reviewSummary(loai()).what, 'Đã loại');
 });
+
+test('Luồng 4: cùng giao dịch gửi lại thì ghi chú "gửi lại thêm N lần … chỉ tính một lần", giữ câu đối chiếu và cảnh báo lệch', () => {
+  const twice = item('d', 'thu', 7_000_000, 'RECORDED', { resent: 2 });
+  assert.deepEqual([M.statusText(twice).text, M.statusText(twice).note], ['Đã vào sổ', 'Ảnh chuyển khoản gửi lại thêm 2 lần (cùng giao dịch): chỉ tính một lần.']);
+  const missing = item('d', 'thu', 7_000_000, 'MISSING', { resent: 1 });
+  assert.equal(M.statusText(missing).note, 'Quá 3 ngày vẫn chưa thấy trong sổ. Ảnh chuyển khoản gửi lại thêm 1 lần (cùng giao dịch): chỉ tính một lần.');
+  const diff = item('d', 'thu', 5_000_000, 'RECORDED', { image_vnd: 5_500_000, image_diff: true, resent: 1 });
+  assert.equal(M.statusText(diff).text, 'Lệch: mẫu 5.000.000 đ, ảnh 5.500.000 đ');
+  assert.match(M.statusText(diff).note, /^Đã vào sổ\. Ảnh chuyển khoản gửi lại thêm 1 lần/);
+  for (const none of [0, undefined, null, '2']) assert.equal(M.statusText(item('d', 'thu', 1, 'RECORDED', { resent: none })).note, '', String(none));
+  assert.deepEqual(M.summarize([twice]).thu, { n: 1, img: 0, vnd: '7000000' });   // tổng không đổi: một khoản
+});
