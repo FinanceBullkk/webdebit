@@ -208,6 +208,9 @@ Chỗ thiếu đã biết:
 
 - **Tìm chuyến theo container trong mọi sổ** chưa có endpoint gọn. PR-2 chỉ tìm trong sổ đã biết; tìm toàn bộ cần endpoint mới (CÒN MỞ).
 - `/api/v7/inbox` có thể khởi động lượt tính lại của máy (lượt này vẫn chạy mỗi phút). Bot giữ kết quả 60 giây và gọi tối đa một lần mỗi câu hỏi.
+- **Khách khớp Sheet mà sổ đổi sau lần đối soát:** `/inbox` chỉ trả danh sách mã khách khớp, không kèm tổng lúc khớp, nên bot chưa biết sổ đã đổi sau giờ đối soát. Hai cách (CÒN MỞ): so giờ thao tác cuối trong lịch sử sổ với giờ đối soát, hoặc API trả thêm tổng lúc khớp.
+- **Số theo mặt hàng của Tổng quan** tính trong JS của trang (gộp mặt hàng dưới 1% vào "Khác", tách sầu riêng cảng/bộ); `by_commodity` của máy chủ không gộp như vậy. Công cụ `tong_quan` chưa trả số theo mặt hàng cho tới khi có bản Python cùng test so với model JS.
+- **Tên tài xế** (công cụ `doi_xe`) không thuộc nhóm dữ liệu Q5 đã nêu: hỏi lại người dùng cùng lúc chốt Q5.
 
 ### Phần 4: Kiểm số trước khi gửi
 
@@ -300,7 +303,8 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
   - đo: tin sót hoặc trùng, độ trễ, giới hạn chữ, phiên giữ được bao lâu, khởi động lại `hao` có phải quét lại không.
 - **PR-1, khung bot:** tiến trình kênh và khung bộ não, socket Unix, danh sách người, cờ tắt, nhật ký, nhịp tim cho máy canh, hai unit systemd có chặn mạng (ghi ở runbook); chỉ trả câu cố định. Test với Zalo giả.
 - **PR-1b, nhóm "Bot Zalo" ở tab Máy chạy:** đọc chung `status.json` với máy canh.
-- **PR-2, bộ não + tầng A + kiểm số:** công cụ theo trang, lớp HTTP chỉ GET, công cụ tính, kiểm số, trần chi phí. Test với model giả (kịch bản gọi công cụ) và API giả. Bật cho người dùng.
+- **PR-2a, công cụ + kiểm số:** 17 công cụ tầng A trên API thật qua lớp HTTP chỉ GET, bộ kiểm số có điền số bằng tham chiếu, công cụ tính chỉ nhận số đã có trong kết quả công cụ, trần chi phí theo ngày. Test với API giả. Chưa gọi model.
+- **PR-2b, vòng gọi model:** SDK chính thức trong venv riêng có khóa hash, vòng gọi công cụ, kiểm số rồi gửi, nối vào bộ não. Test với model giả (kịch bản gọi công cụ). Bật cho người dùng sau P0 và khi người dùng đã chốt Q4, Q5.
 - **PR-3, tầng B + ngữ cảnh + bộ câu hỏi mẫu:** tra tài liệu, nhớ 10 lượt, chạy câu hỏi mẫu mỗi đêm, biểu đồ.
 - **PR-4, tầng C:** spec con, migration role và schema `bot`, harness PostgreSQL.
 - **PR-5, mở rộng** (mỗi mục hỏi người dùng trước):
