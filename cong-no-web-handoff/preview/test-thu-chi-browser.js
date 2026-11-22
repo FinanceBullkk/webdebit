@@ -121,10 +121,10 @@ test('Thu chi: hôm nay và 7 ngày, gom theo ngày mới trên cùng, trạng t
 
 test('Thu chi: Mở tin sang đúng tin của Chat Zalo, Mở sổ sang đúng sổ và tháng', () => withPage(ok(ITEMS), async page => {
   await ready(page);
-  assert.equal(await page.locator('.tc-open').first().getAttribute('href'), `/zalo-chat.html?c=${GROUP}&m=t1`);
+  assert.equal(await page.locator('.tc-open').first().getAttribute('href'), `/zalo-chat.html?c=${GROUP}&m=t1&from=thu-chi`);
   assert.equal(await page.locator('.tc-status a', { hasText: 'Mở sổ' }).first().getAttribute('href'), '/so-khach-v7-live.html?customer=1&month=2026-11');
   await page.locator('.tc-open').first().click();
-  await page.waitForURL(/zalo-chat\.html\?c=1{64}&m=t1/);
+  await page.waitForURL(/zalo-chat\.html\?c=1{64}&m=t1&from=thu-chi/);
 }));
 
 test('Thu chi: lọc Chưa vào sổ, Lệch số, Chưa rõ đối tượng ghi số đúng với danh sách; bàn phím bấm được', () => withPage(ok(ITEMS), async page => {
@@ -406,7 +406,7 @@ test('Thu chi: ảnh chuyển khoản máy đọc hiện như khoản thu, ghi "
   assert.match(today, /7\.000\.000 đ Thu · 1 khoản, 1 từ ảnh/);   // ảnh chưa đọc chắc không vào tổng
   assert.match(week, /16\.000\.000 đ Thu · 3 khoản, 2 từ ảnh/);
   assert.match(week, /Không đọc được số: 1/);
-  const row = id => page.locator('.tc-row').filter({ has: page.locator(`a[href$="m=${id}"]`) });
+  const row = id => page.locator('.tc-row').filter({ has: page.locator(`a[href$="m=${id}&from=thu-chi"]`) });
   assert.match(clean(await row('a1').innerText()), /^10:00 Lan Nhóm thu chi thử Thu 7\.000\.000 đ đọc từ ảnh Sổ SỔ A Giao dịch 09:58 · VIETCOMBANK Đã vào sổ Mở sổ Xử lý Mở tin$/);
   assert.equal((await row('a2').locator('.tc-amt').innerText()).trim(), '—');
   assert.match(clean(await row('a2').innerText()), /Ảnh chưa đọc chắc Máy đọc ra 1\.050\.000 đ và 1\.500\.000 đ\. Mở ảnh để xem, không cộng vào tổng\./);
@@ -722,7 +722,7 @@ test('Thu chi ở điện thoại 390×844: khoản mới tự hiện, đang đ�
     await page.keyboard.press('Space');
     assert.equal(await page.locator('.tc-chip[aria-pressed="true"]').innerText().then(clean), 'Chưa vào sổ1');
     assert.equal(await page.locator('.tc-row').count(), 1);
-    assert.equal(await page.locator('.tc-row .tc-open').getAttribute('href'), `/zalo-chat.html?c=${GROUP}&m=t5`);
+    assert.equal(await page.locator('.tc-row .tc-open').getAttribute('href'), `/zalo-chat.html?c=${GROUP}&m=t5&from=thu-chi`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   }, { clock: true, viewport: { width: 390, height: 844 } });
 });

@@ -95,6 +95,11 @@ const ThuChiModel = (() => {
     // Dấu khách báo giữ số người nhập; ảnh gộp vào dấu mà đọc ra số khác thì chỉ ghi chú để người xem so.
     const markImage = item.source === 'mark' && item.image_vnd != null && String(item.image_vnd) !== String(item.amount_vnd) ? `Ảnh đọc ra ${money(item.image_vnd)}.` : '';
     if (item.unchecked && item.status === 'WAITING') return { tone: 'info', text: 'Chưa đối chiếu được', note: 'Không đọc được sổ lúc này, chưa biết đã vào sổ hay chưa.' };
+    if (item.old_txn && item.status === 'WAITING') {   // máy chủ không kết luận "chưa vào sổ" cho ảnh ghi ngày giao dịch quá cũ
+      const [year, month, day] = String(item.image?.txn_time ?? '').slice(0, 10).split('-');
+      const when = day ? ` ${day}/${month}/${year}` : '';
+      return { tone: 'info', text: 'Ảnh ghi ngày cũ', note: `Ảnh ghi giao dịch ngày${when}, trước ngày gửi hơn 3 tháng: ảnh cũ gửi lại hoặc máy đọc nhầm ngày. Mở ảnh để xem.` };
+    }
     switch (item.status) {
       case 'RECORDED': return { tone: 'ok', text: 'Đã vào sổ', note: markImage };
       case 'WAITING': return { tone: 'wait', text: 'Chờ vào sổ', note: markImage };
