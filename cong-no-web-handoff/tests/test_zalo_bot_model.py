@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 import urllib.parse
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -121,6 +122,28 @@ class AnswererTests(unittest.TestCase):
     def test_price_table_covers_every_allowed_model(self):
         self.assertEqual(set(budget.PRICES), set(config.MODELS))
 
+    def test_history_goes_in_as_text_and_old_numbers_still_need_a_fresh_lookup(self):
+        client = FakeClient(final("Khách A vẫn nợ 350.000.000 đ."), final("Khách A vẫn nợ 350.000.000 đ."))
+        answerer = model.Answerer(client, model="claude-opus-5-5", effort="medium", budget=self.budget,
+                                  api=webapi.WebApi(opener=Opener()), clock=lambda: NOW)
+        out = answerer.answer(ADMIN, "còn khách đó?", [("khách A nợ bao nhiêu", "Khách A còn nợ 350.000.000 đ.")])
+        first = client.requests[0]["messages"][0]["content"]
+        self.assertTrue(first.startswith(model.HISTORY_NOTE))
+        self.assertIn("Hỏi: khách A nợ bao nhiêu\nĐáp: Khách A còn nợ 350.000.000 đ.", first)
+        self.assertTrue(first.endswith("Câu hỏi mới: còn khách đó?"))
+        self.assertEqual(out.outcome, "not_sure")      # số chỉ có trong lượt cũ: bộ kiểm số chặn vì lượt này chưa tra lại
+
+
+class SelfCheckOpener:
+    """API giả cho lượt tự kiểm: tuyến có trong DATA thì trả, tuyến khác 404."""
+
+    def open(self, request, timeout=None):
+        parts = urllib.parse.urlsplit(request.full_url)
+        key = parts.path + (f"?{parts.query}" if parts.query else "")
+        if key not in DATA:
+            raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+        return io.BytesIO(json.dumps(DATA[key]).encode("utf-8"))
+
 
 class ConfigTests(unittest.TestCase):
     def test_model_settings_are_validated(self):
@@ -150,7 +173,7 @@ class ServiceAnswerTests(unittest.TestCase):
         base = Path(tempfile.mkdtemp())
         cfg = config.Config(enabled=True, users_file=base / "u.json", socket=base / "s.sock", state_dir=base / "state",
                             release_link=base / "cur", model="claude-haiku-5-5")
-        answerer = NS(answer=lambda user, text: model.Answer(f"Đã tra: {text}", "answered", tools=["no_khach"], cost_nano_usd=5))
+        answerer = NS(answer=lambda user, text, history: model.Answer(f"Đã tra: {text}", "answered", tools=["no_khach"], cost_nano_usd=5))
         service = brain.Service(cfg, {"1111": ADMIN}, core.Memory(), clock=lambda: NOW, answerer=answerer)
 
         async def scenario():
@@ -167,6 +190,56 @@ class ServiceAnswerTests(unittest.TestCase):
         log = json.loads((cfg.log_dir / "2026-11.jsonl").read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual((log["outcome"], log["tools"], log["cost_nano_usd"], log["model"]), ("answered", ["no_khach"], 5, "claude-haiku-5-5"))
         self.assertEqual(protocol.MAX_TEXT_OUT, 2000)
+
+    def test_context_keeps_answered_turns_for_two_hours_and_moi_clears_it(self):
+        base = Path(tempfile.mkdtemp())
+        cfg = config.Config(enabled=True, users_file=base / "u.json", socket=base / "s.sock", state_dir=base / "state",
+                            release_link=base / "cur", model="claude-haiku-5-5")
+        calls = []
+
+        def answer(user, text, history):
+            calls.append((text, list(history)))
+            return model.Answer(f"Trả lời: {text}", "answered", body=f"Đáp {text}")
+
+        clock = [NOW]
+        service = brain.Service(cfg, {"1111": ADMIN}, core.Memory(), clock=lambda: clock[0], answerer=NS(answer=answer))
+
+        async def ask(msg_id, text):
+            service.writer = FakeWriter()
+            raw = json.dumps({"v": 1, "type": "message", "msg_id": msg_id, "thread_id": "1111", "from_id": "1111",
+                              "ts": int(clock[0] * 1000), "kind": "text", "text": text}).encode()
+            service.on_line(raw)
+            await asyncio.gather(*service._tasks)
+            return [line["text"] for line in service.writer.lines if line["type"] == "send"]
+
+        async def scenario():
+            await ask("m1", "nợ khách A")
+            await ask("m2", "còn tháng trước?")
+            reset = await ask("m3", "Mới!")
+            await ask("m4", "câu khác")
+            clock[0] += 2 * 3600 + 1
+            await ask("m5", "sau hai giờ")
+            return reset
+
+        reset = asyncio.run(scenario())
+        self.assertEqual([history for _text, history in calls],
+                         [[], [("nợ khách A", "Đáp nợ khách A")], [], []])
+        self.assertEqual(reset, [brain.RESET_REPLY])
+        self.assertEqual([text for text, _history in calls], ["nợ khách A", "còn tháng trước?", "câu khác", "sau hai giờ"])
+
+    def test_daily_tool_check_lists_broken_tools_in_status(self):
+        tools.reset_cache()
+        base = Path(tempfile.mkdtemp())
+        cfg = config.Config(enabled=True, users_file=base / "u.json", socket=base / "s.sock", state_dir=base / "state", release_link=base / "cur")
+        service = brain.Service(cfg, {"1111": ADMIN}, core.Memory(), clock=lambda: NOW)
+        service.api = webapi.WebApi(opener=SelfCheckOpener())
+        asyncio.run(service.check_tools())
+        check = json.loads(cfg.status_file.read_text(encoding="utf-8"))["tool_check"]
+        names = {item.split(":")[0] for item in check["failed"]}
+        self.assertIn("tong_quan:api_not_found", check["failed"])
+        self.assertTrue(names.isdisjoint({"no_khach", "doi_soat", "tim_khach"}))          # tuyến có thật thì qua
+        self.assertTrue({"so_khach_thang", "thu_chi", "may_chay"} <= names)
+        self.assertEqual(check["at"], "2026-11-22T15:00:00+07:00")
 
 
 if __name__ == "__main__":

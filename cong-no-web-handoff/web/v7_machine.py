@@ -359,6 +359,7 @@ def zalo_brief(now: float | None = None) -> dict[str, Any]:
 # ZALO-BOT-01: bộ não bot Zalo hỏi đáp ghi `status.json` mỗi phút ngay trên hao (tools/zalo_bot/state.py). Chỉ mã, số đếm và giờ.
 ZALO_BOT_STATUS = "/srv/v7/zalo-bot/status.json"
 ZALO_BOT_KENH = ("connecting", "online", "login_required", "login_pending", "kicked", "offline", "error", "sandbox_missing")
+ZALO_BOT_CHECK = re.compile(r"^[a-z_]{1,40}:[a-z_]{1,40}$")
 
 
 def zalo_bot(now: float | None = None) -> dict[str, Any]:
@@ -385,13 +386,20 @@ def zalo_bot(now: float | None = None) -> dict[str, Any]:
         return silent
     kenh = data.get("kenh") if isinstance(data.get("kenh"), dict) else {}
     counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+    check = data.get("tool_check") if isinstance(data.get("tool_check"), dict) else None
+    check_at = _aware(check.get("at")) if check else None
+    failed = [item for item in check.get("failed", []) if isinstance(item, str) and ZALO_BOT_CHECK.fullmatch(item)][:20] \
+        if check and isinstance(check.get("failed"), list) else []
     silent_for = max(now - at.timestamp(), 0)
     return {"state": "silent" if silent_for > ZALO_LATE else "ok", "at": at.astimezone(VN).isoformat(timespec="seconds"),
             "silent_minutes": int(silent_for // 60), "enabled": data.get("enabled") is True,
             "kenh": kenh.get("state") if kenh.get("state") in ZALO_BOT_KENH else "unknown", "kenh_code": _code(kenh.get("code")),
             "kenh_minutes": _minutes_since(kenh.get("since"), now), "error": _code(data.get("error")),
             "counts": {key: value for key, value in counts.items()
-                       if isinstance(key, str) and ZALO_CODE.fullmatch(key) and isinstance(value, int) and not isinstance(value, bool) and value >= 0}}
+                       if isinstance(key, str) and ZALO_CODE.fullmatch(key) and isinstance(value, int) and not isinstance(value, bool) and value >= 0},
+            # Lượt tự kiểm công cụ đọc API gần nhất (mỗi ngày 6:30): giờ và các "công_cụ:mã_lỗi"; chưa chạy thì None.
+            "tool_check": {"at": check_at.astimezone(VN).isoformat(timespec="seconds") if check_at else None,
+                           "hours": int((now - check_at.timestamp()) // 3600) if check_at else None, "failed": failed} if check else None}
 
 
 def now_view(now: float | None = None) -> dict[str, Any]:

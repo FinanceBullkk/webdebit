@@ -344,6 +344,20 @@ class HeartbeatReaderTests(unittest.TestCase):
         self.write(error="log_write_failed")
         self.assertEqual(dog.check_zalo_bot(ten), ["Bot Zalo: bộ não báo lỗi log_write_failed."])
 
+    def test_daily_tool_check_reaches_the_watchdog_with_codes_only(self):
+        ten = dt.datetime.fromtimestamp(NOW, VN)
+        morning = dt.datetime(2026, 11, 22, 6, 30, tzinfo=VN).timestamp()
+        self.write(tool_check={"at": state.now_iso(morning), "failed": ["no_khach:api_not_found", "Tên Khách:x", "a:b:c", 5]})
+        view = v7_machine.zalo_bot(NOW)
+        self.assertEqual(view["tool_check"], {"at": "2026-11-22T06:30:00+07:00", "hours": 3, "failed": ["no_khach:api_not_found"]})
+        self.assertEqual(dog.check_zalo_bot(ten), ["Bot Zalo: lượt tự kiểm lúc 06:30 có 1 công cụ đọc API lỗi (no_khach)."])
+        self.write(tool_check={"at": state.now_iso(morning), "failed": []})
+        self.assertEqual(dog.check_zalo_bot(ten), [])
+        self.write(tool_check={"at": state.now_iso(morning - 2 * 86400), "failed": ["no_khach:api_not_found"]})
+        self.assertEqual(dog.check_zalo_bot(ten), [])                       # lượt kiểm quá 26 giờ: không báo theo lượt cũ
+        self.write()
+        self.assertIsNone(v7_machine.zalo_bot(NOW)["tool_check"])
+
     def test_a_broken_bot_check_does_not_hide_other_checks(self):
         for name in ("check_api", "check_reconcile", "check_snapshots", "check_sources", "check_inbox", "check_units", "check_disks"):
             item = patch.object(dog, name, return_value=[])
