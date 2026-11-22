@@ -138,7 +138,8 @@ def footer(results: list[dict], draft: str) -> str:
 
 
 class Answerer:
-    def __init__(self, client, *, model: str, effort: str, budget: Budget, api: WebApi, link_base: str = "", clock=time.time):
+    def __init__(self, client, *, model: str, effort: str, budget: Budget, api: WebApi, link_base: str = "", clock=time.time,
+                 docs_root=None):
         self.client = client
         self.model = model
         self.effort = effort
@@ -146,6 +147,7 @@ class Answerer:
         self.api = api
         self.link_base = link_base
         self.clock = clock
+        self.docs_root = docs_root
 
     def _ask(self, user: User, messages: list) -> object:
         definitions = [tool.schema() for tool in tools.for_role(user.role)] + [CALC_TOOL]
@@ -157,7 +159,7 @@ class Answerer:
         """`history`: các cặp (câu hỏi, câu trả lời) gần đây của người này, chỉ để hiểu "khách đó", "tháng trước". Lượt cũ đưa
         vào dưới dạng chữ, không đưa lại kết quả công cụ cũ; số trong đó không qua được bộ kiểm số nếu không tra lại."""
         started = self.clock()
-        ctx = tools.Context(self.api, user, now=started, link_base=self.link_base)
+        ctx = tools.Context(self.api, user, now=started, link_base=self.link_base, docs_root=self.docs_root)
         results: list[dict] = []
         out = Answer("", "error")
         messages: list = [{"role": "user", "content": with_history(question, history)}]

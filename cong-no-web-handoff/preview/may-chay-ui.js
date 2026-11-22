@@ -287,6 +287,19 @@
     $('zalo-rows').innerHTML = view.rows.map(row => `<li class="zr zr-${esc(row.tone)}" data-zalo="${esc(row.id)}"><b>${esc(row.name)}</b><span>${esc(row.text)}</span></li>`).join('');
   }
 
+  // Nhóm "Bot Zalo hỏi đáp" (ZALO-BOT-01): chưa cài bot thì ẩn hẳn; cùng kiểu dòng với nhóm "Máy Zalo".
+  function paintBot() {
+    const view = M.botLines(state.data?.zalo_bot), key = JSON.stringify(view);
+    if (key === state.botKey) return;
+    state.botKey = key;
+    $('bot').hidden = !view;
+    if (!view) return;
+    const head = $('bot-head');
+    head.textContent = view.head;
+    head.className = `zalo-sub zalo-${view.tone}`;
+    $('bot-rows').innerHTML = view.rows.map(row => `<li class="zr zr-${esc(row.tone)}" data-bot="${esc(row.id)}"><b>${esc(row.name)}</b><span>${esc(row.text)}</span></li>`).join('');
+  }
+
   // ----- Thẻ nhân viên -----
   function openWho(key) {
     state.selected = key;
@@ -335,6 +348,7 @@
     rememberJobRuns();
     paintJobs();
     paintZalo();
+    paintBot();
     const running = isRunning(), finished = state.data.run?.finished_at ?? null;
     if (full) state.fullFinished = finished;
     if (state.mode === 'live') setLiveRun();

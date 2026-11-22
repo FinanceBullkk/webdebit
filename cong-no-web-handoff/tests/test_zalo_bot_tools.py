@@ -5,6 +5,7 @@ import datetime as dt
 import io
 import json
 import sys
+import tempfile
 import unittest
 import urllib.parse
 from pathlib import Path
@@ -90,9 +91,10 @@ class ToolTests(unittest.TestCase):
 
     def test_staff_only_get_the_six_user_pages_tools(self):
         staff = {tool.name for tool in tools.for_role("user")}
-        self.assertEqual(len(staff), 11)
+        self.assertEqual(len(staff), 12)                  # 11 công cụ theo trang + tra tài liệu
+        self.assertIn("tra_tai_lieu", staff)
         self.assertFalse(staff & {"doi_soat", "viec_da_lam", "may_chay", "doi_xe", "thu_chi", "nhat_ky_web"})
-        self.assertEqual(len(tools.for_role("admin")), 17)
+        self.assertEqual(len(tools.for_role("admin")), 18)
         for tool in tools.TOOLS:
             schema = tool.schema()["input_schema"]
             self.assertEqual((schema["type"], schema["additionalProperties"]), ("object", False))
@@ -174,6 +176,36 @@ class ToolTests(unittest.TestCase):
         tools.run(tools.Context(self.api, ADMIN, now=NOW + 30), "no_khach", {"khach_id": 7})
         self.assertEqual(sum(url.endswith("/api/v7/inbox") for _, url in self.opener.calls), 1)
         self.assertTrue(all(method == "GET" for method, _ in self.opener.calls))
+
+    def docs(self):
+        root = Path(tempfile.mkdtemp())
+        files = {
+            "docs/business-rules.md": "# Luật nghiệp vụ\n\nVND nguyên chính xác; NULL hay ô trống không phải 0.\n\n"
+                                      "## Thu tiền\n\nThu mới theo nợ cũ trước; không phân bổ lại opening.",
+            "docs/decisions/quyen-01.md": "# QUYEN-01\n\n## Quyết định\n\nNgười dùng thường chỉ thấy sáu trang: Tổng quan, Công nợ theo tháng, "
+                                          "Sổ khách, Bảng thu, Báo cáo tháng, Chat Zalo.",
+            "specs/zalo-bot.md": "# Bot Zalo\n\nBot chỉ đọc qua API web và không ghi tiền, kể cả khi người hỏi nhờ.",
+        }
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text, encoding="utf-8")
+        return root
+
+    def test_docs_search_finds_rules_and_decisions_without_accents(self):
+        ctx = tools.Context(self.api, STAFF, now=NOW, docs_root=self.docs())
+        result, error = tools.run(ctx, "tra_tai_lieu", {"tu_khoa": "thu theo no cu truoc"})
+        self.assertFalse(error)
+        self.assertEqual((result["doan"][0]["nguon"], result["doan"][0]["muc"]), ("docs/business-rules.md", "Thu tiền"))
+        found, _ = tools.run(ctx, "tra_tai_lieu", {"tu_khoa": "quyền người dùng thấy trang nào"})
+        self.assertEqual(found["doan"][0]["ma_quyet_dinh"], "QUYEN-01")
+        self.assertEqual(self.opener.calls, [])                                   # tra tài liệu không gọi API
+
+    def test_docs_search_errors(self):
+        with_docs = tools.Context(self.api, STAFF, now=NOW, docs_root=self.docs())
+        self.assertEqual(tools.run(with_docs, "tra_tai_lieu", {"tu_khoa": "là của và"}), ({"loi": "tu_khoa_sai"}, True))
+        self.assertEqual(tools.run(with_docs, "tra_tai_lieu", {"tu_khoa": 5}), ({"loi": "tu_khoa_sai"}, True))
+        no_docs = tools.Context(self.api, STAFF, now=NOW, docs_root=Path(tempfile.mkdtemp()))
+        self.assertEqual(tools.run(no_docs, "tra_tai_lieu", {"tu_khoa": "công nợ"}), ({"loi": "khong_co_tai_lieu"}, True))
 
     def test_long_results_are_cut_under_the_limit(self):
         big = {"trang": "x", "rows": [{"amount_vnd": str(i), "pad": "y" * 50} for i in range(1000)]}

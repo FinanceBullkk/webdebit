@@ -28,6 +28,7 @@ EFFORT_ENV = "WEBDEBIT_ZALO_BOT_EFFORT"
 CAP_ENV = "WEBDEBIT_ZALO_BOT_CAP_USD"            # trần chi phí ngày (Q4), USD
 LINK_ENV = "WEBDEBIT_ZALO_BOT_LINK_BASE"         # gốc link trang web (địa chỉ Tailscale Serve), không ghi vào repo
 API_ENV = "WEBDEBIT_ZALO_BOT_API"
+DOCS_ENV = "WEBDEBIT_ZALO_BOT_DOCS"              # gốc có docs/ và specs/ cho công cụ tra tài liệu (mặc định: bản phát hành)
 USERS_FILE = "/etc/webdebit/zalo-bot.json"
 SOCKET_FILE = "/run/v7-zalo-sock/kenh.sock"
 STATE_DIR = "/srv/v7/zalo-bot"
@@ -62,6 +63,7 @@ class Config:
     cap_usd: int = 3
     link_base: str = ""
     api_base: str = "http://127.0.0.1:8780"
+    docs_root: Path | None = None
 
     @property
     def status_file(self) -> Path:
@@ -94,7 +96,8 @@ def from_env(env: dict[str, str] | None = None) -> Config:
     return Config(enabled=env.get(ENABLED_ENV) == "1", users_file=Path(env.get(USERS_ENV) or USERS_FILE),
                   socket=Path(env.get(SOCKET_ENV) or SOCKET_FILE), state_dir=Path(env.get(STATE_ENV) or STATE_DIR),
                   release_link=Path(env.get(RELEASE_ENV) or RELEASE_LINK), model=model, effort=effort, cap_usd=int(cap),
-                  link_base=link, api_base=env.get(API_ENV) or "http://127.0.0.1:8780")
+                  link_base=link, api_base=env.get(API_ENV) or "http://127.0.0.1:8780",
+                  docs_root=Path(env.get(DOCS_ENV) or env.get(RELEASE_ENV) or RELEASE_LINK))
 
 
 def load_users(path: Path) -> dict[str, User]:

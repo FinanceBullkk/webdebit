@@ -17,6 +17,7 @@ import unicodedata
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .config import User
@@ -87,6 +88,7 @@ class Context:
     now: float = field(default_factory=time.time)
     link_base: str = ""
     memo: dict[tuple, object] = field(default_factory=dict)
+    docs_root: Path | None = None       # gốc bản phát hành có docs/ và specs/ (tầng B); None: chưa có tài liệu
 
     def get(self, key: str, **params: str) -> object:
         cache_key = (key, tuple(sorted(params.items())))
@@ -391,6 +393,65 @@ def lan_cuoi_noi_chuyen(ctx: Context, args: dict) -> dict:
             "ghi_chu_bot": "chỉ giờ và số tin; bot không đọc chữ tin chat"}
 
 
+# ---- Tầng B: tra quy tắc và tài liệu (PR-3b) ----
+
+DOC_STOP = frozenset({"la", "cua", "va", "co", "khong", "gi", "nao", "the", "nhu", "cho", "de", "duoc", "trong", "khi", "thi", "mot",
+                      "cac", "nhung", "voi", "ve", "tai", "sao", "bao", "nhieu", "minh", "ban", "toi", "dung", "lam", "can"})
+DOC_CHARS = 800
+_doc_cache: dict[str, list[tuple[str, str, str, str, str]]] = {}
+
+
+def _doc_chunks(root: Path) -> list[tuple[str, str, str, str, str]]:
+    """Đoạn văn của `docs/business-rules.md`, `docs/decisions.md`, `docs/decisions/*.md`, `specs/*.md` trong bản phát hành:
+    (đường dẫn, mục gần nhất, mã quyết định, chữ, chữ đã bỏ dấu). Đọc một lần mỗi tiến trình (bản phát hành đổi thì bộ não chạy lại)."""
+    key = str(root)
+    if key in _doc_cache:
+        return _doc_cache[key]
+    files = [root / "docs" / "business-rules.md", root / "docs" / "decisions.md",
+             *sorted((root / "docs" / "decisions").glob("*.md")), *sorted((root / "specs").glob("*.md"))]
+    chunks = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        rel = path.relative_to(root).as_posix()
+        code = path.stem.upper() if path.parent.name == "decisions" else ""
+        heading = ""
+        for raw in re.split(r"\n\s*\n", text):
+            body = raw.strip()
+            if body.startswith("#"):
+                heading = body.splitlines()[0].lstrip("#").strip()
+                body = "\n".join(body.splitlines()[1:]).strip()
+            if len(body) >= 40:
+                chunks.append((rel, heading, code, body, fold(f"{heading} {body}")))
+    _doc_cache[key] = chunks
+    return chunks
+
+
+def tra_tai_lieu(ctx: Context, args: dict) -> dict:
+    query = args.get("tu_khoa")
+    if not isinstance(query, str) or not 2 <= len(query.strip()) <= 200:
+        raise ToolError("tu_khoa_sai")
+    words = sorted({word for word in re.split(r"[^a-z0-9-]+", fold(query)) if len(word) >= 2 and word not in DOC_STOP})
+    if not words:
+        raise ToolError("tu_khoa_sai")
+    chunks = _doc_chunks(ctx.docs_root) if ctx.docs_root else []
+    if not chunks:
+        raise ToolError("khong_co_tai_lieu")
+    scored = []
+    for rel, heading, code, text, folded in chunks:
+        hits = sum(1 for word in words if word in folded)
+        if hits:
+            scored.append((hits, -len(text), rel, heading, code, text))
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    best = [{"nguon": rel, "muc": heading, "ma_quyet_dinh": code or None,
+             "chu": text if len(text) <= DOC_CHARS else text[:DOC_CHARS].rstrip() + "…"}
+            for _hits, _size, rel, heading, code, text in scored[:5]]
+    return {**ctx.stamp("Tài liệu dự án", None), "tu_khoa": query.strip(), "so_doan_khop": len(scored), "doan": best,
+            "ghi_chu_bot": "đoạn trích tài liệu trong repo; quyết định ĐỀ XUẤT hay CÒN MỞ chưa là chính sách"}
+
+
 # ---- Công cụ admin ----
 
 def doi_soat(ctx: Context, args: dict) -> dict:
@@ -487,6 +548,9 @@ TOOLS: tuple[Tool, ...] = (
          {"thang": MONTH_PARAM, "thieu": {"type": "boolean"}}, (), bao_cao_thang),
     Tool("lan_cuoi_noi_chuyen", "Lần cuối nhắn với khách trên Zalo (chỉ giờ và số tin, không có chữ tin).",
          {"ten": {"type": "string"}}, ("ten",), lan_cuoi_noi_chuyen),
+    Tool("tra_tai_lieu", "Tra quy tắc nghiệp vụ, quyết định và spec của dự án theo từ khóa (không cần dấu): dùng cho câu hỏi "
+         "'vì sao', 'luật là gì', 'trang này dùng làm gì', 'làm thế nào'. Trả đoạn trích kèm file nguồn và mã quyết định.",
+         {"tu_khoa": {"type": "string"}}, ("tu_khoa",), tra_tai_lieu),
     Tool("doi_soat", "Web có khớp Sheet không, khách nào lệch và vì sao; có khach_id thì chi tiết lệch của khách đó.",
          ID_PARAM, (), doi_soat, admin=True),
     Tool("viec_da_lam", "Máy và người đã ghi gì trong một ngày (mặc định hôm nay).", {"ngay": DAY_PARAM}, (), viec_da_lam, admin=True),
@@ -503,11 +567,11 @@ BY_NAME = {tool.name: tool for tool in TOOLS}
 CHECK_CODE = re.compile(r"[^a-z_]")
 
 
-def self_check(api: WebApi, user: User, now: float) -> list[str]:
+def self_check(api: WebApi, user: User, now: float, docs_root: Path | None = None) -> list[str]:
     """Tự kiểm mỗi ngày (spec Phần 6, không gọi model): chạy từng công cụ trên API thật với một khách mẫu đang nợ.
     Trả danh sách "công_cụ:mã_lỗi" của công cụ lỗi; rỗng là mọi công cụ còn đọc đúng khuôn. Bỏ `lan_cuoi_noi_chuyen` (cần bản
     xuất chat Zalo, thiếu thì API trả 503 mà không phải lỗi) và danh sách chuyến thiếu (chậm)."""
-    ctx = Context(api, user, now=now)
+    ctx = Context(api, user, now=now, docs_root=docs_root)
     failed: list[str] = []
 
     def attempt(name: str, args: dict) -> None:
@@ -531,6 +595,8 @@ def self_check(api: WebApi, user: User, now: float) -> list[str]:
         if user.role == "admin" or not BY_NAME[name].admin:
             attempt(name, {})
     attempt("tim_khach", {"ten": "a"})
+    if docs_root is not None:
+        attempt("tra_tai_lieu", {"tu_khoa": "công nợ"})
     return failed
 
 
