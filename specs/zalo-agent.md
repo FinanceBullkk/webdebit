@@ -422,14 +422,26 @@ WeChat DB ─► wechat_export.py (tiến trình con, venv WeChat, chỉ đọc)
 **App WeChat và khóa ảnh trong `status.json` (22/11/2026).** Đọc DB và khóa ảnh vẫn chạy khi WeChat đã tắt hay chờ đăng nhập (sáng 22/11 WeChat tắt từ khoảng 03:48 tới 06:10, chỉ còn `WeixinUpdate.exe`, mà `processors.wechat` vẫn ổn). Nên `processors.wechat` có thêm:
 
 - `app` + `app_since`: `logged_in`, `login` (màn đăng nhập, "Confirm on Phone"), `closed`, `update` (chỉ còn trình cập nhật), `unknown` (không đọc được). `zalo_agent/wechat_app.py` xem mỗi 30 giây, chỉ đọc danh sách tiến trình (Toolhelp32) và lớp cửa sổ (EnumWindows), khoảng 25 ms; không đọc tiêu đề cửa sổ, không bật lớp trợ năng của WeChat như upstream. Đo trên máy thật: tiến trình chính là `Weixin.exe` có cha không phải `Weixin.exe`; đã đăng nhập thì nó có cửa sổ ẩn lớp `…WxTrayIconMessageWindowClass` và có tiến trình con `Weixin.exe` (wxutility, wxocr, wxpublic, xplayer), cả khi cửa sổ chính thu xuống khay; màn đăng nhập không có cả hai. Nhiều bản WeChat cùng chạy thì một bản đã đăng nhập là `logged_in`.
-- `images` + `images_since` (chỉ khi bật ảnh): `ok` hay `no_key`, theo dòng `end` (`image_keys`) của lượt đọc thành công gần nhất.
+- `images` + `images_since` (chỉ khi bật ảnh): `ok` hay `no_key`, theo dòng `end` (`image_keys`) của lượt đọc thành công gần nhất. WeChat thoát thì xóa rồi tạo lại các file `kvcomm`, nên thư mục trống trong vài giây. Lúc đó tiến trình đọc vẫn giữ khóa đã kiểm, nên `images` không nháy `no_key`. Khóa chỉ bị suy lại khi trong thư mục có mã khác thay chỗ.
 - Mốc `…_since` nhớ trong `<state>/wechat-app.json` và `wechat-images.json`, nên chạy lại agent không mất. `hao` (`v7_machine.zalo`) đổi ra số phút (`app_minutes`, `images_minutes`); mã lạ thành không rõ.
+
+**ĐÃ KIỂM CHỨNG trên máy Zalo (22/11/2026, 16:30–16:39, người dùng thao tác qua phiên điều phối):**
+
+| Người dùng làm | `status.json` | Tab Máy chạy trên `hao` |
+| --- | --- | --- |
+| Thoát WeChat ở khay | `closed` từ 16:30:51 | "WeChat: Chưa mở trên máy Zalo (1 phút)" |
+| Mở lại, để nguyên màn đăng nhập | `login` từ 16:34:53 | "Chờ đăng nhập trên máy Zalo, xác nhận trên điện thoại" |
+| Xác nhận trên điện thoại | `logged_in` từ 16:37:56 | "WeChat: Đang chạy, … tin đã nhập" |
+
+- `status.json` đổi trong khoảng 30–60 giây sau mỗi bước, và `hao` đổi theo.
+- Lúc đăng nhập lại, WeChat tạo thêm một file `kvcomm` nhưng `images` vẫn `ok`.
+- Lúc thoát có một lượt đọc báo `no_key` vài giây. Bản sửa ở bullet `images` trên đã chặn chuyện này.
 
 **Chưa làm (CÒN MỞ):**
 
 - Ảnh còn thiếu cũ hơn 7 ngày (khóa hỏng lâu rồi mới sửa) không tự bổ sung: lượt tự động chỉ phủ cửa sổ 6 giờ và lượt 7 ngày lúc agent chạy; phần cũ hơn phải làm tay.
 - Kiểm khóa cần ít nhất hai file `.dat` V2 mở được thành chữ ký ảnh (một, nếu máy chỉ có một file V2). Máy mới chưa có ảnh V2 nào thì chưa có khóa, tới khi có ảnh đầu tiên.
-- Chưa kiểm thật trạng thái `login` / `closed` qua máy canh và tab Máy chạy (cần tắt WeChat rồi người dùng xác nhận đăng nhập lại trên điện thoại).
+- Chưa thử thật email máy canh cho trạng thái app WeChat hay khóa ảnh. Muốn thử phải để một trạng thái không ổn kéo quá 15 phút trong 7:00–20:00. Máy canh chạy 15 phút một lần nên email tới sau 15–30 phút. Ngày 22/11/2026 người dùng chọn không chờ. Câu email đã có test. Đường gửi email (ping healthchecks.io) dùng chung cho mọi kiểm của máy canh và đã thử thật khi bật `CANH-BAO-01`.
 
 **Đã làm (22/11/2026): đọc ảnh bằng khóa ngoại tuyến** (bản đầu viết ngoài phiên Claude bằng Codex; Claude rà, thêm review độc lập, rồi thêm phần thử lại, giữ ảnh lớn nhất, chặn gắn nhầm ảnh, bộ kiểm khóa nhiều mẫu, chặn đè ảnh khi đọc lại):
 
