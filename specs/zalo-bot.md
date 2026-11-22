@@ -262,7 +262,8 @@ Chỗ thiếu đã biết:
   - mẫu câu có chỗ trống (`{khach}`, `{thang}`), kèm hàm tính đáp án bằng cách gọi thẳng API;
   - điền khách thật lúc chạy trên `hao`, kết quả chỉ ở `hao`;
   - chạy đủ bộ khi đổi model, lời dặn hoặc công cụ, và trước khi mở cho người khác. Không chạy theo lịch vì mỗi lần tốn tiền model; Claude báo ước tính chi phí trước, người dùng đồng ý mới chạy;
-  - số đo: đúng, từ chối đúng, sai số.
+  - chấm mỗi câu (PR-3c): `dung` có đủ đáp án; `thieu` trả lời mà không có đáp án; `sai_so` có số tiền khác đáp án; `khong_tra_loi` chưa chắc, lỗi, từ chối hay hết hạn mức. API không tính được đáp án lúc dựng câu thì câu đó bị bỏ qua;
+  - lệnh `v7_zalo_bot_eval.py [--limit N] [--model M] [--cap-usd K] [--yes]`: không có `--yes` thì chỉ in số câu và ước tính chi phí, không gọi model; kết quả quyền 0600 ở `/srv/v7/zalo-bot/eval/`, có tên khách nên không rời `hao`; trần riêng cho lần chạy (mặc định 15 USD).
 - **Tự kiểm công cụ mỗi ngày, không gọi model:** 6:30 giờ VN, bộ não chạy từng công cụ trên API thật với một khách mẫu đang nợ, bằng login admin đầu tiên trong danh sách. Kết quả ("công_cụ:mã_lỗi") nằm trong `status.json`; còn công cụ lỗi trong 26 giờ thì máy canh báo email. Bỏ `lan_cuoi_noi_chuyen` (thiếu bản xuất chat thì API trả 503 mà không phải lỗi) và danh sách chuyến thiếu (chậm).
 - **Nhịp tim:** bộ não ghi `/srv/v7/zalo-bot/status.json` mỗi phút, gồm trạng thái kênh do kênh tự báo (đang nhận tin, cần quét QR, bị đá, mất kết nối) và bộ đếm trong ngày; chỉ mã, số và giờ. Bộ não im quá 15 phút, hay (khi cờ trả lời bật) kênh không nhận tin quá 15 phút trong 7:00–20:00, thì máy canh báo email. Nhóm "Bot Zalo" ở tab Máy chạy đọc chung file này (PR-1b).
 
@@ -307,7 +308,8 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
 - **PR-2b, vòng gọi model:** SDK chính thức trong venv riêng có khóa hash, vòng gọi công cụ, kiểm số rồi gửi, nối vào bộ não. Test với model giả (kịch bản gọi công cụ). Bật cho người dùng sau P0 và khi người dùng đã chốt Q4, Q5.
 - **PR-3, ngữ cảnh + tự kiểm:** nhớ 10 lượt trong 2 giờ, "mới" xóa ngữ cảnh, tự kiểm công cụ mỗi sáng và báo qua máy canh.
 - **PR-3b, tầng B:** công cụ `tra_tai_lieu`. Gói deploy chép thêm luật nghiệp vụ, sổ quyết định và spec lên `hao` để bot đọc tại chỗ, không phụ thuộc mạng ngoài; tự kiểm mỗi sáng kiểm cả công cụ này.
-- **PR-3c, bộ câu hỏi mẫu + biểu đồ:** câu mẫu có đáp án tính bằng API, chạy khi đổi model, lời dặn hay công cụ (người dùng đồng ý chi phí từng lần); biểu đồ gửi dạng ảnh.
+- **PR-3c, bộ câu hỏi mẫu:** lệnh `v7_zalo_bot_eval.py`, đáp án tính bằng công cụ đọc API, chấm bốn mức, chạy khi đổi model, lời dặn hay công cụ (người dùng đồng ý chi phí từng lần).
+- **Biểu đồ** (chưa làm): gửi dạng ảnh cần tải ảnh qua zca-js và dựng ảnh trên `hao`; làm sau khi bot chạy thật.
 - **PR-4, tầng C:** spec con, migration role và schema `bot`, harness PostgreSQL.
 - **PR-5, mở rộng** (mỗi mục hỏi người dùng trước):
   - thêm người;

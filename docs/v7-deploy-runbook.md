@@ -2329,6 +2329,15 @@ ExecStart=/opt/webdebit-zalo-bot/venv/bin/python /srv/v7/auto-releases/current/c
 
 Rồi `systemctl daemon-reload`, chạy `--check` bằng python của venv (in model, mức suy nghĩ, trần), `systemctl restart v7-zalo-bot`. Tắt model mà vẫn giữ bot: xóa drop-in, `daemon-reload`, `restart` (bot về câu cố định). Đặt thêm trần chi tiêu cho khóa ở trang của Anthropic.
 
+**Bộ câu hỏi mẫu (PR-3c)** — mỗi lần chạy tốn tiền model, chỉ chạy khi người dùng đồng ý chi phí lần đó. Chạy dưới user của bộ não với cùng file khóa, khóa không lộ ra dòng lệnh:
+
+```bash
+systemd-run --uid=v7zalobot --gid=v7zalobot --pipe --wait -p EnvironmentFile=/etc/webdebit/zalo-bot.env \
+  /opt/webdebit-zalo-bot/venv/bin/python /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_zalo_bot_eval.py --model <model>
+```
+
+Lượt đầu chỉ in số câu và ước tính USD; thêm `--yes` để chạy thật. Kết quả nằm ở `/srv/v7/zalo-bot/eval/<giờ>-<model>.json` (0600, có tên khách, không chép ra ngoài); báo người dùng chỉ số đếm theo mức chấm và chi phí.
+
 **Hoàn tác:** `systemctl disable --now v7-zalo-kenh v7-zalo-bot`, xóa hai unit và `/etc/tmpfiles.d/v7-zalo-sock.conf`, `rm -rf /srv/v7/zalo-kenh` (file đăng nhập nick phụ).
 
 ## Lưới an toàn (LUOI-AN-TOAN-01) — nâng DB và drop-in cho máy canh
