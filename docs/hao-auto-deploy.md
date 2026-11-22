@@ -10,6 +10,9 @@
 Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` tự chạy (Environment `hao`, không người duyệt từ 28/10/2026)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
 trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm sống, lỗi thì tự quay lại bản trước.
+Gói mã gồm `cong-no-web-handoff/{tools,web,preview}`, `specs/v7-backend/schema-draft.sql`, và từ 22/11/2026 thêm
+`docs/business-rules.md`, `docs/decisions.md`, `docs/decisions/`, `specs/*.md` để công cụ tra tài liệu của bot Zalo đọc
+(ZALO-BOT-01 tầng B; chỉ đọc, không chạy). Lượt chỉ đổi tài liệu không tự deploy: tài liệu trên `hao` theo lần deploy mã kế tiếp.
 Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run workflow, nhập SHA đầy đủ.
 Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sau, commit trong đợt); đây là nhật ký triển khai app, không cần PR tài liệu riêng.
 
