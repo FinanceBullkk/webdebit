@@ -1,0 +1,14 @@
+{
+  "name": "webdebit-zalo-kenh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kênh Zalo của bot hỏi đáp công nợ (ZALO-BOT-01): giữ phiên nick phụ bằng zca-js, chạy trên hao trong unit v7-zalo-kenh.",
+  "license": "UNLICENSED",
+  "main": "kenh.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "zca-js": "2.3.0"
+  }
+}

@@ -100,13 +100,18 @@ hao: v7-zalo-bot (Python; user riêng; không nạp zca-js)
   - Zalo đổi giao thức thì thư viện gãy tới khi có bản sửa;
   - hậu quả giới hạn ở nick phụ và việc hỏi đáp; web, `zalo-agent` và chat với khách không bị ảnh hưởng.
 - **Đăng nhập:** quét QR một lần.
-  - Claude chạy lệnh đăng nhập (`loginQR`) trên `hao` và gửi ảnh QR cho người dùng; người dùng quét bằng app Zalo của nick phụ. Ảnh QR chỉ mời một tài khoản vào phiên của `hao`, không chứa khóa của nick phụ.
+  - Claude tạo file yêu cầu `login-request` trong thư mục của kênh. Kênh (vẫn trong hộp cát mạng) gọi `loginQR` và ghi ảnh QR quyền 0600: 3 mã liền, mỗi mã sống 100 giây. Claude chép ảnh gửi người dùng; người dùng quét bằng app Zalo của nick phụ. Ảnh QR chỉ mời một tài khoản vào phiên của `hao`, không chứa khóa của nick phụ.
   - Sau đó `hao` giữ `cookie`, `imei`, `userAgent` để tự đăng nhập lại khi khởi động (`login`). Ai có file này là điều khiển được nick phụ: file quyền 0600 của user kênh, không vào repo, log hay chat.
-  - Tắt kiểm bản mới của thư viện (`checkUpdate`); nâng bản do người làm, sau khi đọc diff.
-- **Một phiên web mỗi nick:** mở Zalo Web bằng nick phụ trên trình duyệt thì kênh tự ngắt. Không dùng nick phụ trên Zalo Web; app Zalo gốc không ảnh hưởng.
+  - Tắt kiểm bản mới của thư viện (`checkUpdate`, gọi npm registry mỗi lần đăng nhập) và tắt in log của thư viện (in uid, tên); nâng bản do người làm, sau khi đọc diff.
+- **Một phiên web mỗi nick:** mở Zalo Web bằng nick phụ trên trình duyệt thì kênh tự ngắt. Người dùng zca-js còn báo đăng nhập nick vào Zalo PC cũng có thể làm listener bị đá (mã 3003). Nick phụ chỉ đăng nhập trên điện thoại.
+- **Giữ phiên** (rút từ mã zca-js 2.3.0 và zalo-agent-cli):
+  - rớt mạng thì đăng nhập lại bằng file đã lưu để có API mới, chờ 5 giây gấp đôi tới 5 phút. Không dùng tự nối của zca-js: nó không thử lại mã 1006 và không đặt lại bộ đếm lần thử;
+  - mã 3000 hoặc 3003, hay 3 lần đóng sớm (nối chưa tới 60 giây) trong 10 phút, là bị phiên khác đá: kênh thôi tự nối và báo `kicked`, để không giành phiên qua lại với người đang dùng nick phụ;
+  - đăng nhập bằng file lỗi 3 lần liền: báo cần quét QR (`login_required`);
+  - mỗi ngày 04:30 giờ Việt Nam kênh đăng nhập lại một lần, vì người dùng zca-js thấy listener để lâu thì không nhận tin nữa.
 - **Phiên hết hạn hoặc bị đá:** nhịp tim kênh chuyển đỏ, máy canh gửi email, người dùng quét QR lại.
 - **Nick phụ chỉ làm đúng một việc:** trả lời tin chat riêng của người trong danh sách. Không tự nhắn trước, không kết bạn, không vào nhóm, không gửi hàng loạt. Tin nhóm, tin người lạ và tin của chính nick phụ bị bỏ, chỉ đếm.
-- **Chống trùng** theo mã tin. Kênh nối lại mà nhận tin cũ hơn 10 phút thì không trả lời số, chỉ báo "tin đến muộn, hỏi lại giúp".
+- **Chống trùng** theo mã tin, nhớ 24 giờ qua khởi động lại. Kênh nối lại mà nhận tin cũ hơn 10 phút thì không trả lời số, chỉ báo "tin đến muộn, hỏi lại giúp". Tin cũ zca-js phát lại lúc nối (`old_messages`) không được chuyển cho bộ não.
 - **Gửi:**
   - báo đang gõ (`sendTypingEvent`) trong lúc tra;
   - trả lời có trích tin được hỏi (`sendMessage` với `quote`);
@@ -256,7 +261,7 @@ Chỗ thiếu đã biết:
   - chạy đủ bộ khi đổi model, lời dặn hoặc công cụ, và trước khi mở cho người khác. Không chạy theo lịch vì mỗi lần tốn tiền model; Claude báo ước tính chi phí trước, người dùng đồng ý mới chạy;
   - số đo: đúng, từ chối đúng, sai số.
 - **Kiểm công cụ mỗi đêm, không gọi model:** gọi từng công cụ trên API thật, kiểm đúng dạng và có giờ dữ liệu, để biết sớm khi API đổi.
-- **Nhịp tim:** `status.json` của kênh (còn đăng nhập không, nối lần cuối) và của bộ não đưa lên nhóm "Bot Zalo" ở tab Máy chạy. Bot dừng hoặc nick phụ mất đăng nhập trong 7:00–20:00 thì máy canh báo email.
+- **Nhịp tim:** bộ não ghi `/srv/v7/zalo-bot/status.json` mỗi phút, gồm trạng thái kênh do kênh tự báo (đang nhận tin, cần quét QR, bị đá, mất kết nối) và bộ đếm trong ngày; chỉ mã, số và giờ. Bộ não im quá 15 phút, hay (khi cờ trả lời bật) kênh không nhận tin quá 15 phút trong 7:00–20:00, thì máy canh báo email. Nhóm "Bot Zalo" ở tab Máy chạy đọc chung file này (PR-1b).
 
 ### Chạy ở đâu
 
@@ -271,6 +276,9 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
   - lỗi của bot không được kéo API chết theo.
 - Mã ở `cong-no-web-handoff/tools/zalo_bot/`. Bot chỉ gọi API qua HTTP nên không import mã của `web/`.
 - Phần kênh ở `kenh/`, có `package.json` và `package-lock.json` riêng, khóa đúng bản zca-js, cài bằng `npm ci --ignore-scripts`. Test kênh dùng Zalo giả nên CI không cài zca-js. `package.json` gốc và `requirements.txt` không đổi.
+- Trên `hao`, kênh chạy từ bản cài riêng `/opt/webdebit-zalo-kenh`, không theo deploy tự động: mã bên thứ ba cầm phiên nick phụ thì chỉ nâng có chủ đích. Bộ não chạy từ bản phát hành hiện hành và tự thoát khi `current` đổi, để systemd chạy lại bằng mã mới (lệnh deploy chỉ được khởi động lại API).
+- Socket nằm trong `/run/v7-zalo-sock` có bit setgid, nên socket mang nhóm `v7zalosock` chung của hai tiến trình. Kênh không ở nhóm của bộ não, nên không đọc được danh sách người hỏi, nhật ký hay khóa API. Lệnh cài ở mục "Bot Zalo hỏi đáp" của [runbook](../docs/v7-deploy-runbook.md).
+- Kênh bị chèn mã độc thì vẫn đọc được dữ liệu qua bot như người dùng (chỉ đọc, giới hạn bởi danh sách người, trần chi phí và giới hạn lượt), nhưng không ghi được.
 - Node trên `hao`: P0 kiểm bản; chưa có hoặc cũ hơn 18 thì cài bản của distro.
 - Cài unit và Node lần đầu là đổi hệ thống ngoài runbook: Claude tự làm theo [`TU-LAM-01`](../docs/decisions/tu-lam-01.md), ghi nhật ký trong `docs/deploys/`.
 - Tới PR-4 mới cần thêm role DB.
@@ -290,7 +298,8 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
   - Claude kiểm Node trên `hao`, cài kênh thử với zca-js bản khóa, chạy đăng nhập QR (người dùng quét), rồi để kênh nhại lại tin của người dùng trong một đến hai ngày;
   - Claude gọi thử API model từ `hao` một lượt;
   - đo: tin sót hoặc trùng, độ trễ, giới hạn chữ, phiên giữ được bao lâu, khởi động lại `hao` có phải quét lại không.
-- **PR-1, khung bot:** tiến trình kênh và khung bộ não, socket Unix, danh sách người, cờ tắt, nhật ký, nhịp tim, hai unit systemd có chặn mạng; chỉ trả câu cố định. Test với Zalo giả.
+- **PR-1, khung bot:** tiến trình kênh và khung bộ não, socket Unix, danh sách người, cờ tắt, nhật ký, nhịp tim cho máy canh, hai unit systemd có chặn mạng (ghi ở runbook); chỉ trả câu cố định. Test với Zalo giả.
+- **PR-1b, nhóm "Bot Zalo" ở tab Máy chạy:** đọc chung `status.json` với máy canh.
 - **PR-2, bộ não + tầng A + kiểm số:** công cụ theo trang, lớp HTTP chỉ GET, công cụ tính, kiểm số, trần chi phí. Test với model giả (kịch bản gọi công cụ) và API giả. Bật cho người dùng.
 - **PR-3, tầng B + ngữ cảnh + bộ câu hỏi mẫu:** tra tài liệu, nhớ 10 lượt, chạy câu hỏi mẫu mỗi đêm, biểu đồ.
 - **PR-4, tầng C:** spec con, migration role và schema `bot`, harness PostgreSQL.
@@ -303,8 +312,8 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
 ## Tiêu chí nghiệm thu (P0–PR-3)
 
 - [ ] P0: nhật ký thử ghi được tin sót/trùng, độ trễ, giới hạn chữ, thời gian giữ phiên; gọi được API model từ `hao`.
-- [ ] Người lạ nhắn nick phụ: không nhận được dữ liệu; nhật ký ghi một dòng đếm, không ghi nội dung. Tin nhóm và tin của chính nick phụ cũng bị bỏ (test với Zalo giả).
-- [ ] Trên `hao`, user của kênh không gọi được `127.0.0.1:8780` và địa chỉ tailnet của `hao`, nhưng vẫn ra được máy chủ Zalo.
+- [ ] Người lạ nhắn nick phụ: không nhận được dữ liệu; nhật ký ghi một dòng có id người gửi, không có chữ tin. Tin nhóm và tin của chính nick phụ cũng bị bỏ (test với Zalo giả).
+- [ ] Trên `hao`, user của kênh không gọi được `127.0.0.1:8780` và địa chỉ tailnet của `hao`, nhưng vẫn ra được máy chủ Zalo. Kênh tự thử nối API khi khởi động; nối được thì không đăng nhập và báo `sandbox_missing`.
 - [ ] Lớp HTTP: test chứng minh từ chối POST, PUT, DELETE và đường dẫn ngoài bảng công cụ.
 - [ ] 30 câu mẫu phủ các nhóm:
   - nợ một khách; nợ theo tháng và theo hạn trả;
