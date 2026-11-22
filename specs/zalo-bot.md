@@ -1,14 +1,15 @@
 # Bot Zalo hỏi đáp công nợ (ZALO-BOT-01)
 
-Trạng thái: **ĐỀ XUẤT** của Claude, 22/11/2026. Chưa code.
+Trạng thái: **ĐÃ CHỐT hướng làm** ngày 22/11/2026 ([`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md)). Chưa code. Q4 và Q5 chốt với người dùng trước khi bật.
 
-Người dùng đã chọn ba điều trong chat ngày 22/11/2026:
+Người dùng đã chọn bốn điều trong chat ngày 22/11/2026:
 
 1. Hỏi tự do bằng AI. Bot hiểu toàn bộ dữ liệu và các trang của web để tự trả lời.
 2. Giai đoạn đầu chỉ người dùng dùng, để thử.
 3. Kênh Zalo là **zca-js với một nick phụ**, không dùng bot chính thức của Zalo. Người dùng chọn sau khi Claude nêu hai điều: zca-js là API Zalo Web không chính thức, nick dùng nó có thể bị khóa; bot chính thức có gói Basic miễn phí, đủ cho một người hỏi.
+4. Build ngay, tham khảo mã và kỹ thuật của zalo-agent-cli. P0 chờ người dùng có nick phụ.
 
-Các phần còn lại chờ người dùng chốt ở mục [Câu hỏi cần chốt](#câu-hỏi-cần-chốt).
+Các câu còn lại đã chốt hoặc còn mở như ghi ở mục [Câu hỏi cần chốt](#câu-hỏi-cần-chốt).
 
 ## Vì sao
 
@@ -327,24 +328,24 @@ Tắt cờ, dừng và gỡ hai unit, revert PR. Bot không ghi dữ liệu nên
 
 ## Câu hỏi cần chốt
 
-Mỗi câu kèm đề xuất của Claude.
+Mỗi câu kèm đề xuất của Claude. Câu ĐÃ CHỐT do Claude chốt theo quyền người dùng trao 21/10 ([`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md)).
 
-- **Q1, model:** Claude qua API, chọn bằng số đo: chạy bộ 30 câu mẫu trên Haiku 5.5, Sonnet 5.5 và Opus 5.5, người dùng chọn model rẻ nhất không sai số tiền nào. Phương án khác là Gemini (repo có đường gọi Gemini cho ảnh, chưa có khóa chạy thật).
-- **Q2, ai chạy vòng gọi công cụ:** tiến trình bộ não trên `hao`, gọi Messages API bằng SDK chính thức trong venv riêng. Không dùng Managed Agents vì lịch sử phiên nằm ở Anthropic tới khi xóa và đang beta.
+- **Q1, model:** ĐÃ CHỐT. Claude qua API, chọn bằng số đo: chạy bộ 30 câu mẫu trên Haiku 5.5, Sonnet 5.5 và Opus 5.5, người dùng chọn model rẻ nhất không sai số tiền nào. Phương án khác là Gemini (repo có đường gọi Gemini cho ảnh, chưa có khóa chạy thật).
+- **Q2, ai chạy vòng gọi công cụ:** ĐÃ CHỐT. Tiến trình bộ não trên `hao`, gọi Messages API bằng SDK chính thức trong venv riêng. Không dùng Managed Agents vì lịch sử phiên nằm ở Anthropic tới khi xóa và đang beta.
 - **Q3, kênh:** ĐÃ CHỌN ngày 22/11/2026: zca-js với nick phụ ([Phần 1](#phần-1-kênh-zalo)).
-- **Q4, chi phí:** ước tính thô với bảng giá hiện hành, chưa đo. Kênh zca-js không tốn phí ngoài SIM cho nick phụ; tiền nằm ở model (giá vào / ra mỗi triệu token):
+- **Q4, chi phí:** CÒN MỞ, chốt trước khi bật. Ước tính thô với bảng giá hiện hành, chưa đo. Kênh zca-js không tốn phí ngoài SIM cho nick phụ; tiền nằm ở model (giá vào / ra mỗi triệu token):
   - Opus 5.5 (4 / 20 USD): khoảng 0,12–0,22 USD mỗi câu, tức 75–130 USD/tháng nếu hỏi 20 câu mỗi ngày;
   - Sonnet 5.5 (2 / 10 USD): khoảng một nửa, 40–65 USD/tháng;
   - Haiku 5.5 (0,10 / 0,50 USD): khoảng vài USD/tháng;
   - mỗi lần chạy bộ 30 câu trên cả ba model: khoảng 6–10 USD.
 
   Đề xuất: trần 3 USD mỗi ngày cho bot trong lúc thử; sau một tuần đo bằng số token thật thì người dùng chốt lại model và trần.
-- **Q5, dữ liệu được gửi tới Anthropic:**
+- **Q5, dữ liệu được gửi tới Anthropic:** CÒN MỞ, chốt trước khi bật.
   - **có:** tên khách, mã sổ, số tiền, ngày, trạng thái;
   - **không:** chữ gốc tin chat, ảnh chuyển khoản, số tài khoản. Giữ luật cũ.
-- **Q6, nhật ký hỏi đáp:** giữ 90 ngày trên `hao`.
-- **Q7, truy vấn tự do (tầng C):** chỉ làm sau khi tầng A và B đạt số đo; cần migration nên có spec con.
-- **Q8, phạm vi trả lời:** chỉ chat riêng. Không trả lời trong nhóm có khách, kể cả khi mở rộng; nick phụ không vào nhóm khách.
+- **Q6, nhật ký hỏi đáp:** ĐÃ CHỐT. Giữ 90 ngày trên `hao`.
+- **Q7, truy vấn tự do (tầng C):** ĐÃ CHỐT. Chỉ làm sau khi tầng A và B đạt số đo; cần migration nên có spec con.
+- **Q8, phạm vi trả lời:** ĐÃ CHỐT. Chỉ chat riêng. Không trả lời trong nhóm có khách, kể cả khi mở rộng; nick phụ không vào nhóm khách.
 
 ## Ngoài phạm vi
 
@@ -362,7 +363,7 @@ Mỗi câu kèm đề xuất của Claude.
 - [`CANH-BAO-01`](../docs/decisions/canh-bao-01.md): máy canh và email.
 - [`CHUYEN-HAN-01`](../docs/decisions/chuyen-han-01.md): Sheet vẫn là sổ chính thức.
 - [`TU-LAM-01`](../docs/decisions/tu-lam-01.md): đổi systemd ngoài runbook không phải hỏi trước.
-- Ba lựa chọn của người dùng ngày 22/11/2026 ghi ở đầu spec. Phần còn lại CÒN MỞ tới khi chốt.
+- [`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md): các lựa chọn của người dùng và các câu Claude chốt ngày 22/11/2026.
 
 ## Bằng chứng
 
