@@ -280,8 +280,11 @@ def image_item(cid: str, name: str | None, row: dict, stamp: int, media: dict, r
     trong 93 ngày), để đối chiếu đúng phiếu và cộng vào đúng ngày tiền vào; còn lại là ngày tin."""
     sent = datetime.fromtimestamp(stamp / 1000, VN).date()
     paid = txn_day(read["txn_time"])
-    return {"message_id": row["message_id"], "conversation_id": cid, "conversation_name": name, "sent_at": stamp,
-            "day": paid if paid is not None and paid < sent and (sent - paid).days < MAX_SPAN_DAYS else sent,
+    # Ngày giao dịch trên ảnh trước ngày tin quá khoảng xem tối đa: ảnh rất cũ gửi lại, hoặc máy đọc nhầm ngày. Khoản nằm ở ngày tin như
+    # trước, nhưng không bao giờ bị kết luận "chưa vào sổ" (đối chiếu quanh ngày tin không có nghĩa): trang ghi để người mở ảnh xem.
+    old = paid is not None and (sent - paid).days >= MAX_SPAN_DAYS
+    return {"message_id": row["message_id"], "conversation_id": cid, "conversation_name": name, "sent_at": stamp, "old_txn": old,
+            "day": paid if paid is not None and paid < sent and not old else sent,
             "sender_name": row["sender_name"], "sender": row["sender_id"], "direction": "thu", "amount_vnd": read["amount_vnd"],
             "text": "", "media": [media], "rest": "", "source": "anh", "image_vnd": read["amount_vnd"], "image_diff": False,
             "amount_from": "anh" if read["amount_vnd"] is not None else None, "image": {key: read[key] for key in ("by", "bank", "txn_time", "candidates")},
@@ -634,6 +637,8 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
     pair_exact(known, lambda one: one["rows"](), claimed)
 
     def guess(one: dict, rows: list[dict]) -> list[dict]:
+        if one.get("old_txn"):   # ảnh ghi ngày giao dịch quá cũ: đoán theo ngày tin không có nghĩa, chỉ nhận khi khớp đúng phiếu
+            return []
         return [row for row in rows if one.get("source") != "anh" or row["ref"].get("pid") not in reserved]
 
     pair_single([item for item in known if item["status"] is None], lambda one: guess(one, one["rows"]()), claimed, "AMOUNT_DIFF")
@@ -646,8 +651,9 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
                 item["status"] = "UNKNOWN_TARGET"
             elif item["track"] in sources.failed:
                 item["status"], item["unchecked"] = "WAITING", True   # không đọc được sổ thì không kết luận "chưa vào sổ"
-            else:
-                item["status"] = "MISSING" if today > item["day"] + timedelta(MISSING_AFTER) else "WAITING"
+            else:   # ảnh ghi ngày giao dịch quá cũ (`old_txn`): không kết luận, trang ghi "Ảnh ghi ngày cũ"
+                late = today > item["day"] + timedelta(MISSING_AFTER) and not item.get("old_txn")
+                item["status"] = "MISSING" if late else "WAITING"
         item["unchecked"] = item["unchecked"] or (item["status"] in ("UNKNOWN_TARGET", "NO_LEDGER") and "directory" in sources.failed) \
             or (item["status"] == "UNKNOWN_TARGET" and item["direction"] == "thu" and "receipt" in sources.failed)   # chưa kiểm được SUGGEST
 
@@ -858,6 +864,7 @@ def _public(item: dict) -> dict:
     out["image_diff"] = bool(item.get("image_diff"))
     out["target_from"] = "sua" if item.get("target_reviewed") else None   # Luồng 3: đối tượng người dùng gắn tay, không phải máy tự khớp
     out["resent"] = item.get("resent", 0)   # Luồng 4: số lần cùng giao dịch được gửi lại (chỉ tính một khoản); 0 là không trùng
+    out["old_txn"] = bool(item.get("old_txn"))   # ảnh ghi ngày giao dịch trước ngày tin từ 93 ngày: không kết luận chưa vào sổ
     out["day"] = item["day"].isoformat()
     out["source"] = item.get("source", "chat")
     out["target"] = {key: item["target"].get(key) for key in ("kind", "id", "label")}

@@ -1499,6 +1499,31 @@ class RealChildImageTest(WeChatBase):
         self.assertEqual(len(list((self.store.dir / "media").iterdir())), 3)
         self.assertEqual(list((self.store.dir / "incoming").iterdir()), [])
 
+    def test_the_sender_repair_runs_alone_and_the_seven_day_pass_after_it_still_decodes_old_photos(self):
+        """Review #583: lượt sửa người gửi và lượt ảnh 7 ngày chung một yêu cầu (hoặc lượt sửa nhớ `fp` của ảnh còn thiếu) thì lượt
+        7 ngày coi ảnh cũ là đã xong và tắt. Nay lượt sửa đi riêng trước, không nhớ `fp` ngoài cửa sổ 6 giờ."""
+        old = int(time.time()) - 48 * 3600   # ngoài cửa sổ 6 giờ, trong 7 ngày
+        self.rows = [{"local_id": i, "type": "图片", "sender_id": 5, "sender_username": "wxid_a", "content": "<msg><img/></msg>",
+                      "create_time": old + i, "sort_seq": i * 1000} for i in (1, 2, 3)]
+        (self.pilot / "rows.json").write_text(json.dumps(self.rows), encoding="utf-8")
+        self.poll()   # chưa có khóa: ba tin ảnh vào kho, thiếu ảnh, người gửi theo kết quả tra (sai)
+        self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)] * 3)
+        for row in self.rows:   # nội dung thật có tiền tố của người gửi đúng
+            row["content"] = "wxid_dung1:\n<msg><img/></msg>"
+        (self.pilot / "rows.json").write_text(json.dumps(self.rows), encoding="utf-8")
+        saved = json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))
+        saved.pop("sender_rule", None)   # kho do bản cũ ghi
+        (self.state / "wechat.json").write_text(json.dumps(saved), encoding="utf-8")
+        wechat_dirs(self.wx, samples=())   # có khóa
+        self.processor = self.make_processor(images=True, run=self.session, python=sys.executable, pilot=str(self.pilot))   # chạy lại agent
+        self.poll()
+        self.assertEqual((self.processor.resend_sent, self.processor.deep_sent), (True, False))
+        self.assertEqual({row["sender_id"] for row in self.store.rows_after(0)[0]}, {wc.sender_id("wxid_dung1")})
+        self.poll()
+        self.assertEqual((self.processor.resend_sent, self.processor.deep_sent), (False, True))
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)] * 3)   # lượt 7 ngày vẫn giải đủ ảnh cũ
+        self.assertEqual({row["sender_id"] for row in self.store.rows_after(0)[0]}, {wc.sender_id("wxid_dung1")})
+
 
 
 TRAY = "Qt51514WxTrayIconMessageWindowClass"
@@ -1576,6 +1601,125 @@ class AppStatusTest(WeChatBase):
                                      ("attached", "2026-11-20T08:00:00+07:00"))["processors"]["wechat"]
         self.assertNotIn("app", status)
         self.assertEqual((status["images"], status["images_since"]), ("ok", None))
+
+
+SENDER_NICKS = {"wxid_dung1": "Người gửi thật", "wxid_sai1": "Người khác"}
+
+
+class SenderPrefixTest(unittest.TestCase):
+    """22/11/2026: `SenderName2Id` chung của upstream lệch với WeChat 4 trên máy Zalo (0/61 tin khớp, 21 tin ra người khác): người
+    gửi lấy từ tiền tố `<username>:` máy chủ WeChat ghi đầu tin."""
+
+
+    def row(self, content, looked_up="wxid_sai1", sender_id=7, kind="文本"):
+        return {"local_id": 1, "sort_seq": 1000, "create_time": 1, "type": kind, "sender_id": sender_id, "sender_username": looked_up,
+                "content": content}
+
+    def test_the_prefix_wins_over_a_wrong_lookup_and_is_stripped(self):
+        item = export.record(SENDER_NICKS, USER, self.row("wxid_dung1:\nThu 5 triệu"), None, None)
+        self.assertEqual((item["sender"], item["sender_name"], item["content"]), ("wxid_dung1", "Người gửi thật", "Thu 5 triệu"))
+        item = export.record(SENDER_NICKS, USER, self.row("wxid_dung1:\nThu 5 triệu", looked_up=""), None, None)   # tra không ra ai
+        self.assertEqual((item["sender"], item["content"]), ("wxid_dung1", "Thu 5 triệu"))
+        photo = export.record(SENDER_NICKS, USER, self.row("wxid_dung1:\n<msg><img/></msg>", kind="图片"), None, None)
+        self.assertEqual(photo["sender"], "wxid_dung1")   # tin ảnh cũng có tiền tố: đúng người gửi
+        self.assertIsNone(export.stale_key(self.row("wxid_dung1:\nx"), SENDER_NICKS))
+        self.assertEqual(export.stale_key(self.row("wxid_moi9:\nx"), SENDER_NICKS), ("name", "wxid_moi9"))
+
+    def test_a_first_line_that_only_looks_like_an_id_never_becomes_the_sender(self):
+        item = export.record(SENDER_NICKS, USER, self.row("KH0001:\nthu 5tr", looked_up="wxid_dung1"), None, None)
+        self.assertEqual((item["sender"], item["content"]), ("wxid_dung1", "KH0001:\nthu 5tr"))
+        own = export.record(SENDER_NICKS, USER, self.row("wxid_dung1:\nthu", looked_up="", sender_id=2), None, None)
+        self.assertEqual((own["is_self"], own["sender"], own["content"]), (True, "", "wxid_dung1:\nthu"))   # tin của mình giữ nguyên
+
+    def test_resend_hours_reread_old_rows_once_flagged_so_only_existing_rows_change(self):
+        db = ExportTest.Db([(USER, NAME)], total=5)
+        lines = []
+        with unittest.mock.patch.object(export, "emit", lines.append), \
+                unittest.mock.patch.object(export.time, "time", return_value=1_793_000_000.0 + 30 * 24 * 3600):
+            export.cmd_read(db, {"groups": {USER: {"sort_seq": 5000, "tail": [5]}}, "window_hours": 6})
+            self.assertEqual([line["kind"] for line in lines], ["end"])   # tin cũ hơn 6 giờ: không đọc lại
+            lines.clear()
+            export.cmd_read(db, {"groups": {USER: {"sort_seq": 5000, "tail": [5]}}, "window_hours": 6, "resend_hours": 400 * 24})
+        messages = [line for line in lines if line["kind"] == "message"]
+        self.assertEqual(len(messages), 5)
+        self.assertTrue(all(line.get("resend") and line.get("deep") and line.get("window") for line in messages))
+
+
+class SenderResendProcessorTest(WeChatBase):
+    def test_an_upgraded_store_rereads_once_and_fixes_senders_of_rows_already_on_the_web(self):
+        self.db.feed = [msg(1, 1000, "tin chữ", sender="wxid_sai1", name="Người khác"),
+                        msg(2, 2000, "", "图片", sender="wxid_sai1", name="Người khác")]
+        self.processor = self.make_processor(images=True)
+        (self.store.dir / "incoming").mkdir(exist_ok=True)
+        (self.store.dir / "incoming" / "a.jpg").write_bytes(JPEG)
+        self.db.feed[1]["image"] = "a.jpg"
+        self.poll()
+        saved = json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))
+        saved.pop("sender_rule", None)   # kho ghi bằng bản cũ (chưa có mốc)
+        (self.state / "wechat.json").write_text(json.dumps(saved), encoding="utf-8")
+        self.processor = self.make_processor(images=True)
+        self.db.feed = []
+        self.db.window = [msg(1, 1000, "tin chữ", sender="wxid_dung1", name="Người gửi thật", window=True, deep=True, resend=True),
+                          msg(2, 2000, "", "图片", sender="wxid_dung1", name="Người gửi thật", window=True, resend=True),   # trong 6 giờ
+                          msg(3, 3000, "tin chưa từng nhập", sender="wxid_dung1", window=True, deep=True, resend=True)]
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["resend_hours"], wc.RESEND_HOURS)
+        rows = {row["message_id"]: row for row in self.store.rows_after(0)[0]}
+        right = wc.sender_id("wxid_dung1")
+        self.assertEqual(len(rows), 2)   # tin chưa từng nhập không vào kho
+        self.assertEqual({row["sender_id"] for row in rows.values()}, {right})
+        photo = next(row for row in rows.values() if row["message_type"] == 2)
+        self.assertEqual((photo["body"], bool(photo.get("media"))), ("Ảnh WeChat", True))   # ảnh đang có giữ nguyên
+        names = json.loads((self.store.dir / "users.json").read_text(encoding="utf-8"))
+        self.assertEqual(names[right], "Người gửi thật")
+        self.assertEqual(self.processor.total, 2)   # Máy chạy đếm tin, không đếm lần ghi lại người gửi
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["resend_hours"], 0)   # chỉ một lần
+        self.assertEqual(json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))["sender_rule"], wc.SENDER_RULE)
+
+    def test_a_fresh_store_never_needs_the_reread(self):
+        self.poll()
+        self.assertEqual(self.db.requests[-1][1]["resend_hours"], 0)
+
+    def upgraded(self):
+        self.db.feed = [msg(1, 1000, "tin")]
+        self.poll()
+        saved = json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))
+        saved.pop("sender_rule", None)
+        (self.state / "wechat.json").write_text(json.dumps(saved), encoding="utf-8")
+        self.processor = self.make_processor(images=True)
+        self.db.requests.clear()
+
+    def test_the_repair_never_rides_with_the_seven_day_pass(self):
+        self.upgraded()
+        self.poll()
+        self.poll()
+        self.assertEqual([(request["resend_hours"] > 0, request["deep_image_hours"] > 0) for _, request in self.db.requests[:2]],
+                         [(True, False), (False, True)])
+
+    def test_a_repair_that_times_out_twice_stops_until_the_next_agent_start(self):
+        self.upgraded()
+        self.db.fail = subprocess.TimeoutExpired("wechat_export", 60)
+        for _ in range(2):
+            self.now += 3600   # qua thời gian lùi
+            self.processor.step()
+        self.db.fail = None
+        self.now += 3600
+        self.processor.step()
+        self.assertEqual([request["resend_hours"] > 0 for _, request in self.db.requests], [True, True, False])
+        self.assertLess(self.processor.sender_rule, wc.SENDER_RULE)   # chưa xong: lần chạy agent sau thử lại
+        self.assertEqual(self.make_processor(images=True).request({USER: NAME})["resend_hours"], wc.RESEND_HOURS)
+
+    def test_a_group_missing_during_the_repair_keeps_the_repair_pending(self):
+        self.upgraded()
+        self.db.end_extra = {"missing_groups": 1}
+        self.poll()
+        self.assertLess(self.processor.sender_rule, wc.SENDER_RULE)
+        self.db.end_extra = {}
+        self.poll()
+        self.assertEqual(self.processor.sender_rule, wc.SENDER_RULE)
+        self.assertEqual([request["resend_hours"] > 0 for _, request in self.db.requests], [True, True])
+
 
 if __name__ == "__main__":
     unittest.main()

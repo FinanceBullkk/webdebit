@@ -58,7 +58,7 @@ const extra = (i, sender, text, more = {}) => msg(`x${i}`, sender === OWNER, DAY
 const extraRows = [
   extra(0, KHACH, 'Hóa đơn tháng 10'),
   ...Array.from({ length: 52 }, (_, n) => extra(n + 1, n % 2 ? OWNER : KHACH, `Tin phụ ${n + 1}`)),   // x52 là của Mình
-  extra(53, KHACH, 'Trả lời tin gần', { quote: quoted('x52', OWNER, 'Hào', 'Tin phụ 52'), reactions: [{ emoji: '❤️', count: 3 }, { emoji: '👍', count: 1 }] }),
+  extra(53, KHACH, 'Trả lời tin gần', { quote: quoted('x52', OWNER, 'Hào', 'Tin phụ 52'), reactions: [{ emoji: '/-heart', count: 3 }, { emoji: '/-strong', count: 1 }, { emoji: '--b', count: 2 }, { emoji: ':-zz', count: 1 }, { emoji: '🎄', count: 1 }] }),
   extra(54, KETOAN, 'Trả lời tin cũ', { quote: quoted('x0', KHACH, 'Mẫu', 'Hóa đơn tháng 10') }),
   extra(55, KHACH, 'Trả lời tin đã mất', { quote: { message_id: 'x-mat', found: false } }),
   extra(56, KETOAN, null, { message_type: 36, type_label: 'Sticker', body_kind: 'card', sticker: { id: PIC, mime: 'image/png', width: 240, height: 240 } }),
@@ -239,6 +239,22 @@ test('Chat Zalo: danh sách hội thoại có tên, số tin, ngày tin cuối; 
     assert.ok(!logs.some(line => /cont chưa thanh toán|Dạ để em/.test(line)), 'không log nội dung tin ra console');
     assert.ok(page.url().includes(`c=${CONV_A}`));
   });
+});
+
+test('Chat Zalo: mở từ Thu chi thì nút quay lại về Thu chi, vẫn giữ khi đổi hội thoại; menu vẫn sáng Sổ khách', async () => {
+  await withPage({}, async page => {
+    await page.locator('.msg').first().waitFor();
+    assert.equal(await page.locator('h1').innerText(), 'Chat Zalo, WeChat');
+    assert.equal(await page.locator('nav a.active').innerText(), 'Sổ khách');
+    assert.deepEqual([await page.locator('a.back').getAttribute('href'), await page.locator('a.back').innerText()], ['/thu-chi.html', '← Thu chi']);
+    await page.locator('.conv').nth(1).click();
+    await page.waitForURL(/from=thu-chi/);
+    assert.match(page.url(), new RegExp(`c=${CONV_B}`));
+  }, { query: `?c=${CONV_A}&from=thu-chi` });
+  await withPage({}, async page => {   // giá trị lạ: như mở thường
+    await page.locator('.conv').first().waitFor();
+    assert.equal(await page.locator('a.back').getAttribute('href'), '/so-khach-v7-live.html');
+  }, { query: '?from=https://x.example.test' });
 });
 
 test('Chat Zalo: phân trang tải tin cũ hơn và tìm trong hội thoại qua API', async () => {
@@ -753,8 +769,12 @@ test('Chat Zalo: tin gốc không còn thì ghi rõ, không bấm được; cả
   await openExtra(page);
   assert.equal(await page.locator('.msg[data-id="x55"] .reply.gone').innerText(), '↩ Trả lời một tin không còn trên web');
   assert.equal(await page.locator('.msg[data-id="x55"] [data-quote]').count(), 0);
-  assert.deepEqual(await page.locator('.msg[data-id="x53"] .react').evaluateAll(nodes => nodes.map(node => node.textContent)), ['❤️3', '👍']);
-  assert.equal(await page.locator('.msg[data-id="x53"] .react').first().getAttribute('title'), '3 người thả ❤️');
+  // Gói giữ mã chữ của Zalo ("/-heart", "--b"): màn đổi ra hình, mã lạ thành hình chung, không bao giờ hiện mã thô.
+  const reacts = page.locator('.msg[data-id="x53"] .react');
+  assert.deepEqual(await reacts.evaluateAll(nodes => nodes.map(node => node.textContent)), ['❤️3', '👍', '😞2', '🙂', '🎄']);
+  assert.equal(await reacts.first().getAttribute('title'), '3 người thả ❤️');
+  assert.equal(await reacts.nth(3).getAttribute('title'), '1 người thả một cảm xúc khác');
+  assert.doesNotMatch(await page.locator('.msg[data-id="x53"] .reacts').innerText(), /[-/:]/);
   const sticker = page.locator('.msg[data-id="x56"] img.sticker');
   assert.deepEqual([await sticker.getAttribute('width'), await sticker.getAttribute('height')], ['120', '120']);
   assert.doesNotMatch(await page.locator('.msg[data-id="x56"]').innerText(), /\[Sticker\]/);

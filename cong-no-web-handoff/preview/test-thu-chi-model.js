@@ -56,6 +56,11 @@ test('Câu trạng thái đúng bảng của spec; lệch số ghi cả hai số
   assert.equal(M.statusText(item('d', 'chi', 1, 'NO_LEDGER')).text, 'Web chưa có sổ chi này');
   assert.equal(M.statusText(item('d', 'thu', null, 'NO_AMOUNT')).text, 'Không đọc được số');
   assert.equal(M.money(null), '—');
+  // Ảnh ghi ngày giao dịch quá cũ: máy chủ không kết luận, trang không báo đỏ mà nói rõ ngày trên ảnh để người mở ảnh xem.
+  const old = M.statusText(item('d', 'thu', 1, 'WAITING', { source: 'anh', old_txn: true, image: { txn_time: '2026-02-11' } }));
+  assert.deepEqual([old.tone, old.text], ['info', 'Ảnh ghi ngày cũ']);
+  assert.match(old.note, /ngày 11\/02\/2026, trước ngày gửi hơn 3 tháng/);
+  assert.equal(M.statusText(item('d', 'thu', 1, 'RECORDED', { source: 'anh', old_txn: true })).text, 'Đã vào sổ');
 });
 
 test('Khoản chưa đối chiếu được (nguồn sổ lỗi) không bị ghi là chưa vào sổ', () => {
