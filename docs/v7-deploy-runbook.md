@@ -2175,6 +2175,135 @@ Bổ sung 18/11/2026 (bản sao ngoài máy, [nhật ký](deploys/2026-11-18-can
 
 **Tắt:** `systemctl disable --now v7-watchdog.timer`, rồi tắt hoặc xóa check trên healthchecks.io để không báo nhầm là máy dừng. Khi bảo trì `hao` lâu thì bấm Pause trên trang của check.
 
+## Bot Zalo hỏi đáp (ZALO-BOT-01) — unit `v7-zalo-bot` và `v7-zalo-kenh` (CHƯA CHẠY)
+
+Spec: [`specs/zalo-bot.md`](../specs/zalo-bot.md). PR-1 chỉ trả câu cố định; trả lời số từ PR-2. Cài lần đầu theo [`TU-LAM-01`](decisions/tu-lam-01.md), ghi nhật ký trong `docs/deploys/`.
+
+**Vì sao hai user và chặn mạng:** API tin header `Tailscale-User-Login` từ loopback, và header đó mở được cả đường ghi. Kênh chạy zca-js (mã bên thứ ba), nên unit chặn kênh tới `127.0.0.1:8780` và dải tailnet; bộ não không nạp zca-js. Nhóm `v7zalosock` chỉ để hai tiến trình dùng chung socket. Kênh không ở nhóm `v7zalobot`, nên không đọc được danh sách người hỏi, nhật ký hay khóa API.
+
+Provision một lần (root):
+
+```bash
+useradd --system --no-create-home --shell /usr/sbin/nologin v7zalobot
+useradd --system --no-create-home --shell /usr/sbin/nologin v7zalokenh
+groupadd --system v7zalosock
+usermod -aG v7zalosock v7zalobot
+usermod -aG v7zalosock v7zalokenh
+install -d -o v7zalobot -g v7zalobot -m 0755 /srv/v7/zalo-bot        # status.json 0644 cho tab Máy chạy và máy canh
+install -d -o v7zalobot -g v7zalobot -m 0750 /srv/v7/zalo-bot/log
+install -d -o v7zalokenh -g v7zalokenh -m 0700 /srv/v7/zalo-kenh      # credentials.json, qr.png
+# setgid: socket bộ não tạo trong thư mục này mang nhóm v7zalosock, kênh nối được mà không vào nhóm v7zalobot
+printf 'd /run/v7-zalo-sock 2750 v7zalobot v7zalosock -\n' > /etc/tmpfiles.d/v7-zalo-sock.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/v7-zalo-sock.conf
+printf '{"users": []}\n' | install -o root -g v7zalobot -m 0640 /dev/stdin /etc/webdebit/zalo-bot.json
+```
+
+Danh sách người hỏi: `{"users": [{"zalo_id": "<uid>", "login": "<login Tailscale>", "role": "admin" | "user"}]}`. Lấy `<uid>` ở dòng `"outcome": "stranger"` trong `/srv/v7/zalo-bot/log/<tháng>.jsonl` sau khi người dùng nhắn nick phụ lần đầu (dòng đó có id, không có chữ tin), rồi `systemctl restart v7-zalo-bot`.
+
+Kênh chạy từ bản cài riêng `/opt/webdebit-zalo-kenh`, không theo deploy tự động: mã bên thứ ba cầm phiên nick phụ thì chỉ nâng có chủ đích.
+
+```bash
+node --version    # zca-js 2.3.0 cần Node 18 trở lên
+install -d -o root -g root -m 0755 /opt/webdebit-zalo-kenh
+cd /srv/v7/auto-releases/current/cong-no-web-handoff/tools/zalo_bot/kenh
+install -o root -g root -m 0644 package.json package-lock.json core.js zalo.js kenh.js /opt/webdebit-zalo-kenh/
+cd /opt/webdebit-zalo-kenh && npm ci --ignore-scripts --omit=dev --no-audit --no-fund
+```
+
+`/etc/systemd/system/v7-zalo-bot.service`:
+
+```ini
+[Unit]
+Description=Bot Zalo hỏi đáp: bộ não (ZALO-BOT-01)
+After=network-online.target v7-ledger-api.service
+
+[Service]
+Type=simple
+User=v7zalobot
+Group=v7zalobot
+SupplementaryGroups=v7zalosock
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=WEBDEBIT_ZALO_BOT=1
+WorkingDirectory=/srv/v7/auto-releases/current
+ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_zalo_bot.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/v7/zalo-bot /run/v7-zalo-sock
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/v7-zalo-kenh.service`:
+
+```ini
+[Unit]
+Description=Bot Zalo hỏi đáp: kênh zca-js (ZALO-BOT-01)
+Wants=network-online.target
+After=network-online.target v7-zalo-bot.service
+
+[Service]
+Type=simple
+User=v7zalokenh
+Group=v7zalokenh
+SupplementaryGroups=v7zalosock
+Environment=ZALO_KENH_SOCKET=/run/v7-zalo-sock/kenh.sock
+Environment=ZALO_KENH_STATE=/srv/v7/zalo-kenh
+Environment=ZALO_KENH_REQUIRE_SANDBOX=1
+WorkingDirectory=/opt/webdebit-zalo-kenh
+ExecStart=/usr/bin/node /opt/webdebit-zalo-kenh/kenh.js
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/v7/zalo-kenh
+UMask=0077
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Chỉ ra Internet: chặn loopback và dải tailnet (API web, Tailscale Serve), chừa máy DNS cục bộ.
+IPAddressDeny=localhost 100.64.0.0/10 fd7a:115c:a1e0::/48
+IPAddressAllow=127.0.0.53
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Trước khi bật, xem máy DNS trong `/etc/resolv.conf`: `127.0.0.53` (systemd-resolved) thì giữ như trên; `100.100.100.100` (MagicDNS của Tailscale) thì thêm đúng địa chỉ đó vào `IPAddressAllow=`. Không chừa thêm địa chỉ nào khác.
+
+<!-- du-lieu-gia: 100.100.100.100 -->
+<!-- Địa chỉ trên là IP máy DNS của Tailscale, không phải số tiền; lint dữ liệu thật đọc nhầm vì có dấu chấm. -->
+
+
+Bật và kiểm:
+
+```bash
+systemd-analyze verify /etc/systemd/system/v7-zalo-bot.service /etc/systemd/system/v7-zalo-kenh.service
+systemctl daemon-reload
+sudo -u v7zalobot python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_zalo_bot.py --check
+systemctl enable --now v7-zalo-bot v7-zalo-kenh
+journalctl -u v7-zalo-kenh -n 20 --no-pager
+```
+
+Dòng `state login_required no_credentials` là đúng khi chưa quét QR. Dòng `state sandbox_missing api_reachable` nghĩa là unit thiếu chặn mạng: kênh không đăng nhập, sửa unit rồi khởi động lại.
+
+**Quét QR** (người dùng quét bằng app Zalo của nick phụ trên điện thoại; không mở nick phụ trên Zalo Web hay Zalo PC):
+
+```bash
+sudo -u v7zalokenh touch /srv/v7/zalo-kenh/login-request
+```
+
+Trong 10 giây kênh ghi `/srv/v7/zalo-kenh/qr.png` (3 mã liền, mỗi mã 100 giây). Claude chép ảnh về cho người dùng quét; quét xong kênh lưu `credentials.json` (0600) và xóa ảnh.
+
+**Nâng kênh:** chép lại năm file như trên, `npm ci --ignore-scripts --omit=dev`, `systemctl restart v7-zalo-kenh`. Đổi bản zca-js thì đọc diff thư viện trước. Bộ não tự thoát khi `current` đổi, systemd chạy lại bằng mã mới.
+
+**Hoàn tác:** `systemctl disable --now v7-zalo-kenh v7-zalo-bot`, xóa hai unit và `/etc/tmpfiles.d/v7-zalo-sock.conf`, `rm -rf /srv/v7/zalo-kenh` (file đăng nhập nick phụ).
+
 ## Lưới an toàn (LUOI-AN-TOAN-01) — nâng DB và drop-in cho máy canh
 
 ĐÃ CHẠY trên `hao` 18/11/2026 ([nhật ký](deploys/2026-11-18-luoi-an-toan.md)).
