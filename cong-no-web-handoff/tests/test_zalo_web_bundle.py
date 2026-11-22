@@ -106,12 +106,18 @@ def write_extras(directory: Path) -> None:
         (directory / name).write_text(json.dumps(value), encoding="utf-8")
 
     put("quote-index.json", {"items": {"q1": "m1", "m7": "m1", "q2": "m1"}})
-    put("reaction-index.json", {"palette": {"0": "/-heart", "1": "/-strong"}, "items": {
-        # {người thả: {khóa phụ: rType}}: BAN thả tim hai lần vẫn là một người; rType 99 không có trong palette thì bỏ.
-        "m1": {"conversation_id": GROUP, "reactions": {KHACH: {"t1": 0}, BAN: {"t1": 0, "t2": 0, "t3": 1}, OWNER: {"t1": 99}}},
-        "m7": {"conversation_id": GROUP, "reactions": {KHACH: {"t1": 0}}},
-        "q2": {"conversation_id": GROUP, "reactions": {KHACH: {"t1": 1}}},
-        "m2": {"conversation_id": OTHER, "reactions": {BAN: {"t1": 0}}}}})   # ghi hội thoại khác với tin: bỏ
+    # Khuôn thật (đo 22/11/2026): {người thả: {loại cảm xúc (viewer đã băm): số lần bấm}}; palette {rType: mã cảm xúc}. Khóa loại
+    # học từ tin chỉ có một loại (khi đó `last_react_icon` là loại đó): "kH" = tim, "kL" = like; "kX" chỉ hai tin nên không nhận,
+    # "kC" hai tin tim hai tin like nên không nhận. BAN bấm tim ba lần và like một lần vẫn là một người cho mỗi loại.
+    learn = {f"l{kind}{i}": {"conversation_id": OTHER, "reactions": {BAN: {kind: 1 + i}}, "last_react_icon": icon}
+             for kind, icon, times in (("kH", 5, 3), ("kL", 3, 4), ("kX", 0, 2)) for i in range(times)}
+    learn |= {f"lkC{i}": {"conversation_id": OTHER, "reactions": {BAN: {"kC": 1}}, "last_react_icon": 5 if i % 2 else 3} for i in range(4)}
+    put("reaction-index.json", {"palette": {"5": "/-heart", "3": "/-strong", "0": ":>", "1": "--b"}, "items": {
+        "m1": {"conversation_id": GROUP, "reactions": {KHACH: {"kH": 1}, BAN: {"kH": 3, "kL": 1}, OWNER: {"kX": 1, "kC": 1}},
+               "last_react_icon": 5},
+        "m7": {"conversation_id": GROUP, "reactions": {KHACH: {"kH": 1}}},
+        "q2": {"conversation_id": GROUP, "reactions": {KHACH: {"kL": 1}}},
+        "m2": {"conversation_id": OTHER, "reactions": {BAN: {"kH": 1}}}, **learn}})   # m2 ghi hội thoại khác với tin: bỏ
     put("sticker-index.json", {"items": {"7:42": {"cate_id": 7, "sticker_id": 42, "files": [
         {"name": "ten-trong-chi-muc", "sha256": sha(STICKER_PNG), "bytes": len(STICKER_PNG), "mime": "image/png"}]}}})
     put("avatar-index.json", {"items": {

@@ -62,6 +62,8 @@ CARDS = {(6, "recommened.link"): "link", (6, "recommened.misscall"): "missed_cal
          (6, "recommened.user"): "contact", (25, "show.profile"): "contact", (52, "zinstant.bankcard"): "bank_card",
          (-1909, "msginfo.actionlist"): "system", **{(26, action): "poll" for action in ("vote", "create", "update", "close")}}
 MAX_REACTIONS = 20
+REACTION_SAMPLES = 3     # khóa loại cảm xúc cần ít nhất chừng này tin một loại để nhận ra (Extras.reaction_kinds)
+REACTION_AGREE = 0.9     # và chừng này phần các tin đó cùng một rType
 AVATAR_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/jxl": ".jxl"}
 
 
@@ -411,6 +413,11 @@ def wants_media(row: dict, media: Media) -> bool:
     return row.get("message_type") in MEDIA_TYPES or row.get("client_message_id") in media.local
 
 
+def tapped(count: object) -> bool:
+    """Giá trị trong `reactions` của viewer là số lần bấm một loại cảm xúc: chỉ số nguyên dương mới tính."""
+    return isinstance(count, int) and not isinstance(count, bool) and count > 0
+
+
 class Extras:
     """Trích dẫn, cảm xúc, sticker, avatar từ chỉ mục phụ của viewer (chỉ đọc; mỗi file nạp lười một lần)."""
 
@@ -446,19 +453,47 @@ class Extras:
         if clean.get("card"):
             self.counts["cards"] += 1
 
+    def reaction_kinds(self) -> dict[str, str]:
+        """{khóa loại cảm xúc (viewer đã băm): mã cảm xúc trong palette}.
+
+        `reactions` của viewer là {người thả: {loại cảm xúc: số lần bấm}} — đo 22/11/2026 trên 10.896 tin: "người thả cuối" nằm ở
+        tầng ngoài 10.876 lần; tầng trong chỉ có 6 khóa (6 cảm xúc mặc định của Zalo); giá trị phân bố như số lần bấm (1 nhiều nhất).
+        Viewer băm cả khóa loại, nên khóa → loại học từ các tin chỉ có MỘT loại: khi đó `last_react_icon` (rType) chính là loại đó
+        (đo: 6 khóa khớp 6 rType, đồng ý ≥ 99,8%). Chỉ nhận khi có ít nhất `REACTION_SAMPLES` tin và `REACTION_AGREE` đồng ý; khóa
+        không học được thì cảm xúc đó không hiện (không đoán)."""
+        if "_reaction_kinds" not in self.loaded:
+            palette = as_dict(self.index("reaction-index.json").get("palette"))
+            votes: dict[str, dict[int, int]] = {}
+            for item in self.items("reaction-index.json").values():
+                users = item.get("reactions") if isinstance(item, dict) else None
+                icon = item.get("last_react_icon") if isinstance(item, dict) else None
+                if not isinstance(users, dict) or not isinstance(icon, int) or isinstance(icon, bool) or str(icon) not in palette:
+                    continue
+                kinds = {kind for taps in users.values() if isinstance(taps, dict) for kind, count in taps.items() if tapped(count)}
+                if len(kinds) == 1:
+                    kind = kinds.pop()
+                    votes.setdefault(kind, {})[icon] = votes.get(kind, {}).get(icon, 0) + 1
+            learned = {}
+            for kind, tally in votes.items():
+                icon, best = max(tally.items(), key=lambda pair: (pair[1], -pair[0]))
+                code = palette.get(str(icon))
+                if best >= REACTION_SAMPLES and best >= REACTION_AGREE * sum(tally.values()) and isinstance(code, str) and 0 < len(code) <= 16:
+                    learned[kind] = code
+            self.loaded["_reaction_kinds"] = learned
+        return self.loaded["_reaction_kinds"]
+
     def reactions(self, row: dict) -> list[dict] | None:
-        """[{emoji, count}]: mỗi người thả tính một lần cho mỗi emoji, nhiều người trước; không giữ ai thả."""
+        """[{emoji, count}]: mỗi người thả tính một lần cho mỗi loại cảm xúc, nhiều người trước; không giữ ai thả."""
         item = self.items("reaction-index.json").get(row.get("message_id")) if isinstance(row.get("message_id"), str) else None
         if (not isinstance(item, dict) or not isinstance(item.get("reactions"), dict)
                 or item.get("conversation_id", row.get("conversation_id")) != row.get("conversation_id")):
             return None
-        palette = as_dict(self.index("reaction-index.json").get("palette"))
+        kinds = self.reaction_kinds()
         people: dict[str, int] = {}
-        for targets in item["reactions"].values():   # {người thả: {khóa phụ: rType}}; palette: {rType: emoji} (như viewer)
-            icons = targets.values() if isinstance(targets, dict) else ()
-            for emoji in {palette.get(str(icon)) for icon in icons if isinstance(icon, int) and not isinstance(icon, bool)}:
-                if isinstance(emoji, str) and 0 < len(emoji) <= 16:
-                    people[emoji] = people.get(emoji, 0) + 1
+        for taps in item["reactions"].values():   # {người thả: {loại cảm xúc: số lần bấm}}
+            for code in {kinds.get(kind) for kind, count in taps.items() if tapped(count)} if isinstance(taps, dict) else ():
+                if code is not None:
+                    people[code] = people.get(code, 0) + 1
         ranked = sorted(people.items(), key=lambda pair: (-pair[1], pair[0]))[:MAX_REACTIONS]
         return [{"emoji": emoji, "count": count} for emoji, count in ranked] or None
 
