@@ -2302,6 +2302,33 @@ Trong 10 giây kênh ghi `/srv/v7/zalo-kenh/qr.png` (3 mã liền, mỗi mã 100
 
 **Nâng kênh:** chép lại năm file như trên, `npm ci --ignore-scripts --omit=dev`, `systemctl restart v7-zalo-kenh`. Đổi bản zca-js thì đọc diff thư viện trước. Bộ não tự thoát khi `current` đổi, systemd chạy lại bằng mã mới.
 
+**Bật trả lời bằng model (PR-2b)** — chỉ sau P0, khi người dùng đã chốt Q1 (model), Q4 (trần chi phí) và Q5 (dữ liệu gửi Anthropic):
+
+```bash
+apt-get install -y python3-venv                  # hao chưa có ensurepip
+python3 -m venv /opt/webdebit-zalo-bot/venv
+/opt/webdebit-zalo-bot/venv/bin/pip install --require-hashes --no-deps \
+  -r /srv/v7/auto-releases/current/cong-no-web-handoff/tools/zalo_bot/requirements.txt
+install -o root -g root -m 0600 /dev/null /etc/webdebit/zalo-bot.env
+```
+
+Người dùng tự gõ khóa API vào terminal của mình (không dán vào chat): `sudo sh -c 'read -rs k; printf "ANTHROPIC_API_KEY=%s\n" "$k" > /etc/webdebit/zalo-bot.env'`. File 0600 chủ root: systemd đọc rồi đưa vào biến môi trường của tiến trình; user của bộ não không đọc được file.
+
+Drop-in `/etc/systemd/system/v7-zalo-bot.service.d/model.conf`:
+
+```ini
+[Service]
+EnvironmentFile=/etc/webdebit/zalo-bot.env
+Environment=WEBDEBIT_ZALO_BOT_MODEL=<model chốt ở Q1>
+Environment=WEBDEBIT_ZALO_BOT_EFFORT=medium
+Environment=WEBDEBIT_ZALO_BOT_CAP_USD=<trần chốt ở Q4>
+Environment=WEBDEBIT_ZALO_BOT_LINK_BASE=https://<địa chỉ Tailscale Serve của web>
+ExecStart=
+ExecStart=/opt/webdebit-zalo-bot/venv/bin/python /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_zalo_bot.py
+```
+
+Rồi `systemctl daemon-reload`, chạy `--check` bằng python của venv (in model, mức suy nghĩ, trần), `systemctl restart v7-zalo-bot`. Tắt model mà vẫn giữ bot: xóa drop-in, `daemon-reload`, `restart` (bot về câu cố định). Đặt thêm trần chi tiêu cho khóa ở trang của Anthropic.
+
 **Hoàn tác:** `systemctl disable --now v7-zalo-kenh v7-zalo-bot`, xóa hai unit và `/etc/tmpfiles.d/v7-zalo-sock.conf`, `rm -rf /srv/v7/zalo-kenh` (file đăng nhập nick phụ).
 
 ## Lưới an toàn (LUOI-AN-TOAN-01) — nâng DB và drop-in cho máy canh

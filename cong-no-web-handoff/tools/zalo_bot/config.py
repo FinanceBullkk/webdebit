@@ -23,12 +23,20 @@ USERS_ENV = "WEBDEBIT_ZALO_BOT_USERS"
 SOCKET_ENV = "WEBDEBIT_ZALO_BOT_SOCKET"
 STATE_ENV = "WEBDEBIT_ZALO_BOT_STATE"
 RELEASE_ENV = "WEBDEBIT_ZALO_BOT_RELEASE"
+MODEL_ENV = "WEBDEBIT_ZALO_BOT_MODEL"            # trống: chưa gọi model, trả câu cố định (PR-1)
+EFFORT_ENV = "WEBDEBIT_ZALO_BOT_EFFORT"
+CAP_ENV = "WEBDEBIT_ZALO_BOT_CAP_USD"            # trần chi phí ngày (Q4), USD
+LINK_ENV = "WEBDEBIT_ZALO_BOT_LINK_BASE"         # gốc link trang web (địa chỉ Tailscale Serve), không ghi vào repo
+API_ENV = "WEBDEBIT_ZALO_BOT_API"
 USERS_FILE = "/etc/webdebit/zalo-bot.json"
 SOCKET_FILE = "/run/v7-zalo-sock/kenh.sock"
 STATE_DIR = "/srv/v7/zalo-bot"
 RELEASE_LINK = "/srv/v7/auto-releases/current"
 ROLES = ("admin", "user")
 LOGIN = re.compile(r"^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}$")
+MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")   # phải trùng bảng giá ở budget.py
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+LINK = re.compile(r"^https://[A-Za-z0-9.-]{1,253}(:\d{1,5})?$")
 
 
 class ConfigError(ValueError):
@@ -49,6 +57,11 @@ class Config:
     socket: Path
     state_dir: Path
     release_link: Path
+    model: str | None = None
+    effort: str = "medium"
+    cap_usd: int = 3
+    link_base: str = ""
+    api_base: str = "http://127.0.0.1:8780"
 
     @property
     def status_file(self) -> Path:
@@ -64,10 +77,24 @@ class Config:
 
 
 def from_env(env: dict[str, str] | None = None) -> Config:
+    """Đọc cấu hình từ biến môi trường của unit. Giá trị sai: `ConfigError` (không chạy với cấu hình đoán)."""
     env = os.environ if env is None else env
+    model = env.get(MODEL_ENV) or None
+    if model is not None and model not in MODELS:
+        raise ConfigError("model_unknown")
+    effort = env.get(EFFORT_ENV) or "medium"
+    if effort not in EFFORTS:
+        raise ConfigError("effort_unknown")
+    cap = env.get(CAP_ENV) or "3"
+    if not cap.isdigit() or not 1 <= int(cap) <= 100:
+        raise ConfigError("cap_usd")
+    link = env.get(LINK_ENV) or ""
+    if link and not LINK.fullmatch(link):
+        raise ConfigError("link_base")
     return Config(enabled=env.get(ENABLED_ENV) == "1", users_file=Path(env.get(USERS_ENV) or USERS_FILE),
                   socket=Path(env.get(SOCKET_ENV) or SOCKET_FILE), state_dir=Path(env.get(STATE_ENV) or STATE_DIR),
-                  release_link=Path(env.get(RELEASE_ENV) or RELEASE_LINK))
+                  release_link=Path(env.get(RELEASE_ENV) or RELEASE_LINK), model=model, effort=effort, cap_usd=int(cap),
+                  link_base=link, api_base=env.get(API_ENV) or "http://127.0.0.1:8780")
 
 
 def load_users(path: Path) -> dict[str, User]:

@@ -32,6 +32,7 @@ class Outcome:
     counter: str
     commands: list[bytes] = field(default_factory=list)
     log: dict | None = None
+    ask: User | None = None      # có model: câu hỏi chờ bộ não tra (brain.Service.answer), chưa có câu trả lời
 
 
 class Memory:
@@ -73,10 +74,11 @@ class Memory:
 
 
 class Brain:
-    def __init__(self, users: dict[str, User], *, enabled: bool, memory: Memory, run_id: str | None = None):
+    def __init__(self, users: dict[str, User], *, enabled: bool, memory: Memory, run_id: str | None = None, answering: bool = False):
         self.users = users
         self.enabled = enabled
         self.memory = memory
+        self.answering = answering      # có model (PR-2b): câu hỏi chữ được tra, thay cho câu cố định
         self.run_id = run_id or format(int(time.time()), "x")
         self._sent: dict[str, collections.deque[float]] = collections.defaultdict(collections.deque)
         self._refs = 0
@@ -107,7 +109,15 @@ class Brain:
             return Outcome("not_private", log={**base, "outcome": "not_private"})
         if not self.enabled:
             return Outcome("disabled", log={**base, "outcome": "disabled"})
-        if now - msg.ts_ms / 1000 > STALE_SECONDS:
+        fresh = now - msg.ts_ms / 1000 <= STALE_SECONDS
+        if self.answering and fresh and msg.kind == "text":
+            opening: list[bytes] = []
+            if msg.from_id not in self.memory.greeted:
+                self.memory.greeted.add(msg.from_id)
+                if self._allow(msg.thread_id, now):
+                    opening.append(protocol.send(self._ref(), msg.thread_id, GREETING, msg.msg_id))
+            return Outcome("ask", [*opening, protocol.typing(msg.thread_id)], ask=user)
+        if not fresh:
             outcome, replies = "late", [LATE]
         elif msg.kind == "image":
             outcome, replies = "image", [NO_IMAGE]
@@ -127,3 +137,12 @@ class Brain:
         question = msg.text if msg.kind == "text" else None
         return Outcome(outcome, commands, {**base, "outcome": outcome, "question": question, "truncated": msg.truncated,
                                            "replies": len(commands)})
+
+    def reply(self, msg: protocol.Message, text: str, now: float) -> tuple[list[bytes], bool]:
+        """Câu trả lời đã kiểm → lệnh gửi (tách tin dài, trích câu hỏi ở tin đầu). `False` nếu bị giới hạn 6 tin/phút cắt."""
+        commands: list[bytes] = []
+        for part in protocol.split_text(text):
+            if not self._allow(msg.thread_id, now):
+                return commands, False
+            commands.append(protocol.send(self._ref(), msg.thread_id, part, None if commands else msg.msg_id))
+        return commands, True
