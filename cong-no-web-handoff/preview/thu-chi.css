@@ -50,14 +50,16 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-day > header{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:8px 14px;background:var(--head);border-bottom:1px solid var(--line)}
 .tc-day h3{margin:0;font-size:15px}
 .tc-day .sums{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums}
-.tc-row{display:grid;grid-template-columns:52px minmax(0,1.1fr) 56px 120px minmax(0,1.4fr) minmax(0,1.6fr) 236px;gap:4px 14px;align-items:start;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
+.tc-row{display:grid;grid-template-columns:52px minmax(0,1.4fr) 56px 120px minmax(0,1.3fr) minmax(0,1.4fr) 236px;gap:4px 14px;align-items:start;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
 .tc-row:last-child{border-bottom:0}
 .tc-row.is-new{animation:tc-new 8s ease-out}
 @keyframes tc-new{from{background:#fff1b8}to{background:#fff}}
 @media (prefers-reduced-motion:reduce){.tc-row.is-new{animation:none;background:#fffbe8}}
 .tc-time{color:var(--ink-3);font-variant-numeric:tabular-nums}
 .tc-who{min-width:0}
-.tc-who b,.tc-who small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tc-who small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Tên người gửi xuống tối đa hai dòng thay vì cắt cụt sau vài chữ: đọc được tên đầy đủ mà hàng không cao quá. */
+.tc-who b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 .tc-who small,.tc-text{color:var(--ink-3);font-size:12.5px}
 .tc-kind{display:inline-block;min-width:44px;padding:1px 8px;border-radius:10px;font-size:12.5px;font-weight:800;text-align:center}
 .tc-kind.thu{background:var(--credit-soft);color:var(--credit)}

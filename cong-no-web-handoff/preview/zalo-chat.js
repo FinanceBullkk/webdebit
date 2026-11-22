@@ -61,10 +61,20 @@
     }
   }
 
+  // Trang nằm dưới Sổ khách (NHAC-NO-01), nhưng mở từ Thu chi thì nút quay lại về Thu chi (`?from=thu-chi`, giữ khi đổi hội thoại).
+  const FROM = { 'thu-chi': ['/thu-chi.html', '← Thu chi'] };
+  const asked = new URLSearchParams(location.search).get('from') ?? '';
+  const from = Object.hasOwn(FROM, asked) ? asked : '';
+  if (from) {
+    const back = document.querySelector('a.back');
+    [back.href, back.textContent] = FROM[from];
+  }
+
   function setUrl() {
     const params = new URLSearchParams();
     if (state.filter) params.set('q', state.filter);
     if (state.selected) params.set('c', state.selected);
+    if (from) params.set('from', from);
     const next = params.toString() ? `?${params}` : location.pathname;
     try { history.replaceState(null, '', next); } catch { /* trang mở từ file:// thì bỏ qua */ }
   }
@@ -151,12 +161,31 @@
       + `<span class="q-who">↩ ${esc(who)}</span><span class="q-text">${esc(text)}</span></button>`;
   }
 
+  // Zalo lưu cảm xúc bằng mã chữ (bảng `live_emoji` của Zalo PC: "/-heart", "--b"…); gói chat giữ nguyên mã, màn đổi ra hình.
+  const REACTION_EMOJI = {
+    '/-heart': '❤️', '/-strong': '👍', '/-weak': '👎', ':>': '😆', ':o': '😮', ':-((': '😢', ':-h': '😡', ':-*': '😘', ":')": '😂',
+    '--b': '😞', ':((': '😭', '/-break': '💔', '/-rose': '🌹', '/-fade': '🥀', '/-shit': '💩', ';xx': '😍', ';-/': '😕', ';-)': '😉',
+    '/-li': '☀️', '/-bd': '🎂', '/-bome': '💣', '/-ok': '👌', '/-v': '✌️', '/-thanks': '🙏', '_()_': '🙏', '/-punch': '👊',
+    '/-loveu': '🤟', 'x-)': '😎', 'b-)': '😎', '8-)': '🤓', ';-d': '😁', ':d': '😃', ':)': '🙂', ':(': '🙁', ':p': '😛', ';p': '😜',
+    ':|': '😐', ':--|': '😐', 'p-(': '☹️', ':-bye': '👋', '|-)': '😴', ':wipe': '😓', ':handclap': '👏', '>-|': '😠', ';-x': '🤐',
+    ':-o': '😯', ';-s': '😳', ';-a': '😨', ':-<': '😟', ':))': '🤣', '$-)': '🤑',
+  };
+  // Mã chưa có trong bảng thì hiện một hình chung, không bao giờ hiện mã thô; giá trị đã là emoji (🎄…) thì giữ.
+  function reactionEmoji(code) {
+    const value = String(code ?? '');
+    if (REACTION_EMOJI[value]) return { emoji: REACTION_EMOJI[value], known: true };
+    return /^[\x20-\x7e]*$/.test(value) ? { emoji: '🙂', known: false } : { emoji: value, known: true };
+  }
+
   // Cảm xúc: mỗi biểu tượng một chip kèm số người thả (máy chủ đã đếm người, không đếm lần bấm, không ghi ai thả).
   function reactionsHtml(message) {
     const rows = message.reactions ?? [];
     if (!rows.length) return '';
-    return `<div class="reacts">${rows.map(row => `<span class="react" title="${esc(`${number(row.count)} người thả ${row.emoji}`)}">`
-      + `${esc(row.emoji)}${row.count > 1 ? `<b>${number(row.count)}</b>` : ''}</span>`).join('')}</div>`;
+    return `<div class="reacts">${rows.map(row => {
+      const { emoji, known } = reactionEmoji(row.emoji);
+      const title = known ? `${number(row.count)} người thả ${emoji}` : `${number(row.count)} người thả một cảm xúc khác`;
+      return `<span class="react" title="${esc(title)}">${esc(emoji)}${row.count > 1 ? `<b>${number(row.count)}</b>` : ''}</span>`;
+    }).join('')}</div>`;
   }
 
   function stickerHtml(message) {
