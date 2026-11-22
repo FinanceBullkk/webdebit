@@ -159,7 +159,7 @@ class Service:
         user = self._admin()
         if user is None:
             return
-        failed = await asyncio.to_thread(tools.self_check, self.api, user, self.clock())
+        failed = await asyncio.to_thread(tools.self_check, self.api, user, self.clock(), self.cfg.docs_root)
         self.tool_check = {"at": state.now_iso(self.clock()), "failed": failed}
         self.write_status()
 
@@ -255,7 +255,7 @@ def make_answerer(cfg: config.Config) -> model.Answerer | None:
     except ImportError:
         raise config.ConfigError("sdk_missing") from None
     return model.Answerer(client, model=cfg.model, effort=cfg.effort, budget=Budget(cfg.state_dir / "budget.json", cfg.cap_usd),
-                          api=WebApi(cfg.api_base), link_base=cfg.link_base)
+                          api=WebApi(cfg.api_base), link_base=cfg.link_base, docs_root=cfg.docs_root)
 
 
 async def serve(cfg: config.Config, users: dict[str, config.User], *, ready: Callable[[Service], None] | None = None,

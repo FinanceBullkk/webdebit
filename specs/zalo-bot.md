@@ -158,10 +158,11 @@ hao: v7-zalo-bot (Python; user riêng; không nạp zca-js)
   - Mỗi công cụ gọi một endpoint đọc có sẵn của API trên `hao` và rút gọn kết quả còn các trường cần.
   - Mỗi kết quả kèm `as_of` (giờ dữ liệu), `trang`, `link` và `doi_soat` (trạng thái khớp Sheet). Mỗi kết quả tối đa khoảng 12 KB; dài hơn thì trả phần đầu, tổng số dòng và gợi ý lọc.
   - Danh sách ở [bảng công cụ tầng A](#bảng-công-cụ-tầng-a).
-- **Tầng B: tra quy tắc và tài liệu (PR-3).**
-  - Tìm theo từ khóa trong `docs/business-rules.md`, `docs/decisions/*.md`, `specs/*.md` và tài liệu UX của bản đang chạy trên `hao`.
-  - Trả đoạn văn kèm mã quyết định.
-  - Dùng cho câu hỏi "vì sao", "luật là gì", "trang này dùng làm gì", "làm thế nào để...".
+- **Tầng B: tra quy tắc và tài liệu (PR-3b), công cụ `tra_tai_lieu` cho mọi quyền.**
+  - Tìm theo từ khóa, không cần dấu, trong `docs/business-rules.md`, `docs/decisions.md`, `docs/decisions/*.md` và `specs/*.md` của bản phát hành đang chạy. Gói deploy chép thêm các file này lên `hao` ([hao-auto-deploy](../docs/hao-auto-deploy.md)); chỉ đọc, không chạy.
+  - Trả tối đa 5 đoạn văn (mỗi đoạn tối đa 800 ký tự), kèm file nguồn, mục gần nhất và mã quyết định. Không gọi API, không tốn lượt tra dữ liệu.
+  - Dùng cho câu hỏi "vì sao", "luật là gì", "trang này dùng làm gì", "làm thế nào để...". Quyết định ĐỀ XUẤT hay CÒN MỞ trong tài liệu chưa là chính sách: kết quả ghi rõ điều này.
+  - Tài liệu UX chưa có trong gói; thêm khi cần.
 - **Tầng C: truy vấn tự do chỉ đọc (PR-4), chỉ làm sau khi tầng A và B đạt số đo.**
   - Role PostgreSQL riêng `v7_bot_ro`, chỉ được SELECT trên schema `bot` gồm các view có chú thích tiếng Việt. Trên `hao`, role đăng nhập của app hiện chỉ có `v7_app` (ghi được), nên phải tạo role mới.
   - Giao dịch chỉ đọc, `statement_timeout` 5 giây, tối đa 200 dòng.
@@ -305,7 +306,7 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
 - **PR-2a, công cụ + kiểm số:** 17 công cụ tầng A trên API thật qua lớp HTTP chỉ GET, bộ kiểm số có điền số bằng tham chiếu, công cụ tính chỉ nhận số đã có trong kết quả công cụ, trần chi phí theo ngày. Test với API giả. Chưa gọi model.
 - **PR-2b, vòng gọi model:** SDK chính thức trong venv riêng có khóa hash, vòng gọi công cụ, kiểm số rồi gửi, nối vào bộ não. Test với model giả (kịch bản gọi công cụ). Bật cho người dùng sau P0 và khi người dùng đã chốt Q4, Q5.
 - **PR-3, ngữ cảnh + tự kiểm:** nhớ 10 lượt trong 2 giờ, "mới" xóa ngữ cảnh, tự kiểm công cụ mỗi sáng và báo qua máy canh.
-- **PR-3b, tầng B:** tra quy tắc và tài liệu. Tài liệu chưa có trên `hao` (deploy chỉ chép `cong-no-web-handoff/`), nên PR này phải chọn cách đưa tài liệu lên.
+- **PR-3b, tầng B:** công cụ `tra_tai_lieu`. Gói deploy chép thêm luật nghiệp vụ, sổ quyết định và spec lên `hao` để bot đọc tại chỗ, không phụ thuộc mạng ngoài; tự kiểm mỗi sáng kiểm cả công cụ này.
 - **PR-3c, bộ câu hỏi mẫu + biểu đồ:** câu mẫu có đáp án tính bằng API, chạy khi đổi model, lời dặn hay công cụ (người dùng đồng ý chi phí từng lần); biểu đồ gửi dạng ảnh.
 - **PR-4, tầng C:** spec con, migration role và schema `bot`, harness PostgreSQL.
 - **PR-5, mở rộng** (mỗi mục hỏi người dùng trước):

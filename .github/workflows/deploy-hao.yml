@@ -84,7 +84,9 @@ jobs:
         id: deploy
         if: steps.diff.outputs.skip != '1'
         run: |
+          # docs và specs/*.md: công cụ tra tài liệu của bot Zalo (ZALO-BOT-01 tầng B) đọc tại bản phát hành; chỉ đọc, không chạy.
           git archive "$SHA" specs/v7-backend/schema-draft.sql cong-no-web-handoff/tools cong-no-web-handoff/web cong-no-web-handoff/preview \
+              docs/business-rules.md docs/decisions.md docs/decisions ':(glob)specs/*.md' \
             | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_TARGET" "deploy $SHA"
 
       # Nhật ký triển khai nằm ở đây và ở tab Environments → hao, không mở PR tài liệu chỉ để ghi "đã triển khai".
