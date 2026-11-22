@@ -400,7 +400,7 @@ def now_view(now: float | None = None) -> dict[str, Any]:
     folder = base_dir()
     rows = jobs(now)
     return {"now": datetime.fromtimestamp(now, VN).isoformat(timespec="seconds"), "run": _current_run(folder, rows, now),
-            "jobs": rows, "office": _office(folder, now), "zalo": zalo(now)}
+            "jobs": rows, "office": _office(folder, now), "zalo": zalo(now), "zalo_bot": zalo_bot(now)}
 
 
 def view(now: float | None = None) -> dict[str, Any]:

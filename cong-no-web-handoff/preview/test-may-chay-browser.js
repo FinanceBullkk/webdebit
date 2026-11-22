@@ -304,6 +304,24 @@ for (const [name, viewport] of [['1280×720', { width: 1280, height: 720 }], ['3
   });
 }
 
+// ZALO-BOT-01: nhóm "Bot Zalo hỏi đáp", ẩn hẳn khi chưa cài bot; cùng kiểu dòng với "Máy Zalo".
+const botView = (over = {}) => ({ state: 'ok', at: at(9, 39), silent_minutes: 1, enabled: true, kenh: 'online', kenh_code: null, kenh_minutes: 30,
+  error: null, counts: { answered: 4 }, ...over });
+const botRows = page => page.locator('#bot-rows li').allInnerTexts().then(rows => rows.map(row => row.replace(/\s+/g, ' ').trim()));
+
+for (const [name, viewport] of [['1280×720', { width: 1280, height: 720 }], ['390px', { width: 390, height: 780 }]]) {
+  test(`Máy chạy (${name}): nhóm "Bot Zalo" ẩn khi chưa cài bot, hiện câu thường khi bộ não báo về`, async () => {
+    await withPage({ data: () => base() }, async page => {
+      assert.equal(await page.locator('#bot').isHidden(), true);
+    }, viewport);
+    await withPage({ data: () => ({ ...base(), zalo_bot: botView({ kenh: 'login_required', kenh_minutes: 25 }) }) }, async page => {
+      assert.equal(await page.locator('#bot-head').innerText(), 'Bot Zalo báo lúc 09:39');
+      assert.deepEqual(await botRows(page), ['Nick phụ Cần quét QR đăng nhập lại (25 phút)', 'Hôm nay 4 câu đã trả lời']);
+      assert.deepEqual(await noOverflow(page), []);
+    }, viewport);
+  });
+}
+
 test('Máy chạy: nhóm "Máy Zalo" đổi theo lượt hỏi kế tiếp, không cần tải lại trang', () => {
   let zalo = zaloView();
   return withPage({ data: () => ({ ...base(), zalo }) }, async page => {

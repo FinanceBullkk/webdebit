@@ -211,8 +211,10 @@ class MachineTests(unittest.TestCase):
 
     def test_zalo_missing_file_is_not_an_error(self):
         self.assertEqual(machine.zalo(), {"state": "missing"})
-        view = machine.now_view()
+        with mock.patch.dict(os.environ, {"WEBDEBIT_ZALO_BOT_STATUS": str(self.dir / "khong-co-bot.json")}):
+            view = machine.now_view()
         self.assertEqual(view["zalo"], {"state": "missing"})
+        self.assertEqual(view["zalo_bot"], {"state": "missing"})     # ZALO-BOT-01: chưa cài bot thì nhóm "Bot Zalo" ẩn
         self.assertEqual(machine.summary()["zalo"], {"state": "missing"})
 
     def test_zalo_reads_processors_in_fixed_order(self):
