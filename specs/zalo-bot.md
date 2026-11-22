@@ -128,7 +128,7 @@ hao: v7-zalo-bot (Python; user riêng; không nạp zca-js)
 - **Model:** Claude qua Anthropic API, chọn bằng số đo (Q1):
   - chạy bộ câu hỏi mẫu trên `claude-haiku-5-5`, `claude-sonnet-5-5` và `claude-opus-5-5`; người dùng chọn model rẻ nhất không sai số tiền nào. Claude không tự hạ hay nâng model;
   - mức suy nghĩ (`effort`) đặt rõ rồi chỉnh theo số đo;
-  - Sonnet 5.5 và Opus 5.5 bật dự phòng khi model từ chối (`fallbacks`): API tự chạy lại bằng model dự phòng, nhật ký ghi model nào đã trả lời. Haiku 5.5 không có dự phòng phía máy chủ.
+  - PR-2b chưa dùng dự phòng phía máy chủ khi model từ chối (`fallbacks`, đang beta, phải gửi kèm khối dự phòng ở các lượt sau): câu hỏi công nợ hiếm khi bị từ chối; bị từ chối thì bot trả câu cố định và nhật ký ghi lại. Xét lại khi có số đo.
 - **Vòng gọi công cụ chạy trên `hao`, gọi Messages API** (Q2):
   - công cụ phải chạy trên `hao` vì API web chỉ nghe ở `127.0.0.1`;
   - bot giữ vòng thì chèn được bước kiểm số trước khi gửi;
@@ -220,8 +220,7 @@ Chỗ thiếu đã biết:
 - Tách mọi con số trong bản đã điền: tiền (đồng, nghìn, triệu, tỷ), số đếm, ngày và tháng.
 - **Mỗi số tiền phải bằng đúng một giá trị** trong kết quả công cụ hoặc công cụ tính của câu hỏi đó.
   - Số làm tròn ("khoảng 1,2 tỷ") phải đúng bằng một giá trị đó làm tròn theo đơn vị ghi, và phải có chữ "khoảng".
-- Câu có số mà thiếu dòng nguồn hoặc giờ dữ liệu thì bị trả lại để sửa.
-- Công cụ báo khách đang lệch Sheet hoặc đối soát đã cũ thì câu trả lời phải có câu cảnh báo; máy kiểm việc này.
+- **Dòng nguồn và cảnh báo do bot thêm, không do model viết** (PR-2b): từ các kết quả công cụ được trỏ tới, bot ghi trang nguồn, giờ dữ liệu, khớp Sheet hay chưa, link mở trang; khách đang lệch Sheet, chưa có trong lượt đối soát hay đối soát đã cũ thì bot thêm dòng "Lưu ý" kèm số lệch và lý do máy đoán. Nhờ vậy câu trả lời không thể thiếu nguồn hay quên cảnh báo.
 - **Khi kiểm sai:**
   1. Trả bản nháp về model một lần, kèm lỗi.
   2. Vẫn sai thì gửi "Chưa chắc số này, xem trên web: <link>", và ghi lượt đó vào danh sách cần xem.
