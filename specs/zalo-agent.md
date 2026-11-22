@@ -305,12 +305,12 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 - Trường thêm của dòng tin (21/11/2026; gói và delta như nhau; thiếu khóa nghĩa là không có):
   - `card`: mã thẻ suy từ `msgType` và `action` của Zalo: `link`, `missed_call`, `call`, `contact`, `poll`, `bank_card`, `system`. Là phần làm sạch nên dòng tin xóa cũng có;
   - `quote_id`: `message_id` của tin được trích dẫn, cùng hội thoại (từ `quote-index.json` của viewer);
-  - `reactions`: `[{"emoji": "<chuỗi 1–16 ký tự>", "count": <số người>}]`, tối đa 20, nhiều người trước. Đếm người, không đếm lần bấm, không ghi ai thả;
+  - `reactions`: `[{"emoji": "<chuỗi 1–16 ký tự>", "count": <số người>}]`, tối đa 20, nhiều người trước. Đếm người, không đếm lần bấm, không ghi ai thả. `emoji` là mã chữ của Zalo (`/-heart`, `/-strong`, `:>`…; trang Chat đổi ra hình). `reactions` của viewer là `{người thả: {loại cảm xúc: số lần bấm}}`, viewer băm cả khóa loại; bộ dựng học khóa → loại từ các tin chỉ có một loại (`last_react_icon` của tin đó), cần ít nhất 3 tin và 90% đồng ý, khóa không học được thì bỏ (đo 22/11/2026: 6 khóa = 6 cảm xúc mặc định của Zalo, đồng ý ≥ 99,8%; trước đó bộ dựng lấy nhầm số lần bấm làm loại nên mọi cảm xúc hiện thành `--b`);
   - `sticker`: sha256 của ảnh sticker trong `media/` (có trong `media.json`);
   - `media` của ghi âm (loại 3, `audio/aac` hoặc `audio/amr`) và video (loại 18, `video/mp4`): bản có trong máy Zalo hoặc bản CDN viewer đã tải sẵn. Bộ dựng không tự tải hai loại này từ CDN;
   - tin xóa không có `quote_id`, `reactions`, `sticker`.
 - `users.json` thêm `avatars` (`{<sender_id>: <sha256 trong media/>}`); mỗi mục `conversations.json` thêm `avatar` (sha256 hoặc `null`). Sticker, avatar và bản tải sẵn chỉ được chép khi sha256 khớp chỉ mục của viewer.
-- Trích dẫn hay cảm xúc tới sau khi tin đã vào delta (viewer dựng chỉ mục sau `revision.json`) hiện ở lần dựng lại đầy đủ kế tiếp. Con trỏ của agent ghi `format` (hiện 2); agent gặp con trỏ khuôn cũ thì dựng lại đầy đủ ngay.
+- Trích dẫn hay cảm xúc tới sau khi tin đã vào delta (viewer dựng chỉ mục sau `revision.json`) hiện ở lần dựng lại đầy đủ kế tiếp. Con trỏ của agent ghi `format` (hiện 3: cảm xúc đọc đúng loại); agent gặp con trỏ khuôn cũ thì dựng lại đầy đủ ngay.
 - `GET /api/v7/zalo/messages` trả thêm cho mỗi tin:
   - `card`;
   - `quote`: `{message_id, found, sender_id, sender_name, type_label, deleted, body_text}` với `body_text` tối đa 120 ký tự, `found: false` khi không đọc được tin gốc;
