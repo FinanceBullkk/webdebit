@@ -307,6 +307,39 @@ const MayChayModel = (() => {
     return { tone, head: zalo.at ? `Máy Zalo báo lúc ${hhmm(zalo.at)}${groups}` : 'Máy Zalo không báo được', rows };
   }
 
-  return { ORDER, NAMES, BEAT, zaloLines, idleLine, todayMoney, jobEvent, duration, RESULT, resultOf, secOfDay, clockOf, hhmm, money, millions, fromTrace, fromCounts, fromRow, slotKind, byDay, stageNow, stationInfo, gateMarks, sentence, logLines, withNames, taskCustomer, drill };
+  // ZALO-BOT-01: nhóm "Bot Zalo hỏi đáp". `bot` là phần `zalo_bot` của /api/v7/machine/now (mã, số, giờ; bộ đếm trong ngày giờ VN).
+  // Chưa cài bot (`missing`) thì trả null và nhóm ẩn hẳn. Dòng nick phụ nói việc cần làm khi không nhận tin.
+  const BOT_KENH = {
+    online: ['Đang nhận tin', 'ok'], connecting: ['Đang nối', 'warn'], login_required: ['Cần quét QR đăng nhập lại', 'bad'],
+    login_pending: ['Đang chờ quét QR', 'warn'], kicked: ['Bị phiên khác đá ra: có ai mở nick phụ trên Zalo Web hay Zalo PC?', 'bad'],
+    offline: ['Kênh không nối với bộ não', 'bad'], error: ['Gặp lỗi', 'bad'], sandbox_missing: ['Không chạy: unit thiếu chặn mạng tới API', 'bad'],
+    unknown: ['Không rõ trạng thái', 'warn'],
+  };
+  function botLines(bot) {
+    if (!bot || bot.state === 'missing') return null;
+    if (bot.state === 'silent') {
+      return { tone: 'bad', head: bot.at ? `Không nghe bot Zalo từ ${hhmm(bot.at)}` : 'Không nghe bot Zalo',
+        rows: [{ id: 'brain', name: 'Bộ não', text: 'Không ghi nhịp tim', tone: 'bad' }] };
+    }
+    const [state, tone] = BOT_KENH[bot.kenh] ?? BOT_KENH.unknown;
+    const code = bot.kenh === 'error' && bot.kenh_code ? `, mã: ${bot.kenh_code}` : '';
+    const minutes = bot.kenh !== 'online' && Number.isInteger(bot.kenh_minutes) && bot.kenh_minutes > 0 ? ` (${bot.kenh_minutes} phút)` : '';
+    const rows = [{ id: 'kenh', name: 'Nick phụ', text: `${state}${code}${minutes}`, tone }];
+    const count = key => (Number.isInteger(bot.counts?.[key]) ? bot.counts[key] : 0);
+    if (!bot.enabled) rows.push({ id: 'tra-loi', name: 'Trả lời', text: 'Đang tắt', tone: 'warn' });
+    else {
+      const failed = count('error') + count('too_slow') + count('refused');
+      const parts = [[count('answered'), 'câu đã trả lời'], [count('fixed'), 'câu trả câu cố định'], [count('not_sure'), 'câu chưa chắc'],
+        [failed, 'câu lỗi'], [count('over_budget'), 'câu hết hạn mức']].filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`);
+      const worry = count('not_sure') + failed + count('over_budget');
+      rows.push({ id: 'tra-loi', name: 'Hôm nay', text: parts.length ? parts.join(', ') : 'Chưa có câu hỏi', tone: worry ? 'warn' : 'ok' });
+    }
+    if (count('stranger')) rows.push({ id: 'nguoi-la', name: 'Người lạ', text: `${count('stranger')} tin, bot không trả lời`, tone: 'ok' });
+    if (bot.error) rows.push({ id: 'brain', name: 'Bộ não', text: `Gặp lỗi, mã: ${bot.error}`, tone: 'bad' });
+    const worst = rows.reduce((acc, row) => (TONE_RANK[row.tone] > TONE_RANK[acc] ? row.tone : acc), 'ok');
+    return { tone: worst, head: `Bot Zalo báo lúc ${hhmm(bot.at)}`, rows };
+  }
+
+  return { ORDER, NAMES, BEAT, zaloLines, botLines, idleLine, todayMoney, jobEvent, duration, RESULT, resultOf, secOfDay, clockOf, hhmm, money, millions, fromTrace, fromCounts, fromRow, slotKind, byDay, stageNow, stationInfo, gateMarks, sentence, logLines, withNames, taskCustomer, drill };
 })();
 if (typeof module !== 'undefined') module.exports = MayChayModel;
