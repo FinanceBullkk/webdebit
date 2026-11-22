@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import datetime as dt
 import os
 import signal
 import stat
@@ -21,13 +22,18 @@ import sys
 import time
 from collections.abc import Callable
 
-from . import VERSION, config, core, model, protocol, state
+from . import VERSION, config, core, model, protocol, state, tools
 from .budget import Budget
 from .webapi import WebApi
 
 HEARTBEAT = 60
 PRUNE_EVERY = 86_400
 TYPING_EVERY = 8          # giây: báo đang gõ lại trong lúc tra
+HISTORY_TURNS = 10        # ngữ cảnh: 10 lượt gần nhất trong 2 giờ, theo từng người (spec Phần 2)
+HISTORY_SECONDS = 7200
+RESET_WORDS = frozenset({"moi", "moi nhe", "cau moi", "hoi moi", "xoa ngu canh"})
+RESET_REPLY = "Đã xóa ngữ cảnh. Bạn hỏi câu mới nhé."
+TOOL_CHECK_AT = (6, 30)   # giờ VN tự kiểm công cụ đọc API mỗi ngày, không gọi model
 
 
 class Service:
@@ -48,6 +54,21 @@ class Service:
         self._pruned_at = 0.0
         self._tasks: set[asyncio.Task] = set()
         self._locks: dict[str, asyncio.Lock] = {}
+        self._history: dict[str, list[tuple[float, str, str]]] = {}
+        self.api = WebApi(cfg.api_base)
+        self.tool_check: dict | None = None
+        self._tool_check_day: str | None = None
+
+    def _spawn(self, coroutine) -> None:
+        task = asyncio.get_running_loop().create_task(coroutine)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    def recent(self, zalo_id: str, now: float) -> list[tuple[str, str]]:
+        """Ngữ cảnh của một người: tối đa 10 lượt trả lời được trong 2 giờ qua, cũ trước mới sau."""
+        kept = [turn for turn in self._history.get(zalo_id, []) if now - turn[0] <= HISTORY_SECONDS][-HISTORY_TURNS:]
+        self._history[zalo_id] = kept
+        return [(asked, said) for _at, asked, said in kept]
 
     def on_line(self, line: bytes) -> list[bytes]:
         """Một dòng từ kênh → các dòng trả lại kênh. Không ném lỗi vì dữ liệu kênh."""
@@ -74,9 +95,7 @@ class Service:
         if outcome.counter != "duplicate":
             self.save_memory()
         if outcome.ask is not None:
-            task = asyncio.get_running_loop().create_task(self.answer(outcome.ask, event))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            self._spawn(self.answer(outcome.ask, event))
         return outcome.commands
 
     def write_log(self, record: dict, now: float) -> None:
@@ -103,7 +122,16 @@ class Service:
         lock = self._locks.setdefault(user.zalo_id, asyncio.Lock())
         async with lock:
             started = self.clock()
-            job = asyncio.ensure_future(asyncio.to_thread(self.answerer.answer, user, msg.text or ""))
+            question = msg.text or ""
+            if tools.fold(question).strip(" .!?") in RESET_WORDS:
+                self._history.pop(user.zalo_id, None)
+                commands, _complete = self.brain.reply(msg, RESET_REPLY, started)
+                await self.send(commands)
+                self.counters.add("reset", started)
+                self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": "reset"}, started)
+                return
+            history = self.recent(user.zalo_id, started)
+            job = asyncio.ensure_future(asyncio.to_thread(self.answerer.answer, user, question, history))
             while not job.done():
                 await asyncio.wait({job}, timeout=TYPING_EVERY)
                 if not job.done():
@@ -116,10 +144,24 @@ class Service:
             commands, complete = self.brain.reply(msg, result.text, now)
             await self.send(commands)
             self.counters.add(result.outcome, now)
+            if result.outcome == "answered" and result.body:
+                self._history.setdefault(user.zalo_id, []).append((now, question, result.body))
             self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": result.outcome, "question": msg.text,
                             "truncated": msg.truncated, "tools": result.tools, "problems": result.problems, "model": self.cfg.model,
                             "cost_nano_usd": result.cost_nano_usd, "steps": result.steps, "latency_ms": int((now - started) * 1000),
-                            "replies": len(commands), **({} if complete else {"rate_limited": True})}, now)
+                            "context_turns": len(history), "replies": len(commands), **({} if complete else {"rate_limited": True})}, now)
+
+    def _admin(self) -> config.User | None:
+        return next((user for user in self.users.values() if user.role == "admin"), None)
+
+    async def check_tools(self) -> None:
+        """Tự kiểm công cụ đọc API mỗi ngày (không gọi model, không tốn tiền model), để biết sớm khi API đổi khuôn."""
+        user = self._admin()
+        if user is None:
+            return
+        failed = await asyncio.to_thread(tools.self_check, self.api, user, self.clock())
+        self.tool_check = {"at": state.now_iso(self.clock()), "failed": failed}
+        self.write_status()
 
     def save_memory(self) -> None:
         try:
@@ -129,7 +171,7 @@ class Service:
 
     def write_status(self) -> None:
         data = state.status(now=self.clock(), version=VERSION, enabled=self.cfg.enabled, users=len(self.users), kenh=self.kenh,
-                            counters=self.counters, error=self.error)
+                            counters=self.counters, error=self.error, tool_check=self.tool_check)
         try:
             state.write_status(self.cfg.status_file, data)
         except OSError:
@@ -177,6 +219,14 @@ class Service:
         if os.path.realpath(self.cfg.release_link) != self.release:
             print("zalo-bot: bản phát hành đổi, thoát để systemd chạy lại", file=sys.stderr)
             self.stop.set()
+        clock = dt.datetime.fromtimestamp(now, state.VN)
+        if clock.date().isoformat() != self._tool_check_day and (clock.hour, clock.minute) >= TOOL_CHECK_AT and self._admin():
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return            # gọi ngoài vòng sự kiện (test): bỏ lượt tự kiểm
+            self._tool_check_day = clock.date().isoformat()
+            self._spawn(self.check_tools())
 
     async def heartbeat(self) -> None:
         while not self.stop.is_set():

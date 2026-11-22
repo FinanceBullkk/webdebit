@@ -86,11 +86,13 @@ class KenhView:
         self.set("offline", None, now)
 
 
-def status(*, now: float, version: str, enabled: bool, users: int, kenh: KenhView, counters: Counters, error: str | None) -> dict:
+def status(*, now: float, version: str, enabled: bool, users: int, kenh: KenhView, counters: Counters, error: str | None,
+           tool_check: dict | None = None) -> dict:
+    """`tool_check`: lượt tự kiểm công cụ gần nhất, `{"at": giờ, "failed": ["công_cụ:mã_lỗi", …]}`; chưa chạy thì None."""
     return {"schema": SCHEMA, "at": now_iso(now), "version": version, "enabled": enabled, "users": users,
             "kenh": {"state": kenh.state, "code": kenh.code, "since": now_iso(kenh.since), "version": kenh.version,
                      "last_event_at": now_iso(kenh.last_event_at) if kenh.last_event_at is not None else None},
-            "counts": counters.snapshot(now), "error": error}
+            "counts": counters.snapshot(now), "error": error, "tool_check": tool_check}
 
 
 def write_status(path: Path, data: dict) -> None:

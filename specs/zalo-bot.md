@@ -136,7 +136,7 @@ hao: v7-zalo-bot (Python; user riêng; không nạp zca-js)
 - **Thư viện:** SDK chính thức `anthropic` cho Python, cài trong venv riêng của bot với file khóa hash riêng. API web và `requirements.txt` không thêm phụ thuộc. Test dùng model giả nên CI không cần SDK. Bộ não không nạp zca-js.
 - **Giới hạn mỗi câu hỏi:** tối đa 8 lượt gọi công cụ và 90 giây. Quá giới hạn thì trả phần đã chắc và nói rõ phần chưa tra được.
 - **Ngữ cảnh hội thoại:**
-  - nhớ 10 lượt gần nhất trong 2 giờ, theo từng người, để hiểu "khách đó", "tháng trước nữa"; nhắn "mới" thì xóa ngữ cảnh;
+  - nhớ 10 lượt gần nhất trong 2 giờ, theo từng người, để hiểu "khách đó", "tháng trước nữa"; nhắn "mới" (không cần dấu; "câu mới", "hỏi mới", "xóa ngữ cảnh" cũng được) thì xóa ngữ cảnh. Chỉ nhớ lượt đã trả lời được; ngữ cảnh nằm trong bộ nhớ của bộ não, khởi động lại là mất;
   - mỗi câu hỏi là một cuộc gọi mới: lượt cũ đưa vào dưới dạng chữ (câu hỏi và câu trả lời cuối), không đưa lại kết quả công cụ cũ;
   - số trong câu trả lời cũ không được dùng lại: muốn nói lại phải tra lại, nên số luôn mới.
 - **Lời dặn hệ thống:**
@@ -262,7 +262,7 @@ Chỗ thiếu đã biết:
   - điền khách thật lúc chạy trên `hao`, kết quả chỉ ở `hao`;
   - chạy đủ bộ khi đổi model, lời dặn hoặc công cụ, và trước khi mở cho người khác. Không chạy theo lịch vì mỗi lần tốn tiền model; Claude báo ước tính chi phí trước, người dùng đồng ý mới chạy;
   - số đo: đúng, từ chối đúng, sai số.
-- **Kiểm công cụ mỗi đêm, không gọi model:** gọi từng công cụ trên API thật, kiểm đúng dạng và có giờ dữ liệu, để biết sớm khi API đổi.
+- **Tự kiểm công cụ mỗi ngày, không gọi model:** 6:30 giờ VN, bộ não chạy từng công cụ trên API thật với một khách mẫu đang nợ, bằng login admin đầu tiên trong danh sách. Kết quả ("công_cụ:mã_lỗi") nằm trong `status.json`; còn công cụ lỗi trong 26 giờ thì máy canh báo email. Bỏ `lan_cuoi_noi_chuyen` (thiếu bản xuất chat thì API trả 503 mà không phải lỗi) và danh sách chuyến thiếu (chậm).
 - **Nhịp tim:** bộ não ghi `/srv/v7/zalo-bot/status.json` mỗi phút, gồm trạng thái kênh do kênh tự báo (đang nhận tin, cần quét QR, bị đá, mất kết nối) và bộ đếm trong ngày; chỉ mã, số và giờ. Bộ não im quá 15 phút, hay (khi cờ trả lời bật) kênh không nhận tin quá 15 phút trong 7:00–20:00, thì máy canh báo email. Nhóm "Bot Zalo" ở tab Máy chạy đọc chung file này (PR-1b).
 
 ### Chạy ở đâu
@@ -304,7 +304,9 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
 - **PR-1b, nhóm "Bot Zalo" ở tab Máy chạy:** đọc chung `status.json` với máy canh.
 - **PR-2a, công cụ + kiểm số:** 17 công cụ tầng A trên API thật qua lớp HTTP chỉ GET, bộ kiểm số có điền số bằng tham chiếu, công cụ tính chỉ nhận số đã có trong kết quả công cụ, trần chi phí theo ngày. Test với API giả. Chưa gọi model.
 - **PR-2b, vòng gọi model:** SDK chính thức trong venv riêng có khóa hash, vòng gọi công cụ, kiểm số rồi gửi, nối vào bộ não. Test với model giả (kịch bản gọi công cụ). Bật cho người dùng sau P0 và khi người dùng đã chốt Q4, Q5.
-- **PR-3, tầng B + ngữ cảnh + bộ câu hỏi mẫu:** tra tài liệu, nhớ 10 lượt, chạy câu hỏi mẫu mỗi đêm, biểu đồ.
+- **PR-3, ngữ cảnh + tự kiểm:** nhớ 10 lượt trong 2 giờ, "mới" xóa ngữ cảnh, tự kiểm công cụ mỗi sáng và báo qua máy canh.
+- **PR-3b, tầng B:** tra quy tắc và tài liệu. Tài liệu chưa có trên `hao` (deploy chỉ chép `cong-no-web-handoff/`), nên PR này phải chọn cách đưa tài liệu lên.
+- **PR-3c, bộ câu hỏi mẫu + biểu đồ:** câu mẫu có đáp án tính bằng API, chạy khi đổi model, lời dặn hay công cụ (người dùng đồng ý chi phí từng lần); biểu đồ gửi dạng ảnh.
 - **PR-4, tầng C:** spec con, migration role và schema `bot`, harness PostgreSQL.
 - **PR-5, mở rộng** (mỗi mục hỏi người dùng trước):
   - thêm người;
