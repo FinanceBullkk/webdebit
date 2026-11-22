@@ -665,6 +665,20 @@ class ImageReadTests(CashChatCase):
         self.assertEqual((wide["items"][0]["day"], wide["items"][0]["status"], wide["images_before"]), ("2026-11-02", "RECORDED", 0))
         narrow = self.get(rows, runner, query="from=2026-11-14&to=2026-11-20")
         self.assertEqual((narrow["items"], narrow["images_before"], narrow["totals"]["thu_vnd"]), ([], 1, 0))
+        self.assertFalse(wide["items"][0]["old_txn"])
+
+    def test_a_transaction_date_months_before_the_message_is_never_called_missing(self):
+        """22/11/2026: ảnh ghi ngày giao dịch trước ngày tin từ 93 ngày (ảnh rất cũ gửi lại, hoặc máy đọc nhầm ngày) nằm ở ngày tin như cũ,
+        nhưng đối chiếu quanh ngày tin không có nghĩa: không bao giờ "chưa vào sổ"; khớp đúng phiếu thì vẫn "đã vào sổ"."""
+        self.write_reads({PAY[0]: read_entry(5_000_000, txn="2026-07-23"), PAY[1]: read_entry(6_000_000, txn="2026-08-19")})
+        rows = [row("old", at(15, 10), None, sender=MINH, media=[PAY[0]]), row("edge", at(15, 11), None, sender=MINH, media=[PAY[1]])]
+        body = self.get(rows, FakeRunner(links=[LINK]), query="from=2026-11-10&to=2026-11-20")
+        self.assertEqual([(item["message_id"], item["day"], item["status"], item["old_txn"]) for item in body["items"]],
+                         [("old", "2026-11-15", "WAITING", True)])
+        self.assertEqual(body["images_before"], 1)   # 88 ngày: vẫn là ảnh cũ gửi lại theo ngày giao dịch, trước khoảng xem
+        self.assertEqual((body["counts"]["MISSING"], body["totals"]["missing"], body["totals"]["thu_vnd"]), (0, 0, 5_000_000))
+        matched = self.get(rows[:1], FakeRunner(receipts=[receipt(1, 1, "KHACH A", 15, 5_000_000)], links=[LINK]), query="from=2026-11-10&to=2026-11-20")
+        self.assertEqual((matched["items"][0]["status"], matched["items"][0]["old_txn"]), ("RECORDED", True))
 
     def test_different_transaction_times_are_different_payments(self):
         """Review #562 (5): khoản gõ hay dấu chỉ nhận ảnh của đúng lần trả của nó; giờ giao dịch khác là lần trả khác."""

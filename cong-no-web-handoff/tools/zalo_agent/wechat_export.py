@@ -160,6 +160,11 @@ def read_group(db, username: str, cursor: dict | None, first_limit: int, limit: 
     return out[:limit]   # cắt đúng ngân sách: con trỏ theo tin cuối đã phát, phần còn lại (kể cả cùng sort_seq) là "mới" ở lượt sau
 
 
+def within(rows: list[dict], hours: float, now: float) -> set:
+    """Khóa của các tin trong `hours` giờ gần nhất."""
+    return {key(row) for row in rows if isinstance(row.get("create_time"), int) and row["create_time"] >= now - hours * 3600}
+
+
 def read_window(db, username: str, hours: float, now: float) -> list[dict]:
     """Tin trong `hours` giờ gần nhất (cũ trước mới sau): để thấy tin bị sửa tại chỗ (thu hồi biến dòng cũ thành tin hệ thống)."""
     cutoff, rows, offset = now - hours * 3600, [], 0
@@ -349,13 +354,34 @@ def fingerprint(item: dict) -> str:
     return hashlib.sha256(text.encode("ascii")).hexdigest()[:16]
 
 
+def sender_of(row: dict, nicks: dict) -> tuple[str, bool]:
+    """(username người gửi, có phải tin của mình). Tin nhóm người khác gửi mở đầu bằng `<username>:\\n` do máy chủ WeChat ghi: đó
+    là nguồn đúng. `SenderName2Id` chung mà upstream tra (`sender_username`) lệch với bản WeChat 4 trên máy Zalo — đo 22/11/2026
+    trên một nhóm: 0/61 tin khớp tiền tố, 21 tin ra NGƯỜI KHÁC, 40 tin không ra ai; bảng `Name2Id` riêng của mảnh DB thì khớp 60/61.
+    Nên tiền tố thắng, nhưng chỉ nhận tiền tố trông chắc là mã người (dạng `wxid_…`, có trong danh bạ, hoặc trùng kết quả tra), để
+    dòng đầu "KH0001:" của một tin thường không bị lấy làm người gửi."""
+    if row.get("sender_id") == 2:
+        return "", True
+    raw = row.get("content") if isinstance(row.get("content"), str) else ""
+    looked_up = row.get("sender_username") or ""
+    found = PREFIX.match(raw)
+    if found:
+        name = found.group(1)
+        if (name.startswith("wxid_") and USERNAME.fullmatch(name)) or name in nicks or name == looked_up:
+            return name, False
+    return looked_up, False
+
+
 def stale_key(row: dict, nicks: dict):
     """Khóa người gửi chưa tra được (thành viên mới vào sau khi tiến trình mở DB, bộ nhớ đệm của upstream cũ), hoặc None."""
-    if row.get("sender_id") == 2 or row.get("type") == "系统消息":
+    if row.get("type") == "系统消息":
         return None
-    if not row.get("sender_username"):
+    sender, own = sender_of(row, nicks)
+    if own:
+        return None
+    if not sender:
         return ("id", row.get("sender_id"))
-    return None if row["sender_username"] in nicks else ("name", row["sender_username"])
+    return None if sender in nicks else ("name", sender)
 
 
 def refresh(db, current: dict) -> dict:
@@ -374,8 +400,7 @@ def refresh(db, current: dict) -> dict:
 
 
 def record(nicks: dict, username: str, row: dict, tools, images_dir: str | None, window: bool = False) -> dict:
-    sender = row.get("sender_username") or ""
-    is_self = row.get("sender_id") == 2
+    sender, is_self = sender_of(row, nicks)
     kind = row.get("type")
     raw = row.get("content") if isinstance(row.get("content"), str) else ""
     out = {"kind": "message", "username": username, "local_id": row.get("local_id"), "sort_seq": row.get("sort_seq"),
@@ -409,6 +434,8 @@ def cmd_read(db, request: dict) -> int:
     first = request.get("first_limit") if isinstance(request.get("first_limit"), int) else 5000
     hours = request.get("window_hours") if isinstance(request.get("window_hours"), int | float) else 0
     deep = request.get("deep_image_hours") if isinstance(request.get("deep_image_hours"), int | float) else 0
+    # Một lần sau khi đổi cách tìm người gửi: đọc lại mọi tin trong chừng này giờ để sửa người gửi của tin đã lên web (chỉ tin đã có).
+    resend = request.get("resend_hours") if isinstance(request.get("resend_hours"), int | float) else 0
     images_dir = request.get("images_dir") if isinstance(request.get("images_dir"), str) else None
     sent = request.get("known_fp") if isinstance(request.get("known_fp"), dict) else {}   # {username: {"local_id:sort_seq": fp}}
     nicks = db.nickname_map()
@@ -435,14 +462,16 @@ def cmd_read(db, request: dict) -> int:
             fresh = read_group(db, username, have, limit, quota)
             seen = {key(row) for row in fresh}
             now = time.time()
-            span = max(hours, deep)
+            span = max(hours, deep, resend)
             late = [row for row in (read_window(db, username, span, now) if span > 0 and (have or {}).get("sort_seq") else [])
                     if key(row) not in seen]
-            recent = {key(row) for row in late if isinstance(row.get("create_time"), int) and row["create_time"] >= now - hours * 3600}
-            # Ngoài cửa sổ thường chỉ giữ tin ẢNH, tối đa `DEEP_IMAGE_BUDGET` tin mới nhất: phần đó chỉ để thử lại/nâng ảnh.
-            older = {key(row) for row in late if key(row) not in recent and row.get("type") == "图片"}
+            recent = within(late, hours, now)
+            # Ngoài cửa sổ thường chỉ giữ tin ẢNH trong `deep` giờ, tối đa `DEEP_IMAGE_BUDGET` tin mới nhất: chỉ để thử lại/nâng ảnh.
+            photos = {key(row) for row in late if row.get("type") == "图片"}
+            older = {k for k in within(late, deep, now) if k not in recent and k in photos} if deep > 0 else set()
             older = set(sorted(older, key=lambda k: (k[1] if isinstance(k[1], int) else 0), reverse=True)[:DEEP_IMAGE_BUDGET])
-            late = [row for row in late if key(row) in recent or key(row) in older]
+            redo = {k for k in within(late, resend, now) if k not in recent} if resend > 0 else set()
+            late = [row for row in late if key(row) in recent or key(row) in older or key(row) in redo]
             # Chỉ tin MỚI mới đáng làm mới bộ nhớ đệm; người gửi đã thử mà vẫn không ra (đã rời nhóm…) thì không thử lại trong 6 giờ.
             missing = {k for k in (stale_key(row, nicks) for row in fresh) if k is not None and time.time() - TRIED.get(k, 0) > RETRY_AFTER}
             if attempt == 0 and not refreshed and missing:
@@ -463,13 +492,18 @@ def cmd_read(db, request: dict) -> int:
         for row in late:
             item = record(nicks, username, row, None, None, window=True)
             if key(row) not in recent:
-                item["deep"] = True   # chỉ để thử lại/nâng ảnh: bộ xử lý không nhập tin mới từ phần này
+                item["deep"] = True   # chỉ để thử lại/nâng ảnh hay sửa người gửi: bộ xử lý không nhập tin mới từ phần này
+            if resend > 0:
+                item["resend"] = True   # lượt sửa người gửi: bộ xử lý ghi lại cả tin ảnh đã có nếu người gửi đổi
             if (sent.get(username) or {}).get(f"{item['local_id']}:{item['sort_seq']}") == item["fp"]:
                 counts["window_same"] += 1   # đã có đúng bản này: không gửi lại nội dung qua ống
                 continue
-            if item["type"] == "图片" and tools and not in_budget():
-                continue   # hết giờ giải ảnh: tin ảnh cửa sổ/7 ngày không có ảnh thì phát cũng vô ích; bộ xử lý chưa nhớ nên lượt sau còn
-            if tools and images_dir and item["type"] == "图片" and isinstance(item["local_id"], int):
+            decode = key(row) in recent or key(row) in older   # tin chỉ đọc lại để sửa người gửi thì không giải ảnh
+            if item["type"] == "图片" and tools and decode and not in_budget():
+                if not resend:
+                    continue   # hết giờ giải ảnh: tin ảnh cửa sổ/7 ngày không có ảnh thì phát cũng vô ích; bộ xử lý chưa nhớ nên lượt sau còn
+                decode = False   # vẫn phát để sửa người gửi (lượt sửa chỉ chạy một lần)
+            if tools and images_dir and decode and item["type"] == "图片" and isinstance(item["local_id"], int):
                 # Bộ xử lý không giữ `fp` của tin ảnh còn thiếu ảnh (và giữ ngắn với ảnh thu nhỏ), nên tin đó về đây: thử giải lại
                 # (file `.dat` tải chậm, khóa có muộn, bản nén có sau ảnh thu nhỏ). Ảnh đủ cỡ thì bộ xử lý giữ `fp`, tin dừng ở trên.
                 item["image"] = export_image(tools, username, item["local_id"], item["sort_seq"], images_dir)

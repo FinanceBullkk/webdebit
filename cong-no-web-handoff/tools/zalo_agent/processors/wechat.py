@@ -38,6 +38,8 @@ INTERVAL, MAX_BACKOFF, TIMEOUT = 10, 15 * 60, 60
 RECHECK_HOURS = 6      # đọc lại các tin trong khoảng này mỗi lượt để thấy tin bị sửa tại chỗ (thu hồi)
 DEEP_IMAGE_HOURS = 7 * 24   # lượt đầu sau khi agent chạy: thử lại ảnh còn thiếu của 7 ngày (bật ảnh muộn, sửa khóa xong rồi chạy lại)
 DEEP_TRIES = 2              # lượt 7 ngày lỗi (quá giờ…) chừng này lần thì bỏ: tin chữ không bao giờ bị kẹt sau một yêu cầu quá nặng
+SENDER_RULE = 2             # tăng khi đổi cách tìm người gửi (2: tiền tố `<username>:` thắng SenderName2Id, 22/11/2026)
+RESEND_HOURS = 400 * 24     # lượt sửa người gửi một lần: đọc lại tin trong chừng này giờ (tối đa WINDOW_CAP tin mỗi nhóm)
 APP_EVERY = 30              # giây giữa hai lần xem app WeChat có chạy, có đăng nhập không
 THUMB_PIXELS = 240 * 240    # ảnh từ chừng này điểm ảnh trở xuống coi là ảnh thu nhỏ của WeChat (cạnh dài ~120–240): còn tìm bản lớn hơn
 SMALL_RETRY = 600           # giây: ảnh thu nhỏ hoặc tải dở thử tìm bản lớn/trọn hơn mỗi 10 phút trong cửa sổ
@@ -450,6 +452,10 @@ class WeChatProcessor:
         saved = read_json(self.state / f"{NAME}.json", {}) or {}
         self.cursors: dict = saved.get("groups") if isinstance(saved.get("groups"), dict) else {}
         self.total = saved.get("messages") if isinstance(saved.get("messages"), int) else 0
+        # Kho đã có tin ghi theo cách tìm người gửi cũ: lượt đọc thành công đầu tiên đọc lại cả nhóm để sửa người gửi, rồi thôi.
+        rule = saved.get("sender_rule")
+        self.sender_rule = rule if isinstance(rule, int) else (SENDER_RULE if not self.cursors else 0)
+        self.resend_sent = False
         self.next_at = 0.0
         self.failures = 0
         self.thread: threading.Thread | None = None
@@ -474,8 +480,10 @@ class WeChatProcessor:
             if username in groups:
                 known.setdefault(username, {})[f"{local_id}:{seq}"] = fp
         self.deep_sent = bool(images) and self.deep_pending
+        self.resend_sent = self.sender_rule < SENDER_RULE
         return {"groups": {u: self.cursors.get(u) or {} for u in groups}, "first_limit": self.first_limit, "images_dir": images,
-                "window_hours": self.recheck_hours, "deep_image_hours": DEEP_IMAGE_HOURS if self.deep_sent else 0, "known_fp": known}
+                "window_hours": self.recheck_hours, "deep_image_hours": DEEP_IMAGE_HOURS if self.deep_sent else 0, "known_fp": known,
+                "resend_hours": RESEND_HOURS if self.resend_sent else 0}
 
     def poll(self, groups: dict[str, str]) -> tuple[str | None, list[dict], dict]:
         """Chạy tiến trình con (có thể ở luồng nền). Trả (mã lỗi, các dòng tin, dòng `end`)."""
@@ -533,6 +541,9 @@ class WeChatProcessor:
                 error = self.ingest(items, groups)
             except OSError:
                 error = "store_failed"
+            if error is None and self.resend_sent:
+                self.sender_rule = SENDER_RULE   # đã đọc lại và sửa người gửi của các tin cũ: lần sau đọc như thường
+                self.save()
         self.failures = self.failures + 1 if error else 0
         end = end or {}
         if not error and self.images:   # lượt đọc thành công cho biết tiến trình con có suy được khóa ảnh không
@@ -604,9 +615,14 @@ class WeChatProcessor:
                 retry[key] = self.clock() + (MISSING_RETRY if missing else SMALL_RETRY) if missing or small else None
             keep_media = False
             if photo and prior is not None and not accepted:
-                if window:
+                if item.get("resend") and prior["sender_id"] != row["sender_id"]:
+                    row = convert(item, had[0] if had else None)[0]   # chỉ sửa người gửi: ảnh giữ như bản đang có
+                    if had:
+                        row["media"] = had
+                elif window:
                     continue   # không có gì tốt hơn bản đang có: không ghi đè, không phát lại
-                keep_media = bool(had)   # đọc lại (con trỏ mất) lúc không có khóa / chỉ có bản kém hơn: giữ ảnh đang có, con trỏ vẫn tiến
+                else:
+                    keep_media = bool(had)   # đọc lại (con trỏ mất) lúc không có khóa / chỉ có bản kém hơn: giữ ảnh đang có, con trỏ vẫn tiến
             if window and prior is not None:
                 # Cửa sổ đọc lại: chỉ phát khi dòng đã đổi. WeChat thu hồi bằng cách biến dòng cũ thành tin hệ thống: dòng đó
                 # trở thành dòng xóa (giữ người gửi, loại tin cũ) và không bao giờ bị tin hệ thống ghi đè lại.
@@ -643,10 +659,13 @@ class WeChatProcessor:
                 self.retry_at[key] = at
         self.appended = len(rows)
         self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **{u: c for u, c in moved.items() if u in groups}}
-        self.total += len(rows)
-        if not self.dry_run:
-            cursors.save(self.state, NAME, {"groups": self.cursors, "messages": self.total}, self.clock())
+        self.total = len(self.known)   # số TIN khác nhau trong kho (tab Máy chạy), không đếm lần ghi lại một tin (ảnh, người gửi, thu hồi)
+        self.save()
         return None
+
+    def save(self) -> None:
+        if not self.dry_run:
+            cursors.save(self.state, NAME, {"groups": self.cursors, "messages": self.total, "sender_rule": self.sender_rule}, self.clock())
 
     def read_image(self, name: str) -> bytes | None:
         """Byte của file tiến trình con vừa giải ra trong `incoming/` (đọc xong là xóa); None khi không đọc được. Xóa lỗi (phần mềm

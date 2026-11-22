@@ -140,7 +140,7 @@
     const key = M.keyOf(item);
     const text = item.source === 'anh' ? imageLine(item) : item.text;
     const open = item.conversation_id
-      ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}">Mở tin</a>` : '';
+      ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}&amp;from=thu-chi">Mở tin</a>` : '';
     const can = M.reviewable(item, state.data.items);
     const act = can.ok ? `<button type="button" class="tc-act" data-act="open" data-k="${esc(key)}" aria-expanded="${edit.open === key}">Xử lý</button>` : '';
     const note = [status.note, can.ok || item.source === 'mark' ? '' : can.why].filter(Boolean).join(' ');
@@ -151,7 +151,7 @@
     const time = sentDay && sentDay !== item.day ? `${dayMonth(sentDay)} ${clock(item.sent_at)}` : clock(item.sent_at);
     return `<div class="tc-row${state.fresh.has(key) ? ' is-new' : ''}${edit.open === key ? ' is-open' : ''}" data-status="${esc(item.status)}" data-source="${esc(item.source)}" data-k="${esc(key)}">`
       + `<span class="tc-time">${esc(time)}</span>`
-      + `<div class="tc-who"><b>${esc(item.sender_name ?? 'Không rõ tên')}</b><small title="${esc(item.conversation_name ?? '')}">${esc(item.conversation_name ?? '')}${item.source === 'mark' ? ' · dấu khách báo' : ''}</small></div>`
+      + `<div class="tc-who"><b title="${esc(item.sender_name ?? '')}">${esc(item.sender_name ?? 'Không rõ tên')}</b><small title="${esc(item.conversation_name ?? '')}">${esc(item.conversation_name ?? '')}${item.source === 'mark' ? ' · dấu khách báo' : ''}</small></div>`
       + `<span class="tc-kind-cell"><span class="tc-kind ${esc(item.direction)}">${esc(M.KIND_LABEL[item.direction])}</span></span>`
       + `<span class="tc-amt">${amount}${from ? `<small class="tc-src">${from}</small>` : ''}</span>`
       + `<div class="tc-target">${esc(targetText(item.target))}${item.target_from === 'sua' ? ' <small class="tc-src">gắn tay</small>' : ''}<span class="tc-text" title="${esc(text)}">${esc(text)}</span></div>`
