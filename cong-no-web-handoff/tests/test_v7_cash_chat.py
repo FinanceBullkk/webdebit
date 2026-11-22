@@ -679,6 +679,12 @@ class ImageReadTests(CashChatCase):
         self.assertEqual((body["counts"]["MISSING"], body["totals"]["missing"], body["totals"]["thu_vnd"]), (0, 0, 5_000_000))
         matched = self.get(rows[:1], FakeRunner(receipts=[receipt(1, 1, "KHACH A", 15, 5_000_000)], links=[LINK]), query="from=2026-11-10&to=2026-11-20")
         self.assertEqual((matched["items"][0]["status"], matched["items"][0]["old_txn"]), ("RECORDED", True))
+        # Review #583: không đoán "lệch số" với phiếu khác số của sổ, cũng không gợi ý phiếu đúng số của sổ khác khi nhóm chưa gắn sổ.
+        other = self.get(rows[:1], FakeRunner(receipts=[receipt(1, 1, "KHACH A", 15, 4_000_000)], links=[LINK]), query="from=2026-11-10&to=2026-11-20")
+        self.assertEqual((other["items"][0]["status"], other["counts"]["AMOUNT_DIFF"]), ("WAITING", 0))
+        loose = self.get([row("old", at(15, 10), None, sender=MINH, cid=OTHER, media=[PAY[0]])],
+                         FakeRunner(receipts=[receipt(3, 4, "KHACH D", 15, 5_000_000)], links=[LINK]), query="from=2026-11-10&to=2026-11-20")
+        self.assertEqual(loose["items"][0]["status"], "UNKNOWN_TARGET")
 
     def test_different_transaction_times_are_different_payments(self):
         """Review #562 (5): khoản gõ hay dấu chỉ nhận ảnh của đúng lần trả của nó; giờ giao dịch khác là lần trả khác."""

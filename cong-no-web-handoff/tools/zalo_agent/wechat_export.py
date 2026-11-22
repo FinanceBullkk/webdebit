@@ -436,6 +436,7 @@ def cmd_read(db, request: dict) -> int:
     deep = request.get("deep_image_hours") if isinstance(request.get("deep_image_hours"), int | float) else 0
     # Một lần sau khi đổi cách tìm người gửi: đọc lại mọi tin trong chừng này giờ để sửa người gửi của tin đã lên web (chỉ tin đã có).
     resend = request.get("resend_hours") if isinstance(request.get("resend_hours"), int | float) else 0
+    deep = 0 if resend > 0 else deep   # không chung một yêu cầu với lượt ảnh 7 ngày (bộ xử lý cũng không gửi chung)
     images_dir = request.get("images_dir") if isinstance(request.get("images_dir"), str) else None
     sent = request.get("known_fp") if isinstance(request.get("known_fp"), dict) else {}   # {username: {"local_id:sort_seq": fp}}
     nicks = db.nickname_map()

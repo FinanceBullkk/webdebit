@@ -637,6 +637,8 @@ def reconcile(items: list[dict], directory: Directory, sources: Sources, today: 
     pair_exact(known, lambda one: one["rows"](), claimed)
 
     def guess(one: dict, rows: list[dict]) -> list[dict]:
+        if one.get("old_txn"):   # ảnh ghi ngày giao dịch quá cũ: đoán theo ngày tin không có nghĩa, chỉ nhận khi khớp đúng phiếu
+            return []
         return [row for row in rows if one.get("source") != "anh" or row["ref"].get("pid") not in reserved]
 
     pair_single([item for item in known if item["status"] is None], lambda one: guess(one, one["rows"]()), claimed, "AMOUNT_DIFF")

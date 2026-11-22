@@ -1499,6 +1499,31 @@ class RealChildImageTest(WeChatBase):
         self.assertEqual(len(list((self.store.dir / "media").iterdir())), 3)
         self.assertEqual(list((self.store.dir / "incoming").iterdir()), [])
 
+    def test_the_sender_repair_runs_alone_and_the_seven_day_pass_after_it_still_decodes_old_photos(self):
+        """Review #583: lượt sửa người gửi và lượt ảnh 7 ngày chung một yêu cầu (hoặc lượt sửa nhớ `fp` của ảnh còn thiếu) thì lượt
+        7 ngày coi ảnh cũ là đã xong và tắt. Nay lượt sửa đi riêng trước, không nhớ `fp` ngoài cửa sổ 6 giờ."""
+        old = int(time.time()) - 48 * 3600   # ngoài cửa sổ 6 giờ, trong 7 ngày
+        self.rows = [{"local_id": i, "type": "图片", "sender_id": 5, "sender_username": "wxid_a", "content": "<msg><img/></msg>",
+                      "create_time": old + i, "sort_seq": i * 1000} for i in (1, 2, 3)]
+        (self.pilot / "rows.json").write_text(json.dumps(self.rows), encoding="utf-8")
+        self.poll()   # chưa có khóa: ba tin ảnh vào kho, thiếu ảnh, người gửi theo kết quả tra (sai)
+        self.assertEqual(self.images(), [("Ảnh WeChat (chưa đọc được)", False)] * 3)
+        for row in self.rows:   # nội dung thật có tiền tố của người gửi đúng
+            row["content"] = "wxid_dung1:\n<msg><img/></msg>"
+        (self.pilot / "rows.json").write_text(json.dumps(self.rows), encoding="utf-8")
+        saved = json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))
+        saved.pop("sender_rule", None)   # kho do bản cũ ghi
+        (self.state / "wechat.json").write_text(json.dumps(saved), encoding="utf-8")
+        wechat_dirs(self.wx, samples=())   # có khóa
+        self.processor = self.make_processor(images=True, run=self.session, python=sys.executable, pilot=str(self.pilot))   # chạy lại agent
+        self.poll()
+        self.assertEqual((self.processor.resend_sent, self.processor.deep_sent), (True, False))
+        self.assertEqual({row["sender_id"] for row in self.store.rows_after(0)[0]}, {wc.sender_id("wxid_dung1")})
+        self.poll()
+        self.assertEqual((self.processor.resend_sent, self.processor.deep_sent), (False, True))
+        self.assertEqual(self.images(), [("Ảnh WeChat", True)] * 3)   # lượt 7 ngày vẫn giải đủ ảnh cũ
+        self.assertEqual({row["sender_id"] for row in self.store.rows_after(0)[0]}, {wc.sender_id("wxid_dung1")})
+
 
 
 TRAY = "Qt51514WxTrayIconMessageWindowClass"
@@ -1655,6 +1680,45 @@ class SenderResendProcessorTest(WeChatBase):
     def test_a_fresh_store_never_needs_the_reread(self):
         self.poll()
         self.assertEqual(self.db.requests[-1][1]["resend_hours"], 0)
+
+    def upgraded(self):
+        self.db.feed = [msg(1, 1000, "tin")]
+        self.poll()
+        saved = json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))
+        saved.pop("sender_rule", None)
+        (self.state / "wechat.json").write_text(json.dumps(saved), encoding="utf-8")
+        self.processor = self.make_processor(images=True)
+        self.db.requests.clear()
+
+    def test_the_repair_never_rides_with_the_seven_day_pass(self):
+        self.upgraded()
+        self.poll()
+        self.poll()
+        self.assertEqual([(request["resend_hours"] > 0, request["deep_image_hours"] > 0) for _, request in self.db.requests[:2]],
+                         [(True, False), (False, True)])
+
+    def test_a_repair_that_times_out_twice_stops_until_the_next_agent_start(self):
+        self.upgraded()
+        self.db.fail = subprocess.TimeoutExpired("wechat_export", 60)
+        for _ in range(2):
+            self.now += 3600   # qua thời gian lùi
+            self.processor.step()
+        self.db.fail = None
+        self.now += 3600
+        self.processor.step()
+        self.assertEqual([request["resend_hours"] > 0 for _, request in self.db.requests], [True, True, False])
+        self.assertLess(self.processor.sender_rule, wc.SENDER_RULE)   # chưa xong: lần chạy agent sau thử lại
+        self.assertEqual(self.make_processor(images=True).request({USER: NAME})["resend_hours"], wc.RESEND_HOURS)
+
+    def test_a_group_missing_during_the_repair_keeps_the_repair_pending(self):
+        self.upgraded()
+        self.db.end_extra = {"missing_groups": 1}
+        self.poll()
+        self.assertLess(self.processor.sender_rule, wc.SENDER_RULE)
+        self.db.end_extra = {}
+        self.poll()
+        self.assertEqual(self.processor.sender_rule, wc.SENDER_RULE)
+        self.assertEqual([request["resend_hours"] > 0 for _, request in self.db.requests], [True, True])
 
 
 if __name__ == "__main__":

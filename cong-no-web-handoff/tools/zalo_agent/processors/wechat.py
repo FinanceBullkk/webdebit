@@ -40,6 +40,7 @@ DEEP_IMAGE_HOURS = 7 * 24   # lượt đầu sau khi agent chạy: thử lại �
 DEEP_TRIES = 2              # lượt 7 ngày lỗi (quá giờ…) chừng này lần thì bỏ: tin chữ không bao giờ bị kẹt sau một yêu cầu quá nặng
 SENDER_RULE = 2             # tăng khi đổi cách tìm người gửi (2: tiền tố `<username>:` thắng SenderName2Id, 22/11/2026)
 RESEND_HOURS = 400 * 24     # lượt sửa người gửi một lần: đọc lại tin trong chừng này giờ (tối đa WINDOW_CAP tin mỗi nhóm)
+RESEND_TRIES = 2            # lượt sửa quá giờ chừng này lần thì thôi tới lần chạy agent sau: tin mới không bao giờ kẹt sau nó
 APP_EVERY = 30              # giây giữa hai lần xem app WeChat có chạy, có đăng nhập không
 THUMB_PIXELS = 240 * 240    # ảnh từ chừng này điểm ảnh trở xuống coi là ảnh thu nhỏ của WeChat (cạnh dài ~120–240): còn tìm bản lớn hơn
 SMALL_RETRY = 600           # giây: ảnh thu nhỏ hoặc tải dở thử tìm bản lớn/trọn hơn mỗi 10 phút trong cửa sổ
@@ -456,6 +457,7 @@ class WeChatProcessor:
         rule = saved.get("sender_rule")
         self.sender_rule = rule if isinstance(rule, int) else (SENDER_RULE if not self.cursors else 0)
         self.resend_sent = False
+        self.resend_failures = 0
         self.next_at = 0.0
         self.failures = 0
         self.thread: threading.Thread | None = None
@@ -479,8 +481,10 @@ class WeChatProcessor:
         for (username, local_id, seq), (fp, _) in self.fps.items():
             if username in groups:
                 known.setdefault(username, {})[f"{local_id}:{seq}"] = fp
-        self.deep_sent = bool(images) and self.deep_pending
-        self.resend_sent = self.sender_rule < SENDER_RULE
+        # Lượt sửa người gửi đi trước và không bao giờ chung yêu cầu với lượt ảnh 7 ngày: hai lượt nặng chung một ngân sách giải ảnh
+        # thì lượt 7 ngày bị cắt (ảnh hết giờ vẫn được phát để sửa người gửi, rồi bị coi như đã xong). Lượt 7 ngày chạy ngay sau.
+        self.resend_sent = self.sender_rule < SENDER_RULE and self.resend_failures < RESEND_TRIES
+        self.deep_sent = bool(images) and self.deep_pending and not self.resend_sent
         return {"groups": {u: self.cursors.get(u) or {} for u in groups}, "first_limit": self.first_limit, "images_dir": images,
                 "window_hours": self.recheck_hours, "deep_image_hours": DEEP_IMAGE_HOURS if self.deep_sent else 0, "known_fp": known,
                 "resend_hours": RESEND_HOURS if self.resend_sent else 0}
@@ -536,16 +540,17 @@ class WeChatProcessor:
 
     def apply(self, error: str | None, items: list[dict], end: dict, groups: dict[str, str]) -> None:
         now = self.clock()
+        end = end or {}
         if error is None:
             try:
                 error = self.ingest(items, groups)
+                # Đã đọc lại và sửa người gửi của tin cũ ở MỌI nhóm (nhóm vắng mặt lúc đọc thì chưa): lần sau đọc như thường.
+                if error is None and self.resend_sent and not end.get("missing_groups"):
+                    self.sender_rule = SENDER_RULE
+                    self.save()
             except OSError:
                 error = "store_failed"
-            if error is None and self.resend_sent:
-                self.sender_rule = SENDER_RULE   # đã đọc lại và sửa người gửi của các tin cũ: lần sau đọc như thường
-                self.save()
         self.failures = self.failures + 1 if error else 0
-        end = end or {}
         if not error and self.images:   # lượt đọc thành công cho biết tiến trình con có suy được khóa ảnh không
             value = "ok" if end.get("image_keys") else "no_key"
             self.keys = (value, track_value(self.state, "wechat-images", value, now, persist=not self.dry_run))
@@ -554,6 +559,8 @@ class WeChatProcessor:
             if self.deep_sent and error == "child_timeout":   # chỉ quá giờ mới có thể do lượt 7 ngày quá nặng
                 self.deep_failures += 1
                 self.deep_pending = self.deep_failures < DEEP_TRIES   # quá giờ hai lần thì bỏ lượt 7 ngày, đọc tin như thường
+            if self.resend_sent and error == "child_timeout":   # như lượt 7 ngày: quá giờ hai lần thì thôi, lần chạy agent sau thử lại
+                self.resend_failures += 1
         elif self.deep_sent and end.get("image_keys"):
             # Lượt 7 ngày đã chạy có khóa. Hết giờ giải ảnh mà vẫn giải được ảnh thì làm tiếp ở lượt sau (phần đã xong được nhớ `fp`);
             # không giải thêm được ảnh nào thì thôi, để ảnh không bao giờ tải về không giữ lượt này mãi.
@@ -609,7 +616,9 @@ class WeChatProcessor:
             # có muộn, đọc file lỗi) sau 1 phút; ảnh thu nhỏ hay tải dở sau 10 phút; file không dùng được và ảnh trọn đủ lớn thì thôi.
             missing = self.images and photo and not has_media and not unusable
             small = self.images and photo and has_media and final is not None and (not final[0] or final[1] <= THUMB_PIXELS)
-            if isinstance(item.get("fp"), str):
+            # Tin ngoài cửa sổ 6 giờ chỉ đọc lại để sửa người gửi thì không nhớ `fp`: nhớ thì lượt ảnh 7 ngày ngay sau coi ảnh còn thiếu
+            # của nó là đã xong và không thử lại.
+            if isinstance(item.get("fp"), str) and not (item.get("resend") and item.get("deep")):
                 key = (item["username"], item["local_id"], item["sort_seq"])
                 seen_fp[key] = (item["fp"], item["create_time"])
                 retry[key] = self.clock() + (MISSING_RETRY if missing else SMALL_RETRY) if missing or small else None
