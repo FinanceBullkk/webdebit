@@ -91,7 +91,7 @@ hao: tiến trình v7-zalo-bot (user hệ thống riêng)
 
 ### Phần 1: Kênh Zalo
 
-- Dùng bot chính thức của Zalo Bot Platform. Người dùng tạo bot bằng Zalo Bot Creator; tên bot bắt đầu bằng "Bot".
+- Dùng bot chính thức của Zalo Bot Platform. Tạo bot chỉ cần tài khoản Zalo, không cần OA riêng; điều khoản cho cá nhân từ 18 tuổi hoặc tổ chức dùng, số bot mỗi tài khoản tùy gói. Tên bot bắt đầu bằng "Bot".
 - **Nhận tin bằng `getUpdates` gọi từ `hao`** (long polling, chiều đi ra), nên không mở cổng nào ra Internet.
   - Mẫu trong tài liệu trả một sự kiện mỗi lần gọi. Tài liệu không có offset hay bước xác nhận, và khuyên dùng webhook khi chạy thật để không sót tin. Với một người dùng thử thì chấp nhận được; P0 đo mức sót và trùng.
   - Webhook cần URL HTTPS công khai; Zalo từ chối IP riêng. Chỉ xét khi mở rộng (Q3).
@@ -261,7 +261,7 @@ Chỗ thiếu đã biết:
 ## Kế hoạch: chia PR và cổng
 
 - **P0 (người dùng và Claude, chưa code bot):**
-  - người dùng tạo bot bằng Zalo Bot Creator (mở OA "Zalo Bot Manager", chọn "Tạo bot"; token gửi về Zalo của người dùng);
+  - người dùng tạo bot bằng tài khoản Zalo của mình: mở app Zalo, tìm OA có sẵn "Zalo Bot Manager" (chỉ nhắn với OA này, không phải tạo OA), chọn "Tạo bot" ở menu khung chat để mở Zalo Bot Creator, đặt tên bắt đầu bằng "Bot", bấm "Tạo Bot"; token gửi về Zalo của người dùng;
   - người dùng tạo khóa API Anthropic riêng cho bot và đặt trần chi tiêu;
   - người dùng đặt hai bí mật lên `hao` bằng lệnh Claude đưa;
   - Claude chạy thử từ `hao`: `getMe`, `getUpdates`, `sendMessage` nhại lại tin của người dùng, và một lượt gọi API model;
