@@ -65,6 +65,7 @@ Hiểu dữ liệu:
 class Answer:
     text: str
     outcome: str                 # answered | not_sure | refused | over_budget | too_slow | error
+    body: str = ""               # câu trả lời đã điền, không kèm dòng nguồn: lưu làm ngữ cảnh cho câu sau
     tools: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     cost_nano_usd: int = 0
@@ -92,6 +93,17 @@ def _clock(iso: object) -> str:
     except ValueError:
         return str(iso)
     return at.astimezone(VN).strftime("%H:%M %d/%m")
+
+
+HISTORY_NOTE = ("Các lượt trước trong 2 giờ qua, chỉ để hiểu câu hỏi mới (ví dụ \"khách đó\", \"tháng trước nữa\"). "
+                "Không dùng lại số trong đó: muốn nói số thì tra lại bằng công cụ.")
+
+
+def with_history(question: str, history: list[tuple[str, str]] | tuple) -> str:
+    if not history:
+        return question
+    turns = "\n\n".join(f"Hỏi: {asked}\nĐáp: {said}" for asked, said in history)
+    return f"{HISTORY_NOTE}\n\n{turns}\n\nCâu hỏi mới: {question}"
 
 
 def footer(results: list[dict], draft: str) -> str:
@@ -141,12 +153,14 @@ class Answerer:
             model=self.model, max_tokens=MAX_TOKENS, output_config={"effort": self.effort}, tools=definitions,
             system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}], messages=messages)
 
-    def answer(self, user: User, question: str) -> Answer:
+    def answer(self, user: User, question: str, history: list[tuple[str, str]] | tuple = ()) -> Answer:
+        """`history`: các cặp (câu hỏi, câu trả lời) gần đây của người này, chỉ để hiểu "khách đó", "tháng trước". Lượt cũ đưa
+        vào dưới dạng chữ, không đưa lại kết quả công cụ cũ; số trong đó không qua được bộ kiểm số nếu không tra lại."""
         started = self.clock()
         ctx = tools.Context(self.api, user, now=started, link_base=self.link_base)
         results: list[dict] = []
         out = Answer("", "error")
-        messages: list = [{"role": "user", "content": question}]
+        messages: list = [{"role": "user", "content": with_history(question, history)}]
         calls = 0
         retried = False
         for step in range(1, MAX_STEPS + 1):
@@ -189,7 +203,7 @@ class Answerer:
             draft = "".join(getattr(block, "text", "") for block in response.content if getattr(block, "type", None) == "text").strip()
             text, problems = self._check(draft, results)
             if not problems:
-                out.text, out.outcome = "\n\n".join(part for part in (text, footer(results, draft)) if part), "answered"
+                out.text, out.outcome, out.body = "\n\n".join(part for part in (text, footer(results, draft)) if part), "answered", text
                 return out
             out.problems = problems
             if retried:

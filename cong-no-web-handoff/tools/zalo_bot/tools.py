@@ -500,6 +500,40 @@ TOOLS: tuple[Tool, ...] = (
 BY_NAME = {tool.name: tool for tool in TOOLS}
 
 
+CHECK_CODE = re.compile(r"[^a-z_]")
+
+
+def self_check(api: WebApi, user: User, now: float) -> list[str]:
+    """Tự kiểm mỗi ngày (spec Phần 6, không gọi model): chạy từng công cụ trên API thật với một khách mẫu đang nợ.
+    Trả danh sách "công_cụ:mã_lỗi" của công cụ lỗi; rỗng là mọi công cụ còn đọc đúng khuôn. Bỏ `lan_cuoi_noi_chuyen` (cần bản
+    xuất chat Zalo, thiếu thì API trả 503 mà không phải lỗi) và danh sách chuyến thiếu (chậm)."""
+    ctx = Context(api, user, now=now)
+    failed: list[str] = []
+
+    def attempt(name: str, args: dict) -> None:
+        result, error = run(ctx, name, args)
+        if error:
+            failed.append(f"{name}:{CHECK_CODE.sub('_', str(result.get('loi', 'loi')).lower())[:40]}")
+
+    attempt("tong_quan", {})
+    try:
+        debt = ctx.get("debt")
+        sample = next((row["customer_id"] for row in debt.get("customers", [])
+                       if isinstance(row, dict) and isinstance(row.get("customer_id"), int) and not isinstance(row["customer_id"], bool)), None)
+    except (ApiError, AttributeError):
+        sample = None
+    if sample is not None:
+        month = dt.datetime.fromtimestamp(now, VN).strftime("%Y-%m")
+        for name, args in (("no_khach", {}), ("no_theo_thang", {}), ("so_khach_thang", {"thang": month}), ("lich_su_so", {}),
+                           ("bang_gia", {}), ("hua_tra", {})):
+            attempt(name, {"khach_id": sample, **args})
+    for name in ("bang_thu", "bao_cao_thang", *(tool.name for tool in TOOLS if tool.admin)):
+        if user.role == "admin" or not BY_NAME[name].admin:
+            attempt(name, {})
+    attempt("tim_khach", {"ten": "a"})
+    return failed
+
+
 def for_role(role: str) -> list[Tool]:
     return [tool for tool in TOOLS if role == "admin" or not tool.admin]
 

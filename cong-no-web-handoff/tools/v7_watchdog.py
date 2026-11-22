@@ -307,6 +307,10 @@ def check_zalo_bot(now: dt.datetime) -> list[str]:
         found.append(f"Bot Zalo: {ZALO_BOT_TEXT.get(view['kenh'], ZALO_BOT_TEXT['unknown'])}{how}.")
     if view["error"]:
         found.append(f"Bot Zalo: bộ não báo lỗi {view['error']}.")
+    check = view.get("tool_check") or {}
+    if check.get("failed") and check.get("hours") is not None and check["hours"] <= 26:
+        names = ", ".join(item.split(":")[0] for item in check["failed"][:5])
+        found.append(f"Bot Zalo: lượt tự kiểm lúc {dt.datetime.fromisoformat(check['at']):%H:%M} có {len(check['failed'])} công cụ đọc API lỗi ({names}).")
     return found
 
 
