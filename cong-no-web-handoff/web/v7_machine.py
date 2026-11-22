@@ -356,6 +356,44 @@ def zalo_brief(now: float | None = None) -> dict[str, Any]:
     return {key: view.get(key) for key in ZALO_BRIEF}
 
 
+# ZALO-BOT-01: bộ não bot Zalo hỏi đáp ghi `status.json` mỗi phút ngay trên hao (tools/zalo_bot/state.py). Chỉ mã, số đếm và giờ.
+ZALO_BOT_STATUS = "/srv/v7/zalo-bot/status.json"
+ZALO_BOT_KENH = ("connecting", "online", "login_required", "login_pending", "kicked", "offline", "error", "sandbox_missing")
+
+
+def zalo_bot(now: float | None = None) -> dict[str, Any]:
+    """Bot Zalo hỏi đáp (ZALO-BOT-01) báo về. Không có file: `missing` (chưa cài bot, không phải lỗi).
+
+    File hỏng, `schema` khác 1, `at` ở tương lai hay cũ quá 15 phút: `silent`. Trạng thái kênh lạ thành `unknown`, mã lỗi sai khuôn
+    thành "error", bộ đếm chỉ giữ tên đúng khuôn với số nguyên không âm: không có chữ tự do đi tiếp."""
+    now = time.time() if now is None else now
+    path = Path(os.getenv("WEBDEBIT_ZALO_BOT_STATUS") or ZALO_BOT_STATUS)
+    silent: dict[str, Any] = {"state": "silent", "at": None, "silent_minutes": None, "enabled": None, "kenh": "unknown", "kenh_code": None,
+                              "kenh_minutes": None, "error": None, "counts": {}}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"state": "missing"}
+    except OSError:
+        return silent
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return silent
+    at = _aware(data.get("at")) if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("schema") != 1 or at is None or at.timestamp() - now > ZALO_FUTURE:
+        return silent
+    kenh = data.get("kenh") if isinstance(data.get("kenh"), dict) else {}
+    counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+    silent_for = max(now - at.timestamp(), 0)
+    return {"state": "silent" if silent_for > ZALO_LATE else "ok", "at": at.astimezone(VN).isoformat(timespec="seconds"),
+            "silent_minutes": int(silent_for // 60), "enabled": data.get("enabled") is True,
+            "kenh": kenh.get("state") if kenh.get("state") in ZALO_BOT_KENH else "unknown", "kenh_code": _code(kenh.get("code")),
+            "kenh_minutes": _minutes_since(kenh.get("since"), now), "error": _code(data.get("error")),
+            "counts": {key: value for key, value in counts.items()
+                       if isinstance(key, str) and ZALO_CODE.fullmatch(key) and isinstance(value, int) and not isinstance(value, bool) and value >= 0}}
+
+
 def now_view(now: float | None = None) -> dict[str, Any]:
     """Phần đổi nhanh, gọi 2 giây một lần khi tab đang mở."""
     now = time.time() if now is None else now

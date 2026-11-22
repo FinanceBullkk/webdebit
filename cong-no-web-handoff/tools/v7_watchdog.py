@@ -7,7 +7,8 @@ Chạy trên hao dưới user runner (timer v7-watchdog, 15 phút một lần):
 
 Mỗi lượt kiểm tại chỗ, chỉ đọc: web còn trả lời, lượt đối soát còn mới và không báo lỗi ghi, bản chụp Sheet còn mới, nguồn booking
 còn chuyến mới, hộp việc của API còn tính được, các timer còn bật, sao lưu không lỗi, đĩa còn chỗ, và lưới an toàn trên sổ thật
-(`v7_safety_net.py`, LUOI-AN-TOAN-01; chỉ ghi file mốc của chính nó) và máy Zalo còn báo nhịp tim (ZALO-AGENT-01, 7–20 giờ). Rồi báo về một check trên healthchecks.io: ổn thì ping
+(`v7_safety_net.py`, LUOI-AN-TOAN-01; chỉ ghi file mốc của chính nó), máy Zalo còn báo nhịp tim (ZALO-AGENT-01, 7–20 giờ) và bot Zalo
+hỏi đáp còn chạy, còn nhận tin (ZALO-BOT-01, 7–20 giờ). Rồi báo về một check trên healthchecks.io: ổn thì ping
 thường, có việc thì ping /fail kèm danh sách.
 hao tắt hay mất mạng thì không còn ping và dịch vụ đó tự gửi email, nên không dùng Uptime Kuma nằm trên chính hao.
 
@@ -276,10 +277,44 @@ def check_zalo(now: dt.datetime) -> list[str]:
     return found
 
 
+# ZALO-BOT-01: bot Zalo hỏi đáp chạy trên hao. Canh trong giờ làm việc như máy Zalo: bộ não im quá 15 phút, hoặc (khi cờ trả lời bật)
+# kênh không ở trạng thái nhận tin quá 15 phút. Chưa cài bot (không có file) thì im.
+ZALO_BOT_TEXT = {"login_required": "nick phụ cần quét QR đăng nhập lại", "login_pending": "đang chờ quét QR",
+                 "kicked": "nick phụ bị phiên khác đá ra (có ai mở nick phụ trên Zalo Web hay Zalo PC?)",
+                 "offline": "tiến trình kênh không nối với bộ não", "connecting": "kênh nối mãi chưa được", "error": "kênh báo lỗi",
+                 "sandbox_missing": "kênh không chạy vì unit thiếu chặn mạng tới API", "unknown": "kênh báo trạng thái lạ"}
+
+
+def check_zalo_bot(now: dt.datetime) -> list[str]:
+    """Bot Zalo hỏi đáp còn chạy và còn nhận tin (ZALO-BOT-01 Phần 6). Dùng chung bộ đọc với tab Máy chạy, import muộn như `check_zalo`."""
+    if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
+        return []
+    web = str(Path(__file__).resolve().parents[1] / "web")
+    if web not in sys.path:
+        sys.path.insert(0, web)
+    import v7_machine
+    view = v7_machine.zalo_bot(now.timestamp())
+    if view["state"] == "missing":
+        return []
+    limit = v7_machine.ZALO_LATE // 60
+    if view["state"] == "silent":
+        since = f" từ {dt.datetime.fromisoformat(view['at']):%H:%M ngày %d/%m}" if view["at"] else ""
+        return [f"Bot Zalo im lặng{since}: bộ não không ghi nhịp tim quá {limit} phút."]
+    found = []
+    minutes = view["kenh_minutes"]
+    if view["enabled"] and view["kenh"] != "online" and (minutes is None or minutes > limit):
+        how = "" if minutes is None else f", {minutes} phút"
+        found.append(f"Bot Zalo: {ZALO_BOT_TEXT.get(view['kenh'], ZALO_BOT_TEXT['unknown'])}{how}.")
+    if view["error"]:
+        found.append(f"Bot Zalo: bộ não báo lỗi {view['error']}.")
+    return found
+
+
 def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path, show: Callable = systemctl_show,
             safety: Callable[[dt.datetime], list[str]] = check_safety_net,
             offsite: Callable[[dt.datetime], list[str]] = check_offsite_pulls,
-            zalo: Callable[[dt.datetime], list[str]] = check_zalo) -> list[str]:
+            zalo: Callable[[dt.datetime], list[str]] = check_zalo,
+            zalo_bot: Callable[[dt.datetime], list[str]] = check_zalo_bot) -> list[str]:
     """Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
     checks: tuple[tuple[str, Callable[[], list[str]]], ...] = (
@@ -287,7 +322,7 @@ def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path,
         ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("nguồn chuyến", lambda: check_sources(snapshots, now.date())),
         ("hộp việc", lambda: check_inbox(healthz)), ("timer", lambda: check_units(show, moment)),
         ("đĩa", lambda: check_disks(DISKS)), ("lưới an toàn", lambda: safety(now)),
-        ("bản sao ngoài máy", lambda: offsite(now)), ("máy Zalo", lambda: zalo(now)))
+        ("bản sao ngoài máy", lambda: offsite(now)), ("máy Zalo", lambda: zalo(now)), ("bot Zalo", lambda: zalo_bot(now)))
     found: list[str] = []
     for label, check in checks:
         try:
