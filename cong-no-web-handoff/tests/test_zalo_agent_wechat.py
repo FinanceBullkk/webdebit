@@ -24,6 +24,7 @@ from zalo_agent import __main__ as agent_main  # noqa: E402
 from zalo_agent import cursor as cursors  # noqa: E402
 from zalo_agent import push as pusher  # noqa: E402
 from zalo_agent import status as status_file  # noqa: E402
+from zalo_agent import wechat_app as app  # noqa: E402
 from zalo_agent import wechat_dat as dat  # noqa: E402
 from zalo_agent import wechat_export as export  # noqa: E402
 from zalo_agent.processors import wechat as wc  # noqa: E402
@@ -115,14 +116,19 @@ class OfflineImageKeyTest(unittest.TestCase):
         self.assertTrue(export.opens(GOOD_KEY, [bad, good, png]))
         self.assertEqual(export.v2_probes(str(account), limit=1), export.v2_probes(str(account))[:1])
 
-    def test_a_checked_key_is_remembered_until_its_kvcomm_file_disappears(self):
+    def test_a_checked_key_survives_an_empty_kvcomm_but_not_another_code(self):
         account = wechat_dirs(self.root)
         self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
         for path in (account / "msg" / "attach" / "a1b2" / "2026-11" / "Img").iterdir():
             path.unlink()   # không còn mẫu: lượt sau vẫn có khóa nhờ bộ nhớ của tiến trình `serve`, không đọc lại mẫu
         self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
-        (self.root / "appdata" / "Tencent" / "xwechat" / "net" / "kvcomm" / f"key_{CODE}_1000000001_1_1.statistic").unlink()
-        self.assertIsNone(self.key(account))
+        kvcomm = self.root / "appdata" / "Tencent" / "xwechat" / "net" / "kvcomm"
+        (kvcomm / f"key_{CODE}_1000000001_1_1.statistic").unlink()
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))   # WeChat thoát thì xóa rồi tạo lại file: không báo mất khóa
+        (kvcomm / "key_777_1000000001_1_1.statistic").write_bytes(b"")
+        self.assertIsNone(self.key(account))   # mã khác thay chỗ: không tin khóa cũ nữa, suy lại (hết mẫu nên hụt)
+        (kvcomm / f"key_{CODE}_1000000002_1_1.statistic").write_bytes(b"")
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))   # mã cũ trở lại: dùng lại khóa đã kiểm, không cần mẫu
 
     def test_a_miss_is_not_rescanned_for_ten_minutes_unless_a_new_kvcomm_code_appears(self):
         account = wechat_dirs(self.root, samples=((FULL_JPEG, "0" * 16), (FULL_PNG, "0" * 16)))   # mẫu của khóa khác: không suy được
@@ -222,7 +228,7 @@ class WeChatBase(unittest.TestCase):
                                transcode=no_jxl, max_age_days=None, clock=lambda: self.now, overlay=self.store)
 
     def make_processor(self, **kwargs):
-        args = {"python": "py", "pilot": "pilot", "run": self.db, "clock": lambda: self.now, "background": False, **kwargs}
+        args = {"python": "py", "pilot": "pilot", "run": self.db, "clock": lambda: self.now, "background": False, "app": lambda: "logged_in", **kwargs}
         return wc.WeChatProcessor(self.store, self.state, **args)
 
     def poll(self):
@@ -931,7 +937,7 @@ class RoundTwoExportTest(unittest.TestCase):
 
 class RoundTwoProcessorTest(WeChatBase):
     def make_agent(self):
-        wechat = {"python": "py", "pilot": "p", "groups": str(self.selection.path), "run": self.db, "background": False}
+        wechat = {"python": "py", "pilot": "p", "groups": str(self.selection.path), "run": self.db, "background": False, "app": lambda: "logged_in"}
         agent = agent_main.Agent(LiveSync(self.src), self.root, "fake:" + BUNDLE_REMOTE, "fake:/srv/v7/zalo-agent", run=self.remote,
                                  clock=lambda: self.now, wechat=wechat, fetch=FakeCdn(), transcode=no_jxl, max_age_days=None)
         self.addCleanup(agent.release)
@@ -1493,6 +1499,83 @@ class RealChildImageTest(WeChatBase):
         self.assertEqual(len(list((self.store.dir / "media").iterdir())), 3)
         self.assertEqual(list((self.store.dir / "incoming").iterdir()), [])
 
+
+
+TRAY = "Qt51514WxTrayIconMessageWindowClass"
+
+
+class WeChatAppTest(unittest.TestCase):
+    """Phân loại theo đúng số đo trên máy thật 22/11/2026 (tiến trình chính, tiến trình con Weixin, cửa sổ khay)."""
+
+    LOGGED = ((100, 4, "Weixin.exe"), (101, 100, "Weixin.exe"), (102, 100, "crashpad_handler.exe"), (103, 100, "WeChatAppEx.exe"))
+    LOGIN = ((200, 4, "Weixin.exe"), (202, 200, "crashpad_handler.exe"), (203, 200, "WeChatAppEx.exe"))
+
+    def test_states_from_processes_and_windows(self):
+        self.assertEqual(app.classify([], []), app.CLOSED)
+        self.assertEqual(app.classify([(9, 4, "WeixinUpdate.exe")], []), app.UPDATE)   # 06:07 ngày 22/11: chỉ còn trình cập nhật
+        self.assertEqual(app.classify(self.LOGIN, [(200, "Qt51514QWindowIcon")]), app.LOGIN)   # "Confirm on Phone"
+        self.assertEqual(app.classify(self.LOGGED, []), app.LOGGED_IN)   # có tiến trình con Weixin (wxutility…)
+        main_only = [(100, 4, "WEIXIN.EXE")]
+        self.assertEqual(app.classify(main_only, [(100, TRAY)]), app.LOGGED_IN)   # cửa sổ khay, tên exe không phân biệt hoa thường
+        self.assertEqual(app.classify(main_only, [(100, "Qt6QWindowIcon")]), app.LOGIN)
+        self.assertEqual(app.classify(main_only, [(555, TRAY)]), app.LOGIN)   # khay của tiến trình khác không tính
+
+    def test_two_wechats_one_logged_in_is_logged_in(self):
+        self.assertEqual(app.classify(self.LOGGED + self.LOGIN, [(200, "Qt51514QWindowIcon")]), app.LOGGED_IN)
+        self.assertEqual(app.classify(self.LOGIN + ((300, 4, "Weixin.exe"),), []), app.LOGIN)
+
+    def test_never_raises_and_reports_unknown(self):
+        with unittest.mock.patch.object(app.sys, "platform", "linux"):
+            self.assertEqual(app.state(), app.UNKNOWN)
+        with unittest.mock.patch.object(app.sys, "platform", "win32"),                 unittest.mock.patch.object(app, "list_processes", side_effect=OSError("hỏng")):
+            self.assertEqual(app.state(), app.UNKNOWN)
+        with unittest.mock.patch.object(app.sys, "platform", "win32"),                 unittest.mock.patch.object(app, "list_processes", return_value=self.LOGIN),                 unittest.mock.patch.object(app, "list_windows", return_value=[]) as windows:
+            self.assertEqual(app.state(), app.LOGIN)
+        windows.assert_called_once_with({200})
+
+
+class AppStatusTest(WeChatBase):
+    def setUp(self):
+        super().setUp()
+        self.now = 1_793_000_100.0
+        self.value = "logged_in"
+        self.processor = self.make_processor(images=True, app=lambda: self.value)
+
+    def status(self):
+        return status_file.compose(None, self.now, "abc", 1, LiveSync(self.src), {"wechat": self.poll()}, None, None,
+                                   ("attached", "2026-11-20T08:00:00+07:00"))["processors"]["wechat"]
+
+    def test_app_state_and_since_reach_status_and_survive_an_agent_restart(self):
+        first = self.status()
+        self.assertEqual((first["app"], first["images"]), ("logged_in", "ok"))
+        self.value = "closed"
+        self.now += 5   # chưa tới 30 giây: chưa xem lại
+        self.assertEqual(self.status()["app"], "logged_in")
+        self.now += wc.APP_EVERY
+        closed = self.status()
+        self.assertEqual(closed["app"], "closed")
+        self.assertNotEqual(closed["app_since"], first["app_since"])
+        self.processor = self.make_processor(images=True, app=lambda: self.value)   # agent chạy lại: mốc không mất
+        self.now += 120
+        self.assertEqual((self.status()["app"], self.status()["app_since"]), ("closed", closed["app_since"]))
+
+    def test_image_key_state_follows_the_end_line_and_only_when_images_are_on(self):
+        self.db.image_keys = False
+        self.assertEqual(self.status()["images"], "no_key")
+        self.db.image_keys = True
+        self.assertEqual(self.status()["images"], "ok")
+        self.processor = self.make_processor(app=lambda: self.value)   # tắt ảnh: không có trường `images`
+        self.assertNotIn("images", self.status())
+
+    def test_dry_run_does_not_write_the_marks_and_status_keeps_only_codes(self):
+        self.processor = self.make_processor(images=True, app=lambda: "logged_in", dry_run=True)
+        self.status()
+        self.assertFalse((self.state / "wechat-app.json").exists())
+        status = status_file.compose(None, self.now, "abc", 1, LiveSync(self.src),
+                                     {"wechat": {"error": None, "app": "Đã đăng nhập!", "images": "ok", "images_since": "hôm nay"}}, None, None,
+                                     ("attached", "2026-11-20T08:00:00+07:00"))["processors"]["wechat"]
+        self.assertNotIn("app", status)
+        self.assertEqual((status["images"], status["images_since"]), ("ok", None))
 
 if __name__ == "__main__":
     unittest.main()

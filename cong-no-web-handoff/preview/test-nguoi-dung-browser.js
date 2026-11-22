@@ -205,7 +205,9 @@ test('Người dùng: hộp thoại Thêm người kiểm dạng login trước 
 }));
 
 test('Người dùng: bản cũ thì đọc lại và nói rõ; đọc lỗi có Thử lại; máy chủ chưa bật thì chỉ xem', async () => {
-  await withPage({ stale: true }, async page => {
+  // Lượt đọc lại chậm như máy CI bận (lượt `main` ngày 22/11/2026 đỏ hai lần ở đây): câu "vừa được người khác đổi" chỉ được hiện khi
+  // bảng đã đọc lại và vẽ xong, nên lúc thấy câu thì ô chọn đã về giá trị của máy chủ.
+  await withPage({ stale: true, slowReload: true }, async page => {
     await page.locator('#users .nd-row').first().waitFor();
     await rowOf(page, 'lan.ketoan@example.test').locator('select').selectOption('admin');
     await page.locator('#error', { hasText: 'Danh sách vừa được người khác đổi' }).waitFor();

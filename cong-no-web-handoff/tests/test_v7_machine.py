@@ -233,6 +233,17 @@ class MachineTests(unittest.TestCase):
         self.assertEqual((row["state"], row["error"], row["error_minutes"], row["messages"]), ("error", "child_failed", 20, None))
         self.assertEqual(machine.summary()["zalo"]["processors"], {"bundle": "ok", "wechat": "error"})
 
+    def test_zalo_wechat_row_carries_the_app_and_image_key_state_with_minutes(self):
+        wechat = {"lag_revisions": None, "last_ok_at": ago(1), "error": None, "messages": 53}
+        self.status(processors={"wechat": {**wechat, "app": "closed", "app_since": ago(20), "images": "no_key", "images_since": ago(3)}})
+        row = machine.zalo()["processors"][-1]
+        self.assertEqual((row["app"], row["app_minutes"], row["images"], row["images_minutes"]), ("closed", 20, "no_key", 3))
+        self.status(processors={"wechat": {**wechat, "app": "đã tắt!", "app_since": ago(20), "images": "x"}})   # mã lạ: không rõ
+        row = machine.zalo()["processors"][-1]
+        self.assertEqual((row["app"], row["app_minutes"], row["images"], row["images_minutes"]), (None, None, None, None))
+        self.status(processors={"wechat": wechat})   # bản agent cũ chưa ghi
+        self.assertEqual(machine.zalo()["processors"][-1]["app"], None)
+
     def test_zalo_latency_and_ocr_drain_are_numbers_only(self):
         money = lambda **drain: {"lag_revisions": 0, "last_ok_at": ago(1), "error": None, "counts": {"pending": 4}, "drain": drain}  # noqa: E731
         self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(1), "error": None},
