@@ -36,7 +36,8 @@ DELTA = "messages-delta.jsonl"
 MUTABLE = {DELTA, "media.json", "users.json"}   # file của thư mục dữ liệu hiện tại có thể đổi giữa hai lần dựng
 PRUNE = ("data-*", "media/*")
 CLEAN_KEYS = wb.CLEAN_KEYS
-FORMAT = 2   # khuôn gói; 2 (21/11/2026): card, quote_id, reactions, sticker, avatars, ghi âm/video
+FORMAT = 3   # khuôn gói; 2 (21/11/2026): card, quote_id, reactions, sticker, avatars, ghi âm/video; 3 (22/11/2026): cảm xúc đọc
+             # đúng loại (tầng trong của viewer là loại → số lần bấm), dựng lại đầy đủ để tin cũ trên hao hết hiện sai loại
 
 
 def clean_row(row: dict) -> dict:
