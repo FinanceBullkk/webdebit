@@ -197,7 +197,10 @@ def offline_image_key(db) -> tuple[str, int] | None:
     Khóa = 16 ký tự đầu của md5(mã trong tên `key_<mã>_….statistic` ở thư mục `kvcomm` của WeChat + wxid). wxid thử ba dạng (bỏ
     đuôi `_xxxx` của thư mục tài khoản…). Chỉ nhận khóa giải được khối đầu của file `.dat` V2 thật thành chữ ký ảnh (JPEG, PNG, GIF,
     WEBP, wxgf): bộ thử của upstream chỉ nhận JPEG trên MỘT file, mẫu là PNG thì loại cả khóa đúng. Byte XOR suy từ đuôi ảnh của các
-    mẫu khi ít nhất hai mẫu cùng ra một byte (XOR sai thì ảnh vẫn qua kiểm đầu file nhưng hỏng đuôi), không thì mã & 0xFF."""
+    mẫu khi ít nhất hai mẫu cùng ra một byte (XOR sai thì ảnh vẫn qua kiểm đầu file nhưng hỏng đuôi), không thì mã & 0xFF.
+
+    Khóa đã kiểm được nhớ trong tiến trình tới khi `kvcomm` có mã khác thay chỗ. Thư mục trống không làm mất khóa: WeChat thoát thì
+    xóa rồi tạo lại các file này (đo trên máy Zalo 22/11/2026), một lượt đọc rơi vào giữa từng báo mất khóa ảnh vài giây."""
     appdata = os.environ.get("APPDATA")
     wxid = str(getattr(db, "wxid", "") or getattr(db, "account", "") or "")
     if not appdata or not wxid:
@@ -206,7 +209,7 @@ def offline_image_key(db) -> tuple[str, int] | None:
     account = getattr(db, "account_dir", None)
     account = str(account) if isinstance(account, str | os.PathLike) else ""
     cached = KEYS.get((account, wxid))
-    if cached and cached[0] in codes:
+    if cached and (cached[0] in codes or not codes):   # trống: WeChat đang ghi lại file, khóa chưa đổi
         return cached[1], cached[2]
     now = time.monotonic()
     for stale in [key for key, at in MISSES.items() if now - at >= MISS_RETRY]:

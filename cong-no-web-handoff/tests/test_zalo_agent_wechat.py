@@ -116,14 +116,19 @@ class OfflineImageKeyTest(unittest.TestCase):
         self.assertTrue(export.opens(GOOD_KEY, [bad, good, png]))
         self.assertEqual(export.v2_probes(str(account), limit=1), export.v2_probes(str(account))[:1])
 
-    def test_a_checked_key_is_remembered_until_its_kvcomm_file_disappears(self):
+    def test_a_checked_key_survives_an_empty_kvcomm_but_not_another_code(self):
         account = wechat_dirs(self.root)
         self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
         for path in (account / "msg" / "attach" / "a1b2" / "2026-11" / "Img").iterdir():
             path.unlink()   # không còn mẫu: lượt sau vẫn có khóa nhờ bộ nhớ của tiến trình `serve`, không đọc lại mẫu
         self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))
-        (self.root / "appdata" / "Tencent" / "xwechat" / "net" / "kvcomm" / f"key_{CODE}_1000000001_1_1.statistic").unlink()
-        self.assertIsNone(self.key(account))
+        kvcomm = self.root / "appdata" / "Tencent" / "xwechat" / "net" / "kvcomm"
+        (kvcomm / f"key_{CODE}_1000000001_1_1.statistic").unlink()
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))   # WeChat thoát thì xóa rồi tạo lại file: không báo mất khóa
+        (kvcomm / "key_777_1000000001_1_1.statistic").write_bytes(b"")
+        self.assertIsNone(self.key(account))   # mã khác thay chỗ: không tin khóa cũ nữa, suy lại (hết mẫu nên hụt)
+        (kvcomm / f"key_{CODE}_1000000002_1_1.statistic").write_bytes(b"")
+        self.assertEqual(self.key(account), (GOOD_KEY, int(CODE) & 0xFF))   # mã cũ trở lại: dùng lại khóa đã kiểm, không cần mẫu
 
     def test_a_miss_is_not_rescanned_for_ten_minutes_unless_a_new_kvcomm_code_appears(self):
         account = wechat_dirs(self.root, samples=((FULL_JPEG, "0" * 16), (FULL_PNG, "0" * 16)))   # mẫu của khóa khác: không suy được
