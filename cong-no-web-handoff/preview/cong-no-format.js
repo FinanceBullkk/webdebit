@@ -227,15 +227,20 @@ const CongNoFormat = (() => {
 
   /** Tuổi dữ liệu Zalo (ZALO-THU-CHI-01 "Bị chặn"), dùng chung cho trang Thu chi và Chat Zalo để hai trang nói cùng một câu.
    *  `zalo`: nhịp tim máy Zalo của máy chủ ({state, at, identity, quiet_minutes}); `fallbackAt`: giờ dựng gói khi chưa có máy Zalo báo về;
-   *  `stamp(iso)`: định dạng giờ theo trang. Máy im, hoặc Zalo chưa mở từ 5 phút, thì "lần cuối" kèm một câu cảnh báo: không giả là đang mới.
-   *  Zalo chưa mở chỉ chặn tin Zalo (WeChat đọc kho riêng); máy im thì mọi tin. */
+   *  `stamp(iso)`: định dạng giờ theo trang. Máy im, hoặc từ 5 phút Zalo chưa mở hay đã mở mà máy chưa đọc được tin (`reprobing`;
+   *  lúc Zalo vừa mở thì chỉ thoáng qua, 22/11/2026 kẹt hơn 18 giờ ở cỡ màn đăng nhập), thì "lần cuối" kèm một câu cảnh báo: không giả
+   *  là đang mới. Hai trạng thái Zalo chỉ chặn tin Zalo (WeChat đọc kho riêng); máy im thì mọi tin. */
   function zaloFreshness(zalo, fallbackAt, stamp) {
     const beat = zalo ?? {};
     const at = beat.state === 'ok' || beat.state === 'silent' ? beat.at : fallbackAt;
-    const stale = beat.state === 'silent' || (beat.identity === 'waiting_for_zalo' && (beat.quiet_minutes ?? 0) >= 5);
+    const long = (beat.quiet_minutes ?? 0) >= 5;
+    const closed = beat.identity === 'waiting_for_zalo' && long, unread = beat.identity === 'reprobing' && long;
+    const stale = beat.state === 'silent' || closed || unread;
     const label = at ? `Zalo cập nhật ${stale ? 'lần cuối ' : ''}lúc ${stamp(at)}` : 'Zalo: chưa có tin';
+    const minutes = Number(beat.quiet_minutes).toLocaleString('vi-VN');
     const warn = beat.state === 'silent' ? `Máy Zalo không báo về${beat.at ? ` từ ${stamp(beat.at)}` : ''}. Tin mới có thể chưa lên.`
-      : stale ? `Zalo chưa mở trên máy Zalo (${Number(beat.quiet_minutes).toLocaleString('vi-VN')} phút). Tin Zalo mới chưa lên.` : '';
+      : closed ? `Zalo chưa mở trên máy Zalo (${minutes} phút). Tin Zalo mới chưa lên.`
+        : unread ? `Zalo đã mở trên máy Zalo nhưng chưa đọc được tin (${minutes} phút), có thể đang chờ đăng nhập lại. Tin Zalo mới chưa lên.` : '';
     return { label, stale, warn };
   }
 

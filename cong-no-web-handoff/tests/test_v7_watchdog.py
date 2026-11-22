@@ -337,8 +337,19 @@ class ZaloTests(Base):
         self.assertEqual(dog.check_zalo(ten), ["Zalo chưa mở trên máy Zalo: không đọc được tin mới 16 phút."])
         self.report(ten, identity="attached", revision_age=90)       # Zalo mở, chỉ là không có tin mới: không báo
         self.assertEqual(dog.check_zalo(ten), [])
-        self.report(ten, identity="reprobing", revision_age=90)
+
+    def test_zalo_open_but_unreadable_reports_after_15_minutes(self):
+        # 22/11/2026: Zalo mở lại mà live-sync kẹt `reprobing` hơn 18 giờ, không ai biết. Lúc Zalo vừa mở thì thoáng qua: không báo.
+        ten, night = dt.datetime(2026, 11, 22, 10, 0, tzinfo=VN), dt.datetime(2026, 11, 22, 22, 0, tzinfo=VN)
+        self.report(ten, identity="reprobing", revision_age=2000, since_age=14)   # tin cuối đã lâu, nhưng kẹt mới 14 phút
         self.assertEqual(dog.check_zalo(ten), [])
+        self.report(ten, identity="reprobing", revision_age=2000, since_age=236)
+        self.assertEqual(dog.check_zalo(ten), [
+            "Zalo đã mở trên máy Zalo nhưng máy chưa đọc được tin 236 phút: xem Zalo có đang chờ đăng nhập lại không."])
+        self.report(night, identity="reprobing", revision_age=2000, since_age=236)
+        self.assertEqual(dog.check_zalo(night), [])                  # ngoài giờ làm việc thì im như các phép kiểm Zalo khác
+        self.report(ten, identity="unknown", revision_age=2000, since_age=236)
+        self.assertEqual(dog.check_zalo(ten), [])                    # mã lạ không báo bừa
 
     def test_identity_since_wins_over_revision_at_when_present(self):
         ten = dt.datetime(2026, 11, 20, 10, 0, tzinfo=VN)

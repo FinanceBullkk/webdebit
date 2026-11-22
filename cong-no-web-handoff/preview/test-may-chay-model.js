@@ -294,4 +294,16 @@ test('Máy Zalo: WeChat tắt, chờ cập nhật, chờ đăng nhập hay khôn
   assert.deepEqual(texts(waiting), ['WeChat: Đang chạy, 53 tin đã nhập']);   // Zalo chưa mở không liên quan WeChat
 });
 
+test('Máy Zalo: Zalo đã mở mà chưa đọc được tin (reprobing) quá 5 phút thì nói kèm số phút; thoáng qua thì không; dòng WeChat không đổi', () => {
+  // 22/11/2026: kẹt hơn 18 giờ mà tab vẫn ghi "kịp tin mới".
+  const both = [{ id: 'bundle', state: 'error', error: 'ssh_failed' }, { id: 'wechat', state: 'ok', lag: null, minutes: null, error: null, messages: 53 }];
+  const stuck = M.zaloLines(zalo({ identity: 'reprobing', quiet_minutes: 1107 }, both));
+  assert.deepEqual([texts(stuck), stuck.tone], [
+    ['Gói chat: Zalo đã mở nhưng chưa đọc được tin, có thể đang chờ đăng nhập (1.107 phút)', 'WeChat: Đang chạy, 53 tin đã nhập'], 'warn']);   // nói rõ hơn mã lỗi, như Zalo chưa mở
+  assert.deepEqual(texts(M.zaloLines(zalo({ identity: 'reprobing', quiet_minutes: 4 }))), ['Gói chat: Đang chạy, kịp tin mới']);   // Zalo vừa mở
+  assert.deepEqual(texts(M.zaloLines(zalo({ identity: 'reprobing', quiet_minutes: null }))), ['Gói chat: Đang chạy, kịp tin mới']);   // không rõ từ lúc nào
+  const silent = M.zaloLines(zalo({ state: 'silent', at: at(8, 5), identity: 'reprobing', quiet_minutes: 1107 }));
+  assert.deepEqual(texts(silent), ['Gói chat: Không nghe máy Zalo từ 08:05']);   // máy im thì không biết Zalo ra sao
+});
+
 console.log('may-chay-model: OK');

@@ -114,7 +114,7 @@ Mỗi lần bấm ghi người làm và giá trị trước → sau, như dấu 
 ### Bị chặn
 
 - **Máy có Zalo tắt:**
-  - trang Thu chi và Chat Zalo ghi rõ "Zalo cập nhật lần cuối lúc …", không giả là đang mới (22/11/2026: hai trang dùng chung `CongNoFormat.zaloFreshness`; Chat Zalo hỏi lại dòng đầu mỗi phút khi tab hiện; Zalo chưa mở thì cảnh báo nói "tin Zalo", vì WeChat đọc kho riêng);
+  - trang Thu chi và Chat Zalo ghi rõ "Zalo cập nhật lần cuối lúc …", không giả là đang mới (22/11/2026: hai trang dùng chung `CongNoFormat.zaloFreshness`; Chat Zalo hỏi lại dòng đầu mỗi phút khi tab hiện; Zalo chưa mở thì cảnh báo nói "tin Zalo", vì WeChat đọc kho riêng; từ 23/11/2026 Zalo đã mở mà máy chưa đọc được tin (`reprobing`) quá 5 phút cũng ghi "lần cuối" và cảnh báo, kèm gợi ý xem Zalo có đang chờ đăng nhập lại không);
   - quá 15 phút trong giờ làm việc thì máy canh gửi email ([Phần A](#phần-a-gần-thời-gian-thực), A4).
 - **Không có quyền (ngoài Tailscale):** 403 như mọi trang.
 - **Nhóm chưa chọn lên web:** không có tin. Hội thoại riêng tư không rời máy (ZALO-GROUP-01).
@@ -282,7 +282,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 
 - Mặc định 7 ngày tới hôm nay (giờ VN), tối đa 93 ngày; `status=` nhận mã trạng thái cách nhau bằng dấu phẩy và chỉ lọc `items`, còn `totals` và `counts` tính trên cả khoảng.
 - Mỗi `item`: `message_id`, `conversation_id`, `conversation_name`, `sent_at` (ms), `day`, `sender_name`, `direction`, `amount_vnd` (số nguyên hoặc `null`), `text` (≤ 300 ký tự), `media`, `target {kind, id, label}`, `ambiguous`, `status`, `shared`, `ledger_ref`, `ledger_vnd`, `source` (`chat` hoặc `mark`); từ 22/11/2026 thêm `resent` (số lần cùng giao dịch được gửi lại, 0 là không trùng).
-- `zalo_age_seconds` được thay bằng `zalo {state, at, silent_minutes, identity, quiet_minutes}` lấy từ `status.json` của máy Zalo (`v7_machine.zalo()`), cộng `bundle_at` (giờ dựng gói) và `last_message_at`: đủ để phân biệt "máy im", "Zalo chưa mở" và "ít tin".
+- `zalo_age_seconds` được thay bằng `zalo {state, at, silent_minutes, identity, quiet_minutes}` lấy từ `status.json` của máy Zalo (`v7_machine.zalo()`), cộng `bundle_at` (giờ dựng gói) và `last_message_at`: đủ để phân biệt "máy im", "Zalo chưa mở", "Zalo mở mà chưa đọc được" và "ít tin".
 - `shared: true` khi một phiếu hoặc dòng sổ là ứng viên của hai khoản báo; cả hai hiện `AMOUNT_DIFF` (hoặc `SUGGEST`) cho người chọn.
 - **Không đoán số và đối tượng (review 20/11/2026):** đơn vị rồi cách rồi chữ số ("1 triệu 2", "2 tr 5") và dấu trừ dính vào số ("chi -500k") là `NO_AMOUNT`, còn gạch có khoảng trắng ("chi - 500k") là dấu ngăn và vẫn đọc 500.000 (chủ ý). "Số rời" chỉ tính khi 1–3 chữ số đứng một mình và không dính chữ cái, không là ngày, không đứng trước danh từ đếm được: "1 triệu 2", "2 tr 5" là `NO_AMOUNT`, còn "5tr 30 cont", "2tr 51C-123.45", "800k 2 xe" đọc 5 triệu, 2 triệu, 800 nghìn; biển số chỉ nhận khi có chữ cái của dãy biển (51C-123.45) hoặc đứng ngay sau "xe", "bks", "bs", "biển số" ("15.11", "2026" không phải biển); tên sổ hoặc người ngắn hơn 3 ký tự (bỏ dấu) không tự khớp.
 - **Ghép một-một cực đại:** trong mỗi nhóm khoản tranh chung dòng sổ, nếu có cách ghép đủ cho mọi khoản thì ghép (khoản sớm trước, dòng sớm trước); không đủ thì cả nhóm `shared`. Dấu "Khách báo đã chuyển" cùng tin hoặc cùng phiếu (`receipt_pid`) với một khoản chat bị ẩn (giữ khoản chat, tổng thu không cộng hai lần; `marks_hidden` đếm số dấu ẩn); cửa sổ ngày của dấu tính từ `on_date`, của khoản chat từ ngày tin.
@@ -358,7 +358,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
   - mỗi trạng thái đối chiếu có ít nhất một ca (`test_every_status`; `NOT_CASH` ở `ReviewTests`);
   - một phiếu không ứng với hai khoản (`test_one_receipt_matches_one_report`, `test_matching_is_maximum_not_greedy_in_both_orders`);
   - phiếu đã hủy không tính (`test_voided_receipt_is_not_counted`).
-- [x] Unit máy canh: Zalo quá 15 phút trong giờ làm việc thì báo, ngoài giờ không báo, chưa chọn nhóm thì không kiểm (`tests/test_v7_watchdog.py`: `test_silent_status_reports_during_work_hours_only`, `test_waiting_for_zalo_reports_after_15_minutes`, `test_no_selected_group_means_no_check`).
+- [x] Unit máy canh: Zalo quá 15 phút trong giờ làm việc thì báo, ngoài giờ không báo, chưa chọn nhóm thì không kiểm (`tests/test_v7_watchdog.py`: `test_silent_status_reports_during_work_hours_only`, `test_waiting_for_zalo_reports_after_15_minutes`, `test_no_selected_group_means_no_check`; 23/11/2026 thêm Zalo mở mà chưa đọc được: `test_zalo_open_but_unreadable_reports_after_15_minutes`).
 - [x] Playwright, máy chủ giả, 1280×720 và 390×844 (`test-thu-chi-browser.js`; 22/11/2026 thêm hai ca "Thu chi ở điện thoại 390×844" chạy hành vi, không chỉ bố cục):
   - khoản mới tự hiện sau một lượt hỏi (ca "khoản mới tự hiện sau một lượt hỏi"; 390×844);
   - đang đọc tin cũ thì hiện nút "N tin mới" (ca "đang đọc (cuộn xuống)…", "tiêu điểm đang ở trong danh sách…"; 390×844: nút ≥ 40px, trong màn);

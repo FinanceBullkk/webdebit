@@ -177,7 +177,7 @@ test('receiptReference giữ tiền tố và đuôi của máy khi sửa chữ, 
   assert.equal(F.receiptReference(null, 'mới'), 'mới');
 });
 
-test('zaloFreshness: cùng một câu cho Thu chi và Chat Zalo; máy im hay Zalo chưa mở từ 5 phút thì "lần cuối" và cảnh báo', () => {
+test('zaloFreshness: cùng một câu cho Thu chi và Chat Zalo; máy im, Zalo chưa mở hay mở mà chưa đọc được từ 5 phút thì "lần cuối" và cảnh báo', () => {
   const stamp = iso => iso.slice(11, 16);
   const ok = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'attached', quiet_minutes: 0 }, '2026-11-22T03:00:00+07:00', stamp);
   assert.deepEqual(ok, { label: 'Zalo cập nhật lúc 09:30', stale: false, warn: '' });   // nhịp tim thắng giờ dựng gói
@@ -189,6 +189,14 @@ test('zaloFreshness: cùng một câu cho Thu chi và Chat Zalo; máy im hay Zal
   assert.deepEqual(waiting, { label: 'Zalo cập nhật lần cuối lúc 09:30', stale: true, warn: 'Zalo chưa mở trên máy Zalo (1.234 phút). Tin Zalo mới chưa lên.' });
   const brief = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'waiting_for_zalo', quiet_minutes: 4 }, null, stamp);
   assert.deepEqual([brief.stale, brief.warn], [false, '']);   // dưới 5 phút: chưa nói
+  // 22/11/2026: Zalo mở lại mà máy kẹt `reprobing` hơn 18 giờ, dòng đầu vẫn ghi "cập nhật lúc" giờ nhịp tim như đang mới.
+  const unread = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'reprobing', quiet_minutes: 1107 }, null, stamp);
+  assert.deepEqual(unread, { label: 'Zalo cập nhật lần cuối lúc 09:30', stale: true,
+    warn: 'Zalo đã mở trên máy Zalo nhưng chưa đọc được tin (1.107 phút), có thể đang chờ đăng nhập lại. Tin Zalo mới chưa lên.' });
+  const reattach = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'reprobing', quiet_minutes: 4 }, null, stamp);
+  assert.deepEqual([reattach.stale, reattach.warn], [false, '']);   // Zalo vừa mở: thoáng qua rồi tự đọc lại
+  const noSince = F.zaloFreshness({ state: 'ok', at: '2026-11-22T09:30:00+07:00', identity: 'reprobing', quiet_minutes: null }, null, stamp);
+  assert.deepEqual([noSince.stale, noSince.warn], [false, '']);   // không rõ từ lúc nào: không báo bừa
   assert.deepEqual(F.zaloFreshness({ state: 'missing' }, '2026-11-22T03:00:00+07:00', stamp), { label: 'Zalo cập nhật lúc 03:00', stale: false, warn: '' });
   assert.deepEqual(F.zaloFreshness(undefined, null, stamp), { label: 'Zalo: chưa có tin', stale: false, warn: '' });
 });
