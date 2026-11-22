@@ -229,6 +229,34 @@ test('Máy Zalo: bốn trạng thái, mỗi bộ xử lý một dòng câu thư�
   assert.deepEqual([texts(silent), silent.tone], [['Gói chat: Không nghe máy Zalo từ 08:05'], 'bad']);
 });
 
+// ZALO-BOT-01: nhóm "Bot Zalo hỏi đáp", câu thường suy từ mã và số đếm trong ngày của bộ não.
+const bot = (over = {}) => ({ state: 'ok', at: at(9, 39), silent_minutes: 0, enabled: true, kenh: 'online', kenh_code: null, kenh_minutes: 50,
+  error: null, counts: {}, ...over });
+
+test('Bot Zalo: chưa cài bot thì không có nhóm; đang nhận tin mà chưa ai hỏi thì xanh', () => {
+  for (const missing of [undefined, null, { state: 'missing' }]) assert.equal(M.botLines(missing), null);
+  const idle = M.botLines(bot());
+  assert.deepEqual([idle.head, idle.tone, texts(idle)], ['Bot Zalo báo lúc 09:39', 'ok', ['Nick phụ: Đang nhận tin', 'Hôm nay: Chưa có câu hỏi']]);
+});
+
+test('Bot Zalo: nick phụ cần quét QR, bị đá, lỗi có mã và số phút; câu chưa chắc và câu lỗi trong ngày tô vàng', () => {
+  assert.deepEqual(texts(M.botLines(bot({ kenh: 'login_required', kenh_minutes: 20 })))[0], 'Nick phụ: Cần quét QR đăng nhập lại (20 phút)');
+  assert.equal(M.botLines(bot({ kenh: 'kicked' })).tone, 'bad');
+  assert.equal(texts(M.botLines(bot({ kenh: 'error', kenh_code: 'zalo_down', kenh_minutes: 3 })))[0], 'Nick phụ: Gặp lỗi, mã: zalo_down (3 phút)');
+  assert.equal(texts(M.botLines(bot({ kenh: 'sleepy' })))[0], 'Nick phụ: Không rõ trạng thái (50 phút)');
+  const day = M.botLines(bot({ counts: { answered: 12, not_sure: 1, error: 1, too_slow: 1, stranger: 2, sent_ok: 30 } }));
+  assert.deepEqual(texts(day), ['Nick phụ: Đang nhận tin', 'Hôm nay: 12 câu đã trả lời, 1 câu chưa chắc, 2 câu lỗi', 'Người lạ: 2 tin, bot không trả lời']);
+  assert.equal(day.tone, 'warn');
+});
+
+test('Bot Zalo: bộ não im thì một dòng đỏ; cờ trả lời tắt thì nói rõ; bộ não báo lỗi thì thêm dòng', () => {
+  const silent = M.botLines({ state: 'silent', at: at(8, 5) });
+  assert.deepEqual([silent.head, texts(silent), silent.tone], ['Không nghe bot Zalo từ 08:05', ['Bộ não: Không ghi nhịp tim'], 'bad']);
+  assert.deepEqual(texts(M.botLines(bot({ enabled: false, kenh: 'offline', kenh_minutes: 0 }))), ['Nick phụ: Kênh không nối với bộ não', 'Trả lời: Đang tắt']);
+  const broken = M.botLines(bot({ error: 'log_write_failed' }));
+  assert.deepEqual([texts(broken).at(-1), broken.tone], ['Bộ não: Gặp lỗi, mã: log_write_failed', 'bad']);
+});
+
 test('Máy Zalo: im lặng mà không còn biết bộ xử lý nào thì một dòng chung; lỗi đẩy thêm một dòng; chưa chọn nhóm thì nói rõ', () => {
   const lost = M.zaloLines({ state: 'silent', at: null, processors: [], selected_groups: null });
   assert.deepEqual([texts(lost), lost.head], [['Máy Zalo: Không nghe máy Zalo'], 'Máy Zalo không báo được']);
