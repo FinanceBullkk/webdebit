@@ -807,7 +807,7 @@ test('Chat Zalo: điện thoại 390px, trích dẫn dài bị cắt trong bong 
 // ---- ZALO-THU-CHI-01 "Bị chặn": máy Zalo im hay Zalo chưa mở thì Chat Zalo ghi "lần cuối" và cảnh báo, như trang Thu chi. ----
 const OLD_BEAT = '2026-11-01T08:05:00+07:00';   // ngày cố định đã qua: giờ luôn kèm ngày, test không đổi theo ngày chạy
 
-test('Chat Zalo: máy Zalo im thì dòng đầu ghi "cập nhật lần cuối" và có cảnh báo; Zalo chưa mở ghi số phút; máy báo đều thì không cảnh báo', async () => {
+test('Chat Zalo: máy Zalo im thì dòng đầu ghi "cập nhật lần cuối" và có cảnh báo; Zalo chưa mở hay mở mà chưa đọc được ghi số phút; máy báo đều thì không cảnh báo', async () => {
   await withPage({ bundled: true, beat: { value: { state: 'silent', at: OLD_BEAT, silent_minutes: 200, identity: 'attached', quiet_minutes: 0 } } }, async page => {
     await page.locator('.conv').first().waitFor();
     assert.match(await page.locator('#summary').innerText(), /· Zalo cập nhật lần cuối lúc 08:05 01\/11\/2026 · chỉ xem$/);
@@ -817,6 +817,12 @@ test('Chat Zalo: máy Zalo im thì dòng đầu ghi "cập nhật lần cuối" 
   await withPage({ bundled: true, beat: { value: { state: 'ok', at: OLD_BEAT, silent_minutes: 0, identity: 'waiting_for_zalo', quiet_minutes: 42 } } }, async page => {
     await page.locator('.conv').first().waitFor();
     assert.equal(await page.locator('#zalo-warn').innerText(), 'Zalo chưa mở trên máy Zalo (42 phút). Tin Zalo mới chưa lên.');
+  });
+  await withPage({ bundled: true, beat: { value: { state: 'ok', at: OLD_BEAT, silent_minutes: 0, identity: 'reprobing', quiet_minutes: 1107 } } }, async page => {
+    await page.locator('.conv').first().waitFor();
+    assert.equal(await page.locator('#summary').getAttribute('class'), 'summary stale');
+    assert.equal(await page.locator('#zalo-warn').innerText(),
+      'Zalo đã mở trên máy Zalo nhưng chưa đọc được tin (1.107 phút), có thể đang chờ đăng nhập lại. Tin Zalo mới chưa lên.');
   });
   await withPage({ bundled: true, beat: { value: { state: 'ok', at: OLD_BEAT, silent_minutes: 0, identity: 'attached', quiet_minutes: 0 } } }, async page => {
     await page.locator('.conv').first().waitFor();

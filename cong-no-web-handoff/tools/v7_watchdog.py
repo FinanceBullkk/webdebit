@@ -228,10 +228,16 @@ ZALO_LATENCY_MIN = 3
 # biết), nên máy canh nhìn chính app WeChat do agent báo (`processors.wechat.app`).
 WECHAT_APP_TEXT = {"closed": "WeChat chưa mở trên máy Zalo", "update": "WeChat trên máy Zalo đang chờ cập nhật, chưa mở lại",
                    "login": "WeChat trên máy Zalo đang chờ đăng nhập (xác nhận trên điện thoại)"}
+# Zalo không đọc được tin mới: chưa mở (`waiting_for_zalo`), hoặc đã mở mà live-sync chưa lấy được khóa đọc tin (`reprobing`). Lúc Zalo
+# vừa mở thì `reprobing` chỉ thoáng qua; 22/11/2026 Zalo mở lại 06:03 rồi kẹt như vậy hơn 18 giờ, cửa sổ Zalo ở cỡ màn đăng nhập, mà
+# không ai biết vì chỉ `waiting_for_zalo` được xét.
+ZALO_IDENTITY_TEXT = {"waiting_for_zalo": "Zalo chưa mở trên máy Zalo: không đọc được tin mới {} phút.",
+                      "reprobing": "Zalo đã mở trên máy Zalo nhưng máy chưa đọc được tin {} phút: xem Zalo có đang chờ đăng nhập lại không."}
 
 
 def check_zalo(now: dt.datetime) -> list[str]:
-    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở quá 15 phút, WeChat tắt / chờ cập nhật /
+    """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở hay đã mở mà chưa đọc được tin quá
+    15 phút (`ZALO_IDENTITY_TEXT`), WeChat tắt / chờ cập nhật /
     chờ đăng nhập hay không giải được ảnh quá 15 phút (WECHAT-01), một bộ xử lý chậm quá
     15 phút, hoặc một bộ xử lý / việc đẩy lên báo lỗi quá 15 phút (đo từ `error_since`, thiếu thì `last_ok_at`, thiếu cả hai thì báo ngay),
     tin mới lên web chậm (p95 trong 60 phút quá 5 phút), hoặc hàng chờ đọc ảnh còn ảnh mà quá 15 phút không ảnh nào xong (không lỗi).
@@ -253,8 +259,8 @@ def check_zalo(now: dt.datetime) -> list[str]:
         return [f"Máy Zalo im lặng{since}: không nhận được báo cáo nào quá {limit} phút."]
     found = []
     quiet = view["quiet_minutes"]
-    if view["identity"] == "waiting_for_zalo" and quiet is not None and quiet > limit:
-        found.append(f"Zalo chưa mở trên máy Zalo: không đọc được tin mới {quiet} phút.")
+    if view["identity"] in ZALO_IDENTITY_TEXT and quiet is not None and quiet > limit:
+        found.append(ZALO_IDENTITY_TEXT[view["identity"]].format(quiet))
     total = view.get("latency", {}).get("hour", {}).get("total") or {}
     if total.get("n", 0) >= ZALO_LATENCY_MIN and (total.get("p95") or 0) > ZALO_LATENCY_P95:
         found.append(f"Máy Zalo: tin mới lên web chậm, 95% lượt trong 60 phút qua mất tới {int(total['p95'] // 60)} phút ({total['n']} lượt).")

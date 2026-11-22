@@ -272,12 +272,14 @@ Mốc nằm trong `pending.timing` của con trỏ `bundle` nên lượt đẩy 
 - `v7_machine.py` thêm nhóm **"Máy Zalo"** vào tab Máy chạy, mỗi bộ xử lý một dòng, câu thường:
   - "Đang chạy, kịp tin mới";
   - "Zalo chưa mở trên máy Zalo";
+  - "Zalo đã mở nhưng chưa đọc được tin, có thể đang chờ đăng nhập (N phút)": `reprobing` từ 5 phút (lúc Zalo vừa mở thì chỉ thoáng qua), như dòng đầu trang Chat và Thu chi;
   - "Chậm 12 phút";
   - "Không nghe máy Zalo từ 08:05";
   - dòng WeChat (WECHAT-01): "Chưa mở trên máy Zalo (12 phút)", "Đang chờ cập nhật, chưa mở lại trên máy Zalo", "Chờ đăng nhập trên máy Zalo, xác nhận trên điện thoại", "Đang chạy, không giải được ảnh".
 - `tools/v7_watchdog.py` thêm phép kiểm `zalo`, chỉ trong 7:00–20:00 giờ VN, chỉ khi đã có `status.json` và đã chọn ít nhất một nhóm:
   - `status.json` cũ quá 15 phút → "máy Zalo im lặng";
   - `waiting_for_zalo` quá 15 phút (tính từ `identity_since`) → "Zalo chưa mở";
+  - `reprobing` quá 15 phút (tính từ `identity_since`) → "Zalo đã mở nhưng máy chưa đọc được tin: xem Zalo có đang chờ đăng nhập lại không". Thêm 23/11/2026: ngày 22/11 Zalo mở lại 06:03 rồi kẹt như vậy hơn 18 giờ (cửa sổ Zalo ở cỡ màn đăng nhập), mà máy canh, tab Máy chạy và dòng đầu Chat đều coi là ổn;
   - `processors.wechat.app` là `closed`, `update` hay `login` quá 15 phút (tính từ `app_since`) → "WeChat chưa mở / đang chờ cập nhật / đang chờ đăng nhập trên máy Zalo"; `images` = `no_key` quá 15 phút → "WeChat không giải được ảnh". `unknown` không báo;
   - một bộ xử lý chậm quá 15 phút → "chậm";
   - một bộ xử lý hoặc `push` báo `error` liên tục quá 15 phút → "lỗi" kèm mã ngắn;
@@ -343,7 +345,7 @@ PR-1 (máy Zalo ghi) và PR-2 (`hao` đọc) code song song theo đúng mục n�
 ```
 
 - `identity` ∈ `attached`, `waiting_for_zalo`, `reprobing`, `unknown`; lấy từ `poller-identity.json` của live-sync.
-- `identity_since`: lúc `identity` đổi sang giá trị hiện tại (agent tự ghi nhận). `hao` đo "Zalo chưa mở quá 15 phút" bằng trường này; thiếu thì dùng `revision_at`.
+- `identity_since`: lúc `identity` đổi sang giá trị hiện tại (agent tự ghi nhận). `hao` đo "Zalo chưa mở" và "Zalo mở mà chưa đọc được" bằng trường này; thiếu thì dùng `revision_at`.
 - `live_sync.revision` và `revision_at` là `null` khi agent không đọc được `revision.json`.
 - `error` là mã ngắn `[a-z_]{1,40}` hoặc `null`, không chữ tự do.
 - `push` là **đường đẩy nhịp tim** (chính file này): `push.error` chỉ phản ánh việc đẩy `status.json`; lỗi đẩy của từng bộ xử lý nằm ở `processors.<tên>.error` (sửa 20/11/2026 sau review PR-3: trước đó mọi `push_failed` của bộ xử lý bị gom vào `push`).
@@ -526,7 +528,7 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
 - [x] PR-1: test của `push.py`: kịch bản máy chủ có `umask 027`, không có `chmod`, file chốt `mv` sau cùng; không đổi gì thì không gửi tar (`PushTest.test_script_has_umask_first_no_chmod_and_final_file_moved_last`, `test_nothing_changed_sends_no_tar_and_changes_send_only_difference`; cả lớp bỏ qua khi máy không có bash + tar).
 - [x] PR-1: thử trên `hao` ở thư mục tạm có setgid, đẩy hai lượt: mọi thư mục giữ `drwxr-s---` nhóm `v7app`, `v7app` đọc được; xóa thư mục tạm. Ghi nhật ký (20/11/2026, ba lượt ở `/srv/v7/zalo-agent-test`: [nhật ký](../docs/deploys/2026-11-20-zalo-agent.md#trên-hao)).
 - [x] PR-2: `tests/test_v7_zalo_chat.py`: phần thêm có bản sửa và dòng xóa thì hiện bản mới nhất, tin xóa hiện giống bản dựng đầy đủ; ảnh và người gửi mới trong `media.json`, `users.json` hiện được; `since=` trả cả tin tới muộn (giờ gửi cũ hơn), tin sửa, tin xóa; token gói cũ thì `reset` (`ZaloDeltaTest`: `test_edit_replaces_and_deleted_line_shows_like_a_full_build`, `test_media_and_users_replaced_in_place_reach_new_delta_messages`, `test_since_returns_everything_that_arrived_after_the_token_even_old_edits_and_late_messages`, `test_since_asks_for_a_reload_when_the_bundle_was_rebuilt`).
-- [x] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm (`ZaloTests`: `test_silent_status_reports_during_work_hours_only`, `test_waiting_for_zalo_reports_after_15_minutes`, `test_no_selected_group_means_no_check`).
+- [x] PR-2: `tests/test_v7_watchdog.py`: `status.json` cũ 16 phút lúc 10:00 thì báo, lúc 22:00 thì không; `waiting_for_zalo` 16 phút thì báo; chưa chọn nhóm nào thì không kiểm (`ZaloTests`: `test_silent_status_reports_during_work_hours_only`, `test_waiting_for_zalo_reports_after_15_minutes`, `test_no_selected_group_means_no_check`). Thêm 23/11/2026: `reprobing` 236 phút thì báo, 14 phút hay ngoài giờ thì không (`test_zalo_open_but_unreadable_reports_after_15_minutes`); tab Máy chạy và dòng đầu Chat/Thu chi có ca `reprobing` trong `test-may-chay-model.js`, `test-cong-no-format.js`, `test-zalo-chat-browser.js`.
 - [x] PR-2: test trình duyệt tab Máy chạy: nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường, ở 1280×720 và 390px (`test-may-chay-browser.js`: ca "Máy chạy (1280×720)…" và "Máy chạy (390px)…", cùng tên "nhóm "Máy Zalo" hiện bốn trạng thái bằng câu thường").
 - [x] Chịu lỗi, test với kho live-sync và máy chủ bịa (21/11/2026), mỗi ca kiểm không mất tin, không gói dở (file chốt luôn trỏ tới thư mục đủ file, delta dài ít nhất `delta_bytes`), con trỏ đuổi kịp:
   - agent bị giết lúc gửi tar và sau khi máy chủ đã áp: chạy lại thì đẩy nốt `pending`, không tin nào hai lần;
