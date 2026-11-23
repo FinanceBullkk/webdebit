@@ -326,9 +326,17 @@ test('ghi cấn trừ: khung xác nhận có số trước → sau, gửi versio
   assert.match(text, /50\.000\.000\s*→\s*0/);
   assert.doesNotMatch(text, /sẽ còn/);
   assert.equal(world.requests.length, 0, 'chưa gửi gì trước khi xác nhận');
+  // Audit giao diện 23/11 (F4): hộp chặn thật — Tab mười lần vẫn ở trong hộp, không lọt xuống sổ phía sau (cong-no-modal.js).
+  await page.locator('.offset-dialog button').first().focus();
+  for (let step = 0; step < 10; step += 1) {
+    await page.keyboard.press('Tab');
+    const where = await page.evaluate(() => document.activeElement === document.body || Boolean(document.activeElement?.closest('.offset-dialog')));
+    assert.equal(where, true, `Tab lần ${step + 1} ra ngoài hộp cấn trừ`);
+  }
   await shot('3-xac-nhan');
   await page.locator('.offset-confirm').click();
   await page.waitForFunction(() => !document.querySelector('.offset-dialog'));
+  assert.equal(await page.locator('[inert]').count(), 0, 'đóng hộp thì gỡ inert');
   assert.equal(world.requests.length, 1);
   const { path: sent, body } = world.requests[0];
   assert.equal(sent, '/api/v7/offsets');

@@ -16,13 +16,15 @@ import re
 from collections import Counter
 from typing import Any
 
-from v7_api_sheet import write_price_items
+from v7_api_sheet import tab_broken, write_price_items
 from v7_api_validate import ApiError
 from v7_inbox import AUTO_ACTOR, in_month
 from v7_price_queue import (
     DATE_WINDOW_DAYS,
     classify,
     container_key,
+    customer_health,
+    customer_tabs,
     iso,
     mark_shared,
     merge_two_row_pairs,
@@ -102,25 +104,6 @@ def price_delta(row: dict[str, Any]) -> int | None:
     return unit + ((fee if fee_written else web_fee) or 0) - old
 
 
-def customer_tabs(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
-    """[(tên tab, health của tab)] của các tab thuộc sổ này trong bản chụp (KIEM-TAB-01), theo tên tab."""
-    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
-    return [(tab, health) for tab, health in sorted((snapshot.get("tabs") or {}).items())
-            if owned.get(name_key(tab), (None,))[0] == ledger.get("customer_id")]
-
-
-def customer_health(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> dict[str, Any]:
-    """Kết luận sức khỏe các tab của một sổ (KIEM-TAB-01, specs/v7-kiem-tab-truoc-khi-ghi.md): `broken` khi một tab của sổ có phát hiện.
-
-    Đọc `tabs` trong chính bản chụp mà nhóm ghi được tính ra, nên kết luận và dữ liệu nó bảo vệ cùng một lượt quét. Bản chụp cũ chưa có
-    `tabs` thì chưa có kết luận (coi như ổn): máy chạy lượt kế tiếp sẽ ghi lại.
-    """
-    findings = [{"tab": tab, **finding} for tab, health in customer_tabs(snapshot, ledger, customers)
-                if health.get("status") == "broken"
-                for finding in health.get("findings") or [] if finding.get("level") != "note"]   # `note`: bố cục đã duyệt, không chặn
-    return {"status": "broken" if findings else "ok", "findings": findings}
-
-
 def chain_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],
                    held: dict[str, Any] | None) -> list[dict[str, Any]]:
     """Chuỗi số dư gãy (`chain_break` của máy đối soát, trong `hints` của dòng khách HELD) nêu thành chỗ sai có ô: tháng đầu tiên số cuối
@@ -155,11 +138,6 @@ def sheet_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: li
     health = customer_health(prices, ledger, customers)
     found = health["findings"] + chain_findings(prices, ledger, customers, held)
     return {**health, "findings": sorted(found, key=lambda finding: not finding.get("cells"))}
-
-
-def tab_broken(health: dict[str, Any]) -> ApiError:
-    kinds = sorted({str(finding.get("kind")) for finding in health.get("findings") or []})
-    return ApiError(409, "TAB_BROKEN", "Tab Sheet của khách đang có lỗi (" + ", ".join(kinds) + "). Sửa Sheet rồi chờ máy đọc lại; chưa ghi gì.")
 
 
 def _sheet_rows(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> tuple[list, list, dict]:
@@ -425,10 +403,13 @@ def _version(runner, customer_id: int, result: dict[str, Any]) -> int:
 
 
 def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dict[str, Any]], digest: str,
-              today: dt.date, *, actor: str, undo_keys: list[str] | None = None, health: dict[str, Any] | None = None) -> dict[str, int]:
+              today: dt.date, *, actor: str, undo_keys: list[str] | None = None, health: dict[str, Any] | None = None,
+              written: dict[str, int] | None = None) -> dict[str, int]:
     """Ghi các nhóm đã chọn bằng lệnh có sẵn; tháng khóa thì mở, ghi, khóa lại. Lệnh lỗi thì dừng sổ và ném lỗi, lượt sau tính lại.
 
-    `undo_keys`: nơi gọi muốn hoàn tác (VIEC-DOI-CHIEU-01) thì nhận khóa lệnh của giá và phiếu vào đây, đúng thứ tự đã ghi.
+    `undo_keys`: nơi gọi muốn hoàn tác (VIEC-DOI-CHIEU-01) thì nhận khóa lệnh của giá và phiếu vào đây, đúng thứ tự đã ghi; lệnh lỗi
+    giữa chừng thì khóa của mọi lệnh đã lưu vẫn ở đây. `written`: dict nơi gọi đưa vào để đếm phần đã ghi, đọc được cả khi hàm ném lỗi
+    (audit 23/11/2026, O3: bảng đối chiếu trả `complete: false` kèm phần đã ghi và hoàn tác).
 
     Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu: cùng một lượt chạy lại trả kết quả cũ, lượt sau là lệnh mới, còn phiếu đã ghi
     thì hàng chờ đã ghép và không chọn lại.
@@ -443,7 +424,8 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
         raise tab_broken(health)   # `health` từ `customer_health`: nơi gọi đã đọc cùng bản chụp với các nhóm; tab lỗi thì không ghi gì
     version = ledger["version"]
     base = f"{AUTO_ACTOR}:doi-soat:{customer_id}:{version}"
-    done = {"receipts": 0, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0, "receipts_voided": 0}
+    done = written if written is not None else {}
+    done.update({"receipts": 0, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0, "receipts_voided": 0})
 
     def receipt(row: dict[str, Any], at: int) -> int:
         if row["status"] == "NO_DATE":
@@ -486,10 +468,10 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
                     if batch:
                         out = write_price_items(batch, customer_id, at, digest, f"{base}:gia", runner, actor, conflict=conflict)[1]
                         done["prices"] += out.get("written", 0)
+                        if undo_keys is not None:   # trước khi dừng: lệnh đã lưu của lô dở vẫn hoàn tác được (audit 23/11/2026, O3)
+                            undo_keys.extend(out.get("undo_keys") or [])
                         if not out.get("complete"):
                             raise ApiError(409, str(out.get("error") or "INCOMPLETE"), "Máy chưa ghi hết giá của tháng.")
-                        if undo_keys is not None:
-                            undo_keys.extend(out.get("undo_keys") or [])
                         at = out["version"]
                 return at
             version = in_month(runner, customer_id, version, ledger, group["month"], base, write)
