@@ -370,7 +370,7 @@ class PsqlTest(unittest.TestCase):
 
     class Runner(v7_psql._PsqlRunner):
         def _argv(self):
-            return ["psql"]
+            return ["fake-db-client"]
 
     def test_literal_tag_never_appears_in_text(self):
         with patch.object(v7_psql.secrets, "token_hex", side_effect=["a" * 16, "b" * 16, "c" * 16]):
@@ -383,7 +383,7 @@ class PsqlTest(unittest.TestCase):
                           return_value=subprocess.CompletedProcess([], 0, "{}", "")) as command:
             self.Runner().run("get_receipt_image", payload | {"customer_id": 1, "image_id": 2}, "nguoi-xem")
         args, sql = command.call_args.args[0], command.call_args.kwargs["input"]
-        self.assertEqual(args, ["psql", "-v", "actor=nguoi-xem"])
+        self.assertEqual(args, ["fake-db-client", "-v", "actor=nguoi-xem"])
         self.assertNotIn(":'payload'", sql)
         self.assertEqual(sql.count("z" * 200_000), 2)   # hai chỗ dùng payload trong câu
 
