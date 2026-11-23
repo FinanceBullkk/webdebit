@@ -93,17 +93,30 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 
 **Helper chuỗi dùng chung nằm ở `cong-no-format.js`** (`CongNoFormat`, từ 31/10/2026): thoát HTML `esc`; bỏ dấu `fold` (khóa tìm kiếm, gộp ký tự lạ thành khoảng trắng) và `foldText` (giữ dấu câu và độ dài, cùng quy tắc với `fold` của `web/v7_zalo_chat.py`); `transportText`/`commodityText`; `customerLabel`/`customerLabels` (khóa `String(id)`); nhãn tháng `monthLabel` "7/2026", `monthTitle` "Tháng 07/2026", `monthTag` "T7"/"T12/2025"; ngày `dateText` "22/10/2026"; số triệu không đơn vị `millions` cho bảng ghi "Đơn vị: triệu đồng" một lần (ma trận); câu lỗi tải trang `loadError` ("Không tải được … Kiểm tra mạng rồi bấm Thử lại.", trang đặt kèm nút "Thử lại"). Mọi trang nạp `cong-no-format.js` trước script khác rồi destructure hàm cần dùng; không định nghĩa lại trong file trang (tiền vẫn ở `so-khach-v7-model.js` theo ARCH-03).
 
+**Đọc/gửi API với lỗi tiếng Việt nằm ở `cong-no-net.js`** (`CongNoNet`, từ 23/11/2026, audit giao diện F3): `fetchJson(url, { what })`
+và `postJson(url, body, { what })` trả JSON hoặc ném lỗi có câu "Không tải được <what>: mất kết nối tới máy chủ…" (mã `NETWORK`),
+câu của API (mã `error` của API), hay câu theo mã HTTP khi proxy trả trang HTML; `fetchResponse`/`readJson` cho chỗ tự xét
+`response.ok`; `messageOf(error, fallback)` đổi lỗi gốc của trình duyệt ("Failed to fetch", "Load failed" của Safari, JSON
+hỏng) thành câu tiếng Việt ở `catch`. Không hiện `error.message` của fetch thẳng lên màn. Lệnh ghi tiền có khóa chống trùng
+giữ đường riêng ("chưa rõ đã ghi"), không đi qua module này.
+
 ## Lint và lệnh check
 
-`npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
-(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), secrets và dữ liệu thật
-(`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
+`npm run check` ở gốc repo chạy chín bước theo thứ tự: `ruff check`, luật nghiệp vụ
+(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), cỡ chữ tối thiểu
+(`scripts/check-font-size.js`), secrets và dữ liệu thật (`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
 `node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026).
 Từ 19/11/2026 (audit kiến trúc, A11) thiếu Python hoặc chưa tải Chromium là **FAIL** kèm câu thiếu gì và cách cài theo
 README, không còn SKIP: trước đó máy thiếu công cụ vẫn thoát 0 dù không chạy tầng test. Cố ý chạy thiếu thì bỏ bằng
 `--skip=<mã bước>` (`test:py`, `test:browser`...): bước đó in SKIP, mã thoát vẫn 0 nhưng tổng kết in dòng `CHƯA ĐỦ` kèm
 các mã đã bỏ — xanh khi đó chỉ nói về các bước đã chạy, không dùng làm bằng chứng đủ kiểm.
-`npm run lint` chạy riêng năm bước lint khi đang sửa dở.
+`npm run lint` chạy riêng sáu bước lint khi đang sửa dở.
+
+**Cỡ chữ** (từ 23/11/2026, audit giao diện F6): `check-font-size.js` đỏ khi CSS hay HTML giao diện trong
+`cong-no-web-handoff/preview/` có `font-size`/`font:` dưới 13px (px hoặc rem; pt của bản in debit note không xét). Thang chữ
+theo mục 4.4 của [audit UX](ux-audit-2026-10-31.md#44-hệ-thống-thiết-kế-dùng-chung-mở-rộng-designmd-cho-cả-sáu-trang): chú thích 13px
+là tối thiểu, chữ trong bảng và cạnh số 14px — mức 14 máy không phân biệt được nên vẫn do người review. Chỗ còn nợ của file
+phiên khác đang sửa ghi ở `PENDING` trong script; dòng nợ đã sửa mà chưa bỏ cũng làm bước đỏ.
 
 **Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
 nhật ký triển khai và spec): `check-secrets.js` bắt số tiền nhóm chấm từ 7 chữ số (dạng `x.xxx.xxx` trở lên, trừ cỡ file ghi

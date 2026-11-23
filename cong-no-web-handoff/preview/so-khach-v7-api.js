@@ -4,6 +4,9 @@
   // CHO-GHI-01: việc ghi/đọc sổ đang chạy trên trang (hàng đợi ghi nền, lệnh thường, chuỗi giá, đọc lại sổ, lệnh các phần
   // gửi thẳng). Chỉ đếm, không đổi luồng: test trình duyệt chờ idle() — mọi lệnh đã có phản hồi và sổ đã đọc lại — thay vì
   // chờ chữ trên màn hay hẹn giờ. Lệnh kẹt vì mất mạng không còn chạy nên không giữ idle() chờ mãi.
+  // Đọc phụ của sổ (sổ bên kia, danh mục, Tình hình, Trao đổi, Hồ sơ, debit note): mất mạng hay thân hỏng thành câu tiếng
+  // Việt thay cho "Failed to fetch" của trình duyệt (cong-no-net.js, audit giao diện 23/11/2026 F3). Lệnh ghi giữ đường riêng.
+  const net = () => globalThis.CongNoNet ?? (typeof require === 'function' ? require('./cong-no-net.js') : null);
   const work = new Set();
   const track = promise => {
     work.add(promise);
@@ -463,16 +466,16 @@
     }
     // Đọc sổ khách khác chỉ để lấy version và mã phiếu phía bên kia của cặp; không đổi snapshot của sổ đang mở.
     async function readOther(otherId) {
-      const response = await fetcher(`/api/v7/ledger?customer=${encodeURIComponent(otherId)}`, { cache: 'no-store' });
+      const response = await net().fetchResponse(`/api/v7/ledger?customer=${encodeURIComponent(otherId)}`, { fetcher, what: 'sổ bên kia của cấn trừ' });
       if (!response.ok) throw Error('Không đọc được sổ bên kia của cấn trừ.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'sổ bên kia của cấn trừ');
       if (!data || Number(data.customer_id) !== Number(otherId) || !Number.isSafeInteger(data.version)) throw Error('Dữ liệu sổ bên kia không hợp lệ.');
       return data;
     }
     async function loadOffsetSources() {
-      const response = await fetcher(`/api/v7/offset-sources?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      const response = await net().fetchResponse(`/api/v7/offset-sources?customer=${encodeURIComponent(customerId)}`, { fetcher, what: 'danh sách sổ đang dư tiền' });
       if (!response.ok) throw Error('Không đọc được danh sách sổ đang dư tiền.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'danh sách sổ đang dư tiền');
       if (!data || !Array.isArray(data.sources)) throw Error('Danh sách sổ đang dư tiền không hợp lệ.');
       return data.sources;
     }
@@ -491,18 +494,18 @@
       return outcome ?? { status: 'unknown' };
     }
     async function loadFeeTypes() {
-      const response = await fetcher('/api/v7/fee-types', { cache: 'no-store' });
+      const response = await net().fetchResponse('/api/v7/fee-types', { fetcher, what: 'danh mục phụ phí' });
       if (!response.ok) throw Error('Không đọc được danh mục phụ phí.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'danh mục phụ phí');
       if (!data || !Array.isArray(data.fee_types)) throw Error('Danh mục phụ phí không hợp lệ.');
       return data.fee_types;
     }
     // Trang khách, thẻ Tình hình (TRANG-KHACH-01): chỉ đọc, không đổi sổ. Tổng quan trả mọi sổ đang nợ; trang lấy dòng của sổ
     // đang mở (không có dòng: sổ không nợ, row = null), kèm ngày số liệu (giờ VN) và quy tắc hạn trả (DASH-03).
     async function readDebt() {
-      const response = await fetcher('/api/v7/dashboard/debt', { cache: 'no-store' });
+      const response = await net().fetchResponse('/api/v7/dashboard/debt', { fetcher, what: 'số quá hạn' });
       if (!response.ok) throw Error('Không đọc được số quá hạn.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'số quá hạn');
       if (!data || !Array.isArray(data.customers) || !/^\d{4}-\d\d-\d\d$/.test(data.as_of ?? '')) throw Error('Số quá hạn không hợp lệ.');
       return { asOf: data.as_of, rule: data.rule ?? {}, row: data.customers.find(row => Number(row.customer_id) === customerId) ?? null };
     }
@@ -512,7 +515,7 @@
       await customersLoaded;
       const name = sheetName(customerId);
       if (!name) throw Error('Chưa biết tên khách để tìm hội thoại.');
-      const response = await fetcher(`/api/v7/zalo/conversations?q=${encodeURIComponent(name)}`, { cache: 'no-store' });
+      const response = await net().fetchResponse(`/api/v7/zalo/conversations?q=${encodeURIComponent(name)}`, { fetcher, what: 'hội thoại Zalo' });
       const data = await response.json().catch(() => null);
       if (response.status === 503 && data?.error === 'ZALO_EXPORT_UNAVAILABLE') return { name, conversations: null };
       if (!response.ok || !Array.isArray(data?.conversations)) throw Error('Không đọc được hội thoại Zalo.');
@@ -521,16 +524,16 @@
     // Thẻ Trao đổi (ZALO-GROUP-01): dấu tin của sổ (hứa trả, khách báo đã chuyển, ghi chú; trạng thái máy chủ tính từ phiếu thu)
     // và các group Zalo đã gắn với sổ. Chỉ đọc; dấu là ghi chú ngoài đường tiền.
     async function readMarks() {
-      const response = await fetcher(`/api/v7/marks?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      const response = await net().fetchResponse(`/api/v7/marks?customer=${encodeURIComponent(customerId)}`, { fetcher, what: 'dấu tin Zalo' });
       if (!response.ok) throw Error('Không đọc được dấu tin Zalo.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'dấu tin Zalo');
       if (!Array.isArray(data?.marks)) throw Error('Dấu tin Zalo không hợp lệ.');
       return data.marks;
     }
     async function readZaloLinks() {
-      const response = await fetcher('/api/v7/zalo/links', { cache: 'no-store' });
+      const response = await net().fetchResponse('/api/v7/zalo/links', { fetcher, what: 'group Zalo đã gắn' });
       if (!response.ok) throw Error('Không đọc được group Zalo đã gắn.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'group Zalo đã gắn');
       if (!Array.isArray(data?.links)) throw Error('Group Zalo đã gắn không hợp lệ.');
       return data.links.filter(row => Number(row.customer_id) === customerId);
     }
@@ -547,22 +550,22 @@
     }
     // Thẻ Hồ sơ: bảng giá của sổ (BANG-GIA-01), chỉ đọc.
     async function readPrices() {
-      const response = await fetcher(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      const response = await net().fetchResponse(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { fetcher, what: 'bảng giá' });
       if (!response.ok) throw Error('Không đọc được bảng giá.');
-      const data = await response.json();
+      const data = await net().readJson(response, 'bảng giá');
       if (!Array.isArray(data?.price_table?.periods)) throw Error('Bảng giá không hợp lệ.');
       return data.price_table;
     }
     // Debit note (DEBIT-NOTE-03): mẫu đang dùng (v3/v4), thông tin công ty, ngân hàng, tên phí Anh/Trung; file cấu hình máy chủ.
     async function readDebitConfig() {
-      const response = await fetcher('/api/v7/debit-note/config', { cache: 'no-store' });
+      const response = await net().fetchResponse('/api/v7/debit-note/config', { fetcher, what: 'cấu hình debit note' });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.config || !['v3', 'v4'].includes(data.config.template)) throw Error(data?.message || 'Không đọc được cấu hình debit note.');
       return data.config;
     }
     // THONG-TIN-CTY-01: danh bạ cho hộp debit note v4; chưa bật job thì available: false.
     async function readCompanyInfo() {
-      const response = await fetcher('/api/v7/company-info', { cache: 'no-store' });
+      const response = await net().fetchResponse('/api/v7/company-info', { fetcher, what: 'Thông tin cty' });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data || typeof data.available !== 'boolean') throw Error(data?.message || 'Không đọc được Thông tin cty.');
       return data;
