@@ -139,19 +139,31 @@ class MoneyImagesProcessor:
             name, version = self.engine.name, self.engine.version
         except ocr.OcrUnavailable:
             return
+        held = False
         for sha, member in cursor["members"].items():
             stored = reads.load(self.reads, sha, name, version)
             read = self.current(sha, stored)
             if read is None:
                 continue
+            if read is stored and ocr.refresh(stored) is not stored:   # `current` không xóa được ảnh che: ảnh này giữ luật cũ
+                held = True
             kind = ocr.verdict(read)
-            if kind != member.get("verdict"):
-                for key in ("ask_tries", "next_ask"):
-                    member.pop(key, None)
-                member["verdict"], member["by"] = kind, self.decide(sha, read)
-                if member["by"] == "ocr" and read.get("amount_vnd") != stored.get("amount_vnd") and not self.dry_run:   # vừa thành `ocr`, số khác: ảnh che cũ sai số
+            if kind == member.get("verdict"):
+                continue
+            moved = member.get("by"), member.get("verdict")
+            member["verdict"], member["by"] = kind, self.decide(sha, read)
+            if member["by"] == "ocr" and read.get("amount_vnd") != stored.get("amount_vnd") and not self.dry_run:   # vừa thành `ocr`, số khác: ảnh che cũ sai số
+                try:
                     self.drop_hidden(sha)
-        cursor["analysis"] = ocr.ANALYSIS
+                except OSError:   # Windows còn giữ file: trả ảnh này về luật cũ (kho và kết luận), lần nạp sau thử lại
+                    reads.save(self.reads, sha, stored)
+                    member["by"], member["verdict"] = moved
+                    held = True
+                    continue
+            for key in ("ask_tries", "next_ask"):
+                member.pop(key, None)
+        if not held:   # còn ảnh giữ luật cũ thì chưa đánh dấu: lần nạp con trỏ sau phân tích lại
+            cursor["analysis"] = ocr.ANALYSIS
         self.export_dirty = True
 
     def current(self, sha: str, read: dict | None) -> dict | None:
@@ -247,19 +259,22 @@ class MoneyImagesProcessor:
         """`{"schema": 1, "reads": {sha256: {by, amount_vnd, txn_time, bank, reads: [{engine, version, amount_vnd, confidence}]}}}` cho ảnh
         có dấu hiệu tiền, đã có kết luận và đã quyết xong chuyện ảnh đã che (có file hoặc không che được: để `hao` không gửi chữ trước rồi mới có
         ảnh). Không chữ OCR, không số tài khoản, không tên, không ô chữ; `human` thì số tiền để trống (số OCR đoán nằm trong `reads` kèm độ tin
-        cậy). Không có giờ tạo file nên không đổi dữ liệu thì không đổi byte."""
+        cậy). Không có giờ tạo file nên không đổi dữ liệu thì không đổi byte. Từ luật `a3` mỗi mục thêm `direction` (`in`/`out`/null), chỉ có khi
+        `by` = `ocr` (Gemini chưa trả trường này): **`hao` chưa dùng nó để đếm hay đổi chiều thu/chi** (đổi luật đếm phải hỏi người dùng,
+        `specs/zalo-thu-chi-real-time.md` CÒN MỞ). `txn_ref` (mã giao dịch) chỉ nằm trong kho tại máy, không xuất (review #599: chuỗi sau nhãn có thể
+        là số điện thoại hay tên trong lời nhắn)."""
         items = {}
         for sha, member in sorted(members.items()):
             by = member.get("by")
             if by is None or member.get("hidden") is None:
                 continue
             done = [ocr.refresh(read) for read in reads.for_image(self.reads, sha) if not read.get("error")]
-            item = {"by": by, "amount_vnd": None, "txn_time": None, "bank": None,
+            item = {"by": by, "amount_vnd": None, "txn_time": None, "bank": None, "direction": None,
                     "reads": [{"engine": read["engine"], "version": read["version"], "amount_vnd": read.get("amount_vnd"),
                                "confidence": read.get("confidence")} for read in done]}
             if by == "ocr":
                 primary = self.primary_read(done)
-                item.update({key: (primary or {}).get(key) for key in ("amount_vnd", "txn_time", "bank")})
+                item.update({key: (primary or {}).get(key) for key in ("amount_vnd", "txn_time", "bank", "direction")})
             elif by == "gemini-2":
                 found = {read["engine"]: read for read in done if read["engine"] in gemini_module.ROUTES}
                 first, second = (found.get(name, {}) for name in gemini_module.ROUTES)
