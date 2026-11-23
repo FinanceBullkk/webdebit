@@ -284,13 +284,18 @@ test('khách trả trước: chân bảng ba dòng như sổ kế toán, số â
     assert.match(await page.locator('#scope-credit').innerText(), /30 triệu/);
     assert.match(await page.locator('#scope-status').innerText(), /1 trả trước/);
     const foot = await page.locator('#heat-foot tr').evaluateAll(rows => rows.map(row => [row.className, row.cells[0].innerText, row.cells[row.cells.length - 1].innerText]));
-    assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng 32 khách', '80']]);
+    assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng', '80']]);
+    assert.equal(await page.locator('#heat-foot tr.net td.khach').getAttribute('title'), 'Còn phải thu ròng · 32 khách');
     assert.equal(await page.locator('#heat-body tr[data-row="2"] td.tot.all').innerText(), '(30)');
     assert.match(await page.locator('#recon').innerText(), /Khớp/);
     // THEO-THANG-GON-01 (23/11/2026): chỉ dòng ròng dính đáy khi bảng dài hơn màn, một dòng; Phải thu / Trừ: trả trước nằm ở
     // cuối bảng, không dính (trước đó ba dòng dính cao 124px che khách).
-    const clipped = await page.locator('#heat-foot td.khach').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).length);
-    assert.equal(clipped, 0);
+    // Không cắt chữ ở chân bảng, kể cả máy không có Segoe UI (font rộng như CI Ubuntu).
+    for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+      if (font) await page.addStyleTag({ content: `.heat tfoot td.khach, .heat tfoot td.khach * { font-family: ${font} !important; }` });
+      const clipped = await page.locator('#heat-foot td.khach').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.innerText));
+      assert.deepEqual(clipped, [], `cắt chữ chân bảng, font ${font ?? 'mặc định'}`);
+    }
     const boxes = await page.locator('#heat-foot tr td.khach').evaluateAll(cells => cells.map(cell => { const r = cell.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
     assert.ok(Math.abs(boxes[2][1] - 720) <= 1 && boxes[2][1] - boxes[2][0] <= 44, `dòng ròng dính đáy, một dòng: ${JSON.stringify(boxes)}`);
     assert.ok(boxes[1][0] > 720 && boxes[0][0] > 720, `hai dòng Phải thu / trả trước không dính: ${JSON.stringify(boxes)}`);

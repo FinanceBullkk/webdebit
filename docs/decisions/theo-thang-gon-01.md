@@ -7,7 +7,7 @@
 Trang Công nợ theo tháng, phương án A người dùng chọn ("Một dải tổng"):
 
 1. Thẻ tổng (Còn phải thu, Khách trả trước, nợ ngoài năm, số khách) thành **một dải một dòng** trên bảng; cùng số, cùng nhãn.
-2. Chân bảng **chỉ dòng "Còn phải thu ròng" dính đáy màn**, một dòng. Hai dòng Phải thu và Trừ: trả trước theo tháng (chuẩn kế toán, không bù trừ) vẫn có, nằm cuối bảng và không dính.
+2. Chân bảng **chỉ dòng "Còn phải thu ròng" dính đáy màn**, một dòng. Dòng này chỉ in nhãn; số khách ở chữ rê chuột và ở dải tổng (cột Khách không đủ chỗ cho cả hai khi font rộng). Hai dòng Phải thu và Trừ: trả trước theo tháng (chuẩn kế toán, không bù trừ) vẫn có, nằm cuối bảng và không dính.
 3. Tiêu đề cột Khách một dòng "Khách (triệu đồng)".
 
 ## Ngày / nguồn

@@ -101,10 +101,11 @@
     const prepaid = rows.filter(customer => allTotal(customer) < 0n);
     if (!prepaid.length) return '<tr class="net"><td class="khach">Tổng ' + rows.length + ' khách</td>' + sums(rows) + '</tr>';
     const owing = rows.filter(customer => allTotal(customer) >= 0n);
-    const label = (text, count, full) => '<td class="khach" title="' + esc(full + ' · ' + count + ' khách') + '">' + text + ' <small>' + count + ' khách</small></td>';
+    // Dòng ròng dính đáy chỉ in nhãn (một dòng vừa cột Khách kể cả font rộng); số khách ở chữ rê chuột và ở dải tổng (THEO-THANG-GON-01).
+    const label = (text, count, full, shown = true) => '<td class="khach" title="' + esc(full + ' · ' + count + ' khách') + '">' + text + (shown ? ' <small>' + count + ' khách</small>' : '') + '</td>';
     return '<tr class="sub">' + label('Phải thu', owing.length, 'Phải thu khách hàng') + sums(owing) + '</tr>'
       + '<tr class="sub">' + label('Trừ: trả trước', prepaid.length, 'Trừ: khách trả trước') + sums(prepaid) + '</tr>'
-      + '<tr class="net">' + label('Còn phải thu ròng', rows.length, 'Còn phải thu ròng') + sums(rows) + '</tr>';
+      + '<tr class="net">' + label('Còn phải thu ròng', rows.length, 'Còn phải thu ròng', false) + sums(rows) + '</tr>';
   }
 
   function paintAgePick() {
