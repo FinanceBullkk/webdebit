@@ -153,13 +153,11 @@ const ThuChiModel = (() => {
   const targetKinds = direction => (direction === 'thu' ? ['so'] : ['xe', 'tai_xe']);
   const TARGET_LABEL = { so: 'Sổ', xe: 'Xe', tai_xe: 'Tài xế' };
 
-  /** Số người gõ ở ô "Số đúng": chỉ chữ số và dấu ngăn nghìn (chấm, phẩy, khoảng trắng). Không đọc "tr", "k" hay số lẻ:
-      không đoán số (cùng luật đọc mẫu tin). Trả chuỗi VND nguyên dương ≤ 10^12, hoặc null. */
+  /** Số người gõ ở ô "Số đúng": chỉ chữ số và dấu ngăn nghìn đều (chấm, phẩy hay khoảng trắng, đúng bộ đọc chung `readVnd`).
+      Không đọc "tr", "k" hay số lẻ ("1,5" không thành 15): không đoán số. Trả chuỗi VND nguyên dương ≤ 10^12, hoặc null. */
   function parseAmount(text) {
-    const raw = String(text ?? '').trim();
-    if (!/^[0-9][0-9., ]*$/.test(raw)) return null;
-    const digits = raw.replace(/[., ]/g, '');
-    if (!/^[1-9][0-9]*$/.test(digits) || digits.length > 13) return null;
+    const digits = F.readVnd(text, { space: true });
+    if (digits === null || !/^[1-9][0-9]*$/.test(digits) || digits.length > 13) return null;
     return F.toBig(digits) <= 10n ** 12n ? digits : null;
   }
 

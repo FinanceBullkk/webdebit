@@ -200,3 +200,21 @@ test('zaloFreshness: cùng một câu cho Thu chi và Chat Zalo; máy im, Zalo c
   assert.deepEqual(F.zaloFreshness({ state: 'missing' }, '2026-11-22T03:00:00+07:00', stamp), { label: 'Zalo cập nhật lúc 03:00', stale: false, warn: '' });
   assert.deepEqual(F.zaloFreshness(undefined, null, stamp), { label: 'Zalo: chưa có tin', stale: false, warn: '' });
 });
+
+test('readVnd: số liền hoặc nhóm ngăn nghìn đều; số lẻ, nhóm sai, dấu trộn lẫn bị từ chối chứ không đọc thành số khác', () => {
+  assert.equal(F.readVnd('45'), '45');
+  assert.equal(F.readVnd(' 45000000 '), '45000000');
+  assert.equal(F.readVnd('45.000.000'), '45000000');
+  assert.equal(F.readVnd('45,000,000'), '45000000');
+  assert.equal(F.readVnd('1.500'), '1500');
+  // "1,5" là số lẻ (một triệu rưỡi?) chứ không phải 15; ô nhập tiền không đoán.
+  for (const bad of ['1,5', '45,5', '45.000.000,50', '45,000,000.50', '1.234.56', '4.500,000', '1..500', '.5', '1.5.', '-200.000', '50tr', '50k', '4 500 000', '', null, undefined, '１２３'])
+    assert.equal(F.readVnd(bad), null, String(bad));
+  // Khoảng trắng và hậu tố đơn vị chỉ nhận khi trang bật rõ.
+  assert.equal(F.readVnd('4 500 000', { space: true }), '4500000');
+  assert.equal(F.readVnd('4 500.000', { space: true }), null);
+  assert.equal(F.readVnd('50.000.000 đ', { unit: true }), '50000000');
+  assert.equal(F.readVnd('50000000VND', { unit: true }), '50000000');
+  assert.equal(F.readVnd('1,5 đ', { unit: true }), null);
+  assert.equal(F.readVnd('50.000.000 đ'), null);
+});

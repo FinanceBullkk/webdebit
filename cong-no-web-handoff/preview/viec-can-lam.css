@@ -221,3 +221,4 @@ svg{flex:none;vertical-align:middle}
 .sf-key{display:inline-block;width:14px;height:14px;border-radius:3px}.sf-key.sf-error{border:2px solid var(--critical);background:var(--critical-soft)}.sf-key.sf-suspect{border:2px dashed var(--warning);background:var(--warning-soft)}
 .sf-notes{margin:8px 0 0;padding-left:18px}.sf-notes .sf-note{margin:2px 0}.sf-notes .sf-error strong{color:var(--critical)}.sf-notes .sf-warning strong,.sf-notes .sf-suspect strong{color:var(--warning)}
 @media (max-width:640px){.sheet-fix{position:sticky;left:0;max-width:calc(100vw - 32px)}.sf-card{padding:10px}.sf-card header .btn{margin-left:0}.sf-legend{margin-left:0}.sf-grid{font-size:12.5px}}
+.price-unit{flex:none;margin:0 0 0 -4px;color:var(--ink-2);font-size:13px;white-space:nowrap}
