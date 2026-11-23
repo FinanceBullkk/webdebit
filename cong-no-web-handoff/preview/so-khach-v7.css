@@ -347,8 +347,10 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-table-open{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;white-space:nowrap}
 .price-table-apply{min-height:40px;padding:0 14px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .price-table-open:focus-visible,.price-table-apply:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
-.ledger td small.price-hint{display:block;margin-top:2px;color:#3e5871;font-size:14px;line-height:1.25;font-weight:400;white-space:normal;overflow-wrap:anywhere}
-.ledger td small.price-ready{color:#1846a3;font-weight:600}
+/* SO-GON-07: nhãn giá cùng dòng với số, không xuống dòng (mỗi chuyến một dòng). */
+.ledger td small.price-hint{margin-left:6px;color:#3e5871;font-size:13px;font-weight:400;white-space:nowrap}
+.ledger td span.price-hint{font-weight:600}
+.ledger td .price-ready{color:#1846a3;font-weight:600}
 .ledger td small.price-diff{color:#7a4f00;font-weight:600}
 .ledger td.price-differs{background:#fff3d1}
 .price-confirm-list{max-height:220px;overflow:auto}

@@ -287,7 +287,7 @@ test('khách trả trước: chân bảng ba dòng như sổ kế toán, số â
     assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng 32 khách', '80']]);
     assert.equal(await page.locator('#heat-body tr[data-row="2"] td.tot.all').innerText(), '(30)');
     assert.match(await page.locator('#recon').innerText(), /Khớp/);
-    // THEO-THANG-GON (23/11/2026): chỉ dòng ròng dính đáy khi bảng dài hơn màn, một dòng; Phải thu / Trừ: trả trước nằm ở
+    // THEO-THANG-GON-01 (23/11/2026): chỉ dòng ròng dính đáy khi bảng dài hơn màn, một dòng; Phải thu / Trừ: trả trước nằm ở
     // cuối bảng, không dính (trước đó ba dòng dính cao 124px che khách).
     const clipped = await page.locator('#heat-foot td.khach').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).length);
     assert.equal(clipped, 0);

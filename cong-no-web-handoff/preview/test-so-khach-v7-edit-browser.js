@@ -366,7 +366,7 @@ test('cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper
     assert.equal((await rowsFit(page)).every(Boolean), true);
     assert.equal(await tripCell(page, 'carrier').innerText(), 'Tàu thử');
     // Chú thích bảng giá vẫn nằm ở ô Đơn giá khi cột Shipper không còn.
-    assert.match(await page.locator('[data-row="trip-11"] td[data-field="unit_price_vnd"]').innerText(), /50\.000\.000\s*bảng 55\.000\.000/);
+    assert.match(await page.locator('[data-row="trip-11"] td[data-field="unit_price_vnd"]').innerText(), /50\.000\.000\s*≠ bảng/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }, world => {
     delete world.legacy[0].current.shipper;

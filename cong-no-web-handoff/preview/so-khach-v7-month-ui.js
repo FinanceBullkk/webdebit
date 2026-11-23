@@ -190,12 +190,15 @@
     const badge = missing ? `<button type="button" class="month-missing" data-missing-month="${escape(key)}" title="Xem ${missing} chuyến chưa có giá">ⓘ ${missing} chưa giá</button>` : '';
     const heading = detailed ? `<h3>${ctx.detailCount(data, key)} chuyến trong tháng</h3>`
       : `<h3>Chuyến trong tháng <span>· ${sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3>`;
-    const toolbar = `<div class="trip-toolbar">${heading}${ctx.detailTools(data, key)}<div class="trip-tools"></div></div>`;
+    // SO-GON-07: cột phụ phí riêng trống cả tháng đang ẩn; nút mở lại để gõ phí vào lưới (bảng chi tiết có cột riêng của nó).
+    const feeToggle = detailed || (!ctx.feeHidden && !ctx.feeShowAll) ? ''
+      : `<button type="button" class="fee-cols-toggle" aria-pressed="${ctx.feeShowAll}">${ctx.feeShowAll ? 'Ẩn cột phí trống' : `Hiện ${ctx.feeHidden} cột phí trống`}</button>`;
+    const toolbar = `<div class="trip-toolbar">${heading}${feeToggle}${ctx.detailTools(data, key)}<div class="trip-tools"></div></div>`;
     const body = `${payBlock}<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
       + (detailed ? ctx.detailTable(data, key) : `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
       + `<tbody>${tripRows}</tbody></table>`) + '</td></tr>';
     const feeTotals = model.feeColumnTotals([...legacyRows.filter(row => row.kind === 'trip'),
-      ...trips.filter(trip => trip.status === 'confirmed')].map(row => row.fee_lines ?? []), ctx.feeColumnIds);
+      ...trips.filter(trip => trip.status === 'confirmed')].map(row => row.fee_lines ?? []), ctx.shownFeeIds);
     const feeTotalCells = [...feeTotals.own, feeTotals.otherVnd].map(value => num(value === null ? '' : model.formatVnd(value), 'fee')).join('');
     return [`<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}">`
       + `<colgroup>${columns.all()}</colgroup><tbody>`,
@@ -259,6 +262,7 @@
       || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.lock-ask,.paste-review');
   }
   root.addEventListener('click', event => {
+    if (event.target.closest('.fee-cols-toggle')) { ctx.toggleFeeColumns(); return; }
     const missing = event.target.closest('.month-missing');
     if (missing) {
       // Bảng chi tiết tự lọc được tại chỗ, không phải rời sang bảng sổ.
@@ -297,5 +301,11 @@
     markCurrent();
   }
 
-  Object.assign(ctx, { monthSections, monthsAfterRender, showMonth, bookWork });
+  // Tháng sẽ vẽ của bản GET này (cùng luật monthSections): phần lõi cần trước khi dựng khung cột (SO-GON-07).
+  function shownMonthKey(data) {
+    const { groups, openKey } = bookMonths(data, data.status === 'active');
+    return openMonths(data, groups, openKey);
+  }
+
+  Object.assign(ctx, { monthSections, monthsAfterRender, showMonth, bookWork, shownMonthKey });
 };

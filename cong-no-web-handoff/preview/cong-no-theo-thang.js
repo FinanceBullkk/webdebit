@@ -25,7 +25,7 @@
   const fmt = value => F.full(typeof value === 'bigint' ? value : vnd(String(value)));
   const signed = value => value == null ? '—' : F.full(typeof value === 'bigint' ? value : vnd(value));
   // Audit UX 31/10/2026 (P0-6): ô, cột tổng và dòng tổng ghi số triệu đồng không kèm đơn vị (không còn "tr");
-  // Đơn vị "(triệu đồng)" ghi một lần ở tiêu đề cột Khách, cùng dòng để tiêu đề một dòng (THEO-THANG-GON), cho 12 cột tháng vừa màn 1280 không cuộn ngang.
+  // Đơn vị "(triệu đồng)" ghi một lần ở tiêu đề cột Khách, cùng dòng để tiêu đề một dòng (THEO-THANG-GON-01), cho 12 cột tháng vừa màn 1280 không cuộn ngang.
   const inMillions = value => F.millions(value);
   // Chuẩn kế toán: số âm (khách trả trước, tháng trả thừa) ghi trong ngoặc "(0,02)", không dùng dấu trừ hay chữ "dư".
   const signedMillions = value => (value < 0n ? '(' + inMillions(-value) + ')' : inMillions(value));
