@@ -64,7 +64,7 @@ const extraRows = [
   extra(56, KETOAN, null, { message_type: 36, type_label: 'Sticker', body_kind: 'card', sticker: { id: PIC, mime: 'image/png', width: 240, height: 240 } }),
   extra(57, KHACH, null, { message_type: 3, type_label: 'Ghi âm', body_kind: 'card', media: [{ id: '7'.repeat(64), mime: 'audio/aac', width: null, height: null }] }),
   extra(58, KHACH, null, { message_type: 3, type_label: 'Ghi âm', body_kind: 'card', media: [{ id: '8'.repeat(64), mime: 'audio/amr', width: null, height: null }] }),
-  extra(59, OWNER, 'Ok'),
+  extra(59, OWNER, 'Ok', { media: [{ id: '9'.repeat(64), mime: 'video/mp4', width: 640, height: 360 }] }),
 ];
 
 // ZALO-GROUP-01 G4: sổ công nợ giả cho gắn group ↔ sổ và dấu tin, theo hợp đồng /api/v7/zalo/link(s), /api/v7/marks.
@@ -793,6 +793,15 @@ test('Chat Zalo: ghi âm AAC nghe ngay trên trang, AMR thì tải về; không 
     assert.doesNotMatch(await page.locator('.msg[data-id="x57"]').innerText(), /\[Ghi âm\]/);
   });
 });
+
+test('Chat Zalo: video có playsinline và preload=metadata để iPhone phát trong khung tin', () => withPage({ extras: true }, async page => {
+  await openExtra(page);
+  const video = page.locator('.msg[data-id="x59"] video.vid');
+  assert.equal(await video.getAttribute('src'), `/api/v7/zalo/media/${'9'.repeat(64)}`);
+  assert.deepEqual(await video.evaluate(node => [node.hasAttribute('playsinline'), node.hasAttribute('controls'), node.getAttribute('preload')]), [true, true, 'metadata']);
+  // Ghi âm AAC giữ preload=none: nhiều ghi âm trong một trang không đổ yêu cầu lên máy chủ trước khi bấm.
+  assert.equal(await page.locator('.msg[data-id="x57"] audio.voice').getAttribute('preload'), 'none');
+}));
 
 test('Chat Zalo: điện thoại 390px, trích dẫn dài bị cắt trong bong bóng, không tràn ngang', () => withPage({ extras: true }, async page => {
   await openExtra(page);

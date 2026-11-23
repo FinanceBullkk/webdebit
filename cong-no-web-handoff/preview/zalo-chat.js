@@ -215,7 +215,9 @@
     }
     return `<div class="pics">${items.map(item => {
       const src = MEDIA + encodeURIComponent(item.id);
-      if (item.mime === 'video/mp4') return `<video class="vid" controls preload="none" src="${esc(src)}"></video>`;
+      // playsinline: iPhone phát trong khung tin, không nhảy toàn màn hình. preload=metadata: hiện khung đầu và thời lượng
+      // (một yêu cầu Range nhỏ); máy chủ trả 206 nên Safari iOS phát được, kéo thanh thời gian cũng không tải lại từ đầu.
+      if (item.mime === 'video/mp4') return `<video class="vid" controls playsinline preload="metadata" src="${esc(src)}"></video>`;
       // Ghi âm: AAC nghe ngay trên trang; AMR (Zalo cũ) trình duyệt không phát được nên cho tải về.
       if (item.mime === 'audio/aac') return `<audio class="voice" controls preload="none" src="${esc(src)}" aria-label="Ghi âm"></audio>`;
       if (String(item.mime).startsWith('audio/')) return `<a class="voice-file" href="${esc(src)}" download>Ghi âm · tải về để nghe</a>`;
