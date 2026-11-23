@@ -9,6 +9,7 @@ from pg_v7_harness import (
     DIEU_CHINH_THEO_GIA_MIGRATION,
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
+    SO_GON_MIGRATION,
     actor_sql,
     call,
     fixture_open_month,
@@ -51,6 +52,7 @@ def check_khoa_chu(pg) -> str:
     pg.sql(AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8"))  # audit 19/11: bản edit_trip_info/record_mark hiện hành
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     require(pg.value(CATALOG) == fresh, "khoa-chu migration rerun changed function catalog")
 
     c = new_book(pg, ("2026-01-01", 100))

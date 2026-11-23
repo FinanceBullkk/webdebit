@@ -9,6 +9,7 @@ from pg_v7_harness import (
     AUDIT_SQL_MIGRATION,
     DIEU_CHINH_THEO_GIA_MIGRATION,
     ROOT,
+    SO_GON_MIGRATION,
     Pg,
     PsqlSession,
     call,
@@ -53,6 +54,7 @@ def _check_catalog(pg: Pg) -> None:
     pg.sql(migration)
     pg.sql(migration)
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     require(pg.value(CATALOG) == fresh, "audit SQL migration rerun changed function catalog")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     live = json.loads(pg.value("SELECT sokhach._catalog_manifest()"))
@@ -228,6 +230,32 @@ def _check_adjustment_needs_price(pg: Pg) -> None:
     require(fee_total() == "50", "fee-only row without fee drops with its adjustment")
 
 
+def _check_slim_ledger(pg: Pg) -> None:
+    """F4: get_ledger chỉ trả dòng phân bổ còn hiệu lực và dòng bị chính lệnh hủy phiếu thay; lý do CHỜ KIỂM lúc dán vẫn đọc được."""
+    customer = new_book(pg, ("2026-01-01", 50))
+    for month in ("2026-01-01", "2026-02-01"):
+        fixture_open_month(pg, customer, month)
+    _paste_one(pg, customer, "f4-feb", "FAKE-F4-1", "03", "2026-02-01")
+    kept = call(pg, "record_receipt", customer, version(pg, customer), "f4-pay-1", "2026-02-10", "THU TIỀN", "120", None)["pid"]
+    voided = call(pg, "record_receipt", customer, version(pg, customer), "f4-pay-2", "2026-02-11", "THU TIỀN", "20", None)["pid"]
+    # Chuyến tháng 1 dán sau: phân bổ lại hai phiếu theo nợ cũ trước, các dòng cũ bị thay (superseded).
+    _paste_one(pg, customer, "f4-jan", "FAKE-F4-2", "04", "2026-01-01")
+    call(pg, "void_receipt", customer, version(pg, customer), "f4-void", voided, "nhập nhầm")
+    stored = int(pg.value(f"SELECT count(*) FROM sokhach.receipt_line WHERE customer_id={customer}"))
+    expected = json.loads(pg.value(
+        "SELECT jsonb_object_agg(r.pid, (SELECT jsonb_agg(l.id ORDER BY l.id) FROM sokhach.receipt_line l WHERE l.receipt_id=r.id "
+        "AND (l.superseded_by_event IS NULL OR l.superseded_by_event=r.voided_by_event))) "
+        f"FROM sokhach.receipt r WHERE r.customer_id={customer}"))
+    ledger = call(pg, "get_ledger", customer)
+    got = {r["pid"]: [line["id"] for line in r["allocations"]] for r in ledger["receipts"]}
+    require(got == expected and sum(map(len, got.values())) < stored, f"allocations: {got} vs {expected}, stored {stored}")
+    require(all(line["superseded_by_event"] is None for r in ledger["receipts"] if r["pid"] == kept for line in r["allocations"]),
+            "kept receipt lists only live lines")
+    held = _paste_one(pg, customer, "f4-dup", "FAKE-F4-1", "04", "2026-02-01")
+    reason = next(t["review_reason"] for t in call(pg, "get_ledger", customer)["trips"] if t["id"] == held["trip_ids"][0])
+    require(reason == "WEB_DUPLICATE", f"paste review reason must still show: {reason}")
+
+
 def check_audit_sql(pg: Pg) -> str:
     _check_catalog(pg)
     _check_fee_month(pg)
@@ -235,6 +263,7 @@ def check_audit_sql(pg: Pg) -> str:
     _check_locks(pg)
     _check_archive(pg)
     _check_adjustment_needs_price(pg)
+    _check_slim_ledger(pg)
     return ("manifest = fresh schema, trigger disabled is visible; undated fee rows need an open, non-future month; "
             "legacy container/date edits hold matching web trips, paste/trip edit see edited legacy rows; book lock is "
             "NO KEY UPDATE and sheet container locks are ordered; archive flag goes through a command with History; "

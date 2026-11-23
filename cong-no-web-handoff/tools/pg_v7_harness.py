@@ -359,6 +359,9 @@ AUDIT_SQL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7
 # DIEU-CHINH-THEO-GIA-01 23/11/2026: bản v_adjustment_current và schema_level hiện hành; chạy sau AUDIT_SQL_MIGRATION và sau
 # mọi lần chạy lại 2026-10-29-v7-xoa-dieu-chinh-thang.sql.
 DIEU_CHINH_THEO_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql"
+# Audit SQL F4 23/11/2026: bản get_ledger, _ledger_events, keep_sheet_task, apply_sheet_price, undo_sheet_batch và schema_level hiện
+# hành; chạy sau DIEU_CHINH_THEO_GIA_MIGRATION và sau mọi lần chạy lại 2026-11-04-v7-ledger-events.sql.
+SO_GON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-so-gon.sql"
 # BANG-GIA-02 5/11/2026: bản save_price_table hiện hành; ai chạy lại 2026-10-29-v7-bang-gia.sql thì chạy file này sau.
 GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"

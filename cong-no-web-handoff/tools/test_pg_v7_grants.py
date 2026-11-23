@@ -142,6 +142,7 @@ KNOWN_FUNCTIONS.add('get_read_stamp')  # HIEU-NANG-01
 KNOWN_FUNCTIONS.update({'get_safety_net', '_safety_fingerprints', '_safety_events'})  # LUOI-AN-TOAN-01
 KNOWN_FUNCTIONS.update({'schema_level', '_catalog_manifest', '_catalog_view_text', '_trip_dup_reason', '_legacy_edited_date_match',
                         'set_customer_archived'})  # audit SQL 23/11/2026 (F1, F8, F10)
+KNOWN_FUNCTIONS.add('_trip_current_row')  # audit SQL 23/11/2026 (F4): một chuyến cho ba lệnh ghi theo Sheet
 KNOWN_FUNCTIONS.update({'get_ledger_events', '_ledger_events'})  # MO-SO-NHANH-02
 KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'set_customer_transport', 'assign_sheet_trip',
                         'undo_sheet_batch'})  # Việc cần làm xử lý tại dòng 2/11/2026

@@ -9,6 +9,7 @@ import json
 from pg_v7_harness import (
     DIEU_CHINH_THEO_GIA_MIGRATION,
     ROOT,
+    SO_GON_MIGRATION,
     Pg,
     actor_sql,
     call,
@@ -121,5 +122,6 @@ def check_receipt_images(pg: Pg) -> None:
             "migration rerun changed images")
     pg.sql(LATER_MIGRATION.read_text(encoding="utf-8"))  # dựng lại ràng buộc event của XOA-DC-THANG-01 sau chứng từ
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     # Hoàn tác từ chối khi đã có ảnh.
     pg.rejects(ROLLBACK.read_text(encoding="utf-8"), message="RECEIPT_IMAGES_PRESENT")
