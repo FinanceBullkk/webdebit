@@ -212,12 +212,12 @@ class SheetTaskKeepTests(unittest.TestCase):
 
     def test_sql_copies_match(self):
         from test_v7_fee_sql_sync import FUNCTIONS, ROOT, definition
-        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-nguon-het-bao.sql").read_text(encoding="utf-8")
-        self.assertEqual(definition(migration, "FUNCTION", "keep_sheet_task"),
-                         definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "keep_sheet_task"))
-        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-02-v7-lay-gia-sheet.sql").read_text(encoding="utf-8")
-        self.assertEqual(definition(migration, "FUNCTION", "apply_sheet_price"),
-                         definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "apply_sheet_price"))
+        # Audit SQL F4 (23/11/2026): keep_sheet_task, apply_sheet_price, undo_sheet_batch đọc một chuyến thay vì cả sổ; bản mới nhất ở so-gon.
+        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-so-gon.sql").read_text(encoding="utf-8")
+        for name in ("keep_sheet_task", "apply_sheet_price", "undo_sheet_batch", "_trip_current_row"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(migration, "FUNCTION", name),
+                                 definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", name))
         migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-02-v7-gan-mat-hang.sql").read_text(encoding="utf-8")
         self.assertEqual(definition(migration, "FUNCTION", "set_customer_commodity"),
                          definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "set_customer_commodity"))
