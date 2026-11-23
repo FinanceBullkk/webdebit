@@ -5,7 +5,7 @@
   // tải cả bản xuất; không ghi nội dung tin ra console hay nơi nào khác.
   const $ = id => document.getElementById(id);
   // Thoát HTML và so khớp không phân biệt hoa thường/dấu tiếng Việt (foldText: cùng quy tắc với máy chủ) từ CongNoFormat.
-  const { esc, foldText, loadError, full, dateText, vnDay, zaloFreshness } = CongNoFormat;
+  const { esc, foldText, readVnd, loadError, full, dateText, vnDay, zaloFreshness } = CongNoFormat;
   const TZ = 'Asia/Ho_Chi_Minh';
   const PAGE_LIMIT = 50;
   // page: trang cũ nhất đã tải; newest: trang mới nhất đã tải (khác 0 khi mở thẳng một tin bằng ?m=).
@@ -302,13 +302,15 @@
       }
     } catch { /* nhãn dấu là phần phụ: đọc lỗi thì tin vẫn hiện, lần mở sau đọc lại */ }
   }
-  function markText(row) {
+  // `plain`: chữ thuần cho `textContent` (hộp "Bỏ dấu"); mặc định là HTML đã thoát. Hai bản cùng một nguồn nên không lệch nhau.
+  function markText(row, plain = false) {
+    const e = plain ? String : esc;
     const book = linkedBooks().length > 1 || !linkedBooks().some(item => item.customer_id === row.customer_id)
-      ? ` · sổ ${esc(row.customer_name ?? row.customer_id)}` : '';
-    const status = row.status ? ` · ${STATUS[row.status] ?? esc(row.status)}${row.status === 'missed' ? ` (đã trả ${full(row.paid_vnd ?? '0')})` : ''}` : '';
-    const money = row.kind === 'note' ? `: ${esc(row.note ?? '')}`
-      : ` ${full(row.amount_vnd)} · ${row.kind === 'promise' ? 'hẹn' : 'ngày'} ${esc(dateText(row.on_date))}`;
-    return `${KIND[row.kind] ?? esc(row.kind)}${money}${status}${book}`;
+      ? ` · sổ ${e(row.customer_name ?? row.customer_id)}` : '';
+    const status = row.status ? ` · ${STATUS[row.status] ?? e(row.status)}${row.status === 'missed' ? ` (đã trả ${full(row.paid_vnd ?? '0')})` : ''}` : '';
+    const money = row.kind === 'note' ? `: ${e(row.note ?? '')}`
+      : ` ${full(row.amount_vnd)} · ${row.kind === 'promise' ? 'hẹn' : 'ngày'} ${e(dateText(row.on_date))}`;
+    return `${KIND[row.kind] ?? e(row.kind)}${money}${status}${book}`;
   }
   function marksHtml(id) {
     const rows = marks.get(id) ?? [];
@@ -388,9 +390,10 @@
       message_sender: senderText(marking.message).slice(0, 200), message_excerpt: messageExcerpt(marking.message) };
     if (note) body.note = note;
     if (kind === 'note') return note ? body : 'Ghi chú không được trống.';
-    // Số tiền gõ có dấu chấm ngăn nghìn (50.000.000) hay chữ "đ" đều nhận; còn lại phải là số nguyên dương.
-    const amount = String(form.get('amount') ?? '').replace(/[.\s,]|đ$/giu, '');
-    if (!/^[1-9][0-9]{0,17}$/.test(amount)) return 'Số tiền phải là số nguyên dương, ví dụ 50.000.000.';
+    // Số tiền gõ liền hoặc có dấu ngăn nghìn đều (50.000.000), có thể kèm chữ "đ": bộ đọc chặt chung, "1,5" hay "45.000.000,50"
+    // bị từ chối thay vì đọc thành 15 hay 4,5 tỷ.
+    const amount = readVnd(form.get('amount'), { space: true, unit: true });
+    if (amount === null || !/^[1-9][0-9]{0,17}$/.test(amount)) return 'Số tiền phải là số nguyên dương, ví dụ 50.000.000 (không số lẻ, không "tr").';
     const day = String(form.get('on_date') ?? '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return kind === 'promise' ? 'Chọn ngày khách hẹn trả.' : 'Chọn ngày khách nói đã chuyển.';
     if (kind === 'promise' && day < today()) return 'Ngày hẹn trả phải từ hôm nay trở đi.';
@@ -499,7 +502,7 @@
   function unmark(id) {
     const row = [...marks.values()].flat().find(item => String(item.id) === String(id));
     if (!row) return;
-    askReason('Bỏ dấu', markText(row).replace(/<[^>]*>/g, ''), async reason => {
+    askReason('Bỏ dấu', markText(row, true), async reason => {
       await post('/api/v7/marks/cancel', { id: row.id, reason });
       await loadMarks(state.selected);
       repaintKeep();

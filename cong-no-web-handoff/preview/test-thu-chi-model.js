@@ -149,6 +149,8 @@ test('Ô số đúng: chỉ chữ số và dấu ngăn nghìn; không đoán "tr
   assert.equal(M.parseAmount('4,500,000'), '4500000');
   assert.equal(M.parseAmount('1000000000000'), '1000000000000');
   for (const bad of ['', '0', '000', '4,5tr', '500k', '-500000', '1000000000001', 'abc', '4.5e6', null]) assert.equal(M.parseAmount(bad), null, String(bad));
+  // Audit 23/11: số lẻ hay nhóm sai không được bỏ dấu rồi đọc thành số khác 10–100 lần ("1,5" → 15, "45.000.000,50" → 4,5 tỷ).
+  for (const bad of ['1,5', '45,5', '45.000.000,50', '1.234.56', '4.500,000', '4 500.000', '45,000,000.50', '1..500', '12.34']) assert.equal(M.parseAmount(bad), null, bad);
 });
 
 test('Tìm đối tượng bỏ dấu, biển số không cần gạch và chấm, giữ chữ Hán', () => {
