@@ -1721,5 +1721,144 @@ class SenderResendProcessorTest(WeChatBase):
         self.assertEqual([request["resend_hours"] > 0 for _, request in self.db.requests], [True, True])
 
 
+class ReadHealthTest(WeChatBase):
+    """23/11/2026 (rà kỹ thuật): WeChat ngừng đọc mà status vẫn xanh — `last_ok_at` chỉ là nhịp tim, luồng đọc chết không ai dựng lại,
+    `wechat-groups.json` hỏng thì thành "chưa chọn nhóm", chỉ mục hỏng bị ghi đè. Mỗi trường hợp phải ra mã lỗi hoặc tuổi lượt đọc."""
+
+    def status(self, result):
+        return status_file.compose(None, self.now, "abc", 1, LiveSync(self.src), {"wechat": result}, None, None,
+                                   ("attached", "2026-11-20T08:00:00+07:00"))["processors"]["wechat"]
+
+    def test_read_ok_at_is_the_last_successful_read_not_the_heartbeat(self):
+        self.db.feed = [msg(1, 1000), msg(2, 2000)]
+        first = self.status(self.poll())
+        self.assertEqual(first["read_ok_at"], cursors.now_iso(self.now))
+        self.assertEqual(first["newest_at"], cursors.now_iso(1_793_000_002))   # giờ của tin mới nhất, không phải giờ đọc
+        self.assertEqual((first["groups"], first["read_every"]), (1, 10))
+        read_at = first["read_ok_at"]
+        self.db.fail = 1   # tiến trình con hỏng: đọc không được thì tuổi lượt đọc không đổi
+        failed = self.status(self.poll())
+        self.assertEqual((failed["error"], failed["read_ok_at"], failed["newest_at"]), ("child_failed", read_at, first["newest_at"]))
+        # Luồng đọc đang treo: `error` null nên `last_ok_at` (nhịp tim) vẫn sáng theo từng nhịp, còn `read_ok_at` đứng yên.
+        self.db.fail = None
+        self.processor = self.make_processor(background=True)   # agent chạy lại: tuổi lượt đọc đọc từ `<state>`
+        self.db.gate = threading.Event()
+        self.addCleanup(self.db.gate.set)
+        self.now += 60
+        self.processor.step()   # bắt đầu luồng, treo ở cổng
+        self.now += 600
+        hung = self.status(self.processor.step())
+        self.assertEqual((hung["error"], hung["last_ok_at"], hung["read_ok_at"]), (None, cursors.now_iso(self.now), read_at))
+
+    def test_newest_message_time_only_moves_forward_and_survives_restart(self):
+        self.db.feed = [msg(5, 5000)]
+        self.poll()
+        self.db.window = [msg(1, 1000, window=True)]   # tin cũ đọc lại trong cửa sổ không kéo "tin mới nhất" lùi
+        result = self.poll()
+        self.assertEqual(result["newest_at"], cursors.now_iso(1_793_000_005))
+        again = self.make_processor()
+        self.assertEqual(again.step()["newest_at"], cursors.now_iso(1_793_000_005))
+
+    def test_a_reader_thread_that_raises_reports_thread_died_and_the_next_round_reads_again(self):
+        self.db.feed = [msg(1, 1000)]
+        self.db.fail = ValueError("lỗi lạ trong luồng đọc")
+        result = self.poll()
+        self.assertEqual((result["error"], result["messages"]), ("thread_died", 0))
+        self.db.fail = None
+        self.now += 60   # qua thời gian lùi
+        recovered = self.poll()
+        self.assertEqual((recovered["error"], recovered["action"], recovered["messages"]), (None, "poll", 1))
+
+    def test_a_thread_that_exits_without_an_outcome_is_noticed_and_rebuilt(self):
+        self.processor = self.make_processor(background=True)
+        dead = threading.Thread(target=lambda: None)
+        dead.start()
+        dead.join()
+        self.processor.thread = dead   # luồng chết mà `outcome` vẫn None: trước đây không bao giờ đọc lại, status vẫn xanh
+        stopped = []
+        self.processor.run = type("Run", (), {"__call__": lambda *args, **kw: (0, ""), "stop": lambda self_: stopped.append(1)})()
+        self.now += 11
+        self.assertEqual(self.processor.step()["error"], "thread_died")
+        self.assertIsNone(self.processor.thread)
+        self.assertEqual(stopped, [1])   # tiến trình con (nếu có) bị giết để lượt sau dựng lại từ đầu
+        self.now += 60
+        self.db.feed = [msg(1, 1000)]
+        self.processor.run = self.db
+        self.processor.step()   # dựng luồng mới
+        self.processor.thread.join(10)
+        self.assertEqual((self.processor.step()["error"], self.processor.total), (None, 1))
+
+    def test_a_corrupt_groups_file_is_an_error_not_an_empty_selection(self):
+        self.db.feed = [msg(1, 1000)]
+        self.assertIsNone(self.poll()["error"])
+        for broken in ("{không phải json", "[]", '{"groups": "x"}', ""):
+            self.selection.path.write_text(broken, encoding="utf-8")
+            result = self.poll()
+            self.assertEqual(result["error"], "groups_corrupt", broken)
+            self.assertEqual(self.db.requests[-1][1]["groups"].keys(), {USER}, broken)   # vẫn đọc nhóm đã chọn lần cuối
+        self.selection.save({USER: NAME})
+        self.assertIsNone(self.poll()["error"])
+        # Chưa từng đọc được danh sách: không có nhóm nào để đọc, nhưng lỗi vẫn lộ ra.
+        fresh = wc.Selection(self.selection.path)
+        self.selection.path.write_text("{hỏng", encoding="utf-8")
+        self.assertEqual((fresh.groups(), fresh.error), ({}, "groups_corrupt"))
+        self.selection.path.unlink()
+        self.assertEqual((fresh.groups(), fresh.error), ({}, None))   # không có file là chưa chọn nhóm nào: hợp lệ
+
+    def test_a_corrupt_index_is_never_overwritten_and_blocks_the_round_until_fixed(self):
+        self.db.feed = [msg(1, 1000)]
+        self.poll()
+        lines = lambda: len(self.store.log.read_text(encoding="utf-8").splitlines())  # noqa: E731
+        cursor = lambda: json.loads((self.state / "wechat.json").read_text(encoding="utf-8"))["groups"][USER]["sort_seq"]  # noqa: E731
+        self.assertEqual((lines(), cursor()), (1, 1000))
+        good = self.store.users_path.read_bytes()
+        self.store.users_path.write_bytes(b"{hong")
+        self.db.feed.append(msg(2, 2000, "tin mới", sender="wxid_b", name="Khách B"))
+        self.assertEqual(self.poll()["error"], "users_index_corrupt")
+        self.assertEqual(self.store.users_path.read_bytes(), b"{hong")   # không ghi đè bằng phần mới
+        self.assertEqual((lines(), cursor()), (1, 1000))                 # không nhập gì, con trỏ không tiến
+        self.store.users_path.write_bytes(good)                          # khôi phục từ bản sao lưu
+        self.now += 60
+        self.assertIsNone(self.poll()["error"])
+        self.assertEqual((lines(), cursor()), (2, 2000))
+        self.store.media_path.write_bytes(b"[1, 2]")                     # JSON hợp lệ nhưng không phải từ điển: cũng hỏng
+        self.db.feed.append(msg(3, 3000, "tin ba"))
+        self.now += 60
+        self.assertEqual(self.poll()["error"], "media_index_corrupt")
+        self.assertEqual((self.store.media_path.read_bytes(), lines()), (b"[1, 2]", 2))
+        self.store.media_path.unlink()
+        self.now += 60
+        self.assertEqual((self.poll()["error"], lines()), (None, 3))
+
+    def test_a_corrupt_index_with_nothing_to_write_is_still_reported(self):
+        self.store.users_path.write_bytes(b"{hong")
+        self.assertEqual(self.poll()["error"], "users_index_corrupt")   # không cần có tin mới mới lộ ra
+
+    def test_daily_counts_only_include_messages_settled_in_the_store_for_30_minutes(self):
+        base = int(self.now) - 120
+        self.db.feed = [msg(1, 1000, create_time=base), msg(2, 2000, create_time=base + 1)]
+        today = wc.day_of(base)
+        self.assertNotIn("daily", self.poll())   # vừa vào kho: chưa kịp lên gói, chưa tính
+        self.now += wc.SETTLE + 100
+        result = self.processor.step()
+        self.assertEqual(result["daily"], {today: 2})
+        self.assertEqual(self.status(result)["daily"], {today: 2})
+        self.db.window = [msg(1, 1000, create_time=base, window=True)]   # đọc lại cùng mã: không đếm đôi, không đổi lúc vào kho
+        self.now += 61
+        self.assertEqual(self.processor.step()["daily"], {today: 2})
+        self.processor = self.make_processor()   # agent chạy lại: tin trong log coi như đã vào kho từ trước
+        self.assertEqual(self.processor.step()["daily"], {today: 2})
+        self.selection.save({OTHER_USER: "Nhóm khác"})
+        self.now += 61
+        self.assertNotIn("daily", self.processor.step())   # nhóm đã bỏ chọn không đưa vào số đếm
+
+    def test_status_keeps_only_well_formed_health_fields(self):
+        status = self.status({"error": None, "read_ok_at": "hôm qua", "newest_at": "2026-11-23T09:00:00+07:00", "groups": True,
+                              "read_every": 10, "daily": {"2026-11-23": 5, "hôm nay": 3, "2026-11-22": -1, "2026-11-21": True}})
+        self.assertNotIn("read_ok_at", status)
+        self.assertEqual((status["newest_at"], status["read_every"], status["daily"]), ("2026-11-23T09:00:00+07:00", 10, {"2026-11-23": 5}))
+        self.assertNotIn("groups", status)
+
+
 if __name__ == "__main__":
     unittest.main()

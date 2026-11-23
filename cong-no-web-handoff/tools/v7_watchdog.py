@@ -22,6 +22,7 @@ import datetime as dt
 import functools
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -235,10 +236,90 @@ ZALO_IDENTITY_TEXT = {"waiting_for_zalo": "Zalo chưa mở trên máy Zalo: khô
                       "reprobing": "Zalo đã mở trên máy Zalo nhưng máy chưa đọc được tin {} phút: xem Zalo có đang chờ đăng nhập lại không."}
 
 
+# WeChat im: app đã đăng nhập mà không có lượt đọc thành công nào quá ngưỡng (3 nhịp đọc, tối thiểu 15 phút; `read_limit_minutes`).
+# Không báo khi app đóng/chờ đăng nhập (đã có câu riêng), khi đã có mã lỗi quá ngưỡng (đã có câu riêng), hay chưa chọn nhóm WeChat nào.
+# Giờ tin mới nhất (`newest_at`) chỉ để hiển thị: nhóm có thể im cả đêm.
+# Đối chiếu số tin: máy Zalo báo số tin theo ngày đã vào kho quá 30 phút (`daily`); gói trên hao có ít hơn thì tin đã mất trên đường lên.
+ZALO_BUNDLE = "/srv/v7/zalo-bundle"
+BUNDLE_DATA_DIR = re.compile(r"data-[0-9-]{1,40}")
+CONVERSATION_KEY = re.compile(rb'"conversation_id": ?"([0-9a-f]{64})"')
+
+
+def duration_text(minutes: int) -> str:
+    return f"{minutes // 60} giờ {minutes % 60} phút" if minutes >= 60 else f"{minutes} phút"
+
+
+def wechat_bundle_counts(directory: Path, days: set[str]) -> dict[str, int] | None:
+    """Số tin (mã khác nhau) của các nhóm WeChat trong gói trên hao theo ngày VN, chỉ các ngày `days`. Đúng cái web hiển thị: tin trong
+    `messages.jsonl` cộng phần thêm `messages-delta.jsonl` tới `delta_bytes` của báo cáo. None khi không đọc được gói (đang thay hay chưa
+    có): không đủ để kết luận lệch."""
+    try:
+        report = {}
+        for name in ("export-report.json", "message-export-report.json"):
+            try:
+                report = json.loads((directory / name).read_text(encoding="utf-8"))
+                break
+            except (OSError, ValueError):
+                continue
+        data = report.get("data_dir") if isinstance(report, dict) else None
+        if data is not None and not (isinstance(data, str) and BUNDLE_DATA_DIR.fullmatch(data)):
+            return None
+        base = directory / data if data else directory
+        conversations = json.loads((base / "conversations.json").read_text(encoding="utf-8"))
+        wechat = {item["conversation_id"].encode() for item in conversations
+                  if isinstance(item, dict) and isinstance(item.get("conversation_id"), str)
+                  and str(item.get("display_name") or "").startswith("WeChat · ")}
+        limit = report.get("delta_bytes") if isinstance(report, dict) else None
+        limit = limit if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0 else 0
+        seen: dict[str, str] = {}
+        for name, cap in (("messages.jsonl", None), ("messages-delta.jsonl", limit)):
+            if cap == 0:
+                continue
+            with (base / name).open("rb") as stream:
+                data_bytes = stream if cap is None else iter(stream.read(cap).splitlines())
+                for raw in data_bytes:
+                    found = CONVERSATION_KEY.search(raw)
+                    if not found or found.group(1) not in wechat:
+                        continue
+                    try:
+                        row = json.loads(raw)
+                        stamp = row["timestamp"]
+                        stamp = int(stamp) if isinstance(stamp, str) else stamp
+                        seen[row["message_id"]] = dt.datetime.fromtimestamp(stamp / 1000, ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
+                    except (ValueError, KeyError, TypeError):
+                        continue
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return None
+    counts: dict[str, int] = {}
+    for day in seen.values():
+        if day in days:
+            counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+def check_wechat(row: dict, limit: int) -> list[str]:
+    """WeChat ngừng đọc mà không báo lỗi, và tin ở máy Zalo không lên gói (xem chú thích trên). Một dòng WeChat của `v7_machine.zalo`."""
+    found = []
+    stale = row.get("read_minutes")
+    boxed = row["error"] and (row["error_minutes"] is None or row["error_minutes"] > limit)
+    if (row.get("app") == "logged_in" and (row.get("groups") or 0) > 0 and stale is not None and not boxed
+            and stale > row.get("read_limit_minutes", limit)):
+        found.append(f"Máy Zalo: WeChat im {duration_text(stale)}: đã đăng nhập mà chưa đọc được lượt nào, tin WeChat mới không về.")
+    daily = row.get("daily") or {}
+    if daily:
+        counts = wechat_bundle_counts(Path(os.getenv("WEBDEBIT_ZALO_EXPORT_DIR") or ZALO_BUNDLE), set(daily))
+        short = [(day, daily[day], (counts or {}).get(day, 0)) for day in sorted(daily) if counts is not None and (counts.get(day, 0) < daily[day])]
+        if short:
+            detail = ", ".join(f"{dt.date.fromisoformat(day):%d/%m}: gói {have}/{want} tin" for day, want, have in short)
+            found.append(f"Máy Zalo: tin WeChat có ở máy Zalo mà chưa có trong gói trên máy chủ ({detail}), đã quá 30 phút.")
+    return found
+
+
 def check_zalo(now: dt.datetime) -> list[str]:
     """Máy Zalo còn báo về (ZALO-AGENT-01 Phần 6): `status.json` cũ quá 15 phút, Zalo chưa mở hay đã mở mà chưa đọc được tin quá
     15 phút (`ZALO_IDENTITY_TEXT`), WeChat tắt / chờ cập nhật /
-    chờ đăng nhập hay không giải được ảnh quá 15 phút (WECHAT-01), một bộ xử lý chậm quá
+    chờ đăng nhập hay không giải được ảnh quá 15 phút (WECHAT-01), WeChat đã đăng nhập mà quá ngưỡng chưa đọc được lượt nào, tin WeChat có
+    ở máy Zalo mà chưa có trong gói trên hao (`check_wechat`, 23/11/2026), một bộ xử lý chậm quá
     15 phút, hoặc một bộ xử lý / việc đẩy lên báo lỗi quá 15 phút (đo từ `error_since`, thiếu thì `last_ok_at`, thiếu cả hai thì báo ngay),
     tin mới lên web chậm (p95 trong 60 phút quá 5 phút), hoặc hàng chờ đọc ảnh còn ảnh mà quá 15 phút không ảnh nào xong (không lỗi).
     Chỉ trong giờ làm việc và chỉ khi đã chọn ít nhất một nhóm.
@@ -270,6 +351,8 @@ def check_zalo(now: dt.datetime) -> list[str]:
             found.append(f"{WECHAT_APP_TEXT[row['app']]}: {row['app_minutes']} phút, tin WeChat mới không về.")
         elif row["id"] == "wechat" and row.get("images") == "no_key" and (row.get("images_minutes") or 0) > limit:
             found.append(f"Máy Zalo: WeChat không giải được ảnh {row['images_minutes']} phút (không suy được khóa ảnh).")
+        if row["id"] == "wechat":
+            found += check_wechat(row, limit)
         if row["error"] and (row["error_minutes"] is None or row["error_minutes"] > limit):
             how = "chưa từng xong lần nào" if row["error_minutes"] is None else f"{row['error_minutes']} phút"
             found.append(f"Máy Zalo: {name} lỗi {row['error']}, {how}.")

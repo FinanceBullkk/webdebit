@@ -19,6 +19,7 @@ SCHEMA = 1
 FILE = "status.json"
 CODE = re.compile(r"[a-z_]{1,40}")
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+07:00")
+DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def code(error: object) -> str | None:
@@ -92,6 +93,14 @@ def drain(value: object) -> dict | None:
             "pending_since": stamp("pending_since"), "last_done_at": stamp("last_done_at")}
 
 
+def day_counts(value: object) -> dict[str, int]:
+    """Số tin theo ngày (`{"2026-11-23": 120}`): tối đa 7 ngày, khóa đúng khuôn ngày, giá trị là số nguyên không âm; còn lại bỏ."""
+    if not isinstance(value, dict):
+        return {}
+    return {day: count for day, count in sorted(value.items())[-7:]
+            if isinstance(day, str) and DAY.fullmatch(day) and isinstance(count, int) and not isinstance(count, bool) and count >= 0}
+
+
 def compose(previous: dict | None, now: float, version: str, selected: int, live, results: dict[str, dict],
             push_ok_at: str | None, push_error: str | None, identity: tuple[str, str], latency: dict | None = None) -> dict:
     """`live`: LiveSync. `results`: kết quả `step()` từng bộ xử lý. `identity`: (giá trị, lúc đổi sang giá trị đó).
@@ -121,6 +130,17 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             if isinstance(value, str) and CODE.fullmatch(value):
                 processors[name][key] = value
                 processors[name][f"{key}_since"] = since if isinstance(since, str) and STAMP.fullmatch(since) else None
+        for key in ("read_ok_at", "newest_at"):   # WeChat: lúc lượt đọc THÀNH CÔNG gần nhất (không phải nhịp tim) và giờ tin mới nhất
+            found = result.get(key)
+            if isinstance(found, str) and STAMP.fullmatch(found):
+                processors[name][key] = found
+        for key in ("groups", "read_every"):      # số nhóm đang đọc, nhịp đọc (giây): máy canh suy ngưỡng "im" từ đây
+            found = result.get(key)
+            if isinstance(found, int) and not isinstance(found, bool) and found >= 0:
+                processors[name][key] = found
+        daily = day_counts(result.get("daily"))   # số tin theo ngày đã vào kho ở máy Zalo, để máy canh so với gói trên hao
+        if daily:
+            processors[name]["daily"] = daily
     push_failure = code(push_error)   # chỉ đường đẩy nhịp tim (chính file này); lỗi đẩy từng bộ xử lý nằm ở processors.<tên>.error
     return {"schema": SCHEMA, "at": now_iso(now), "agent_version": version, "selected_groups": selected,
             "live_sync": {"revision": revision, "revision_at": live.revision_at(), "identity": identity[0], "identity_since": identity[1]},

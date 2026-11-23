@@ -306,4 +306,23 @@ test('Máy Zalo: Zalo đã mở mà chưa đọc được tin (reprobing) quá 5
   assert.deepEqual(texts(silent), ['Gói chat: Không nghe máy Zalo từ 08:05']);   // máy im thì không biết Zalo ra sao
 });
 
+test('Máy Zalo: WeChat ghi "đọc lần cuối" và "tin mới nhất"; quá ngưỡng chưa đọc được lượt nào thì nói im; tin mới nhất cũ không phải lỗi', () => {
+  // 23/11/2026: WeChat ngừng đọc mà tab vẫn ghi "Đang chạy" (nhịp tim sáng, không có lượt đọc nào).
+  const line = item => M.zaloLines(zalo({}, [{ id: 'wechat', state: 'ok', messages: 53, app: 'logged_in', groups: 1, ...item }]));
+  assert.deepEqual(texts(line({ read_minutes: 0, newest_minutes: 5 })), ['WeChat: Đang chạy, đọc lần cuối vừa xong, tin mới nhất 5 phút trước, 53 tin đã nhập']);
+  assert.deepEqual(texts(line({ read_minutes: 3, newest_minutes: 14 * 60 })), ['WeChat: Đang chạy, đọc lần cuối 3 phút trước, tin mới nhất 14 giờ trước, 53 tin đã nhập']);
+  assert.deepEqual(texts(line({ read_minutes: 3, newest_minutes: 3 * 1440 })), ['WeChat: Đang chạy, đọc lần cuối 3 phút trước, tin mới nhất 3 ngày trước, 53 tin đã nhập']);
+  const ok = line({ read_minutes: 15 });
+  assert.deepEqual([texts(ok), ok.tone], [['WeChat: Đang chạy, đọc lần cuối 15 phút trước, 53 tin đã nhập'], 'ok']);   // đúng ngưỡng chưa quá
+  const quiet = line({ read_minutes: 16 });
+  assert.deepEqual([texts(quiet), quiet.tone], [['WeChat: Im 16 phút: đã đăng nhập mà chưa đọc được lượt nào'], 'warn']);
+  assert.deepEqual(texts(line({ read_minutes: 18 * 60 + 5 })), ['WeChat: Im 18 giờ 5 phút: đã đăng nhập mà chưa đọc được lượt nào']);
+  assert.deepEqual(texts(line({ read_minutes: 20, read_limit_minutes: 30 })), ['WeChat: Đang chạy, đọc lần cuối 20 phút trước, 53 tin đã nhập']);   // nhịp đọc dài: ngưỡng do máy chủ tính
+  assert.equal(line({ read_minutes: 31, read_limit_minutes: 30 }).tone, 'warn');
+  assert.deepEqual(texts(line({ read_minutes: 600, app: 'closed', app_minutes: 140 })), ['WeChat: Chưa mở trên máy Zalo (140 phút)']);   // câu về app nói rõ hơn, không nói chồng
+  assert.deepEqual(texts(line({ read_minutes: 600, state: 'error', error: 'thread_died' })), ['WeChat: Gặp lỗi, mã: thread_died']);
+  assert.deepEqual(texts(line({ read_minutes: null, newest_minutes: null })), ['WeChat: Đang chạy, 53 tin đã nhập']);   // agent cũ hoặc chưa chọn nhóm: không nói gì
+  assert.deepEqual(texts(line({ read_minutes: 600, app: 'unknown' })), ['WeChat: Đang chạy, đọc lần cuối 10 giờ trước, 53 tin đã nhập']);   // không rõ app: không báo nhầm
+});
+
 console.log('may-chay-model: OK');

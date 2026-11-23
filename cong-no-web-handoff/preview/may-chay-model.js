@@ -274,12 +274,24 @@ const MayChayModel = (() => {
 
   // ZALO-AGENT-01: nhóm "Máy Zalo", mỗi bộ xử lý một dòng câu thường. `zalo` là phần `zalo` của /api/v7/machine (chỉ mã, số, giờ).
   // Thứ tự ưu tiên của một dòng: không nghe máy > WeChat tắt/chờ đăng nhập (dòng WeChat) > Zalo chưa mở > Zalo mở mà chưa đọc được
-  // > lỗi > không giải được ảnh (dòng WeChat) > chậm > đang đuổi kịp > bình thường.
+  // > lỗi > WeChat im (đã đăng nhập mà quá ngưỡng chưa đọc được lượt nào) > không giải được ảnh (dòng WeChat) > chậm > đang đuổi kịp > bình thường.
   const ZALO_NAMES = { bundle: 'Gói chat', insurance: 'Bảo hiểm', money_images: 'Ảnh chuyển khoản', wechat: 'WeChat' };
   const TONE_RANK = { ok: 0, warn: 1, bad: 2 };
   // WECHAT-01: WeChat đọc kho riêng, không theo revision của Zalo: Zalo chưa mở không làm WeChat dừng, và "kịp tin mới" không đo được;
   // máy chủ gửi số tin đã nhập kho (`messages`, null là không rõ, không phải 0).
-  const wechatText = item => (Number.isInteger(item.messages) ? `Đang chạy, ${item.messages.toLocaleString('vi-VN')} tin đã nhập` : 'Đang chạy');
+  // Khi máy Zalo báo: "đọc lần cuối" (lượt đọc THÀNH CÔNG gần nhất, không phải nhịp tim) và "tin mới nhất" (chỉ để xem: nhóm có thể im cả đêm).
+  const ago = minutes => (minutes < 1 ? 'vừa xong' : minutes < 60 ? `${minutes} phút trước` : minutes < 48 * 60 ? `${Math.floor(minutes / 60)} giờ trước` : `${Math.floor(minutes / 1440)} ngày trước`);
+  const lasted = minutes => (minutes < 60 ? `${minutes} phút` : `${Math.floor(minutes / 60)} giờ ${minutes % 60} phút`);
+  function wechatText(item) {
+    const parts = ['Đang chạy'];
+    if (Number.isInteger(item.read_minutes)) parts.push(`đọc lần cuối ${ago(item.read_minutes)}`);
+    if (Number.isInteger(item.newest_minutes)) parts.push(`tin mới nhất ${ago(item.newest_minutes)}`);
+    if (Number.isInteger(item.messages)) parts.push(`${item.messages.toLocaleString('vi-VN')} tin đã nhập`);
+    return parts.join(', ');
+  }
+  // WeChat đã đăng nhập mà quá ngưỡng (3 nhịp đọc, tối thiểu 15 phút, do máy chủ tính) chưa có lượt đọc thành công nào: im, dù không có mã lỗi.
+  const wechatSilent = item => item.id === 'wechat' && item.app === 'logged_in' && Number.isInteger(item.read_minutes)
+    && item.read_minutes > (Number.isInteger(item.read_limit_minutes) ? item.read_limit_minutes : 15);
   // App WeChat trên máy Zalo (đọc DB vẫn được khi WeChat tắt, nên phải nói riêng); `app_minutes` là số phút đã như vậy.
   const WECHAT_APP = { closed: 'Chưa mở trên máy Zalo', update: 'Đang chờ cập nhật, chưa mở lại trên máy Zalo', login: 'Chờ đăng nhập trên máy Zalo, xác nhận trên điện thoại' };
   const wechatApp = item => `${WECHAT_APP[item.app]}${Number.isInteger(item.app_minutes) && item.app_minutes > 0 ? ` (${item.app_minutes} phút)` : ''}`;
@@ -300,6 +312,7 @@ const MayChayModel = (() => {
       else if (zalo.identity === 'waiting_for_zalo' && !wechat) { text = 'Zalo chưa mở trên máy Zalo'; tone = 'warn'; }
       else if (unread && !wechat) { text = unread; tone = 'warn'; }
       else if (item.state === 'error') { text = `Gặp lỗi, mã: ${item.error}`; tone = 'bad'; }
+      else if (wechatSilent(item)) { text = `Im ${lasted(item.read_minutes)}: đã đăng nhập mà chưa đọc được lượt nào`; tone = 'warn'; }
       else if (wechat && item.images === 'no_key') { text = 'Đang chạy, không giải được ảnh'; tone = 'warn'; }
       else if (item.state === 'slow') { text = item.minutes === null ? 'Chậm, chưa xong lần nào' : `Chậm ${item.minutes} phút`; tone = 'warn'; }
       else if (item.state === 'catching_up') text = 'Đang đuổi kịp tin mới';
