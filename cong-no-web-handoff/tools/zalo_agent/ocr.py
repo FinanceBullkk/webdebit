@@ -1,8 +1,12 @@
 """ZALO-AGENT-01 Phần 3: đọc chữ trong ảnh bằng OCR tại máy có Zalo và phân tích "có phải ảnh tiền, số tiền bao nhiêu".
 
 Engine là đối tượng có `name`, `version` và `read(ảnh PIL) -> [{"b": [x0, y0, x1, y1], "t": chữ, "c": độ tin cậy}]`; `easyocr`
-chạy ở tiến trình con (`ocr_child.py`), nên agent không import torch và torch chết thì agent vẫn sống. `version` có đuôi `+ANALYSIS`: đổi cách tiền xử lý hay cách phân tích thì đổi `ANALYSIS`, kho sinh file mới
-(`<engine>@<version>.json`) và kết quả cũ vẫn nằm cạnh để so (`reread`).
+chạy ở tiến trình con (`ocr_child.py`), nên agent không import torch và torch chết thì agent vẫn sống.
+
+Hai phiên bản tách nhau (A1, 23/11/2026): `version` = `<easyocr>+PREPARE` gắn với **ô chữ** (engine và tiền xử lý ảnh), là tên file trong kho
+(`<engine>@<version>.json`); đổi engine hay tiền xử lý thì đổi `PREPARE`, kho đọc lại ảnh và giữ file cũ cạnh bên để so (`reread`). `ANALYSIS`
+gắn với **luật phân tích** (`analyse`), lưu trong file ở trường `analysis`; đổi luật thì `refresh` chạy lại `analyse` trên ô chữ đã lưu, không gọi
+engine (OCR một ảnh mất 15-19 giây, phân tích vài mili giây). File cũ không có trường `analysis` là kết quả của luật `LEGACY_ANALYSIS`.
 
 Chữ OCR và vị trí ô chữ chỉ nằm trong kho tại máy; thứ ra khỏi máy chỉ là số tiền, giờ, ngân hàng (Phần 3 của spec).
 """
@@ -26,7 +30,11 @@ from pathlib import Path
 from zalo_web_bundle import fold
 
 CHILD = Path(__file__).with_name("ocr_child.py")
-ANALYSIS = "a2"        # đổi khi đổi tiền xử lý hoặc luật phân tích: kho đọc lại theo phiên bản mới
+PREPARE = "a2"         # phiên bản tiền xử lý ảnh trước OCR (MAX_SIDE, xoay EXIF), nằm trong tên file kho: đổi thì OCR lại mọi ảnh.
+                       # Giữ "a2" (tên cũ của chuỗi gộp) để kho `easyocr@1.7.2+a2.json` đã có dùng tiếp.
+ANALYSIS = "a2"        # phiên bản luật phân tích (`analyse`): đổi thì phân tích lại từ ô chữ đã lưu, không OCR lại
+LEGACY_ANALYSIS = "a2" # file kho chưa có trường `analysis` (trước A1) được phân tích bằng luật này
+ENGINE_FIELDS = ("engine", "version", "read_at", "size", "boxes")   # phần của engine trong một lượt đọc; còn lại là kết quả `analyse`
 MAX_SIDE = 1600        # cạnh dài tối đa khi đọc VÀ khi gửi ra ngoài (Phần 4): tọa độ ô chữ dùng chung cho cả che ảnh
 THREADS = 2
 CONFIDENCE_T = 0.6     # T: độ tin cậy tối thiểu của ô số tiền để OCR được coi là "chắc" (P0: 20/20 ảnh đọc đúng, độ tin cậy 0,42-0,9, trung vị 0,73); đổi bằng ZALO_AGENT_OCR_CONFIDENCE
@@ -104,7 +112,7 @@ class EasyOcr:
     def version(self) -> str:
         if self.cached is None:
             try:
-                self.cached = f"{metadata.version('easyocr')}+{ANALYSIS}"   # không import easyocr chỉ để biết phiên bản; nhớ vì step() hỏi mỗi giây
+                self.cached = f"{metadata.version('easyocr')}+{PREPARE}"   # không import easyocr chỉ để biết phiên bản; nhớ vì step() hỏi mỗi giây
             except metadata.PackageNotFoundError as exc:
                 raise OcrUnavailable("easyocr") from exc
         return self.cached
@@ -225,6 +233,19 @@ def analyse(boxes: list[dict]) -> dict:
     rivals = [item for item in candidates if best and item["value"] != best["value"] and item["score"] >= RIVAL * best["score"]]
     return {"is_money": len(hits) >= 2 or with_unit, "amount_vnd": best and best["value"], "confidence": best and best["confidence"],
             "hits": len(hits), "unique": not rivals, "txn_time": when(text), "bank": bank}
+
+
+def stamped(boxes: list[dict]) -> dict:
+    """Kết quả phân tích ô chữ kèm phiên bản luật đã dùng: phần ghi vào kho cạnh ô chữ."""
+    return {**analyse(boxes), "analysis": ANALYSIS}
+
+
+def refresh(read: dict | None) -> dict | None:
+    """Lượt đọc OCR với kết quả theo luật phân tích hiện tại. Đã đúng `ANALYSIS` (hoặc không có ô chữ, như lượt đọc của Gemini) thì trả
+    nguyên đối tượng; lệch thì trả đối tượng mới = phần của engine + `analyse` chạy lại trên ô chữ đã lưu. Không gọi engine, không ghi đĩa."""
+    if not read or not isinstance(read.get("boxes"), list) or read.get("analysis", LEGACY_ANALYSIS) == ANALYSIS:
+        return read
+    return {**{key: read[key] for key in ENGINE_FIELDS if key in read}, **stamped(read["boxes"])}
 
 
 def is_confident(read: dict, limit: Decimal | float | None = None) -> bool:
