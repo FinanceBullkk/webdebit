@@ -9,15 +9,15 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 /* Cùng cỡ với menu chung app-nav.css: tám mục lọt khung 1280×560 (BAO-CAO-THANG-01). */
 .topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1px;min-height:44px;margin:1px 6px;padding:1px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
 .topbar .picker-open{min-height:48px;padding:4px 2px}
-.topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:68px;overflow:visible;clip-path:none;white-space:normal;font-size:11.5px;font-weight:600;line-height:1.05;text-align:center}
+.topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:68px;overflow:visible;clip-path:none;white-space:normal;font-size:13px;font-weight:600;line-height:1.05;text-align:center}
 .topbar:not(.expanded)>nav a svg{width:20px;height:20px}
 .topbar>nav a.active{background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{background:#21405f}
 .topbar.expanded{width:240px;box-shadow:6px 0 24px #0d1b2a40}.topbar.expanded .brand{display:block;padding:0 16px}
 .topbar.expanded>nav a,.topbar.expanded .picker-open{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 14px;margin:2px 8px}
 .topbar.expanded>nav a span,.topbar.expanded .picker-open span{font-size:15px;white-space:nowrap;max-width:none}
 /* Số "sổ còn việc" trên mục Việc cần làm: cùng chỗ, cùng màu với app-nav.css (app-nav.js đếm). */
-.topbar>nav a span.badge{position:absolute;top:4px;right:8px;width:auto;max-width:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
-.topbar>nav a span.badge[hidden]{display:none}.topbar.expanded>nav a span.badge{position:static;margin-left:auto;font-size:11px}
+.topbar>nav a span.badge{position:absolute;top:4px;right:8px;width:auto;max-width:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:13px;font-weight:700;line-height:18px;text-align:center}
+.topbar>nav a span.badge[hidden]{display:none}.topbar.expanded>nav a span.badge{position:static;margin-left:auto;font-size:13px}
 .topbar .presence{margin:8px auto;flex-wrap:wrap;max-width:60px}.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
 /* Đầu trang chung của bốn thẻ (canvas UuTien 3/11/2026): thanh trắng 52px "Sổ khách / Tên ▾" · bốn thẻ · ⋯. */
 .book-head{position:sticky;top:var(--banner);height:var(--head);margin:0 -16px;padding:0 28px;gap:16px;border-bottom:1px solid #e3e7ec;background:#fff;box-shadow:none}
@@ -45,7 +45,7 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .month-stats>span{display:flex;align-items:center;justify-content:space-between;gap:8px;grid-column:2;font-size:14px;color:#52514e}.month-stats>i{display:flex;align-items:center;justify-content:center;grid-column:1;font-style:normal;color:#52514e}
 .month-stats .month-prior{grid-row:1;border-bottom:1px solid #eef0f3}.month-stats>i:nth-child(2),.month-stats .month-charges{grid-row:2}.month-stats>i:nth-child(4),.month-stats .month-received{grid-row:3;border-top:1px solid #eef0f3}
 .month-stats>i:nth-child(6),.month-stats .month-end{grid-row:4;border-top:2px solid #52514e;margin-top:4px}.month-stats b{font-size:16px;font-weight:400;color:#1a1a19;white-space:nowrap}.month-stats .month-end{font-size:15px;font-weight:700;color:#0d366b}.month-stats .month-end b{font-size:22px;font-weight:800;color:#0d366b}
-.month-missing{height:26px;min-width:0;padding:0 8px;border:1px solid #f0d9ae;border-radius:13px;background:#fdf3e1;color:#6b4000;font:600 12.5px "Segoe UI",sans-serif;white-space:nowrap;cursor:pointer}.month-charges b{margin-left:auto}
+.month-missing{height:26px;min-width:0;padding:0 8px;border:1px solid #f0d9ae;border-radius:13px;background:#fdf3e1;color:#6b4000;font:600 13px "Segoe UI",sans-serif;white-space:nowrap;cursor:pointer}.month-charges b{margin-left:auto}
 .month-pay-slot{flex:1 1 420px;min-width:0;padding:10px 16px 12px}.pay-block .pay-head{display:flex;align-items:center;gap:10px;margin:0 0 4px;color:#1a1a19;font-size:15px;font-weight:700}.pay-count{font-size:13px;font-weight:400;color:#6f6d67}.pay-empty{font-size:14px;font-weight:400}
 .pay-head .entry-open{margin-left:auto;height:36px;min-height:36px;padding:0 16px;border:0;border-radius:8px;background:#1c5cab;color:#fff;font-size:14px;font-weight:700;white-space:nowrap}
 .pay-block .pay-list{width:100%;border:0;table-layout:fixed}.pay-list td{height:32px;min-height:32px;padding:4px 10px 4px 0;border:0;border-top:1px solid #e9ecf0!important;background:#fff!important;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -55,11 +55,11 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .trip-tools button{margin:0;display:inline-flex;align-items:center;justify-content:center;min-width:36px;width:36px;min-height:36px;height:36px;padding:0;border:1px solid #d7dce3;border-radius:8px;background:#fff;color:#52514e;cursor:pointer}.trip-tools button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.trip-tools .month-lock[aria-pressed=true]{border-color:#a7d8cf;background:#e3f4f1;color:#0f766e}
 #refresh-data{font-size:0}
 .month-lock-text{display:none}.ledger-head{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:30;width:100%}
-.ledger{color:#1a1a19}.ledger th,.ledger td{border-right:0;border-color:#e9ecf0}.ledger .columns th{height:34px;padding:0 5px;background:#f3f5f8;color:#52514e;font-size:13px;font-weight:600;line-height:1.2;border-top:1px solid #d7dce3;border-bottom:1px solid #d7dce3}
+.ledger{color:#1a1a19}.ledger th,.ledger td{border-right:0;border-color:#e9ecf0}.ledger .columns th{height:34px;padding:0 5px;background:#f3f5f8;color:#52514e;font-size:14px;font-weight:600;line-height:1.2;border-top:1px solid #d7dce3;border-bottom:1px solid #d7dce3}
 .ledger .columns th.num{text-align:right}.ledger td{height:34px;min-height:34px;padding:4px 5px;font-size:14px}.ledger td.num{font-size:14px}.ledger-book.tight .ledger td.num{font-size:14px}.ledger .month-body>.trip-side{padding:0;border:0}.ledger-inner td{background:#fff}.ledger tr.subtotal td{height:40px;background:#f3f5f8;border:0;font-size:14px}
 .subtotal td:first-child{position:relative}.add-month-adjustment{margin:0 0 0 8px;min-height:30px;padding:0 10px;border:1px solid #d7dce3;border-radius:6px;font-size:13px}
 .trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}.trip-list .row-delete{color:#6f6d67}.fee-pick{position:absolute;width:1px;height:1px;opacity:0}.trip-list tr:hover .fee-pick,.fee-pick:focus{position:static;width:auto;height:auto;opacity:1}
-.ledger td.missing{background:#fdf3e1;color:#6b4000;font-size:13px;font-weight:600}
+.ledger td.missing{background:#fdf3e1;color:#6b4000;font-size:14px;font-weight:600}
 .route-cell{white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis}.route-cell .info-edit{display:inline;padding:0;cursor:pointer}.route-cell .info-edit:focus-visible{outline:2px solid #2a78d6}.route-cell input.info-input{display:inline-block;width:45%;min-width:70px}.route-arrow{color:#52514e}
 .ledger tr.spacer{display:none}.ledger .fee-other{background:#fff}.ledger .fee-h{color:#52514e}
 @media(max-width:1100px){.month-stats{flex-basis:100%;max-width:none;border-right:0}.month-pay-slot{overflow-x:auto}.pay-list{min-width:760px}.book-head{height:auto;min-height:61px;flex-wrap:wrap}.page-more{margin-left:auto}#the-so .layout{overflow-x:auto}.ledger-book section{min-width:0}.trip-card{overflow-x:auto}.trip-card>.ledger{min-width:980px}.ledger-head{position:static}.month-chips{position:static}.month-summary-layout{flex-direction:column}.month-card{width:100%}.month-stats{min-width:0}.book-head{position:static}.page-tabs{order:3;width:100%;margin-left:0}}
@@ -70,7 +70,7 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .trip-card>.ledger-head,.trip-card .trip-list{width:calc(100% - 28px);margin:0 14px}
 /* COT-PHU-PHI-01: cột riêng chưa có khoản nào hẹp, tên loại chữ nhỏ hai dòng. Vẫn không vừa (bảy cột ở màn 1280 có Shipper):
    bảng chuyến cuộn ngang trong khung như màn hẹp, tiêu đề cột cuộn cùng bảng, không cắt mất cột Khác/Thành tiền. */
-.ledger .columns th.fee-narrow{padding:1px 3px;font-size:13px;line-height:1.1;overflow-wrap:normal}
+.ledger .columns th.fee-narrow{padding:1px 3px;font-size:14px;line-height:1.1;overflow-wrap:normal}
 .ledger-book.fee-over .trip-card{overflow-x:auto}.ledger-book.fee-over .ledger-head{position:static}
 .ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
 .ledger .columns th{height:35px}

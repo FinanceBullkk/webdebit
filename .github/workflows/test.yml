@@ -204,6 +204,9 @@ jobs:
       # Đội xe mục Chặng (specs/doi-xe-chang-01.md): hàm đọc thu, chi, lãi gộp của chặng; tổng bằng get_so và get_bang_ke.
       - name: Doi xe chang tai chinh on isolated PostgreSQL
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_chang.py
+      # Audit Đội xe 23/11/2026: áp giá ngược phải xác nhận, số đang thấy ở ứng/hoàn/tiền về/điều chỉnh/xóa chặng/tên gốc, container lặp.
+      - name: Doi xe sua audit on isolated PostgreSQL
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_audit.py
 
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;
   # hàm Tổng quan hay get_ledger bị làm sai thì tự kiểm đỏ.
