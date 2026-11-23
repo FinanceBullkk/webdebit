@@ -131,3 +131,44 @@ test('ghi phiếu thu trong lúc hàng đợi còn lệnh: chờ hàng đợi xo
   assert.deepEqual(order, ['/api/v7/trips/info', '/api/v7/receipts'], 'phiếu thu gửi sau khi hàng đợi ghi xong');
   assert.doesNotMatch(await page.locator('.book-status').innerText(), /chưa rõ/i);
 }));
+
+// F1 audit 23/11: ô Đơn giá tính bằng đồng, Việc cần làm nhập triệu: "45" ở đây là 45 đồng. Hỏi tại chỗ trước khi gửi.
+test('đơn giá gõ 45 (dưới 1.000.000 đ): hiện đơn vị, hỏi tại chỗ, chưa gửi; Sửa lại giữ ô, Ghi 45 đ mới gửi', async () => withPage(async ({ page, world }) => {
+  const cell = page.locator('td.editable[data-trip="11"]');
+  await cell.focus();
+  await page.keyboard.type('45');
+  assert.match(await page.locator('td.editable[data-trip="11"] .cell-unit').innerText(), /đồng, không phải triệu/);
+  await page.keyboard.press('Enter');
+  const ask = page.locator('.price-ask');
+  await ask.waitFor();
+  assert.match(await ask.innerText(), /^45 đ là dưới 1\.000\.000 đ.*45\.000\.000.*Sửa lại.*Ghi 45 đ/s);
+  assert.equal(writes(world).length, 0, 'chưa gửi lệnh nào');
+  assert.equal(await page.evaluate(() => document.activeElement?.className), 'price-no', 'nút an toàn lấy tiêu điểm');
+  await page.locator('.price-no').click();
+  assert.equal(await page.locator('.price-ask').count(), 0);
+  assert.equal(await cell.locator('input').inputValue(), '45', 'ô vẫn mở với số đã gõ');
+  assert.equal(writes(world).length, 0);
+  await page.keyboard.press('End');
+  await page.keyboard.type('000000');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.price-ask').count(), 0, '45.000.000 nằm trong khoảng, không hỏi');
+  await settled(page);
+  assert.deepEqual(writes(world).map(([path, body]) => [path, body.unit_price_vnd]), [['/api/v7/trips/price', '45000000']]);
+}));
+
+test('đơn giá gõ 45 rồi chọn Ghi 45 đ: lệnh gửi đúng 45; trên 1 tỷ cũng hỏi', async () => withPage(async ({ page, world }) => {
+  const cell = page.locator('td.editable[data-trip="11"]');
+  await cell.focus();
+  await page.keyboard.type('45000000000000');
+  await page.keyboard.press('Enter');
+  assert.match(await page.locator('.price-ask').innerText(), /trên 1 tỷ đ.*thừa số 0/s);
+  assert.equal(writes(world).length, 0);
+  await page.locator('.price-no').click();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('45');
+  await page.keyboard.press('Enter');
+  await page.locator('.price-ask').waitFor();
+  await page.locator('.price-yes').click();
+  await settled(page);
+  assert.deepEqual(writes(world).map(([path, body]) => [path, body.unit_price_vnd]), [['/api/v7/trips/price', '45']]);
+}));
