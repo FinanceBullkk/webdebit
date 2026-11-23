@@ -19,7 +19,7 @@
     S, draw: () => draw(), load: () => load(), toastBox, esc, tienTo: 'dxt', toastMs: 8000,
     matMang: 'Mất kết nối, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.',
     chuaRo: 'Chưa đọc được trả lời của máy chủ, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.',
-    taiLai: ['CHANGED', 'BANG_KE_DOI', 'BANG_KE_DA_GUI', 'CHANG_DA_GUI', 'BANG_KE_DA_DOI_CHIEU', 'TUYEN_DOI'],
+    taiLai: ['CHANGED', 'BANG_KE_DOI', 'BANG_KE_DA_GUI', 'CHANG_DA_GUI', 'BANG_KE_DA_DOI_CHIEU', 'TUYEN_DOI', 'NGAY_GIA_CU'],
   });
   const { withFocus } = DoiXeChung;
 

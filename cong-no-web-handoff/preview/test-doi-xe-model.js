@@ -195,9 +195,9 @@ test('ngày áp giá (audit DX-01): thiếu năm thì lấy năm gần nhất kh
   assert.deepEqual(M.docNgayApGia('01/01', '2026-12-05'), { v: '2027-01-01', cu: false });
   assert.deepEqual(M.docNgayApGia('1.1', '2026-12-31'), { v: '2027-01-01', cu: false });
   assert.deepEqual(M.docNgayApGia('01/12', '2026-12-05'), { v: '2026-12-01', cu: false }, 'mùng 1 tháng này vẫn là tháng này');
-  assert.deepEqual(M.docNgayApGia('20/11', '2026-12-05'), { v: '2027-11-20', cu: false }, 'thiếu năm không bao giờ thành ngày trước tháng này');
+  assert.deepEqual(M.docNgayApGia('20/11', '2026-12-05'), { v: '2026-11-20', cu: true }, 'tháng trước: ngày gần nhất, áp ngược nên hỏi');
   // Tháng 1: "28/12" thiếu năm là 28/12 năm nay (tương lai); muốn áp ngược về tháng 12 năm trước thì gõ đủ năm.
-  assert.deepEqual(M.docNgayApGia('28/12', '2027-01-10'), { v: '2027-12-28', cu: false });
+  assert.deepEqual(M.docNgayApGia('28/12', '2027-01-10'), { v: '2026-12-28', cu: true });
   assert.deepEqual(M.docNgayApGia('28/12/2026', '2027-01-10'), { v: '2026-12-28', cu: true });
   assert.deepEqual(M.docNgayApGia('01/02', '2027-01-10'), { v: '2027-02-01', cu: false });
   assert.deepEqual(M.docNgayApGia('01/01/26', '2026-12-05'), { v: '2026-01-01', cu: true }, 'năm hai chữ số');

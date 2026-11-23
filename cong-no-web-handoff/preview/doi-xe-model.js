@@ -121,9 +121,10 @@
       if (y < 100) y += 2000;
       r = ngayHopLe(y, +m[2], +m[1]);
     } else {
-      const y = +String(homNay).slice(0, 4);
-      r = ngayHopLe(y, +m[2], +m[1]);
-      if (r.v && r.v < thangNay) r = ngayHopLe(y + 1, +m[2], +m[1]);
+      // Thiếu năm: lấy ngày gần hôm nay nhất trong ba năm (tháng 12 gõ 01/01 là năm sau; gõ 25/11 là tháng trước, áp ngược nên hỏi).
+      const y = +String(homNay).slice(0, 4), now = Date.parse(homNay);
+      const ds = [y - 1, y, y + 1].map(n => ngayHopLe(n, +m[2], +m[1])).filter(x => x.v);
+      r = ds.length ? ds.reduce((a, b) => (Math.abs(Date.parse(b.v) - now) < Math.abs(Date.parse(a.v) - now) ? b : a)) : ngayHopLe(y, +m[2], +m[1]);
     }
     return r.v ? { v: r.v, cu: r.v < thangNay } : r;
   }

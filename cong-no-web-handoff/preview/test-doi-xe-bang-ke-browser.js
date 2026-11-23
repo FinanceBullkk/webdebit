@@ -553,11 +553,11 @@ test('Đổi giá tháng 12 (audit DX-01): ô ngày mặc định 01/01 năm sau
     { idempotency_key: 'k', tuyen_id: 1, tu_ngay: '2026-01-01', gia_vnd: '1100000', xac_nhan_ngay_cu: true });
 }, { setup: w => { w.gia.hom_nay = '2026-12-05'; }, query: '?man=gia' }));
 
-test('Đổi giá tháng 1 (audit DX-01): mặc định 01/02 năm nay; 28/12 thiếu năm là tháng 12 năm nay, không phải năm trước', () => withPage(async page => {
+test('Đổi giá tháng 1 (audit DX-01): mặc định 01/02 năm nay; 28/12 thiếu năm là tháng 12 vừa qua (gần nhất), nút báo áp ngược', () => withPage(async page => {
   await page.locator('[data-act="sua-gia"]').first().click();
   assert.equal(await page.locator('#dxt-gia-tu').inputValue(), '01/02/2027');
   await page.locator('#dxt-gia-tu').fill('28/12');
-  assert.match(await page.locator('#dxt-gia-note').innerText(), /^Áp dụng từ 28\/12\/2027\./);
+  assert.match(await page.locator('#dxt-gia-note').innerText(), /^Áp dụng từ 28\/12\/2026\..*giá áp ngược/);
   await page.locator('#dxt-gia-tu').fill('28/12/2026');
   assert.equal(await page.locator('[data-act="luu-gia"]').innerText(), 'Lưu, áp ngược từ 28/12/2026');
 }, { setup: w => { w.gia.hom_nay = '2027-01-10'; }, query: '?man=gia' }));
