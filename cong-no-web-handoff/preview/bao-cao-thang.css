@@ -32,7 +32,7 @@ body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9
 .bc .sum{display:flex;gap:24px;align-items:flex-start;padding:14px 20px;border:1px solid #dce5ef;border-radius:14px;background:#f5f8fc}
 .bc .sum-table{border-collapse:collapse;min-width:520px}
 .bc .sum-table th,.bc .sum-table td{padding:5px 12px;text-align:left;border-bottom:1px solid var(--edge)}
-.bc .sum-table thead th{color:var(--ink-m);font-weight:700;font-size:13px}
+.bc .sum-table thead th{color:var(--ink-m);font-weight:700;font-size:14px}
 .bc .sum-table thead th:not(:first-child),.bc .sum-table td{text-align:right;width:90px}
 .bc .sum-table tbody th{font-weight:600}
 .bc .sum-table td{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -55,7 +55,7 @@ body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9
 .bc .seg:first-child{border-left:0}
 .bc .seg.on{background:var(--accent-soft);color:var(--blue)}
 .bc .cust-table{width:100%;border-collapse:collapse}
-.bc .cust-table thead th{position:sticky;top:0;z-index:1;padding:7px 12px;background:var(--head);color:var(--ink-m);font-size:13px;text-align:left;border-bottom:1px solid var(--edge)}
+.bc .cust-table thead th{position:sticky;top:0;z-index:1;padding:7px 12px;background:var(--head);color:var(--ink-m);font-size:14px;text-align:left;border-bottom:1px solid var(--edge)}
 .bc .cust-table td,.bc .cust-table tbody th{padding:6px 12px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:middle;font-weight:400}
 .bc .cust-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bc .cust-table td.num{font-weight:600}
@@ -67,7 +67,7 @@ body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9
 .bc tr.cust:hover{background:var(--zebra)}
 .bc tr.cust.open{background:var(--accent-soft)}
 .bc .chips{display:flex;flex-wrap:wrap;gap:4px}
-.bc .chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.bc .chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap}
 .bc .chip.ok{background:var(--credit-soft);color:var(--teal)}
 .bc .chip.warn{background:var(--warning-soft);color:var(--amber)}
 .bc .chip.bad{background:var(--critical-soft);color:var(--critical)}
@@ -77,8 +77,8 @@ body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9
 /* Danh sách cont của một khách. */
 .bc tr.trips > td{padding:0 12px 12px 32px;background:var(--accent-soft)}
 .bc .trips-box{padding:8px 12px;border:1px solid #cde2fb;border-radius:10px;background:#fff}
-.bc .trip-table{width:100%;border-collapse:collapse;font-size:13.5px}
-.bc .trip-table th{padding:4px 8px;color:var(--ink-m);font-size:12.5px;text-align:left;border-bottom:1px solid var(--edge)}
+.bc .trip-table{width:100%;border-collapse:collapse;font-size:14px}
+.bc .trip-table th{padding:4px 8px;color:var(--ink-m);font-size:14px;text-align:left;border-bottom:1px solid var(--edge)}
 .bc .trip-table td{padding:4px 8px;border-bottom:1px solid var(--line-soft)}
 .bc .trip-table .day{font-variant-numeric:tabular-nums;white-space:nowrap}
 .bc .trip-table .cont{font-family:Consolas,"Cascadia Mono",monospace;font-weight:600}
