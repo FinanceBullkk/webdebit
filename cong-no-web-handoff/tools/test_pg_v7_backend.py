@@ -58,6 +58,7 @@ from pg_v7_harness import (
 )
 from test_pg_v7_backend_activity import check_activity
 from test_pg_v7_backend_audit_kien_truc import check_audit_kien_truc
+from test_pg_v7_backend_audit_sql import check_audit_sql
 from test_pg_v7_backend_bang_thu import check_bang_thu
 from test_pg_v7_backend_can_du import check_can_du
 from test_pg_v7_backend_cash_review import check_cash_review
@@ -311,7 +312,13 @@ CASES.append(case("HOAT-DONG.01", "BEHAVIOR", "Activity of one VN day across boo
 CASES.append(case("HIEU-NANG.01", "BEHAVIOR", "Read stamp changes after every committed write to any sokhach table, not on reads, locks or rollbacks",
                   check="read_stamp", functions=("get_read_stamp",)))
 
-CHECKS = {"audit_kien_truc": check_audit_kien_truc, "doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "cash_review": check_cash_review, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+# Audit SQL lõi tiền 23/11/2026: chạy sau mọi case chạy lại migration cũ, vì nó so bảng băm của DB với tools/v7_catalog_manifest.json.
+CASES.append(case("AUDIT-SQL.01", "BEHAVIOR", "Catalog manifest = fresh schema; undated fee rows need an open, non-future month; "
+                  "one duplicate-reason function for paste, trip edit and original-row edit; book lock NO KEY UPDATE; archive via command",
+                  check="audit_sql", functions=("paste_trips", "edit_trip_info", "edit_legacy_trip", "_begin_command",
+                                                "set_customer_archived", "schema_level", "_catalog_manifest")))
+
+CHECKS = {"audit_sql": check_audit_sql, "audit_kien_truc": check_audit_kien_truc, "doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "cash_review": check_cash_review, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -437,7 +444,8 @@ def check_migration(pg: Pg) -> None:
                      "2026-11-18-v7-doi-xe-thu-doc-ghi-chu.sql", "2026-11-19-v7-doi-xe-dieu-do.sql", "2026-11-19-v7-khach-moi.sql",
                      "2026-11-19-v7-doi-xe-tai-chinh-chang.sql",
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
-                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql"):
+                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
+                     "2026-11-23-v7-audit-sql.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
@@ -474,6 +482,12 @@ def check_migration(pg: Pg) -> None:
         ("views", "SELECT jsonb_object_agg(viewname,definition) FROM pg_views WHERE schemaname='sokhach'"),
         ("constraints", "SELECT jsonb_object_agg(conrelid::regclass::text||'.'||conname,pg_get_constraintdef(oid)) "
                         "FROM pg_constraint WHERE connamespace='sokhach'::regnamespace"),
+        # Audit SQL 23/11/2026 (F1): trigger (kèm cờ bật/tắt) và index cũng phải như bản cài mới.
+        ("triggers", "SELECT jsonb_object_agg(tgrelid::regclass::text||'.'||tgname,pg_get_triggerdef(oid)||' '||tgenabled::text) "
+                     "FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN "
+                     "(SELECT oid FROM pg_class WHERE relnamespace='sokhach'::regnamespace)"),
+        ("indexes", "SELECT jsonb_object_agg(indexrelid::regclass::text,pg_get_indexdef(indexrelid)) FROM pg_index "
+                    "WHERE indrelid IN (SELECT oid FROM pg_class WHERE relnamespace='sokhach'::regnamespace)"),
     ):
         migrated, fresh = json.loads(copy.value(query)), json.loads(pg.value(query))
         if what == "views":
@@ -487,7 +501,17 @@ def check_migration(pg: Pg) -> None:
     copy.sql("CREATE ROLE v7_loader LOGIN IN ROLE sokhach_owner; "
              f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC; GRANT CONNECT ON DATABASE {db} TO v7_loader,v7_app")
     checker = (ROOT / "cong-no-web-handoff/tools/v7_post_deploy_check.sql").read_text(encoding="utf-8")
-    copy.sql(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set expect_customers 236\n" + checker)
+    # Bảng băm của release (v7_schema_snapshot.py sinh từ bản cài mới): checker đọc bằng `cat` như trên hao, nên chép vào container.
+    manifest = (ROOT / "cong-no-web-handoff/tools/v7_catalog_manifest.json").read_text(encoding="utf-8")
+    run(["docker", "exec", "-i", pg.name, "sh", "-c", "cat > /tmp/v7_catalog_manifest.json"], input_text=manifest)
+    copy.sql(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set expect_customers 236\n"
+             "\\set manifest /tmp/v7_catalog_manifest.json\n" + checker)
+    # Chạy lại một migration cũ kéo hàm khác về bản cũ (audit SQL F1): checker phải đỏ và chỉ đúng tên hàm, rồi xanh khi nâng lại.
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-audit-kien-truc.sql").read_text(encoding="utf-8"))
+    copy.rejects(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set manifest /tmp/v7_catalog_manifest.json\n" + checker,
+                 message="catalog differs from repo manifest: functions (1): edit_trip_info(bigint,bigint,text,bigint,text,text);")
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-audit-sql.sql").read_text(encoding="utf-8"))
+    copy.sql(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set manifest /tmp/v7_catalog_manifest.json\n" + checker)
     # Loader conflict/retry and balance checks use isolated reference-only cutover.
     copy.sql("ALTER TABLE sokhach.baseline_trip_ref DISABLE TRIGGER baseline_trip_ref_immutable; "
              "DELETE FROM sokhach.baseline_trip_ref; "

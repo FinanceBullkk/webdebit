@@ -3,6 +3,7 @@ import json
 import re
 
 from pg_v7_harness import (
+    AUDIT_SQL_MIGRATION,
     AUDIT_KIEN_TRUC_MIGRATION,
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
@@ -143,6 +144,7 @@ def check_fee_catalog(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau KHOA-CHU-01
     pg.sql(AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8"))  # audit 19/11: bản edit_trip_info/record_mark hiện hành
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql").read_text(encoding="utf-8"))  # bang-gia trả save_price_table cũ; BANG-GIA-02 trả về bản 5/11
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql").read_text(encoding="utf-8"))
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql").read_text(encoding="utf-8"))  # BANG-GIA-04 thay _lookup_price, save_price_table

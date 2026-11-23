@@ -20,6 +20,7 @@ from pathlib import Path
 
 import v7_safety_net as net  # thêm web/ vào sys.path cho adapter bên dưới
 from pg_v7_harness import (
+    AUDIT_SQL_MIGRATION,
     DATABASE,
     IMAGE,
     HarnessError,
@@ -140,15 +141,16 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     pg.sql(f"UPDATE sokhach.customer SET archived=false WHERE id={spare.id}")
     original = mutate(pg, "get_dashboard", "coalesce(sum(total) FILTER (WHERE total>0),0)::bigint recv",
                       "(coalesce(sum(total) FILTER (WHERE total>0),0)+1)::bigint recv")
-    probe.expect("Tổng quan cộng sai", "Tổng quan không khớp tổng các sổ: tổng Còn phải thu.")
+    # Kiểm 5 (audit SQL F1) thấy luôn hàm bị sửa tay.
+    probe.expect("Tổng quan cộng sai", "Tổng quan không khớp tổng các sổ: tổng Còn phải thu.", "Định nghĩa trong DB khác repo")
     pg.sql(original)
     original = mutate(pg, "get_dashboard_debt", "WHERE s.total>0),", f"WHERE s.total>0 AND act.id<>{debtor.id}),")
     probe.expect("dải hạn trả thiếu sổ", "Tổng quan không khớp tổng các sổ: tổng ở dải hạn trả, năm nhóm hạn trả, "
-                 f"danh sách khách nợ (sổ {debtor.id}).")
+                 f"danh sách khách nợ (sổ {debtor.id}).", "Định nghĩa trong DB khác repo")
     pg.sql(original)
     original = mutate(pg, "get_ledger", "'total_outstanding_vnd',v_total::bigint::text",
                       "'total_outstanding_vnd',(v_total+1)::bigint::text")
-    probe.expect("tổng trong sổ sai", "Tổng trong sổ khác tổng Tổng quan dùng ở 3 sổ")
+    probe.expect("tổng trong sổ sai", "Tổng trong sổ khác tổng Tổng quan dùng ở 3 sổ", "Định nghĩa trong DB khác repo")
     pg.sql(original)
     probe.quiet("dựng lại hàm")
     cases.append("kiểm 2: sổ lưu trữ còn nợ, Tổng quan, dải hạn trả, get_ledger sai thì đỏ, đúng lại thì tự hết")
@@ -181,11 +183,14 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     require(probe.run()["summary"].get("skipped"), "thiếu hàm mà không im")
     for _ in range(2):
         pg.sql(MIGRATION.read_text(encoding="utf-8"))
+    # Migration 18/11 là bản cũ của get_safety_net (chưa có bảng băm): kiểm 5 báo tới khi chạy lại migration mới nhất.
+    probe.expect("chạy lại migration cũ", "DB chưa trả bảng băm định nghĩa")
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))
     probe.quiet("sau migration")
     require(pg.value("SELECT has_function_privilege('v7_app','sokhach.get_safety_net(jsonb)','EXECUTE') AND NOT "
                      "has_function_privilege('v7_app','sokhach._safety_events(bigint,interval)','EXECUTE')") == "t",
             "quyền sau migration")
-    cases.append("DB chưa có hàm thì im; migration chạy hai lần được")
+    cases.append("DB chưa có hàm thì im; migration chạy hai lần được; migration cũ kéo hàm về bản cũ thì kiểm 5 báo")
 
 
 def main() -> int:

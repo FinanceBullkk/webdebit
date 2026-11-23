@@ -5,6 +5,7 @@ pg-probes.py (mark_changed_payload) — ở đó chuyến sửa giữ confirmed 
 import json
 
 from pg_v7_harness import (
+    AUDIT_SQL_MIGRATION,
     AUDIT_KIEN_TRUC_MIGRATION,
     call,
     fixture_open_month,
@@ -54,6 +55,7 @@ def check_audit_kien_truc(pg) -> str:
     migration = AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8")
     pg.sql(migration)
     pg.sql(migration)
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     require(pg.value(CATALOG) == fresh, "audit migration rerun changed function catalog")
 
     # A12 — hai đường vào cùng một trạng thái cuối: sửa container, sửa ngày sang tháng có dòng sổ gốc không ngày.

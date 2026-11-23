@@ -1,4 +1,5 @@
 -- Read-only, fail closed. Required: -v db_v7=... -v loader_role=...
+--   and -v manifest=<release>/cong-no-web-handoff/tools/v7_catalog_manifest.json (or -v manifest_json='<file content>').
 -- Optional: -v expect_customers=N -v expect_openings=N
 \set ON_ERROR_STOP on
 \if :{?db_v7}
@@ -9,6 +10,14 @@ SELECT 1/0;
 \if :{?loader_role}
 \else
 \echo ERROR missing loader_role
+SELECT 1/0;
+\endif
+-- Audit SQL 23/11/2026 (F1): bảng băm định nghĩa của bản cài mới (v7_schema_snapshot.py sinh), so với DB ở cuối.
+\if :{?manifest_json}
+\elif :{?manifest}
+\set manifest_json `cat :'manifest'`
+\else
+\echo ERROR missing manifest (-v manifest=<release>/cong-no-web-handoff/tools/v7_catalog_manifest.json)
 SELECT 1/0;
 \endif
 \if :{?expect_customers}
@@ -24,7 +33,8 @@ BEGIN READ ONLY;
 SELECT set_config('v7check.database', :'db_v7', true) AS check_database,
        set_config('v7check.loader', :'loader_role', true) AS check_loader,
        set_config('v7check.customers', :'expect_customers', true) AS check_customers,
-       set_config('v7check.openings', :'expect_openings', true) AS check_openings \gset
+       set_config('v7check.openings', :'expect_openings', true) AS check_openings,
+       length(set_config('v7check.manifest', :'manifest_json', true)) AS check_manifest_chars \gset
 DO $$
 DECLARE
     r text;
@@ -72,7 +82,8 @@ DECLARE
       'link_zalo(text,bigint)', 'unlink_zalo(text,bigint,text)', 'get_zalo_links()',
       'record_mark(jsonb)', 'cancel_mark(bigint,text)', 'get_marks(bigint,text)',
       'record_cash_review(jsonb)', 'get_cash_reviews(jsonb)',  -- ZALO-THU-CHI-01 PR-3
-      'get_safety_net(jsonb)'];  -- LUOI-AN-TOAN-01: máy canh, chỉ app
+      'get_safety_net(jsonb)',  -- LUOI-AN-TOAN-01: máy canh, chỉ app
+      'schema_level()'];  -- Audit SQL 23/11/2026 (F1): API bắt tay mức lược đồ
     actual text[];
     expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
       'get_dashboard()', 'get_dashboard_debt()', 'get_read_stamp()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
@@ -88,9 +99,17 @@ DECLARE
       '_guard_receipt_image()', '_receipt_image_matches(text,bigint)',
       '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)', '_legacy_date(text)', '_legacy_pay_date(text)',
       '_legacy_undated_match(text,date)', '_mark_json(sokhach.contact_mark,date)',
-      '_safety_fingerprints()', '_safety_events(bigint,interval)'];
+      '_safety_fingerprints()', '_safety_events(bigint,interval)',
+      -- Audit SQL 23/11/2026 (F1, F8, F10)
+      '_catalog_manifest()', '_catalog_view_text(text)', '_legacy_edited_date_match(text,date)',
+      '_trip_dup_reason(bigint,bigint,text,text,date,bigint,jsonb)', 'set_customer_archived(bigint,bigint,text,boolean)'];
     wanted text;
     n bigint;
+    want jsonb;
+    have jsonb;
+    part text;
+    differ text[];
+    report text := '';
 BEGIN
     IF current_database() = 'webdebit_ledger'
        OR current_database() <> current_setting('v7check.database') THEN
@@ -201,5 +220,27 @@ BEGIN
             RAISE NOTICE 'OK optional_%_not_requested',r;
         END IF;
     END LOOP;
+    -- Audit SQL 23/11/2026 (F1): thân hàm, view, trigger (kèm bật/tắt), index, ràng buộc của DB phải khớp bản cài mới từ repo.
+    -- Chạy lại một migration cũ kéo hàm khác về bản cũ, hay tắt trigger tay, đều làm lệch ở đây.
+    BEGIN
+        want := current_setting('v7check.manifest')::jsonb;
+    EXCEPTION WHEN invalid_text_representation THEN RAISE EXCEPTION 'manifest is not JSON';
+    END;
+    IF to_regprocedure('sokhach._catalog_manifest()') IS NULL THEN RAISE EXCEPTION 'catalog manifest function missing'; END IF;
+    have := sokhach._catalog_manifest();
+    IF (have->'level') IS DISTINCT FROM (want->'level') THEN
+        RAISE EXCEPTION 'schema_level mismatch: db % repo %', have->'level', want->'level';
+    END IF;
+    FOREACH part IN ARRAY ARRAY['functions','views','triggers','indexes','constraints'] LOOP
+        SELECT array_agg(k ORDER BY k) INTO differ FROM (
+            SELECT jsonb_object_keys(coalesce(have->part,'{}')) AS k
+            UNION SELECT jsonb_object_keys(coalesce(want->part,'{}'))) s
+          WHERE (have->part->k) IS DISTINCT FROM (want->part->k);
+        IF differ IS NOT NULL THEN
+            report := report || format(' %s (%s): %s;', part, cardinality(differ), array_to_string(differ[1:10], ', '));
+        END IF;
+    END LOOP;
+    IF report <> '' THEN RAISE EXCEPTION 'catalog differs from repo manifest:%', report; END IF;
+    RAISE NOTICE 'OK catalog_manifest';
 END $$;
 ROLLBACK;
