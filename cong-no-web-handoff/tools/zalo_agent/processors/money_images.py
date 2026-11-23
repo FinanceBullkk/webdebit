@@ -101,7 +101,6 @@ class MoneyImagesProcessor:
         self.dry_run, self.clock, self.max_age_days = dry_run, clock, max_age_days
         self.reads_target, self.run = reads_target, run
         self.cursor: dict | None = None
-        self.reanalyse_skipped = False
         self.future = None
         self.broken_until = self.cool_until = 0.0
         self.engine_failures = self.broken_failures = 0
@@ -123,21 +122,26 @@ class MoneyImagesProcessor:
                     member.pop("hide_tries", None)
                     member.pop("next_hide", None)
                 self.cursor["redact_rule"] = redact.RULE
-            if self.cursor.get("analysis") != ocr.ANALYSIS and not self.reanalyse_skipped:
+            for sha, member in self.cursor["members"].items():   # "đã có ảnh che" mà file đã mất (lượt trước chết trước khi lưu con trỏ): dựng lại
+                if member.get("hidden") is True and not (self.hidden_dir / f"{sha}.jpg").is_file():
+                    for key in ("hidden", "hide_tries", "next_hide"):
+                        member.pop(key, None)
+            if self.cursor.get("analysis") != ocr.ANALYSIS:   # chỉ một lần mỗi lần nạp con trỏ
                 self.reanalyse()
         return self.cursor
 
     def reanalyse(self) -> None:
         """Luật phân tích đã đổi: kết luận lại mọi ảnh trong `members` từ ô chữ đã lưu (không gọi engine). Ảnh đổi nhóm (`verdict`) thì
-        quyết lại `by` (có thể phải hỏi Gemini); ảnh đổi số tiền thì `current` đã bỏ ảnh che. Thiếu engine thì để lần sau."""
+        quyết lại `by` (có thể phải hỏi Gemini). Ảnh che chỉ dựng lại theo số mới khi kết luận (mới) là `ocr`: xem `current`. Thiếu engine thì để
+        lần nạp con trỏ sau (ảnh vào lại `members` khi dựng lại mỗi đêm cũng đi qua `current`)."""
         cursor = self.cursor
         try:
             name, version = self.engine.name, self.engine.version
-        except ocr.OcrUnavailable:   # không thử lại mỗi lần gọi `state()`; ảnh vào lại `members` (dựng lại mỗi đêm) đi qua `current`
-            self.reanalyse_skipped = True
+        except ocr.OcrUnavailable:
             return
         for sha, member in cursor["members"].items():
-            read = self.current(sha, reads.load(self.reads, sha, name, version))
+            stored = reads.load(self.reads, sha, name, version)
+            read = self.current(sha, stored)
             if read is None:
                 continue
             kind = ocr.verdict(read)
@@ -145,22 +149,37 @@ class MoneyImagesProcessor:
                 for key in ("ask_tries", "next_ask"):
                     member.pop(key, None)
                 member["verdict"], member["by"] = kind, self.decide(sha, read)
+                if member["by"] == "ocr" and read.get("amount_vnd") != stored.get("amount_vnd") and not self.dry_run:   # vừa thành `ocr`, số khác: ảnh che cũ sai số
+                    self.drop_hidden(sha)
         cursor["analysis"] = ocr.ANALYSIS
         self.export_dirty = True
 
     def current(self, sha: str, read: dict | None) -> dict | None:
-        """(Chỉ luồng chính) lượt đọc OCR theo luật phân tích hiện tại. Lệch luật thì ghi lại file kho (cùng tên, ô chữ giữ nguyên); số tiền
-        đổi thì xóa ảnh đã che và quyết định che của ảnh đó, để luồng nền dựng lại theo số mới."""
+        """(Chỉ luồng chính) lượt đọc OCR theo luật phân tích hiện tại. Lệch luật thì ghi lại file kho (cùng tên, ô chữ giữ nguyên).
+
+        Số tiền OCR đổi: ảnh chưa vào `members` hoặc đang kết luận `ocr` (số xuất ra là số OCR) thì xóa ảnh đã che **trước** khi ghi kho, để luồng
+        nền dựng lại theo số mới; xóa không được thì giữ nguyên luật cũ cho ảnh này (lần nạp sau thử lại). Ảnh `gemini-2`/`human` giữ ảnh che và số
+        đã có: ảnh che đó là ảnh đã gửi Gemini, dựng lại theo số OCR mới thì lệch với số Gemini mà không ai hỏi lại. `--dry-run` chỉ tính trong bộ
+        nhớ, không ghi kho, không xóa gì (con trỏ không được lưu nên mọi thay đổi trên đĩa sẽ lệch với nó)."""
         fresh = ocr.refresh(read)
-        if fresh is read:
-            return read
+        if fresh is read or self.dry_run:
+            return fresh
+        member = (self.cursor or {}).get("members", {}).get(sha)
+        if fresh.get("amount_vnd") != read.get("amount_vnd") and (member is None or member.get("by") in (None, "ocr")):
+            try:
+                self.drop_hidden(sha)
+            except OSError:
+                return read
         reads.save(self.reads, sha, fresh)
-        if fresh.get("amount_vnd") != read.get("amount_vnd"):
-            with contextlib.suppress(FileNotFoundError):
-                (self.hidden_dir / f"{sha}.jpg").unlink()
-            for key in ("hidden", "hide_tries", "next_hide"):
-                (self.cursor or {}).get("members", {}).get(sha, {}).pop(key, None)
         return fresh
+
+    def drop_hidden(self, sha: str) -> None:
+        """Xóa ảnh đã che của một ảnh (thử lại khi Windows giữ file) và quyết định che trong `members`. Ném OSError khi không xóa được."""
+        path = self.hidden_dir / f"{sha}.jpg"
+        with contextlib.suppress(FileNotFoundError):
+            retry_io(path.unlink)
+        for key in ("hidden", "hide_tries", "next_hide"):
+            (self.cursor or {}).get("members", {}).get(sha, {}).pop(key, None)
 
     def save(self, now: float) -> None:
         if not self.dry_run:

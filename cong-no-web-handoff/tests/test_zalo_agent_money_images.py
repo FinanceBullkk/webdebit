@@ -413,8 +413,9 @@ class RereadTest(MoneyBase):
         class Wrapped(FakeEngine):
             def __init__(self):
                 super().__init__("9.9+t", {JPEG_LOCAL: TRANSFER})
-        def processor(live, state, reads_dir):
-            return self.make(engine=None, prepare=prepare)
+        def processor(live, state, reads_dir, dry_run=False):
+            self.assertTrue(dry_run)   # reread không lưu con trỏ nên không được ghi kho hay xóa ảnh che khi nạp con trỏ
+            return self.make(engine=None, prepare=prepare, dry_run=dry_run)
         with patch.dict(ocr.ENGINES, {"fake": Wrapped}), patch.object(agent_main, "MoneyImagesProcessor", processor), patch("builtins.print") as shown:
             code = agent_main.main(["reread", "--engine", "fake", "--since", "2020-01-01", "--live-sync", str(self.src), "--root", str(self.root)])
         self.assertEqual(code, 0)

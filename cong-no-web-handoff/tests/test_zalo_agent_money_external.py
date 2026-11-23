@@ -745,6 +745,58 @@ class ExportTest(MaskedBase):
         data = json.loads(processor.export_bytes(processor.state()["members"]))["reads"]
         self.assertEqual(data[SHA_JXL]["amount_vnd"], 1_500_000)   # dùng kết quả mới nhất có sẵn của cùng engine, không ném
 
+    def test_a_gemini_decided_image_keeps_its_number_and_redacted_image_when_a_new_rule_changes_the_ocr_amount(self):
+        def masked(data, read, prep=None):
+            return (b"masked-" + str(read["amount_vnd"]).encode(), 1) if read.get("boxes") else None
+
+        def other_amount(boxes):   # luật mới chọn số khác, ảnh vẫn "không chắc"
+            return {**ANALYSE(boxes), "amount_vnd": 2_500_000}
+
+        with patch.object(money_images.redact, "redact", masked):
+            processor = self.make()
+            self.drain(processor)
+            remote = self.remote.dirs[REMOTE_READS] / "redacted-w1" / f"{SHA_LOCAL}.jpg"
+            self.assertEqual((processor.state()["members"][SHA_LOCAL]["by"], self.pushed()["reads"][SHA_LOCAL]["amount_vnd"]), ("gemini-2", 1_500_000))
+            sent, asked = remote.read_bytes(), len(self.gemini.calls)
+            with patch.object(ocr, "ANALYSIS", "a9"), patch.object(ocr, "analyse", other_amount):
+                newer = self.make()
+                self.drain(newer)
+                self.assertEqual(newer.state()["members"][SHA_LOCAL]["by"], "gemini-2")
+                self.assertEqual(self.pushed()["reads"][SHA_LOCAL]["amount_vnd"], 1_500_000)   # số Gemini, không đổi
+                self.assertEqual(remote.read_bytes(), sent)   # ảnh che vẫn là ảnh đã gửi Gemini, không dựng theo số OCR mới
+                self.assertEqual(len(self.gemini.calls), asked)
+
+    def test_a_dry_run_under_a_new_rule_changes_nothing_on_disk_and_the_real_run_still_has_every_redacted_image(self):
+        def masked(data, read, prep=None):
+            return (b"masked-" + str(read["amount_vnd"]).encode(), 1) if read.get("boxes") else None
+
+        def other_amount(boxes):
+            return {**ANALYSE(boxes), "amount_vnd": 2_500_000}
+
+        with patch.object(money_images.redact, "redact", masked):
+            self.drain(self.make())
+            store = {path: path.read_bytes() for path in (self.root / "reads").glob("*/*.json")}
+            with patch.object(ocr, "ANALYSIS", "a9"), patch.object(ocr, "analyse", other_amount):
+                self.drain(self.make(dry_run=True))
+                self.assertEqual({path: path.read_bytes() for path in (self.root / "reads").glob("*/*.json")}, store)   # dry-run không ghi kho
+                self.assertTrue((self.root / "redacted-w1" / f"{SHA_JXL}.jpg").is_file())   # và không xóa ảnh che
+                real = self.make()
+                self.drain(real)
+                self.assertTrue(real.state()["members"][SHA_JXL]["hidden"])
+                self.assertEqual((self.remote.dirs[REMOTE_READS] / "redacted-w1" / f"{SHA_JXL}.jpg").read_bytes(), b"masked-2500000")
+                self.assertEqual(self.pushed()["reads"][SHA_JXL]["amount_vnd"], 2_500_000)
+
+    def test_a_member_marked_hidden_whose_file_is_gone_gets_its_redacted_image_rebuilt(self):
+        processor = self.make()
+        self.drain(processor)
+        (self.root / "redacted-w1" / f"{SHA_JXL}.jpg").unlink()   # như lượt trước chết sau khi xóa ảnh che mà chưa lưu con trỏ
+        again = self.make()
+        self.assertNotIn("hidden", again.state()["members"][SHA_JXL])
+        self.drain(again)
+        self.assertTrue(again.state()["members"][SHA_JXL]["hidden"])
+        self.assertTrue((self.remote.dirs[REMOTE_READS] / "redacted-w1" / f"{SHA_JXL}.jpg").is_file())
+        self.assertIn(SHA_JXL, self.pushed()["reads"])
+
     def test_a_new_analysis_rule_that_changes_the_amount_rebuilds_the_redacted_image_and_hao_gets_it(self):
         def masked(data, read, prep=None):   # ảnh che giả mang số tiền đã dùng để dán lại, cùng cỡ cho mọi số 7 chữ số
             return (b"masked-" + str(read["amount_vnd"]).encode(), 1) if read.get("boxes") else None
