@@ -216,6 +216,13 @@ test('bấm STT để xóa hẳn: hỏi xác nhận có ngày và số tiền; T
   const prompt = page.locator('.delete-prompt');
   assert.match(await prompt.innerText(), /Xóa hẳn chuyến DEMU1234567 \(15\/09\/2026, thành tiền 50\.000\.000\)\?/);
   await shot('xoa-chuyen-xac-nhan');
+  // Audit giao diện 23/11 (F5): nút an toàn trước, hai nút cao ≥ 40px, cách nhau ≥ 12px (bấm nhầm trên iPhone/bàn rê).
+  const pair = await prompt.locator('button').evaluateAll(buttons => buttons.map(button => {
+    const box = button.getBoundingClientRect();
+    return { text: button.textContent, left: box.left, right: box.right, height: box.height };
+  }));
+  assert.deepEqual(pair.map(item => item.text), ['Thôi', 'Xóa hẳn']);
+  assert.ok(pair.every(item => item.height >= 40) && pair[1].left - pair[0].right >= 12, JSON.stringify(pair));
   await prompt.locator('.cancel-delete').click();
   assert.equal(await page.locator('.delete-prompt').count(), 0);
   await settled(page);
@@ -366,7 +373,7 @@ test('cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper
     assert.equal((await rowsFit(page)).every(Boolean), true);
     assert.equal(await tripCell(page, 'carrier').innerText(), 'Tàu thử');
     // Chú thích bảng giá vẫn nằm ở ô Đơn giá khi cột Shipper không còn.
-    assert.match(await page.locator('[data-row="trip-11"] td[data-field="unit_price_vnd"]').innerText(), /50\.000\.000\s*bảng 55\.000\.000/);
+    assert.match(await page.locator('[data-row="trip-11"] td[data-field="unit_price_vnd"]').innerText(), /50\.000\.000\s*≠ bảng/);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }, world => {
     delete world.legacy[0].current.shipper;

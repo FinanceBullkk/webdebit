@@ -19,15 +19,23 @@ test('sổ mặc định chỉ có cột Khác; ba cột riêng vẫn vừa 1280
   world.feeColumns = [1, 2, 3];
   world.version += 1;
   await reload(page);
+  // SO-GON-07: ba cột riêng chưa có khoản nào trong tháng thì ẩn; nút ở thanh bảng chuyến mở lại để gõ phí.
+  assert.equal(await page.locator('td.fee.own').count(), 0);
+  await page.getByRole('button', { name: 'Hiện 3 cột phí trống' }).click();
   await page.locator('td.fee.own').first().waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Neo', 'Điện', 'Ghép', 'Khác']);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.equal(await page.locator('.ledger-book.fee-over').count(), 0, 'ba cột vừa màn: tiêu đề cột vẫn dính, không cuộn trong khung');
   assert.equal(await page.locator('#thang-2026-09 .subtotal td.fee').count(), 4);
   assert.equal(await page.locator('text=sổ gốc').count(), 0);
-}));
+}, world => { world.feeHideEmpty = true; }));
 
-test('COT-PHU-PHI-01: bảy cột riêng ở 1280×720 — cột chưa có khoản hẹp, bảng cuộn ngang trong khung, không cắt mất Thành tiền', async () => withPage(async ({ page }) => {
+test('COT-PHU-PHI-01 + SO-GON-07: bảy cột riêng trống ẩn; bấm Hiện thì cột hẹp, bảng cuộn ngang, Thành tiền ghim phải', async () => withPage(async ({ page }) => {
+  await page.locator('.fee-other').first().waitFor();
+  assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Khác']);
+  assert.equal(await page.locator('.ledger-book.fee-over').count(), 0, 'cột trống ẩn: bảng vừa khung');
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('#thang-2026-09 .trip-list tr[data-row]')].every(tr => tr.getBoundingClientRect().height <= 40)), true, 'mỗi chuyến một dòng');
+  await page.getByRole('button', { name: 'Hiện 7 cột phí trống' }).click();
   await page.locator('td.fee.own').first().waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').evaluateAll(list => list.map(th => th.textContent)),
     ['Lưu bãi', 'Ghép', 'Điện', 'Neo', 'Health + KĐ', 'Phí hủy', 'Sửa bill', 'Khác']);
@@ -41,11 +49,22 @@ test('COT-PHU-PHI-01: bảy cột riêng ở 1280×720 — cột chưa có kho�
       inside: right <= card.getBoundingClientRect().right + 1, label: amount.textContent, page: document.documentElement.scrollWidth <= innerWidth };
   });
   assert.deepEqual(box, { over: true, scroll: 'auto', inside: true, label: 'Thành tiền', page: true });
+  // Chưa cuộn ngang: cột Thành tiền ghim phải vẫn nằm trọn trong khung.
+  const pinned = await page.evaluate(() => {
+    const card = document.querySelector('#thang-2026-09 .trip-card');
+    card.scrollLeft = 0;
+    const amount = card.querySelector('.trip-list tr[data-row] td:last-child').getBoundingClientRect();
+    return amount.right <= card.getBoundingClientRect().right + 1 && amount.left >= card.getBoundingClientRect().left;
+  });
+  assert.equal(pinned, true, 'Thành tiền thấy được khi chưa cuộn ngang');
+  await page.getByRole('button', { name: 'Ẩn cột phí trống' }).click();
+  await page.getByRole('button', { name: 'Hiện 7 cột phí trống' }).waitFor();
 }, world => {
   for (const [id, name, sort] of [[10, 'Health + KĐ', 7], [11, 'Lưu bãi', 8], [12, 'Phí hủy', 9], [13, 'Sửa bill', 10]]) {
     world.feeTypes.splice(world.feeTypes.length - 3, 0, { id, name, kind: 'service', sign: 'positive', system_key: null, active: true, sort });
   }
   world.feeColumns = [11, 3, 2, 1, 10, 12, 13];
+  world.feeHideEmpty = true;
 }));
 
 test('ô cột riêng: gõ số + Enter gửi một lệnh đặt loại; Esc trả lại, xóa trắng bỏ loại đó', async () => withPage(async ({ page, world }) => {
@@ -198,7 +217,9 @@ test('cài đặt phụ phí: bật cột riêng không giới hạn, đổi tê
   // Bỏ cột Ghép: số không mất, chỉ đổi cách hiện.
   await panel.locator('.fee-col[data-id="3"]').uncheck();
   await page.waitForFunction(() => document.querySelectorAll('.ledger-head th.fee-h').length === 3);
-  await panel.locator('td.fee-name[data-id="4"]').click();
+  // Tên loại là nút: Tab tới và Enter được (audit giao diện 23/11 F4).
+  await panel.locator('td.fee-name[data-id="4"] .fee-name-btn').focus();
+  await page.keyboard.press('Enter');
   await panel.locator('.fee-rename').fill('Bảo hiểm hàng');
   await panel.locator('.fee-rename').press('Enter');
   await page.waitForFunction(() => document.querySelector('.fee-settings')?.textContent.includes('Bảo hiểm hàng'));

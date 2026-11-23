@@ -74,7 +74,7 @@
    dùng chung app-nav.css. ---- */
 html:has(body.tq){background:#f3f5f8}
 body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#b42318;--amber:#8a5300;--teal:#0f766e;
-  --ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;
+  --ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#64625c;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;
   background:#f3f5f8;color:var(--ink-1);font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 .tq [hidden]{display:none!important}
 .tq svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}

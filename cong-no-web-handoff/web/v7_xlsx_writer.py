@@ -49,8 +49,12 @@ class Sheet:
 
 
 def clean_text(value: str) -> str:
-    """Chữ ghi được vào ô: bỏ ký tự XML 1.0 không cho, cắt ở giới hạn của Excel. Bảng dựng ô bằng hàm này nên đọc lại khớp."""
-    return BAD_XML.sub("", value)[:MAX_TEXT]
+    """Chữ ghi được vào ô: bỏ ký tự XML 1.0 không cho, CR thành LF, cắt ở giới hạn của Excel. Bảng dựng ô bằng hàm này nên
+    đọc lại khớp; _cell cũng gọi lại nên chữ chưa qua đây vẫn không làm hỏng file (audit 23/11/2026, F5).
+
+    CR phải đổi: bộ đọc XML chuẩn hóa xuống dòng thành LF, nên chữ có CR đọc lại khác chữ đã ghi và bản tự kiểm báo lệch.
+    """
+    return BAD_XML.sub("", value.replace("\r\n", "\n").replace("\r", "\n"))[:MAX_TEXT]
 
 
 def column_name(number: int) -> str:
@@ -85,7 +89,7 @@ def _cell(ref: str, value: object, kind: str) -> str:
         return f'<c r="{ref}" s="{s}"><v>{(value - EPOCH).days}</v></c>'
     if isinstance(value, int) and abs(value) < MAX_EXACT:
         return f'<c r="{ref}" s="{s}"><v>{value}</v></c>'
-    text = escape(str(value))
+    text = escape(clean_text(str(value)))
     return f'<c r="{ref}" t="inlineStr" s="{s}"><is><t xml:space="preserve">{text}</t></is></c>'
 
 
@@ -220,6 +224,7 @@ def plain_rows(sheet: Sheet) -> list[list]:
     out = []
     for row in lines + sheet.rows:
         values = [cell.value if isinstance(cell, Styled) else cell for cell in row[:len(sheet.columns)]]
+        values = [clean_text(value) if isinstance(value, str) else value for value in values]   # như _cell đã ghi (F5)
         while values and values[-1] is None:
             values.pop()
         out.append(values)

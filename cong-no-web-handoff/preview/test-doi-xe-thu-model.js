@@ -138,3 +138,37 @@ test('Lịch sử phần thu: câu đọc được, có trước → sau', () =>
     'HTH trả tháng 10/2026 ngày 18/11: 3.720.000. Còn phải thu 3.720.000 → 0');
   assert.match(T.moTa({ viec: 'sua_gia', truoc: { tuyen: 'Hàng giả · Tỉnh giả' }, sau: { gia_vnd: '1200', tu_ngay: '2026-12-01', so_chang: 2 } }), /2 chặng tháng đang gom đổi theo/);
 });
+
+test('đổi giá (audit DX-01): câu xem trước in đủ ngày/tháng/năm, đếm chặng đổi; ngày trước tháng này là áp ngược', () => {
+  const t = { gia: [{ tu_ngay: '2026-01-01', gia_vnd: '10000000' }], cho_doi: ['2026-11-20', '2026-12-02', '2026-12-03'] };
+  const sang = T.giaXem(t, '01/01', '2026-12-05');
+  assert.equal(sang.v, '2027-01-01');
+  assert.equal(sang.cu, false);
+  assert.equal(sang.note, 'Áp dụng từ 01/01/2027. Tháng đã gửi HTH giữ giá cũ; chặng đang gom từ 01/01/2027 đổi theo giá mới: 0 chặng.');
+  const nguoc = T.giaXem(t, '01/01/2026', '2026-12-05');
+  assert.equal(nguoc.cu, true);
+  assert.equal(nguoc.n, 3);
+  assert.match(nguoc.note, /^Áp dụng từ 01\/01\/2026\..*: 3 chặng\. Ngày này trước tháng 12\/2026: giá áp ngược\.$/);
+  assert.equal(T.giaXem(t, '01/12', '2026-12-05').n, 2);
+  assert.deepEqual(T.giaXem(t, 'abc', '2026-12-05'), { v: null, cu: false, note: 'Ghi ngày áp dụng kiểu 01/12/2026.' });
+});
+
+test('tiền về trùng (audit DX-03): đã có lần chưa hủy cùng ngày, cùng số thì báo; khoản đã hủy hay khác số thì không', () => {
+  const data = { thang: '2026-10-01', hom_nay: '2026-11-18', tong, bang_ke: { gui_ngay: '2026-11-03' },
+    tien_ve: [{ id: 1, ngay: '2026-11-10', so_tien_vnd: '1000000', huy: null, actor: 'kt@gia', luc: '10/11 09:00' },
+      { id: 2, ngay: '2026-11-11', so_tien_vnd: '1000000', huy: { ly_do: 'nhầm' } }] };
+  assert.match(T.tvXem(data, '10/11', '1.000.000').trung, /^Đã có lần tiền về 10\/11 đúng 1\.000\.000 \(kt@gia ghi 10\/11 09:00\)/);
+  assert.equal(T.tvXem(data, '11/11', '1.000.000').trung, '', 'lần đã hủy không tính');
+  assert.equal(T.tvXem(data, '10/11', '900.000').trung, '');
+  assert.equal(T.tvXem({ ...data, tien_ve: [] }, '10/11', '1.000.000').trung, '');
+});
+
+test('container lặp (audit DX-04): lọc, việc trước khi gửi, chi tiết, cảnh báo khi gửi', () => {
+  const dong = [line({ chang_id: 1, cont_lap: ['2026-11-04'] }), line({ chang_id: 2, cont_lap: null }), line({ chang_id: 3 })];
+  assert.deepEqual(dong.filter(T.locFn('contlap')).map(d => d.chang_id), [1]);
+  assert.deepEqual(T.viecTruocGui(dong), [{ loc: 'contlap', text: '1 chặng có container đã có chặng hàng khác trong 10 ngày' }]);
+  assert.ok(T.locChips(dong, 'all').some(c => c.k === 'contlap' && c.n === 1));
+  assert.match(T.chiTiet(dong[0]).map(c => c.text).join('\n'), /Container này còn chặng hàng ngày 04\/11 \(lệch tới 10 ngày\)/);
+  const x = T.guiXem({ tong: { ...tong, chua_gia: 0, khac_gia: 0, chua_doc: 0, cont_lap: 2 }, thang: '2026-10-01', hom_nay: '2026-11-18' });
+  assert.deepEqual(x.canh, ['2 chặng có container đã có chặng hàng khác trong 10 ngày: xem có phải một chuyến bị dán hai lần không.']);
+});
