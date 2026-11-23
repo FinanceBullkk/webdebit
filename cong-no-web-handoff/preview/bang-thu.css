@@ -136,7 +136,7 @@ button.row-link{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;
 .row-link::after{content:"";position:absolute;inset:0}
 .row-link:focus-visible{outline:none}
 .row-link:focus-visible::after{outline:2px solid var(--accent);outline-offset:-2px}
-.note,.debt,.when{color:var(--ink-m);font-size:13.5px}
+.note,.debt,.when{color:var(--ink-m);font-size:14px}
 .pay .go{padding:0 6px 0 0;color:var(--ink-l)}
 .nm.none{font-weight:400;color:var(--ink-l)}
 .share{min-width:2px;height:12px;border-radius:3px;background:var(--bar)}
