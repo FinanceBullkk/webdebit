@@ -33,7 +33,13 @@ from v7_insurance_queue import (
     orphan_items,
     project_insurance,
 )
-from v7_price_queue import book_rows, load_price_snapshot, project_prices
+from v7_price_queue import (
+    SNAPSHOT_MAX_AGE_SECONDS,
+    book_rows,
+    load_price_snapshot,
+    project_prices,
+    snapshot_stale,
+)
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
@@ -452,6 +458,22 @@ def paste_sheet_rows(runner: Psql, customer: int, version: int, digest: str, key
             "review_count": len(pending), "pending_review": pending, "pasted": pasted}
 
 
+def tab_broken(health: dict) -> ApiError:
+    kinds = sorted({str(finding.get("kind")) for finding in health.get("findings") or []})
+    return ApiError(409, "TAB_BROKEN", "Tab Sheet của khách đang có lỗi (" + ", ".join(kinds) + "). Sửa Sheet rồi chờ máy đọc lại; chưa ghi gì.")
+
+
+def require_writable(projection: dict) -> None:
+    """Nút ghi giá/phiếu theo Sheet (audit 23/11/2026, O1 + O7): tab của sổ hỏng thì 409 TAB_BROKEN; bản chụp cũ hơn
+    SNAPSHOT_MAX_AGE_SECONDS (runner đọc Sheet đang dừng) thì 409 SHEET_STALE. Chưa ghi gì trong cả hai trường hợp."""
+    health = projection.get("tab_health") or {}
+    if health.get("status") == "broken":
+        raise tab_broken(health)
+    if snapshot_stale(projection.get("snapshot_created_at")):
+        raise ApiError(409, "SHEET_STALE", f"Bản đọc Sheet đã cũ hơn {SNAPSHOT_MAX_AGE_SECONDS // 60} phút (máy đọc Sheet đang dừng). "
+                                           "Chưa ghi gì; chờ máy đọc lại Sheet rồi thử lại.")
+
+
 def price_projection(runner: Psql, ledger: dict, actor: str, *, include_kept=False) -> dict:
     snapshot = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
@@ -512,6 +534,7 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         projection = price_projection(runner, ledger, actor)
     except ValueError as exc:
         raise ApiError(503, "SHEET_PRICES_UNAVAILABLE", "Không đọc được giá từ Sheet.") from exc
+    require_writable(projection)
     if projection["snapshot_sha256"] != digest:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
     return write_price_items(projection["ready"], customer, version, digest, key, runner, actor)
@@ -541,6 +564,7 @@ def approve_price_conflicts(raw: bytes, runner: Psql, actor: str) -> tuple[int, 
         projection = price_projection(runner, ledger, actor)
     except ValueError as exc:
         raise ApiError(503, "SHEET_PRICES_UNAVAILABLE", "Không đọc được giá từ Sheet.") from exc
+    require_writable(projection)
     if projection["snapshot_sha256"] != digest:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
     available = {(item["target_kind"], item["target_id"], item["source_row"]): item
@@ -565,6 +589,7 @@ def approve_receipts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         projection = receipt_projection(runner, ledger, actor)
     except ValueError as exc:
         raise ApiError(503, "SHEET_RECEIPTS_UNAVAILABLE", "Không đọc được phiếu thu từ Sheet.") from exc
+    require_writable(projection)
     if projection["snapshot_sha256"] != digest:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
     undo_keys = []
@@ -862,7 +887,10 @@ def keep_sheet_task(raw: bytes, runner: Psql, actor: str, *, apply_price=False) 
         raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
     try:
         if request["task_kind"] == "price":
-            rows = price_projection(runner, ledger, actor, include_kept=True)["review"]
+            projection = price_projection(runner, ledger, actor, include_kept=True)
+            if apply_price:
+                require_writable(projection)   # "Lấy giá Sheet" ghi tiền; "Giữ giá web" không đổi tiền nên không chặn
+            rows = projection["review"]
             rows = [r for r in rows if r["status"] == "CONFLICT" and r["target_kind"] == target["kind"] and r["target_id"] == target["id"]]
             current = {"unit_price_vnd": rows[0]["web_unit_price_vnd"], "other_fee_vnd": rows[0]["web_other_fee_vnd"]} if len(rows) == 1 else None
         elif request["task_kind"] == "ps":

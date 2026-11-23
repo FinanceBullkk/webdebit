@@ -23,6 +23,7 @@ from v7_api_sheet import (
     customer_name_mapping,
     keep_sheet_task,
     named_customer,
+    require_writable,
 )
 from v7_api_tables import MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
@@ -213,6 +214,8 @@ def write(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         raise tab_broken({"findings": blocked["findings"] or [{"kind": "HELD"}]})
     if ledger["version"] != request["expected_version"]:
         raise ApiError(409, "STALE_LEDGER", "Sổ vừa thay đổi. Tải lại rồi xem lại.")
+    for snapshot in (prices, receipts):   # O7: runner đọc Sheet dừng thì không ghi theo bản cũ
+        require_writable({"snapshot_created_at": (snapshot.get("runner") or {}).get("created_at")})
     if prices["sha256"] != request["prices_sha256"] or receipts["sha256"] != request["receipts_sha256"]:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi xem lại.")
     by_id = {_group_id(group): group for group in groups if group["delta_vnd"]}
@@ -220,13 +223,21 @@ def write(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         bad()
     chosen = [_pick(item, by_id) for item in items]
     keys: list[str] = []
-    done = apply_fix(runner, customer, ledger, chosen, prices["sha256"], _today(), actor=actor, undo_keys=keys, health=health)
+    done: dict[str, int] = {}
+    stopped = None
+    try:
+        apply_fix(runner, customer, ledger, chosen, prices["sha256"], _today(), actor=actor, undo_keys=keys, health=health, written=done)
+    except ApiError as exc:
+        if not keys and not any(done.values()):
+            raise   # chưa ghi gì: lỗi thường như trước
+        stopped = exc   # O3: đã ghi một phần thì vẫn trả phần đã ghi và khóa hoàn tác, không để mất "Hoàn tác"
     after = runner.run("get_ledger", {"customer_id": customer}, actor)
     undoable = all(group["kind"] in UNDOABLE for group in chosen) and keys
     months = sorted({group["month"] for group in chosen if group["month"]})
-    return 200, {"complete": True, "version": after["version"], "before_vnd": str(ledger["total_outstanding_vnd"]),
+    return 200, {"complete": stopped is None, "version": after["version"], "before_vnd": str(ledger["total_outstanding_vnd"]),
                  "after_vnd": str(after["total_outstanding_vnd"]), "written": done,
-                 "undo": {"command_keys": keys, "months": months} if undoable else None}
+                 "undo": {"command_keys": keys, "months": months} if undoable else None,
+                 **({"error": stopped.code, "message": stopped.message} if stopped else {})}
 
 
 def keep(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:

@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from v7_price_queue import name_key, owners
+from v7_price_queue import customer_health, name_key, owners
 from v7_sheet_queue import read_snapshot
 from v7_sheet_task_keep import fingerprint
 
@@ -237,11 +237,14 @@ def project_receipts(snapshot: dict, ledger: dict, customers: list[dict], today:
     tabs = [health for tab, health in (snapshot.get("tabs") or {}).items() if owned.get(name_key(tab), (None,))[0] == customer]
     if not tabs or any(health.get("status") == "broken" for health in tabs):
         gone = []
-    ready = sorted((public(r) for r in results if r["status"] == "READY"), key=lambda r: (r["date"], r["source_row"]))
+    # KIEM-TAB-01 (audit 23/11/2026, O1): tab của sổ hỏng thì không có phiếu nào để ghi theo lô; nút trả 409 TAB_BROKEN.
+    health = customer_health(snapshot, ledger, customers)
+    ready = [] if health["status"] == "broken" else sorted(
+        (public(r) for r in results if r["status"] == "READY"), key=lambda r: (r["date"], r["source_row"]))
     review = [public(r) for r in results if r["status"] in REVIEW]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review),
-            "gone": [row | {"amount_vnd": str(row["amount_vnd"])} for row in gone]}
+            "gone": [row | {"amount_vnd": str(row["amount_vnd"])} for row in gone], "tab_health": health}
 
 
 def reference(note: str) -> str:

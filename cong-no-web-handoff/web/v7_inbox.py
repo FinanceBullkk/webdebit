@@ -34,6 +34,7 @@ from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần m
 )
 from v7_api_validate import ApiError
 from v7_header_fees import added_columns, writable
+from v7_price_queue import snapshot_stale
 from v7_ps_queue import auto_ps, best_columns
 from v7_road_queue import NOTE as ROAD_NOTE
 
@@ -82,8 +83,11 @@ RECONCILE_PATH = os.getenv("WEBDEBIT_RECONCILE_PATH") or "/var/lib/webdebit-shee
 def auto_prices(prices: dict[str, Any]) -> list[dict[str, Any]]:
     """Dòng giá Sheet máy được ghi (MAY-GIA-01): READY và MONTH_LOCKED, tháng nợ từ AUTO_PRICES_FROM.
 
-    Giá khác web, nhiều chuyến khớp, phụ phí gõ tay, chuyến chờ kiểm vẫn ở "Cần xem" cho người quyết.
+    Giá khác web, nhiều chuyến khớp, phụ phí gõ tay, chuyến chờ kiểm vẫn ở "Cần xem" cho người quyết. Tab của sổ hỏng (KIEM-TAB-01)
+    hoặc bản chụp giá cũ hơn SNAPSHOT_MAX_AGE_SECONDS thì không ghi dòng nào (audit 23/11/2026, O1 + O7).
     """
+    if (prices.get("tab_health") or {}).get("status") == "broken" or snapshot_stale(prices.get("snapshot_created_at")):
+        return []
     rows = list(prices.get("ready") or []) + [row for row in prices.get("review") or [] if row.get("status") == "MONTH_LOCKED"]
     return [row for row in rows if str(row.get("month") or "") >= AUTO_PRICES_FROM]
 
