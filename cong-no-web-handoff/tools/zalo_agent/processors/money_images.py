@@ -17,6 +17,10 @@ thì không kết luận và không rời máy. Gửi ra ngoài tắt (mặc đ�
 trong kho như một lượt đọc (`gemini-proxy@<model>`, `gemini-api@<model>`); đường lỗi lưu mã lỗi và số lần thử, thử lại sau 10 phút x lần
 thử, đủ 3 lần thì `human`. Mỗi lần gửi ghi một dòng `sent.jsonl` (sha256, đường, giờ, kết quả hoặc mã lỗi).
 
+Kho OCR theo phiên bản ô chữ (`engine.version`), luật phân tích theo `ocr.ANALYSIS` (A1): luồng chính đọc kho qua `current` (luồng nền qua
+`ocr.refresh`, chỉ trong bộ nhớ), nên đổi luật phân tích không OCR lại ảnh nào. Con trỏ nhớ `analysis`: lần đầu chạy với luật mới thì
+`reanalyse` kết luận lại cả `members` từ ô chữ đã lưu; ảnh nào đổi số tiền thì bỏ ảnh đã che (luật che dán lại đúng `amount_vnd`) để dựng lại.
+
 `hao` nhận qua `push.py` tới `reads_target` (đích rỗng = tắt): file nhỏ `money-reads.json` (xem `export_bytes`) và, cho mỗi ảnh đã có kết
 luận mà che được, ảnh đã che `redacted-w1/<sha256 ảnh gốc>.jpg` (cùng luật che như trước khi gửi Gemini; ảnh không che được thì không có file,
 `hao` chỉ gửi chữ). Ảnh đã che nhớ ở `<root>/redacted-w1/`; `redacted/*` không còn trong kết quả thì bị dọn trên `hao`. Mọi hội thoại trong danh
@@ -96,6 +100,7 @@ class MoneyImagesProcessor:
         self.dry_run, self.clock, self.max_age_days = dry_run, clock, max_age_days
         self.reads_target, self.run = reads_target, run
         self.cursor: dict | None = None
+        self.reanalyse_skipped = False
         self.future = None
         self.broken_until = self.cool_until = 0.0
         self.engine_failures = self.broken_failures = 0
@@ -117,7 +122,46 @@ class MoneyImagesProcessor:
                     member.pop("hide_tries", None)
                     member.pop("next_hide", None)
                 self.cursor["redact_rule"] = redact.RULE
+            if self.cursor.get("analysis") != ocr.ANALYSIS and not self.reanalyse_skipped:
+                self.reanalyse()
         return self.cursor
+
+    def reanalyse(self) -> None:
+        """Luật phân tích đã đổi: kết luận lại mọi ảnh trong `members` từ ô chữ đã lưu (không gọi engine). Ảnh đổi nhóm (`verdict`) thì
+        quyết lại `by` (có thể phải hỏi Gemini); ảnh đổi số tiền thì `current` đã bỏ ảnh che. Thiếu engine thì để lần sau."""
+        cursor = self.cursor
+        try:
+            name, version = self.engine.name, self.engine.version
+        except ocr.OcrUnavailable:   # không thử lại mỗi lần gọi `state()`; ảnh vào lại `members` (dựng lại mỗi đêm) đi qua `current`
+            self.reanalyse_skipped = True
+            return
+        for sha, member in cursor["members"].items():
+            read = self.current(sha, reads.load(self.reads, sha, name, version))
+            if read is None:
+                continue
+            kind = ocr.verdict(read)
+            if kind != member.get("verdict"):
+                for key in ("ask_tries", "next_ask"):
+                    member.pop(key, None)
+                member["verdict"], member["by"] = kind, self.decide(sha, read)
+        cursor["analysis"] = ocr.ANALYSIS
+        self.export_dirty = True
+
+    def current(self, sha: str, read: dict | None) -> dict | None:
+        """(Chỉ luồng chính) lượt đọc OCR theo luật phân tích hiện tại. Lệch luật thì ghi lại file kho (cùng tên, ô chữ giữ nguyên); số tiền
+        đổi thì xóa ảnh đã che và quyết định che của ảnh đó, để luồng nền dựng lại theo số mới."""
+        fresh = ocr.refresh(read)
+        if fresh is read:
+            return read
+        reads.save(self.reads, sha, fresh)
+        if fresh.get("amount_vnd") != read.get("amount_vnd"):
+            try:
+                (self.hidden_dir / f"{sha}.jpg").unlink()
+            except FileNotFoundError:
+                pass
+            for key in ("hidden", "hide_tries", "next_hide"):
+                (self.cursor or {}).get("members", {}).get(sha, {}).pop(key, None)
+        return fresh
 
     def save(self, now: float) -> None:
         if not self.dry_run:
@@ -179,7 +223,7 @@ class MoneyImagesProcessor:
         chưa được đọc lại thì vẫn có số để xuất, không ném)."""
         mine = [read for read in done if read.get("engine") == self.engine.name]
         exact = [read for read in mine if read.get("version") == self.engine.version]
-        return max(exact or mine, key=lambda read: read.get("read_at", ""), default=None)
+        return ocr.refresh(max(exact or mine, key=lambda read: read.get("read_at", ""), default=None))
 
     def export_bytes(self, members: dict) -> bytes:
         """`{"schema": 1, "reads": {sha256: {by, amount_vnd, txn_time, bank, reads: [{engine, version, amount_vnd, confidence}]}}}` cho ảnh
@@ -191,7 +235,7 @@ class MoneyImagesProcessor:
             by = member.get("by")
             if by is None or member.get("hidden") is None:
                 continue
-            done = [read for read in reads.for_image(self.reads, sha) if not read.get("error")]
+            done = [ocr.refresh(read) for read in reads.for_image(self.reads, sha) if not read.get("error")]
             item = {"by": by, "amount_vnd": None, "txn_time": None, "bank": None,
                     "reads": [{"engine": read["engine"], "version": read["version"], "amount_vnd": read.get("amount_vnd"),
                                "confidence": read.get("confidence")} for read in done]}
@@ -206,8 +250,9 @@ class MoneyImagesProcessor:
         return json.dumps({"schema": 1, "redact": redact.RULE, "reads": items}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
     def redacted_files(self, members: dict) -> list[pusher.Item]:
-        """Ảnh đã che đã dựng sẵn (ở luồng nền) của mọi ảnh trong tập xuất. Chỉ liệt kê file, không giải mã gì ở vòng chính."""
-        return [pusher.Item(f"redacted-{redact.RULE}/{sha}.jpg", self.hidden_dir / f"{sha}.jpg", immutable=True)
+        """Ảnh đã che đã dựng sẵn (ở luồng nền) của mọi ảnh trong tập xuất. Chỉ liệt kê file, không giải mã gì ở vòng chính. Tên theo băm ảnh
+        GỐC nên nội dung có thể đổi (luật phân tích mới đổi số tiền thì ảnh che dựng lại): so sha256 với hao, không chỉ so cỡ."""
+        return [pusher.Item(f"redacted-{redact.RULE}/{sha}.jpg", self.hidden_dir / f"{sha}.jpg")
                 for sha, member in sorted(members.items())
                 if member.get("by") is not None and member.get("hidden") is True and (self.hidden_dir / f"{sha}.jpg").is_file()]
 
@@ -270,7 +315,7 @@ class MoneyImagesProcessor:
                     continue
                 entry = {"raw": raw, "file": item["id"] + MIMES[item["mime"]], "ts": stamp}
                 sha = cursor["canon"].get(raw)
-                found = sha and reads.load(self.reads, sha, self.engine.name, version)
+                found = sha and self.current(sha, reads.load(self.reads, sha, self.engine.name, version))
                 if found:   # đã đọc (cùng engine và phiên bản): không đọc lại, chỉ vào tập `members`
                     cursor["members"][sha] = {**entry, "verdict": ocr.verdict(found), "by": self.decide(sha, found)}
                     if (self.hidden_dir / f"{sha}.jpg").is_file():
@@ -321,8 +366,10 @@ class MoneyImagesProcessor:
                 image, size = self.prepare(data)
                 boxes = engine.read(image)
                 found = {"engine": engine.name, "version": version, "read_at": cursors.now_iso(self.clock()), "size": list(size),
-                         "boxes": boxes, **ocr.analyse(boxes)}
+                         "boxes": boxes, **ocr.stamped(boxes)}
                 reads.save(self.reads, sha, found)
+            else:   # đã có ô chữ của phiên bản này: luật phân tích mới chạy lại trong bộ nhớ, luồng chính ghi lại file (`current`)
+                found = ocr.refresh(found)
             return {"raw": raw, "status": "ok", "sha": sha, "verdict": ocr.verdict(found)}
         except ocr.OcrUnavailable:
             return {"raw": raw, "status": "unavailable"}
@@ -342,7 +389,7 @@ class MoneyImagesProcessor:
         path = self.hidden_dir / f"{sha}.jpg"
         if path.is_file():
             return retry_io(path.read_bytes)
-        primary = reads.load(self.reads, sha, self.engine.name, self.engine.version) or self.primary_read(reads.for_image(self.reads, sha))
+        primary = ocr.refresh(reads.load(self.reads, sha, self.engine.name, self.engine.version)) or self.primary_read(reads.for_image(self.reads, sha))
         data = self.load_image(member)
         hidden = redact.redact(data, primary, self.prepare) if data and primary else None
         if hidden is None:
@@ -413,7 +460,7 @@ class MoneyImagesProcessor:
                 member["by"] = "human"
             return
         member["hidden"] = True   # `hidden_bytes` đã dựng xong file trước khi gửi
-        member["by"] = self.decide(outcome["sha"], reads.load(self.reads, outcome["sha"], self.engine.name, self.engine.version))
+        member["by"] = self.decide(outcome["sha"], self.current(outcome["sha"], reads.load(self.reads, outcome["sha"], self.engine.name, self.engine.version)))
         if member["by"] is None:   # đường Gemini lỗi: hỏi lại sau, lâu dần
             tries = max((reads.load(self.reads, outcome["sha"], name, self.gemini.model) or {}).get("tries", 1) for name in gemini_module.ROUTES)
             member["next_ask"] = now + RETRY_ASK * tries
@@ -452,7 +499,7 @@ class MoneyImagesProcessor:
             sha = outcome["sha"]
             cursor["canon"][outcome["raw"]] = sha
             cursor["members"][sha] = {"raw": item["raw"], "file": item["file"], "ts": item["ts"], "verdict": outcome["verdict"],
-                                      "by": self.decide(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version))}
+                                      "by": self.decide(sha, self.current(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version)))}
             cursor["todo"].remove(item)
             self.drained(now)
         else:

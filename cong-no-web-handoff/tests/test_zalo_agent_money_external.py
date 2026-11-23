@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from test_zalo_agent import BUNDLE_REMOTE, STATUS_REMOTE, Remote  # noqa: E402
 from test_zalo_agent_money_images import (  # noqa: E402
+    ANALYSE,
     JPEG_LOCAL,
     JXL_AS_JPEG,
     SHA_JXL,
@@ -743,6 +744,27 @@ class ExportTest(MaskedBase):
         self.engine.version = "2.0+t"   # engine hoặc ANALYSIS đổi, ảnh cũ chưa đọc lại
         data = json.loads(processor.export_bytes(processor.state()["members"]))["reads"]
         self.assertEqual(data[SHA_JXL]["amount_vnd"], 1_500_000)   # dùng kết quả mới nhất có sẵn của cùng engine, không ném
+
+    def test_a_new_analysis_rule_that_changes_the_amount_rebuilds_the_redacted_image_and_hao_gets_it(self):
+        def masked(data, read, prep=None):   # ảnh che giả mang số tiền đã dùng để dán lại, cùng cỡ cho mọi số 7 chữ số
+            return (b"masked-" + str(read["amount_vnd"]).encode(), 1) if read.get("boxes") else None
+
+        def other_amount(boxes):
+            return {**ANALYSE(boxes), "amount_vnd": 2_500_000}
+
+        with patch.object(money_images.redact, "redact", masked):
+            processor = self.make()
+            self.drain(processor)
+            remote = self.remote.dirs[REMOTE_READS] / "redacted-w1" / f"{SHA_JXL}.jpg"
+            self.assertEqual(remote.read_bytes(), b"masked-1500000")
+            calls = len(self.engine.calls)
+            with patch.object(ocr, "ANALYSIS", "a9"), patch.object(ocr, "analyse", other_amount):
+                newer = self.make()
+                self.drain(newer)
+                self.assertEqual(len(self.engine.calls), calls)
+                self.assertEqual(self.pushed()["reads"][SHA_JXL]["amount_vnd"], 2_500_000)
+                self.assertEqual((self.root / "redacted-w1" / f"{SHA_JXL}.jpg").read_bytes(), b"masked-2500000")
+                self.assertEqual(remote.read_bytes(), b"masked-2500000")   # cùng tên, cùng cỡ: vẫn gửi lại vì so sha256
 
     def test_a_new_redaction_rule_never_reuses_images_hidden_by_the_old_one(self):
         processor = self.make()

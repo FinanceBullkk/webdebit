@@ -335,6 +335,66 @@ class ProcessorTest(MoneyBase):
         self.assertEqual(result["counts"]["review"], 1)
 
 
+def strict(boxes):
+    """Luật phân tích "mới" giả: như cũ nhưng không nhận từ khóa nào, nên ảnh chuyển khoản thành "không chắc"."""
+    return {**ANALYSE(boxes), "hits": 0}
+
+
+ANALYSE = ocr.analyse
+
+
+class AnalysisVersionTest(MoneyBase):
+    """A1: phiên bản ô chữ (engine + tiền xử lý, tên file kho) tách khỏi phiên bản luật phân tích (trường `analysis` trong file)."""
+
+    def test_easyocr_version_follows_the_engine_and_preprocessing_not_the_analysis_rule(self):
+        with patch.object(ocr.metadata, "version", lambda name: "1.7.2"):
+            self.assertEqual(ocr.EasyOcr(command=["x"]).version, "1.7.2+a2")   # đúng tên 52 file kho cũ `easyocr@1.7.2+a2.json`
+            with patch.object(ocr, "ANALYSIS", "a9"):
+                self.assertEqual(ocr.EasyOcr(command=["x"]).version, "1.7.2+a2")
+            with patch.object(ocr, "PREPARE", "p9"):
+                self.assertEqual(ocr.EasyOcr(command=["x"]).version, "1.7.2+p9")
+
+    def test_new_analysis_rule_reanalyses_stored_boxes_without_calling_the_engine(self):
+        self.drain(self.make())
+        calls = len(self.engine.calls)
+        self.assertEqual(self.stored(SHA_LOCAL)["analysis"], ocr.ANALYSIS)
+        boxes = self.stored(SHA_LOCAL)["boxes"]
+        with patch.object(ocr, "ANALYSIS", "a9"), patch.object(ocr, "analyse", strict):
+            newer = self.make()   # tiến trình mới, con trỏ từ đĩa còn `analysis` cũ
+            result = self.drain(newer)
+            self.assertEqual(len(self.engine.calls), calls)   # không OCR lại ảnh nào
+            members = newer.state()["members"]
+            self.assertEqual((members[SHA_LOCAL]["verdict"], members[SHA_LOCAL]["by"]), ("unsure", "human"))   # trước là ocr; gửi ra ngoài tắt
+            self.assertEqual((members[SHA_JXL]["verdict"], members[SHA_JXL]["by"]), ("none", None))   # ảnh không chữ tiền vẫn vậy
+            self.assertEqual(result["counts"]["review"], 1)
+            saved = self.stored(SHA_LOCAL)
+            self.assertEqual((saved["analysis"], saved["hits"], saved["boxes"]), ("a9", 0, boxes))   # cùng file, ô chữ giữ nguyên
+            self.assertEqual(sorted(path.name for path in (self.root / "reads" / SHA_LOCAL).iterdir()), ["fake@1.0+t.json"])
+            self.assertEqual(newer.state()["analysis"], "a9")
+            fresh = b"\xff\xd8\xff\xe0new-image"
+            self.feed.add_image(GROUP, fresh)   # ảnh mới dưới luật mới: OCR một lần, ghi kèm `analysis` mới
+            self.drain(newer)
+            self.assertEqual(len(self.engine.calls), calls + 1)
+            self.assertEqual(self.stored(hashlib.sha256(fresh).hexdigest())["analysis"], "a9")
+
+    def test_old_store_files_without_an_analysis_field_are_used_and_not_read_again(self):
+        legacy = {"engine": "fake", "version": self.engine.version, "read_at": "2026-11-20T00:00:00Z", "size": [100, 200], "boxes": TRANSFER,
+                  **{key: value for key, value in ocr.analyse(TRANSFER).items()}, "amount_vnd": 7_000_000}   # như file trước A1: không có `analysis`
+        reads.save(self.root / "reads", SHA_LOCAL, legacy)
+        path = reads.path(self.root / "reads", SHA_LOCAL, "fake", self.engine.version)
+        before = path.read_bytes()
+        processor = self.make()
+        self.drain(processor)
+        self.assertEqual(self.engine.calls, [JXL_AS_JPEG])   # chỉ ảnh chưa có trong kho được OCR
+        self.assertEqual(path.read_bytes(), before)   # cùng luật (`LEGACY_ANALYSIS`): dùng nguyên, không ghi lại
+        self.assertEqual(processor.primary_read(reads.for_image(self.root / "reads", SHA_LOCAL))["amount_vnd"], 7_000_000)
+        with patch.object(ocr, "ANALYSIS", "a9"):
+            newer = self.make()
+            self.drain(newer)
+            self.assertEqual(self.engine.calls, [JXL_AS_JPEG])
+            self.assertEqual((self.stored(SHA_LOCAL)["amount_vnd"], self.stored(SHA_LOCAL)["analysis"]), (1_500_000, "a9"))
+
+
 class RereadTest(MoneyBase):
     def test_reread_fills_a_new_version_since_a_date_and_skips_what_exists(self):
         processor = self.make()
