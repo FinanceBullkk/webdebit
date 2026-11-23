@@ -29,6 +29,9 @@ function makeServer(state) {
     const send = (status, type, body) => { response.writeHead(status, { 'Content-Type': type }); response.end(body); };
     const out = (body, status = 200) => send(status, 'application/json', JSON.stringify(body));
     state.calls.push(`${request.method} ${route}`);
+    // `cut`: máy chủ cắt kết nối (mất mạng); `proxy`: proxy trả trang HTML 502 thay vì JSON (audit 23/11/2026, F3).
+    if (route === '/api/v7/company-info' && state.cut) { request.socket.destroy(); return undefined; }
+    if (route === '/api/v7/company-info' && state.proxy) return send(502, 'text/html', '<html><body>Bad Gateway</body></html>');
     if (route === '/api/v7/company-info') return state.down ? out({ error: 'COMPANY_INFO_UNAVAILABLE', message: 'Không đọc được bản Thông tin cty của máy chủ.' }, 503) : out(state.info);
     if (route === '/api/v7/customers') return out({ customers: [] });
     if (route.startsWith('/api/v7/presence')) return out({ people: [] });
@@ -112,6 +115,16 @@ test('Thông tin cty: địa chỉ có ?q= thì tìm sẵn; chưa bật job thì
     await page.locator('.ttc-account').first().waitFor();
     assert.equal(await page.locator('#error').isHidden(), true);
   });
+});
+
+test('Thông tin cty: mất mạng hay proxy trả HTML thì báo tiếng Việt, không lộ chữ của trình duyệt', async () => {
+  for (const state of [{ cut: true }, { proxy: true }]) {
+    await withPage(state, async page => {
+      const text = await page.locator('#error').innerText();
+      assert.match(text, state.cut ? /mất kết nối tới máy chủ\. Kiểm tra mạng rồi bấm lại\. Bấm làm mới để thử lại\./ : /máy chủ đang bận/);
+      assert.doesNotMatch(text, /Failed to fetch|Load failed|JSON|Unexpected token/);
+    });
+  }
 });
 
 test('Thông tin cty: khung 1265×560 có menu lọt khung, không cuộn ngang; 390px xếp dọc, không cuộn ngang', async () => {

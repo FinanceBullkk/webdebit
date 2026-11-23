@@ -93,17 +93,30 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 
 **Helper chuỗi dùng chung nằm ở `cong-no-format.js`** (`CongNoFormat`, từ 31/10/2026): thoát HTML `esc`; bỏ dấu `fold` (khóa tìm kiếm, gộp ký tự lạ thành khoảng trắng) và `foldText` (giữ dấu câu và độ dài, cùng quy tắc với `fold` của `web/v7_zalo_chat.py`); `transportText`/`commodityText`; `customerLabel`/`customerLabels` (khóa `String(id)`); nhãn tháng `monthLabel` "7/2026", `monthTitle` "Tháng 07/2026", `monthTag` "T7"/"T12/2025"; ngày `dateText` "22/10/2026"; số triệu không đơn vị `millions` cho bảng ghi "Đơn vị: triệu đồng" một lần (ma trận); câu lỗi tải trang `loadError` ("Không tải được … Kiểm tra mạng rồi bấm Thử lại.", trang đặt kèm nút "Thử lại"). Mọi trang nạp `cong-no-format.js` trước script khác rồi destructure hàm cần dùng; không định nghĩa lại trong file trang (tiền vẫn ở `so-khach-v7-model.js` theo ARCH-03).
 
+**Đọc/gửi API với lỗi tiếng Việt nằm ở `cong-no-net.js`** (`CongNoNet`, từ 23/11/2026, audit giao diện F3): `fetchJson(url, { what })`
+và `postJson(url, body, { what })` trả JSON hoặc ném lỗi có câu "Không tải được <what>: mất kết nối tới máy chủ…" (mã `NETWORK`),
+câu của API (mã `error` của API), hay câu theo mã HTTP khi proxy trả trang HTML; `fetchResponse`/`readJson` cho chỗ tự xét
+`response.ok`; `messageOf(error, fallback)` đổi lỗi gốc của trình duyệt ("Failed to fetch", "Load failed" của Safari, JSON
+hỏng) thành câu tiếng Việt ở `catch`. Không hiện `error.message` của fetch thẳng lên màn. Lệnh ghi tiền có khóa chống trùng
+giữ đường riêng ("chưa rõ đã ghi"), không đi qua module này.
+
 ## Lint và lệnh check
 
-`npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
-(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), secrets và dữ liệu thật
-(`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
+`npm run check` ở gốc repo chạy chín bước theo thứ tự: `ruff check`, luật nghiệp vụ
+(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), cỡ chữ tối thiểu
+(`scripts/check-font-size.js`), secrets và dữ liệu thật (`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
 `node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026).
 Từ 19/11/2026 (audit kiến trúc, A11) thiếu Python hoặc chưa tải Chromium là **FAIL** kèm câu thiếu gì và cách cài theo
 README, không còn SKIP: trước đó máy thiếu công cụ vẫn thoát 0 dù không chạy tầng test. Cố ý chạy thiếu thì bỏ bằng
 `--skip=<mã bước>` (`test:py`, `test:browser`...): bước đó in SKIP, mã thoát vẫn 0 nhưng tổng kết in dòng `CHƯA ĐỦ` kèm
 các mã đã bỏ — xanh khi đó chỉ nói về các bước đã chạy, không dùng làm bằng chứng đủ kiểm.
-`npm run lint` chạy riêng năm bước lint khi đang sửa dở.
+`npm run lint` chạy riêng sáu bước lint khi đang sửa dở.
+
+**Cỡ chữ** (từ 23/11/2026, audit giao diện F6): `check-font-size.js` đỏ khi CSS hay HTML giao diện trong
+`cong-no-web-handoff/preview/` có `font-size`/`font:` dưới 13px (px hoặc rem; pt của bản in debit note không xét). Thang chữ
+theo mục 4.4 của [audit UX](ux-audit-2026-10-31.md#44-hệ-thống-thiết-kế-dùng-chung-mở-rộng-designmd-cho-cả-sáu-trang): chú thích 13px
+là tối thiểu, chữ trong bảng và cạnh số 14px — mức 14 máy không phân biệt được nên vẫn do người review. Chỗ còn nợ của file
+phiên khác đang sửa ghi ở `PENDING` trong script; dòng nợ đã sửa mà chưa bỏ cũng làm bước đỏ.
 
 **Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
 nhật ký triển khai và spec): `check-secrets.js` bắt số tiền nhóm chấm từ 7 chữ số (dạng `x.xxx.xxx` trở lên, trừ cỡ file ghi
@@ -233,7 +246,7 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 | UI, preview, model JS, tài liệu | `npm run check`, không chạy harness |
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
 | `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền); đụng phân bổ thu hoặc lệnh ghi tiền thì thêm `test_pg_v7_fifo_ngau_nhien.py` (lệnh chạy và cờ `--mutant` ở [spec](../specs/v7-fifo-ngau-nhien.md)) và `test_pg_v7_bat_bien.py` (bất biến tiền trên nhiều sổ gồm cấn trừ, khóa tháng, Lịch sử; đỏ thì in chuỗi lệnh tối giản và lệnh chạy lại, [spec](../specs/v7-bat-bien-tien.md)); thêm bảng tiền, đổi `get_dashboard*`, `get_ledger` hay `_check_allocations` thì thêm `test_pg_v7_luoi_an_toan.py` (bảng tiền mới phải vào dấu vân của `_safety_fingerprints`); đổi hình dạng `get_ledger`, `get_dashboard*`, `list_customers` hay `get_fee_types` thì thêm `test_pg_v7_xuat_so.py` (bản xuất cả sổ đọc đúng các trường đó, [spec](../specs/v7-xuat-ca-so.md)); lệch so với mô hình thì sửa SQL hoặc sửa `tools/v7_fifo_model.py` kèm test tính tay trong `tests/test_v7_fifo_model.py` |
-| Schema đội xe `doixe` (migration `*-v7-doi-xe*.sql`, hàm `doixe.*`) | `test_pg_doixe.py`; phần thu, bảng kê HTH, giá tuyến (đợt 2, `DOI-XE-THU-01`) thêm `test_pg_doixe_thu.py`; điều độ, chặng sinh từ booking (`DOI-XE-DIEU-DO-01`) thêm `test_pg_doixe_dieu_do.py`; mục Chặng, hàm đọc thu chi lãi gộp (`DOI-XE-CHANG-01`) thêm `test_pg_doixe_chang.py`; migration mới của `doixe` cũng vào chuỗi `--migration-test` như dưới. `v7_schema_current.pgsql` chỉ chụp `sokhach`, đọc định nghĩa `doixe` ở migration |
+| Schema đội xe `doixe` (migration `*-v7-doi-xe*.sql`, hàm `doixe.*`) | `test_pg_doixe.py`; phần thu, bảng kê HTH, giá tuyến (đợt 2, `DOI-XE-THU-01`) thêm `test_pg_doixe_thu.py`; điều độ, chặng sinh từ booking (`DOI-XE-DIEU-DO-01`) thêm `test_pg_doixe_dieu_do.py`; mục Chặng, hàm đọc thu chi lãi gộp (`DOI-XE-CHANG-01`) thêm `test_pg_doixe_chang.py`; sửa lỗi audit 23/11/2026 (số đang thấy, áp giá ngược, container lặp) thêm `test_pg_doixe_audit.py`; migration mới của `doixe` cũng vào chuỗi `--migration-test` như dưới. `v7_schema_current.pgsql` chỉ chụp `sokhach`, đọc định nghĩa `doixe` ở migration |
 | Migration mới | `test_pg_v7_backend.py --migration-test` (CI chạy lệnh này): nâng từ schema cũ, so hàm/cột/view/ràng buộc với khởi tạo mới trước mọi case. Thêm file vào chuỗi `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file |
 | Bất kỳ SQL V7 nào ở trên (hàm, view, bảng, quyền) | sinh lại file đọc định nghĩa hiện hành rồi commit cùng PR: `python cong-no-web-handoff/tools/v7_schema_snapshot.py` (cần Docker). Job `postgres-v7-backend` chạy lại với `--check`, lệch thì đỏ và in lệnh này |
 
