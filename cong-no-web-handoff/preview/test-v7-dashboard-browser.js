@@ -60,6 +60,12 @@ function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus =
     if (route.startsWith('/api/v7/presence')) return send(200, 'application/json', JSON.stringify({ people }));   // PRESENCE-01
     if (route === '/api/v7/customers') return send(customerStatus, 'application/json', JSON.stringify({ customers }));
     if (route === '/api/v7/inbox') return send(inboxStatus, 'application/json', value(inbox));   // hộp ngoại lệ P1
+    // Số đệm menu (web/v7_todo_badge.py): ba nguồn trên một lượt, danh sách nợ chỉ còn mặt hàng; một nguồn lỗi thì cả lượt lỗi.
+    if (route === '/api/v7/todo-badge') {
+      if ([inboxStatus, dashboardStatus, debtStatus].some(status => status !== 200)) return send(503, 'application/json', '{"error":"DB_UNAVAILABLE"}');
+      const debt = JSON.parse(value(debtPayload));
+      return send(200, 'application/json', JSON.stringify({ inbox: JSON.parse(value(inbox)), dashboard: JSON.parse(value(payload)), debt: { customers: (debt?.customers ?? []).map(({ customer_id, name, commodity, transport_mode }) => ({ customer_id, name, commodity, transport_mode })) } }));
+    }
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
     const body = fs.readFileSync(file);   // QUYEN-01: máy chủ thật gắn data-role="user" cho login không phải quản lý
