@@ -13,15 +13,18 @@
     view: 'tong', id: null, thang: null, chon: null, data: null, loadError: '', loading: true, q: '', doiQ: '',
     cach: 'gon', loc: '', drafts: [], moi: null, danCau: '', hoan: null, hop: '', uf: null, huy: null,
     lichSu: null, busy: false, xoaHoi: null, toast: null, giuBao: null, seq: 0,
+    go: {},   // chữ đang gõ (hoặc vừa chọn) ở ô của chặng đã lưu, theo data-f, giữ qua mỗi lần vẽ lại tới khi lệnh lưu ô đó xong
   };
   // Mạng, ghi và thông báo dùng chung hai màn Đội xe (doi-xe-chung.js).
-  const { getJson, bao, ghi, drawToast } = DoiXeChung.tao({
+  const { getJson, bao, ghi, xep, drawToast } = DoiXeChung.tao({
     S, draw: () => draw(), load: () => load(), toastBox, esc, tienTo: 'dx', toastMs: 7000,
     matMang: 'Mất kết nối, chưa rõ đã lưu chưa. Bấm lại: máy chủ không ghi lần hai.',
     chuaRo: 'Chưa đọc được trả lời của máy chủ, chưa rõ đã lưu chưa. Bấm lại: máy chủ không ghi lần hai.',
-    taiLai: ['CHANGED', 'DONG_DA_DOI', 'CHANG_NOT_FOUND'],
+    taiLai: ['CHANGED', 'DONG_DA_DOI', 'CHANG_NOT_FOUND', 'SO_DU_DOI'],
   });
   const { withFocus } = DoiXeChung;
+  // Giá trị hiện ở ô của chặng đã lưu: chữ người dùng đang gõ (S.go) nếu có, không thì số của sổ (audit DX-02: vẽ lại không xóa chữ).
+  const goO = (f, v) => (Object.hasOwn(S.go, f) ? S.go[f] : v);
 
   const moiTrong = () => ({ ngay: '', container: '', loai: 'hang', xe: '', noi_lay: '', noi_ha: '', kho: '', ghi_chu: '', neo_ngay: '', may_gio: '', km: '', phi: {} });
   S.moi = moiTrong();
@@ -45,12 +48,12 @@
   }
   function go(view, id, thang = S.thang, push = true) {
     const changed = view !== S.view || id !== S.id;
-    if (changed) Object.assign(S, { drafts: [], moi: moiTrong(), danCau: '', hoan: null, loc: '', xoaHoi: null, hop: '', lichSu: null });
+    if (changed) Object.assign(S, { drafts: [], moi: moiTrong(), danCau: '', hoan: null, loc: '', xoaHoi: null, hop: '', lichSu: null, go: {} });
     Object.assign(S, { view, id, thang });
     history[push ? 'pushState' : 'replaceState'](null, '', urlOf(view, id, S.chon));   // địa chỉ chỉ ghi tháng đã chọn, không ghi tháng mặc định
     load();
   }
-  addEventListener('popstate', () => { readUrl(); Object.assign(S, { drafts: [], moi: moiTrong(), hoan: null, hop: '' }); load(); });
+  addEventListener('popstate', () => { readUrl(); Object.assign(S, { drafts: [], moi: moiTrong(), hoan: null, hop: '', go: {} }); load(); });
 
   // ---------- Mạng ----------
   async function load() {
@@ -104,6 +107,9 @@
   }
   const daLuuKeys = () => new Set((S.data.chang ?? []).map(M.khoaDaLuu));
   const khoa = thang => Boolean(S.data.khoa?.[thang] ?? (thang !== `${S.data.hom_nay.slice(0, 7)}-01`));
+  // DX-05: ngày của khoản ở tháng đã khóa thì vẫn ghi, gắn "sau khóa" (DOI-XE-SAU-KHOA-01); báo trước trong hộp, báo lại sau khi lưu.
+  const skBao = ngay => `Tháng ${Number(ngay.slice(5, 7))} đã khóa: vẫn ghi, khoản gắn nhãn "sau khóa".`;
+  const skLuu = out => (out?.sau_khoa ? ' (1 khoản vào tháng đã khóa, ghi là thêm sau khóa)' : '');
 
   // ---------- Vẽ ----------
   function draw() { withFocus(() => { drawHead(); drawBody(); drawLayer(); }); }
@@ -151,8 +157,10 @@
     // Vẽ lại cùng một bảng (lưu ô, tải lại) thì giữ chỗ đang kéo ngang; đổi người, tháng, Gọn/Đủ cột hay mở Hoàn thì về đầu bảng.
     const x = root.querySelector('.dx-scroll')?.scrollLeft ?? 0;
     const khoaNgang = `${S.view}:${S.id}:${S.data?.thang}:${S.cach}:${Boolean(S.hoan)}`;
-    if (S.view === 'tong') root.innerHTML = stale + tongHtml();
-    else root.innerHTML = stale + soHtml();
+    const html = stale + (S.view === 'tong' ? tongHtml() : soHtml());
+    // Gỡ ô đang gõ khỏi trang làm Chrome báo blur/change cho ô cũ (lúc ô còn gắn trên trang): cờ này để hai sự kiện đó bỏ qua.
+    S.dangVe = true;
+    try { root.innerHTML = html; } finally { S.dangVe = false; }
     if (x && khoaNgang === ngang.bang) for (const el of root.querySelectorAll(NGANG)) el.scrollLeft = x;
     ngang.bang = khoaNgang;
     // Chỉ hai dải này chặn lăn chuột; gắn cả vùng sổ với passive:false thì Chrome phải chờ JS trước mỗi lần cuộn dọc.
@@ -242,8 +250,9 @@
     const ten = d.nguoi.ten, t = d.the, cuoi = M.cuoiThe(t);
     const item = (x, loai) => {
       const huy = x.huy;
-      const ghiChu = huy ? `Đã hủy · ${x.huy.ly_do}` : loai === 'ung' ? (x.ghi_chu ?? '') : `${x.so_dong} dòng${M.chenhDot(x) > 0 ? ` · trừ ứng ${M.fmt(M.chenhDot(x))}` : M.chenhDot(x) < 0 ? ` · chuyển dư ${M.fmt(-M.chenhDot(x))}` : ''}`;
-      return `<button type="button" class="dx-item${huy ? ' huy' : ''}" data-act="xem-huy" data-loai="${loai}" data-id="${x.id}" title="${huy ? esc(`Đã hủy ${huy.luc} · ${huy.actor_name ?? huy.actor} · lý do: ${huy.ly_do}`) : 'Bấm để xem hoặc hủy'}"><span class="num">${M.ddmm(x.ngay)}</span><span class="dx-gc">${esc(ghiChu)}</span><span class="num b">${M.fmt(M.so(x.so_tien_vnd))}</span></button>`;
+      // DX-05 (DOI-XE-SAU-KHOA-01): khoản ghi hoặc hủy khi tháng đã khóa mang nhãn "sau khóa", như chặng.
+      const ghiChu = huy ? `Đã hủy${huy.sau_khoa ? ' sau khóa' : ''} · ${x.huy.ly_do}` : loai === 'ung' ? (x.ghi_chu ?? '') : `${x.so_dong} dòng${M.chenhDot(x) > 0 ? ` · trừ ứng ${M.fmt(M.chenhDot(x))}` : M.chenhDot(x) < 0 ? ` · chuyển dư ${M.fmt(-M.chenhDot(x))}` : ''}`;
+      return `<button type="button" class="dx-item${huy ? ' huy' : ''}" data-act="xem-huy" data-loai="${loai}" data-id="${x.id}" title="${huy ? esc(`Đã hủy ${huy.luc} · ${huy.actor_name ?? huy.actor} · lý do: ${huy.ly_do}`) : x.sau_khoa ? 'Ghi vào tháng đã khóa · bấm để xem hoặc hủy' : 'Bấm để xem hoặc hủy'}"><span class="num">${M.ddmm(x.ngay)}</span><span class="dx-gc">${x.sau_khoa ? '<span class="dx-sk">sau khóa</span> ' : ''}${esc(ghiChu)}</span><span class="num b">${M.fmt(M.so(x.so_tien_vnd))}</span></button>`;
     };
     const coChuaHoan = M.dongChuaHoan(d.chua_hoan, d.nguoi.id, loaiPhi()).length;
     const thangSo = Number(d.thang.slice(5, 7));
@@ -289,6 +298,7 @@
       doc: tv !== null ? `= ${M.docSo(tv)}` : '',
       tru: nChon && duNay < tong ? `<button type="button" class="dx-lk" data-act="tru-ung">Trừ tiền ứng đang giữ: chuyển ${M.fmt(M.truUngGiu(duNay))}</button>` : '',
       du: `<div class="muted">Số dư sau khi ghi</div><div class="num"><span class="muted">${esc(M.loiDu(duNay, ten))}</span> → <strong>${tv === null ? '…' : esc(M.loiDu(M.sauKhiGhi(duNay, tv), ten))}</strong></div>`
+        + (h.ngay && h.ngay <= d.hom_nay && khoa(M.thangCua(h.ngay)) ? `<div class="dx-sk-bao">${esc(skBao(h.ngay))}</div>` : '')
         + (lech && nChon ? `<div class="warn">${lech > 0 ? `Chuyển nhiều hơn tổng các dòng ${M.fmt(lech)}: phần dư tính như ứng thêm.` : `Chuyển ít hơn tổng các dòng ${M.fmt(-lech)}: phần thiếu trừ vào tiền ứng đang giữ.`}</div>` : ''),
       nut: `${loi ? `<span class="dx-loi" role="alert">${esc(loi)}</span>` : ''}<div><button type="button" class="dx-btn" data-act="bo-hoan">Bỏ</button>`
         + `<button type="button" class="dx-btn solid big" data-act="ghi-hoan" ${loi || S.busy ? 'disabled' : ''}>${S.busy ? 'Đang ghi…' : `Ghi đợt hoàn${tv !== null && !loi ? ` ${M.fmt(tv)}` : ''}`}</button></div>`,
@@ -439,25 +449,25 @@
       const k = col.k, wrap = html => `<span class="${cls(col, i)} dx-c"${st(i)}>${html}</span>`;
       if (k === 'ngay') {
         if (phu) return wrap(`<span class="muted sm" title="${esc(`${dong.loai === 'tru_lai' ? 'Dòng trừ lại' : 'Điều chỉnh'} lúc ${dong.luc} · ${dong.actor_name ?? dong.actor}`)}">↳ ${esc(dong.luc.slice(0, 5))}</span>`);
-        return docOnly ? wrap(M.ddmm(c.ngay)) : wrap(cellIn(`luu:${c.id}:ngay`, M.ddmm(c.ngay), { ph: 'dd/mm', aria: `Ngày · ${aria}` }));
+        return docOnly ? wrap(M.ddmm(c.ngay)) : wrap(cellIn(`luu:${c.id}:ngay`, goO(`luu:${c.id}:ngay`, M.ddmm(c.ngay)), { ph: 'dd/mm', aria: `Ngày · ${aria}` }));
       }
       if (k === 'cont') {
         if (phu) return wrap(`<span class="muted sm" title="${dong.dc_phi ? esc(`${M.tenCot(`phi:${dong.dc_phi}`, loaiPhi())}: ${M.fmt(M.so(dong.dc_truoc_vnd)) || '—'} → ${M.fmt(M.so(dong.dc_sau_vnd)) || '—'}`) : 'Bỏ chặng'}">${dong.loai === 'tru_lai' ? 'Bỏ chặng' : 'Đ.chỉnh'} · ${esc(dong.actor_name ?? dong.actor)}</span>`);
-        return docOnly ? wrap(`<span class="mono" title="${esc(tip)}">${esc(c.container)}</span>`) : wrap(cellIn(`luu:${c.id}:container`, c.container, { cont: true, aria: `Container · ${aria}`, title: tip }));
+        return docOnly ? wrap(`<span class="mono" title="${esc(tip)}">${esc(c.container)}</span>`) : wrap(cellIn(`luu:${c.id}:container`, goO(`luu:${c.id}:container`, c.container), { cont: true, aria: `Container · ${aria}`, title: tip }));
       }
       if (k === 'tx') return wrap(phu ? '' : esc(c.tai_xe_id ? M.tenNguoi(c.tai_xe_id, dm().nguoi) : 'Xe thuê'));
-      if (k === 'xe') return wrap(phu ? '' : docOnly ? esc(xeById(c.xe_id)?.bien_so ?? '') : selXe(`luu:${c.id}:xe_id`, c.xe_id, `Xe · ${aria}`));
+      if (k === 'xe') return wrap(phu ? '' : docOnly ? esc(xeById(c.xe_id)?.bien_so ?? '') : selXe(`luu:${c.id}:xe_id`, Number(goO(`luu:${c.id}:xe_id`, c.xe_id)), `Xe · ${aria}`));
       if (k === 'loai') {
         if (phu) return wrap(esc(M.TEN_LOAI[c.loai]));
-        return wrap(`${docOnly ? esc(M.TEN_LOAI[c.loai]) : selLoai(`luu:${c.id}:loai`, c.loai, `Loại chặng · ${aria}`)}${c.sau_khoa ? '<span class="dx-sk" title="Thêm vào tháng đã khóa">sau khóa</span>' : noiTag(c)}`);
+        return wrap(`${docOnly ? esc(M.TEN_LOAI[c.loai]) : selLoai(`luu:${c.id}:loai`, goO(`luu:${c.id}:loai`, c.loai), `Loại chặng · ${aria}`)}${c.sau_khoa ? '<span class="dx-sk" title="Thêm vào tháng đã khóa">sau khóa</span>' : noiTag(c)}`);
       }
       if (k === 'noi_lay' || k === 'noi_ha' || k === 'kho' || k === 'ghi_chu') {
         if (phu) return wrap('');
-        return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, c[k], { aria: `${col.t} · ${aria}` }));
+        return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, goO(`luu:${c.id}:${k}`, c[k]), { aria: `${col.t} · ${aria}` }));
       }
       if (col.sl) {
         if (phu) return wrap('');
-        return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, c[k] ?? '', { tien: true, aria: `${col.t} · ${aria}` }));
+        return docOnly ? wrap(esc(c[k] ?? '')) : wrap(cellIn(`luu:${c.id}:${k}`, goO(`luu:${c.id}:${k}`, c[k] ?? ''), { tien: true, aria: `${col.t} · ${aria}` }));
       }
       if (k === 'khac') {
         const s = phu ? M.phiKhac({ dong: [dong] }, khac) : M.phiKhac({ dong: [dong] }, khac);
@@ -470,7 +480,7 @@
         if (phu) return wrap(`<span class="sm${xam}">${v === null ? '' : M.fmtDau(v)}</span>`);
         if (docOnly) return wrap(`<span class="${xam}">${M.fmt(v)}</span>`);
         const hl = M.phiHieuLuc(c, k);
-        return wrap(cellIn(`luu:${c.id}:phi:${k}`, M.fmt(v), { tien: true, aria: `${col.t} · ${aria}`, title: hl !== v ? `Đang tính ${M.fmt(hl) || '—'} (gồm điều chỉnh)` : '' }));
+        return wrap(cellIn(`luu:${c.id}:phi:${k}`, goO(`luu:${c.id}:phi:${k}`, M.fmt(v)), { tien: true, aria: `${col.t} · ${aria}`, title: hl !== v ? `Đang tính ${M.fmt(hl) || '—'} (gồm điều chỉnh)` : '' }));
       }
       if (k === 'chi') {
         const v = M.tienDong(dong, loaiPhi());
@@ -478,7 +488,7 @@
       }
       if (k === 'tra') {
         if (phu) return wrap('');
-        const val = c.nguoi_tra_id === null ? 'cong_ty' : String(c.nguoi_tra_id);
+        const val = goO(`luu:${c.id}:nguoi_tra`, c.nguoi_tra_id === null ? 'cong_ty' : String(c.nguoi_tra_id));
         const opts = [];
         if (c.tai_xe_id) opts.push([String(c.tai_xe_id), 'Tài xế']);
         for (const n of dm().nguoi) if (n.vai === 'di_lenh' && n.dang_dung) opts.push([String(n.id), n.ten]);
@@ -641,11 +651,15 @@
     else if (f.ngay && f.ngay > d.hom_nay) loi = 'Ngày chuyển sau hôm nay.';
     else if (!f.ngay) loi = 'Chọn ngày chuyển.';
     const ok = !loi && t.v > 0;
+    // Đã có lần ứng chưa hủy cùng ngày, cùng số (audit DX-03): báo ngay trong hộp, nút đổi thành "Vẫn ghi thêm" để bấm là cố ý.
+    const tr = ok ? M.khoanTrung(d.ung, f.ngay, t.v) : null;
+    const sk = ok && khoa(M.thangCua(f.ngay)) ? `<div class="dx-sk-bao" role="status">${esc(skBao(f.ngay))}</div>` : '';
+    const trung = tr ? `<div class="dx-canh" role="status">Đã có lần ứng ${esc(M.fmt(t.v))} ngày ${esc(M.ddmm(tr.ngay))} cho ${esc(ten)} (${esc(tr.actor_name ?? tr.actor)} ghi ${esc(tr.luc)}). Chỉ ghi thêm khi chuyển hai lần thật.</div>` : '';
     return {
       doc: ok ? `= ${M.docSo(t.v)}` : '',
       du: `<div class="muted sm">Số dư sau khi ghi</div><div class="num"><span class="muted">${esc(M.loiDu(duNay, ten))}</span> → <strong>${ok ? esc(M.loiDu(M.sauKhiGhi(duNay, t.v), ten)) : '…'}</strong></div>`,
-      loi: loi ? `<div class="dx-loi" role="alert">${esc(loi)}</div>` : '',
-      nut: `<button type="button" class="dx-btn" data-act="dong">Bỏ</button><button type="button" class="dx-btn solid big" data-act="ghi-ung" ${!ok || S.busy ? 'disabled' : ''}>${S.busy ? 'Đang ghi…' : `Ghi ứng${ok ? ` ${M.fmt(t.v)}` : ''}`}</button>`,
+      loi: (loi ? `<div class="dx-loi" role="alert">${esc(loi)}</div>` : '') + sk + trung,
+      nut: `<button type="button" class="dx-btn" data-act="dong">Bỏ</button><button type="button" class="dx-btn solid big" data-act="ghi-ung" ${!ok || S.busy ? 'disabled' : ''}>${S.busy ? 'Đang ghi…' : `${tr ? 'Vẫn ghi thêm' : 'Ghi ứng'}${ok ? ` ${M.fmt(t.v)}` : ''}`}</button>`,
     };
   }
   function ungHtml() {
@@ -676,14 +690,15 @@
       if (chenh) dong.push([chenh > 0 ? 'Trừ vào tiền ứng' : 'Chuyển dư (như ứng thêm)', M.fmt(Math.abs(chenh))]);
       dong.push(['Số tiền thực chuyển', M.fmt(tien)]);
     }
-    dong.push(['Người ghi', `${it.actor_name ?? it.actor} · ${it.luc}`]);
-    if (it.huy) dong.push(['Đã hủy', `${it.huy.actor_name ?? it.huy.actor} · ${it.huy.luc}`], ['Lý do', it.huy.ly_do]);
+    dong.push(['Người ghi', `${it.actor_name ?? it.actor} · ${it.luc}${it.sau_khoa ? ' · sau khóa' : ''}`]);
+    if (it.huy) dong.push(['Đã hủy', `${it.huy.actor_name ?? it.huy.actor} · ${it.huy.luc}${it.huy.sau_khoa ? ' · sau khóa' : ''}`], ['Lý do', it.huy.ly_do]);
     const coLyDo = Boolean(h.lydo.trim());
     let html = `<div class="dx-mask" data-act="dong"></div><div role="dialog" aria-modal="true" aria-labelledby="dx-huy-t" class="dx-dlg"><h2 id="dx-huy-t">${h.loai === 'ung' ? 'Lần ứng' : 'Đợt hoàn'} ${M.ddmm(it.ngay)}${it.huy ? ' (đã hủy)' : ''}</h2>`
       + dong.map(([k, v]) => `<div class="dx-kv"><span class="muted">${esc(k)}</span><span class="num">${esc(v)}</span></div>`).join('');
     if (!it.huy) {
       html += `<div class="dx-du"><div class="muted sm">Số dư sau khi hủy</div><div class="num"><span class="muted">${esc(M.loiDu(duNay, ten))}</span> → <strong>${esc(M.loiDu(M.sauKhiHuy(duNay, tien), ten))}</strong></div>`
         + (h.loai === 'dot' ? `<div class="sm">${it.so_dong} dòng sẽ trở lại Chưa hoàn.</div>` : '') + '</div>'
+        + (khoa(M.thangCua(it.ngay)) ? `<div class="dx-sk-bao">Tháng ${Number(it.ngay.slice(5, 7))} đã khóa: vẫn hủy được, lần hủy gắn nhãn "sau khóa".</div>` : '')
         + `<label class="dx-f">Lý do hủy (bắt buộc)<input data-f="huy-lydo" id="dx-huy-lydo" value="${esc(h.lydo)}" placeholder="Ví dụ: ghi trùng, chuyển nhầm số" autocomplete="off" maxlength="500"></label>`;
     }
     html += `<div class="dx-dlg-nut"><button type="button" class="dx-btn" data-act="dong">Đóng</button>${it.huy ? '' : `<button type="button" class="dx-btn danger big" data-act="huy" ${!coLyDo || S.busy ? 'disabled' : ''}>${S.busy ? 'Đang hủy…' : h.loai === 'ung' ? 'Hủy lần ứng' : 'Hủy đợt hoàn'}</button>`}</div></div>`;
@@ -749,7 +764,10 @@
     S.drafts = con;
     S.danCau = '';
     draw();
-    bao(`Đã lưu ${out.so_dong} dòng${out.sau_khoa ? ` (${out.sau_khoa} dòng vào tháng đã khóa, ghi là thêm sau khóa)` : ''}${con.length ? ` · còn ${con.length} dòng lỗi để sửa` : ''}.`, con.length ? 'warn' : 'ok');
+    // Container đã có chặng hàng khác lệch tới 10 ngày (audit DX-04): chỉ báo, máy chủ không chặn.
+    const lap = out.canh_cont ?? [];
+    const cauLap = lap.length ? ` Lưu ý: ${lap.length} chặng hàng có container đã có chặng hàng khác trong 10 ngày (${lap.slice(0, 3).map(x => `${x.container} ${M.ddmm(x.ngay)}`).join(', ')}${lap.length > 3 ? '…' : ''}); xem có phải dán hai lần không.` : '';
+    bao(`Đã lưu ${out.so_dong} dòng${out.sau_khoa ? ` (${out.sau_khoa} dòng vào tháng đã khóa, ghi là thêm sau khóa)` : ''}${con.length ? ` · còn ${con.length} dòng lỗi để sửa` : ''}.${cauLap}`, con.length || lap.length ? 'warn' : 'ok');
   }
 
   function suaNhap(id, col, text) {
@@ -770,7 +788,8 @@
 
   async function suaLuu(id, col, text) {
     const c = S.data.chang.find(y => y.id === id);
-    if (!c) return;
+    // Lệnh trong hàng chờ tới lượt mà màn đã sang tháng/người khác (hoặc chặng vừa bị xóa): báo rõ, không bỏ lặng (review DX-02).
+    if (!c) { bao(`Chưa lưu ô vừa sửa (${text || 'trống'}): chặng không còn trên màn đang xem. Mở lại đúng tháng rồi sửa lại.`, 'warn'); return; }
     let truoc, giaTri;
     if (col.startsWith('phi:')) {
       const ma = col.slice(4), r = M.docTien(text);
@@ -836,8 +855,10 @@
         const t = M.docTien(S.uf.tien);
         if (t.loi || !(t.v > 0) || !S.uf.ngay || S.uf.ngay > d.hom_nay) return;
         const ten = d.nguoi.ten;
-        ghi('/api/v7/doixe/ung', { nguoi_id: d.nguoi.id, ngay: S.uf.ngay, so_tien_vnd: String(t.v), ...(S.uf.ghichu.trim() ? { ghi_chu: S.uf.ghichu.trim() } : {}) },
-          out => { S.hop = ''; S.thang = S.chon = M.thangCua(S.uf.ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi ứng ${M.fmt(t.v)} cho ${ten}.${out.lap_lai ? ' (Lần bấm trước đã ghi, không ghi thêm.)' : ''}`); });
+        // Kèm số dư đang thấy: vừa có người ghi ứng, hoàn hay phí thì máy chủ chặn (SO_DU_DOI), tải lại rồi xem lại (audit DX-03).
+        ghi('/api/v7/doixe/ung', { nguoi_id: d.nguoi.id, ngay: S.uf.ngay, so_tien_vnd: String(t.v), so_du_vnd: String(M.so(d.so_du_vnd)),
+          ...(S.uf.ghichu.trim() ? { ghi_chu: S.uf.ghichu.trim() } : {}) },
+          out => { S.hop = ''; S.thang = S.chon = M.thangCua(S.uf.ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi ứng ${M.fmt(t.v)} cho ${ten}${skLuu(out)}.${out.lap_lai ? ' (Lần bấm trước đã ghi, không ghi thêm.)' : ''}`); });
         break;
       }
       case 'xem-huy': S.hop = 'huy'; S.huy = { loai: el.dataset.loai, id: Number(el.dataset.id), lydo: '' }; drawLayer(); $('dx-huy-lydo')?.focus(); break;
@@ -845,7 +866,7 @@
         const h = S.huy;
         if (!h.lydo.trim()) return;
         ghi(h.loai === 'ung' ? '/api/v7/doixe/ung/huy' : '/api/v7/doixe/hoan/huy', { [h.loai === 'ung' ? 'ung_id' : 'dot_id']: h.id, ly_do: h.lydo.trim() },
-          out => { S.hop = ''; S.huy = null; bao(`Đã hủy ${h.loai === 'ung' ? 'lần ứng' : 'đợt hoàn'}. Số dư: ${M.loiDu(M.so(out.so_du_sau_vnd), d.nguoi.ten)}.`, 'warn'); });
+          out => { S.hop = ''; S.huy = null; bao(`Đã hủy ${h.loai === 'ung' ? 'lần ứng' : 'đợt hoàn'}${out.sau_khoa ? ' (khoản ở tháng đã khóa, ghi là hủy sau khóa)' : ''}. Số dư: ${M.loiDu(M.so(out.so_du_sau_vnd), d.nguoi.ten)}.`, 'warn'); });
         break;
       }
       case 'mo-hoan': {
@@ -874,8 +895,9 @@
         const t = M.docTien(S.hoan.tien);
         if (!ids.length || t.loi || t.v === null || !S.hoan.ngay || S.hoan.ngay > d.hom_nay) return;
         const ngay = S.hoan.ngay;
-        ghi('/api/v7/doixe/hoan', { nguoi_id: d.nguoi.id, ngay, so_tien_vnd: String(t.v), dong_ids: ids },
-          () => { S.hoan = null; S.thang = S.chon = M.thangCua(ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi đợt hoàn ${M.fmt(t.v)}: ${ids.length} dòng đánh dấu Đã hoàn ${M.ddmm(ngay)}.`); });
+        ghi('/api/v7/doixe/hoan', { nguoi_id: d.nguoi.id, ngay, so_tien_vnd: String(t.v), dong_ids: ids,
+          tong_dong_vnd: String(M.tongChon(ds, S.hoan.chon)), so_du_vnd: String(M.so(d.so_du_vnd)) },
+          out => { S.hoan = null; S.thang = S.chon = M.thangCua(ngay); history.replaceState(null, '', urlOf(S.view, S.id, S.thang)); bao(`Đã ghi đợt hoàn ${M.fmt(t.v)}${skLuu(out)}: ${ids.length} dòng đánh dấu Đã hoàn ${M.ddmm(ngay)}.`); });
         break;
       }
       case 'doi-khoa': {
@@ -886,9 +908,11 @@
       }
       case 'xoa-hoi': S.xoaHoi = Number(el.dataset.id); draw(); document.querySelector('.dx-xoa-hoi')?.focus(); break;
       case 'xoa': {
-        const id = Number(el.dataset.id);
+        const id = Number(el.dataset.id), c = d.chang.find(x => x.id === id);
         S.xoaHoi = null;
-        ghi('/api/v7/doixe/chang/xoa', { chang_id: id }, out => bao(out.cach === 'bo' ? 'Tháng khóa hoặc dòng đã hoàn: chặng giữ lại, gạch ngang, thêm dòng trừ lại số tiền.' : 'Đã xóa chặng.', out.cach === 'bo' ? 'warn' : 'ok'));
+        if (!c) return;
+        // Kèm tổng phí đang thấy: vừa có người nhập phí cho chặng này thì máy chủ chặn (CHANGED), không xóa mất phí đó (audit DX-06).
+        ghi('/api/v7/doixe/chang/xoa', { chang_id: id, tong_vnd: String(M.tongPhiChang(c)) }, out => bao(out.cach === 'bo' ? 'Tháng khóa hoặc dòng đã hoàn: chặng giữ lại, gạch ngang, thêm dòng trừ lại số tiền.' : 'Đã xóa chặng.', out.cach === 'bo' ? 'warn' : 'ok'));
         break;
       }
       case 'xoa-moi': S.moi = moiTrong(); draw(); break;
@@ -925,6 +949,7 @@
       if (col.startsWith('phi:')) S.moi.phi[col.slice(4)] = v;
       else S.moi[col] = v;
     }
+    if (kind === 'luu') S.go[f] = v;   // giữ chữ đang gõ qua lần vẽ lại khi lệnh khác vừa xong (audit DX-02)
   });
   document.addEventListener('change', e => {
     const f = e.target.dataset?.f;
@@ -934,7 +959,28 @@
     const v = e.target.value;
     if (kind === 'moi') { if (e.target.tagName === 'SELECT') { S.moi[col] = v; setTimeout(draw, 0); } return; }
     if (kind === 'nhap') { suaNhap(id, col, v); setTimeout(draw, 0); return; }
-    if (kind === 'luu') suaLuu(Number(id), col, v);
+    // Ô bị gỡ khỏi trang lúc vẽ lại (Chrome báo change cho ô cũ) không phải người dùng rời ô: chữ vẫn ở S.go, gõ tiếp ở ô mới.
+    if (kind === 'luu' && f !== S.huyGo && !S.dangVe) luuO(f, v);
+  });
+  // Lưu một ô của chặng đã lưu qua hàng chờ (audit DX-02): lệnh trước chưa xong thì chờ tới lượt, không bị bỏ; ô giữ chữ vừa nhập
+  // tới khi lệnh của nó xong rồi hiện số của sổ.
+  const dangLuu = new Map();   // data-f → { n: số lệnh lưu ô đó còn trong hàng chờ, v: giá trị của lệnh xếp sau cùng }
+  function luuO(f, v) {
+    const [, id, ...rest] = f.split(':');
+    S.go[f] = v;
+    dangLuu.set(f, { n: (dangLuu.get(f)?.n ?? 0) + 1, v });
+    xep(() => suaLuu(Number(id), rest.join(':'), v)).finally(() => {
+      const x = dangLuu.get(f);
+      if (x.n > 1) x.n -= 1; else dangLuu.delete(f);
+      if (S.go[f] === v) { delete S.go[f]; draw(); }
+    });
+  }
+  document.addEventListener('focusout', e => {
+    // Rời ô có chữ đang giữ mà không có change (ô được dựng lại giữa lúc gõ nên trình duyệt coi giá trị lúc vào ô là chữ đã có): vẫn
+    // lưu như change; không đổi gì so với sổ thì suaLuu không gửi lệnh. Ô bị gỡ lúc vẽ lại thì bỏ qua.
+    const f = e.target.dataset?.f;
+    if (!f?.startsWith('luu:') || S.dangVe || f === S.huyGo || dangLuu.has(f) || !Object.hasOwn(S.go, f)) return;
+    luuO(f, S.go[f]);
   });
   document.addEventListener('focusout', e => {
     const f = e.target.dataset?.f;
@@ -951,7 +997,15 @@
     const t = e.target, f = t.dataset?.f ?? '';
     if (e.key === 'Escape') {
       if (S.hop) { onAct('dong', t); e.preventDefault(); return; }
-      if (f.startsWith('moi:') || f.startsWith('nhap:') || f.startsWith('luu:')) { t.blur(); draw(); }
+      if (f.startsWith('luu:')) {
+        // Esc ở ô của chặng đã lưu: bỏ chữ đang gõ, không lưu (rời ô không sinh lệnh sửa). Ô còn lệnh lưu trong hàng chờ thì về
+        // số đang chờ lưu (lệnh đó vẫn chạy), không giả vờ về số cũ của sổ.
+        if (dangLuu.has(f)) S.go[f] = dangLuu.get(f).v; else delete S.go[f];
+        S.huyGo = f;
+        t.blur();
+        S.huyGo = null;
+        draw();
+      } else if (f.startsWith('moi:') || f.startsWith('nhap:')) { t.blur(); draw(); }
       return;
     }
     if (e.key !== 'Enter') return;

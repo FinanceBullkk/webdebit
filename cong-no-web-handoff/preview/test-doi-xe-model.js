@@ -147,6 +147,10 @@ test('Lịch sử viết thành câu: trước → sau, lý do, khóa tháng', (
   assert.deepEqual(t, { viec: 'Hủy lần ứng', chi: '08/11 · 3.000.000', truoc: 'Tài xế giả đang giữ 500', sau: 'Công ty còn nợ 2.500', lyDo: 'ghi trùng' });
   const d = M.moTaSuKien({ viec: 'dieu_chinh', nguoi_id: 11, truoc: { cot: 'phi:neo', gia_tri: null, ngay: '2026-10-05', container: 'MAUU1' }, sau: { gia_tri: '100000', chenh_vnd: '100000', ly_do_dc: 'thang_khoa' } }, dm, PHI);
   assert.deepEqual([d.viec, d.chi, d.truoc, d.sau], ['Điều chỉnh', 'Tháng đã khóa · Neo · 05/10 · MAUU1', '—', '100.000 (thêm dòng +100.000)']);
+  // DX-05: ứng, đợt hoàn và hủy khi tháng đã khóa có nhãn trong Lịch sử; khoản cũ (không có cờ) như trước.
+  assert.match(M.moTaSuKien({ viec: 'ghi_ung', nguoi_id: 11, truoc: { so_du_vnd: '0' }, sau: { ngay: '2026-10-20', so_tien_vnd: '200000', so_du_vnd: '-200000', sau_khoa: true } }, dm, PHI).chi, / · sau khóa \(tháng đã khóa\)$/);
+  assert.match(M.moTaSuKien({ viec: 'huy_hoan', nguoi_id: 11, truoc: { ngay: '2026-10-20', so_tien_vnd: '1' }, sau: { dong_tro_lai: 2, sau_khoa: true } }, dm, PHI).chi, /Chưa hoàn · sau khóa/);
+  assert.doesNotMatch(M.moTaSuKien({ viec: 'ghi_hoan', nguoi_id: 11, truoc: {}, sau: { so_dong: 1, tong_dong_vnd: '1', so_tien_vnd: '1', ngay: '2026-11-01' } }, dm, PHI).chi, /sau khóa/);
   assert.equal(M.moTaSuKien({ viec: 'khoa_thang', truoc: { thang: '2026-10-01', khoa: false }, sau: { thang: '2026-10-01', khoa: true } }, dm, PHI).viec, 'Khóa tháng 10/2026');
   assert.equal(M.moTaSuKien({ viec: 'sua_chang', nguoi_id: 11, truoc: { cot: 'xe_id', gia_tri: '1', ngay: '2026-11-01', container: 'C' }, sau: { gia_tri: '9' } }, dm, PHI).truoc, '99Z-900.01');
 });
@@ -188,4 +192,37 @@ test('phiếu chi mới: số lượng (ngày neo, giờ máy, km) không phải
   assert.ok(M.moiCo({ km: '12' }), 'hàng trống chỉ gõ km vẫn là có chữ');
   assert.equal(M.moTaSuKien({ viec: 'sua_chang', truoc: { cot: 'may_gio', gia_tri: null, ngay: '2026-11-17', container: 'MAUU1' },
     sau: { gia_tri: '4' } }, { nguoi: [], xe: [] }, phi).chi, 'Giờ máy · 17/11 · MAUU1');
+});
+
+test('ngày áp giá (audit DX-01): thiếu năm thì lấy năm gần nhất không trước tháng này, quanh tháng 12 và tháng 1; đủ năm thì giữ, báo áp ngược', () => {
+  // Tháng 12: "01/01" là 01/01 năm sau, không phải 01/01 năm nay (lỗi cũ áp giá ngược cả năm).
+  assert.deepEqual(M.docNgayApGia('01/01', '2026-12-05'), { v: '2027-01-01', cu: false });
+  assert.deepEqual(M.docNgayApGia('1.1', '2026-12-31'), { v: '2027-01-01', cu: false });
+  assert.deepEqual(M.docNgayApGia('01/12', '2026-12-05'), { v: '2026-12-01', cu: false }, 'mùng 1 tháng này vẫn là tháng này');
+  assert.deepEqual(M.docNgayApGia('20/11', '2026-12-05'), { v: '2026-11-20', cu: true }, 'tháng trước: ngày gần nhất, áp ngược nên hỏi');
+  // Tháng 1: "28/12" thiếu năm là 28/12 năm nay (tương lai); muốn áp ngược về tháng 12 năm trước thì gõ đủ năm.
+  assert.deepEqual(M.docNgayApGia('28/12', '2027-01-10'), { v: '2026-12-28', cu: true });
+  assert.deepEqual(M.docNgayApGia('28/12/2026', '2027-01-10'), { v: '2026-12-28', cu: true });
+  assert.deepEqual(M.docNgayApGia('01/02', '2027-01-10'), { v: '2027-02-01', cu: false });
+  assert.deepEqual(M.docNgayApGia('01/01/26', '2026-12-05'), { v: '2026-01-01', cu: true }, 'năm hai chữ số');
+  assert.deepEqual(M.docNgayApGia('29/02', '2026-12-05'), { loi: 'Ngày lạ' }, '2027 không nhuận');
+  assert.deepEqual(M.docNgayApGia('', '2026-12-05'), { v: null });
+  assert.equal(M.docNgayApGia('1/13', '2026-12-05').loi, 'Ngày lạ');
+  // Ô mặc định có đủ năm: mùng 1 tháng sau.
+  assert.equal(M.ngayApMacDinh('2026-12-05'), '01/01/2027');
+  assert.equal(M.ngayApMacDinh('2026-11-18'), '01/12/2026');
+  assert.equal(M.ngayApMacDinh('2027-01-31'), '01/02/2027');
+  assert.deepEqual(M.docNgayApGia(M.ngayApMacDinh('2026-12-05'), '2026-12-05'), { v: '2027-01-01', cu: false });
+});
+
+test('khoản trùng và tổng phí chặng (audit DX-03, DX-06): bỏ khoản đã hủy; tổng gồm cả dòng điều chỉnh và phí công ty trả', () => {
+  const ds = [{ id: 1, ngay: '2026-11-05', so_tien_vnd: '3000000', huy: null, actor: 'a' },
+    { id: 2, ngay: '2026-11-06', so_tien_vnd: '3000000', huy: { ly_do: 'x' } }];
+  assert.equal(M.khoanTrung(ds, '2026-11-05', 3000000).id, 1);
+  assert.equal(M.khoanTrung(ds, '2026-11-06', 3000000), null, 'khoản đã hủy không tính');
+  assert.equal(M.khoanTrung(ds, '2026-11-05', 2000000), null);
+  assert.equal(M.khoanTrung(undefined, '2026-11-05', 1), null);
+  assert.equal(M.tongPhiChang(chang(1, { dong: [{ id: 1, loai: 'goc', phi: { nang: '450000', vetc: '120000' } },
+    { id: 2, loai: 'dieu_chinh', phi: { nang: '-50000' } }] })), 520000);
+  assert.equal(M.tongPhiChang(chang(2)), 0, 'chặng chưa có ô phí nào: 0 (máy chủ cũng so 0)');
 });

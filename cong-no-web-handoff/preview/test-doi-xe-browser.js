@@ -120,6 +120,9 @@ function write(w, route, b) {
   }
   if (route === '/api/v7/doixe/chang/xoa') {
     const c = w.chang.find(x => x.id === b.chang_id);
+    // Như doixe.xoa_chang (audit DX-06): tổng phí mọi dòng đang thấy khác thì CHANGED.
+    const tongPhi = c.dong.reduce((s, d) => Object.values(d.phi).reduce((t, v) => t + Number(v), s), 0);
+    if (b.tong_vnd !== String(tongPhi)) throw loi(409, 'CHANGED', 'Ô này vừa đổi ở máy khác. Tải lại rồi sửa.');
     if (khoa(w, thangOf(c.ngay))) { c.da_bo = true; return { ok: true, cach: 'bo' }; }
     c.da_xoa = true;
     return { ok: true, cach: 'xoa' };
@@ -127,23 +130,30 @@ function write(w, route, b) {
   if (route === '/api/v7/doixe/ung') {
     if (b.ngay > HOM_NAY) throw loi(422, 'NGAY_TUONG_LAI', 'Ngày không được sau hôm nay.');
     const truoc = soDu(w, b.nguoi_id);
-    w.ung.push({ id: ++w.seq, nguoi_id: b.nguoi_id, ngay: b.ngay, so_tien_vnd: b.so_tien_vnd, ghi_chu: b.ghi_chu ?? null, actor: 'nv@gia', actor_name: 'nv', luc: '18/11 09:15', huy: null });
-    ev('ghi_ung', { nguoi_id: b.nguoi_id, truoc: { so_du_vnd: String(truoc) }, sau: { ngay: b.ngay, so_tien_vnd: b.so_tien_vnd, so_du_vnd: String(soDu(w, b.nguoi_id)) } });
-    return { ok: true, so_du_sau_vnd: String(soDu(w, b.nguoi_id)) };
+    if (b.so_du_vnd !== String(truoc)) throw loi(409, 'SO_DU_DOI', 'Số dư vừa đổi ở máy khác (có người vừa ghi ứng, hoàn hoặc phí). Tải lại, xem lại rồi ghi.');
+    // Như doixe.ghi_ung (DX-05): ngày ở tháng đã khóa vẫn ghi, gắn sau_khoa.
+    const sk = khoa(w, thangOf(b.ngay));
+    w.ung.push({ id: ++w.seq, nguoi_id: b.nguoi_id, ngay: b.ngay, so_tien_vnd: b.so_tien_vnd, ghi_chu: b.ghi_chu ?? null, sau_khoa: sk, actor: 'nv@gia', actor_name: 'nv', luc: '18/11 09:15', huy: null });
+    ev('ghi_ung', { nguoi_id: b.nguoi_id, truoc: { so_du_vnd: String(truoc) }, sau: { ngay: b.ngay, so_tien_vnd: b.so_tien_vnd, so_du_vnd: String(soDu(w, b.nguoi_id)), sau_khoa: sk } });
+    return { ok: true, so_du_sau_vnd: String(soDu(w, b.nguoi_id)), sau_khoa: sk };
   }
   if (route === '/api/v7/doixe/ung/huy') {
     const u = w.ung.find(x => x.id === b.ung_id);
-    u.huy = { actor: 'nv@gia', actor_name: 'nv', luc: '18/11 09:20', ly_do: b.ly_do };
-    ev('huy_ung', { nguoi_id: u.nguoi_id, ly_do: b.ly_do, truoc: { ngay: u.ngay, so_tien_vnd: u.so_tien_vnd, so_du_vnd: '0' }, sau: { so_du_vnd: String(soDu(w, u.nguoi_id)) } });
-    return { ok: true, so_du_sau_vnd: String(soDu(w, u.nguoi_id)) };
+    const sk = khoa(w, thangOf(u.ngay));
+    u.huy = { actor: 'nv@gia', actor_name: 'nv', luc: '18/11 09:20', ly_do: b.ly_do, sau_khoa: sk };
+    ev('huy_ung', { nguoi_id: u.nguoi_id, ly_do: b.ly_do, truoc: { ngay: u.ngay, so_tien_vnd: u.so_tien_vnd, so_du_vnd: '0' }, sau: { so_du_vnd: String(soDu(w, u.nguoi_id)), sau_khoa: sk } });
+    return { ok: true, so_du_sau_vnd: String(soDu(w, u.nguoi_id)), sau_khoa: sk };
   }
   if (route === '/api/v7/doixe/hoan') {
     const dongs = w.chang.flatMap(c => c.dong).filter(d => b.dong_ids.includes(d.id));
     const id = ++w.seq;
     const tong = dongs.reduce((s, d) => s + tienDong(d), 0);
+    if (b.tong_dong_vnd !== String(tong)) throw loi(409, 'DONG_DA_DOI', 'Các dòng vừa đổi ở máy khác. Tải lại rồi chọn lại.');
+    if (b.so_du_vnd !== String(soDu(w, b.nguoi_id))) throw loi(409, 'SO_DU_DOI', 'Số dư vừa đổi ở máy khác.');
     for (const d of dongs) { d.dot_hoan_id = id; d.dot_ngay = b.ngay; }
-    w.dot.push({ id, nguoi_id: b.nguoi_id, ngay: b.ngay, so_tien_vnd: b.so_tien_vnd, tong_dong_vnd: String(tong), so_dong: dongs.length, actor: 'nv@gia', luc: '18/11 09:30', huy: null });
-    return { ok: true, so_du_sau_vnd: String(soDu(w, b.nguoi_id)) };
+    const sk = khoa(w, thangOf(b.ngay));
+    w.dot.push({ id, nguoi_id: b.nguoi_id, ngay: b.ngay, so_tien_vnd: b.so_tien_vnd, tong_dong_vnd: String(tong), so_dong: dongs.length, sau_khoa: sk, actor: 'nv@gia', luc: '18/11 09:30', huy: null });
+    return { ok: true, so_du_sau_vnd: String(soDu(w, b.nguoi_id)), sau_khoa: sk };
   }
   if (route === '/api/v7/doixe/thang/khoa') {
     w.khoa[b.thang] = b.khoa;
@@ -336,6 +346,7 @@ test('Hoàn theo đợt: chỉ còn dòng chưa hoàn, tích sẵn, trừ tiền
   await page.locator('.dx-toast', { hasText: 'Đã ghi đợt hoàn 650.000' }).waitFor();
   const body = posts(w, '/api/v7/doixe/hoan')[0].body;
   assert.deepEqual([body.so_tien_vnd, body.dong_ids.length, body.ngay], ['650000', 2, '2026-11-18']);
+  assert.deepEqual([body.tong_dong_vnd, body.so_du_vnd], ['1150000', '650000'], 'kèm tổng dòng và số dư đang thấy (audit DX-03)');
   assert.match(await page.locator('.dx-r').first().innerText(), /✓ Đã hoàn 18\/11/);
   assert.equal(await page.locator('[data-act="mo-hoan"]').isDisabled(), true);
   await page.locator('[data-act="xem-huy"][data-loai="ung"]').click();
@@ -359,6 +370,7 @@ test('Tháng khóa: báo rõ, sửa tiền thành dòng điều chỉnh gửi k�
   await page.locator('[data-act="xoa-hoi"]').first().click();
   await page.locator('[data-act="xoa"]').click();
   await page.locator('.dx-r.bo').waitFor();
+  assert.equal(posts(w, '/api/v7/doixe/chang/xoa')[0].body.tong_vnd, '750000', 'kèm tổng phí đang thấy, gồm dòng điều chỉnh (audit DX-06)');
   await page.locator('[data-act="doi-khoa"]').first().click();
   await page.locator('.dx-toast', { hasText: 'Đã mở khóa tháng 10' }).waitFor();
   await page.locator('[data-act="lich-su"]').click();
@@ -519,3 +531,94 @@ test('Tháng trong địa chỉ mà máy chủ không nhận (tháng sau): bỏ 
   assert.doesNotMatch(page.url(), /thang=/);
   assert.deepEqual(await hrefs(page), ['/doi-xe.html', '/doi-xe-bang-ke.html', '/doi-xe-bang-ke.html?man=gia']);
 }, { query: '?thang=2026-12' }));
+
+test('Sửa ô liền tay (audit DX-02): lệnh thứ hai chờ lệnh đầu xong rồi mới gửi, không bị bỏ; vẽ lại giữa chừng không xóa chữ đang gõ', () => withPage(async (page, w) => {
+  await page.locator('[data-cach="du"]').first().click();
+  w.delay = 700;
+  const a = page.locator('[data-f="luu:103:phi:nang"]'), b = page.locator('[data-f="luu:105:phi:nangha"]');
+  await a.fill('600000');
+  await b.click();   // rời ô a: lệnh đầu đi, máy chủ trả lời sau 700 ms rồi sổ đọc lại và vẽ lại
+  // Gõ chậm ô b trong lúc lệnh đầu chưa xong: lần vẽ lại sau lệnh đầu rơi vào giữa lúc gõ.
+  await b.pressSequentially('1250000', { delay: 160 });
+  assert.equal(await b.inputValue(), '1250000', 'vẽ lại không xóa chữ đang gõ');
+  await b.press('Tab');
+  await page.waitForFunction(() => document.querySelector('[data-f="luu:105:phi:nangha"]')?.value === '1.250.000');
+  const sua = posts(w, '/api/v7/doixe/chang/sua').map(p => [p.body.chang_id, p.body.cot, p.body.truoc, p.body.gia_tri]);
+  assert.deepEqual(sua, [[103, 'phi:nang', null, '600000'], [105, 'phi:nangha', null, '1250000']], 'cả hai lần sửa đều tới máy chủ, đúng thứ tự');
+  assert.equal(w.chang.find(c => c.id === 103).dong[0].phi.nang, '600000');
+  assert.equal(await a.inputValue(), '600.000');
+  // Esc bỏ chữ đang gõ, về số của sổ, không gửi lệnh.
+  await a.fill('999');
+  await a.press('Escape');
+  assert.equal(await page.locator('[data-f="luu:103:phi:nang"]').inputValue(), '600.000');
+  assert.equal(posts(w, '/api/v7/doixe/chang/sua').length, 2, 'Esc không lưu');
+  // Esc ở ô còn lệnh lưu đang chờ: ô về số đang chờ lưu (lệnh vẫn chạy), không giả vờ về số cũ.
+  await a.fill('700000');
+  await b.click();
+  await a.click();
+  await a.fill('5');
+  await a.press('Escape');
+  assert.equal(await page.locator('[data-f="luu:103:phi:nang"]').inputValue(), '700000');
+  await page.waitForFunction(() => document.querySelector('[data-f="luu:103:phi:nang"]')?.value === '700.000');
+  assert.deepEqual(posts(w, '/api/v7/doixe/chang/sua').slice(2).map(p => p.body.gia_tri), ['700000'], 'chỉ lệnh đã xếp được gửi, chữ bị Esc thì không');
+}, { query: '?nguoi=1' }));
+
+test('Ghi ứng (audit DX-03): gửi kèm số dư đang thấy; khoản trùng ngày + số thì báo, nút thành "Vẫn ghi thêm"; màn cũ thì máy chủ chặn, tải lại', () => withPage(async (page, w) => {
+  await page.locator('[data-act="mo-ung"]').click();
+  await page.locator('#dx-ung-ngay').fill('2026-11-01');
+  await page.locator('#dx-ung-tien').fill('500000');
+  assert.match(await page.locator('.dx-dlg .dx-canh').innerText(), /Đã có lần ứng 500\.000 ngày 01\/11 cho Tài xế Gia A/);
+  assert.equal(await page.locator('[data-act="ghi-ung"]').innerText(), 'Vẫn ghi thêm 500.000');
+  await page.locator('#dx-ung-tien').fill('700000');
+  assert.equal(await page.locator('.dx-dlg .dx-canh').count(), 0);
+  assert.equal(await page.locator('[data-act="ghi-ung"]').innerText(), 'Ghi ứng 700.000');
+  // Máy khác vừa ghi một lần ứng: số dư màn này đang thấy đã cũ.
+  w.ung.push({ id: 900, nguoi_id: 1, ngay: '2026-11-02', so_tien_vnd: '700000', ghi_chu: null, actor: 'nv2@gia', luc: '18/11 09:00', huy: null });
+  await page.locator('[data-act="ghi-ung"]').click();
+  await page.locator('.dx-toast.err', { hasText: 'Số dư vừa đổi ở máy khác' }).waitFor();
+  const sent = posts(w, '/api/v7/doixe/ung');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body.so_du_vnd, '650000', 'số dư đang thấy lúc bấm');
+  assert.equal(w.ung.length, 2, 'không ghi thêm');
+  // Màn đã tải lại: hộp vẫn mở, giờ thấy khoản của máy kia (cùng ngày khác nên không trùng), bấm lại thì ghi được.
+  await page.locator('#dx-ung-ngay').fill('2026-11-02');
+  await page.locator('.dx-dlg .dx-canh').waitFor();
+  assert.equal(await page.locator('[data-act="ghi-ung"]').innerText(), 'Vẫn ghi thêm 700.000');
+  await page.locator('[data-act="ghi-ung"]').click();
+  await page.locator('.dx-toast', { hasText: 'Đã ghi ứng 700.000' }).waitFor();
+  assert.equal(posts(w, '/api/v7/doixe/ung')[1].body.so_du_vnd, '-50000');
+}, { query: '?nguoi=1' }));
+
+test('Tháng khóa (DX-05): ứng, đợt hoàn và hủy vẫn ghi; báo trước trong hộp, báo sau khi lưu, nhãn "sau khóa" trên khoản', () => withPage(async (page, w) => {
+  // Đợt hoàn ngày ở tháng 10 (đã khóa): hộp báo trước, lưu được, câu báo nói rõ.
+  await page.locator('[data-act="mo-hoan"]').click();
+  assert.equal(await page.locator('.dx-hoan .dx-sk-bao').count(), 0, 'ngày hôm nay (tháng mở) không báo');
+  await page.locator('#dx-hoan-ngay').fill('2026-10-25');
+  assert.match(await page.locator('.dx-hoan .dx-sk-bao').innerText(), /Tháng 10 đã khóa: vẫn ghi, khoản gắn nhãn "sau khóa"/);
+  assert.equal(await page.locator('[data-act="ghi-hoan"]').isDisabled(), false, 'không chặn');
+  await page.locator('[data-act="ghi-hoan"]').click();
+  await page.locator('.dx-toast', { hasText: '(1 khoản vào tháng đã khóa, ghi là thêm sau khóa)' }).waitFor();
+  assert.equal(w.dot.at(-1).sau_khoa, true);
+  await page.locator('[data-act="xem-huy"][data-loai="dot"] .dx-sk', { hasText: 'sau khóa' }).waitFor();
+  // Ứng ngày ở tháng 10.
+  await page.locator('[data-act="mo-ung"]').click();
+  await page.locator('#dx-ung-tien').fill('200000');
+  assert.equal(await page.locator('.dx-dlg .dx-sk-bao').count(), 0, 'chưa đổi ngày: hôm nay, tháng mở');
+  await page.locator('#dx-ung-ngay').fill('2026-10-20');
+  assert.match(await page.locator('.dx-dlg .dx-sk-bao').innerText(), /Tháng 10 đã khóa/);
+  await shot(page, '10-ung-thang-khoa');
+  await page.locator('[data-act="ghi-ung"]').click();
+  await page.locator('.dx-toast', { hasText: 'Đã ghi ứng 200.000 cho Tài xế Gia A (1 khoản vào tháng đã khóa, ghi là thêm sau khóa).' }).waitFor();
+  const item = page.locator('[data-act="xem-huy"][data-loai="ung"]').first();
+  assert.match(await item.innerText(), /sau khóa/);
+  // Hủy ở tháng khóa: vẫn đòi lý do, hộp nói trước, phần hủy gắn nhãn.
+  await item.click();
+  assert.match(await page.locator('.dx-dlg').innerText(), /Người ghi\s+nv · 18\/11 09:15 · sau khóa/);
+  assert.match(await page.locator('.dx-dlg .dx-sk-bao').innerText(), /Tháng 10 đã khóa: vẫn hủy được/);
+  assert.equal(await page.locator('[data-act="huy"]').isDisabled(), true, 'tháng khóa vẫn bắt buộc lý do');
+  await page.locator('#dx-huy-lydo').fill('ghi nhầm ngày');
+  await page.locator('[data-act="huy"]').click();
+  await page.locator('.dx-toast', { hasText: 'Đã hủy lần ứng (khoản ở tháng đã khóa, ghi là hủy sau khóa)' }).waitFor();
+  assert.match(await page.locator('[data-act="xem-huy"][data-loai="ung"]').first().innerText(), /Đã hủy sau khóa · ghi nhầm ngày/);
+  assert.equal(posts(w, '/api/v7/doixe/ung/huy')[0].body.ly_do, 'ghi nhầm ngày');
+}, { query: '?nguoi=1' }));

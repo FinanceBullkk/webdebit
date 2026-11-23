@@ -57,7 +57,11 @@
       task: ready && !confirm ? `<button class="price-table-apply">Điền giá theo bảng (${ready} chuyến)</button>` : '' };
   };
 
-  // Sau khi vẽ sổ: chữ nhỏ ở ô Đơn giá và khung hỏi lại dưới đầu sổ.
+  // Sau khi vẽ sổ: nhãn ngắn ở ô Đơn giá và khung hỏi lại dưới đầu sổ.
+  // SO-GON-07 (23/11/2026, người dùng chọn A): mỗi chuyến một dòng. Trước đây chữ nhỏ xuống dòng dưới số ("theo bảng",
+  // "bảng 55.000.000") làm mỗi chuyến cao hai dòng, một màn chỉ ~9 chuyến. Giờ: giá ghi theo bảng là bình thường, không in chữ
+  // (rê chuột thấy); khác bảng in nhãn "≠ bảng" cùng dòng; chưa có giá thì chữ "chưa có giá" đổi thành lý do ngắn. Số của bảng
+  // và câu đầy đủ ở chữ rê chuột.
   const REASONS = { UNKNOWN_LOCATION: ['ngoài bảng giá', 'Nơi đi chưa có trong bảng giá'], UNKNOWN_DESTINATION: ['chưa có đích', 'Bảng giá chưa có giá cho nơi đến này, cũng chưa có giá chung (Nơi đến trống) của nơi đi'], NO_PERIOD: ['ngoài ngày có giá', 'Bảng giá chưa có giá cho ngày chuyến này'],
     NO_DATE: ['thiếu ngày', 'Chuyến thiếu ngày nên chưa tra được giá'], NO_ORIGIN: ['thiếu nơi đi', 'Chuyến thiếu nơi đi nên chưa tra được giá'], NO_DESTINATION: ['thiếu nơi đến', 'Chuyến thiếu nơi đến mà nơi đi chỉ có giá theo từng nơi đến'] };
   ctx.priceAfterRender = active => {
@@ -67,15 +71,17 @@
       const cell = root.querySelector(`[data-row="trip-${row.trip_id}"]`)?.children[ctx.columns.unitPrice()];
       if (!cell) continue;
       const lookup = row.lookup ?? {};
-      let note = '', cls = 'price-hint', title = '';
-      if (row.ready) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-ready'; title = `Theo bảng: ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''}${lookup.any_destination ? ', giá chung của nơi đi' : ''})`; }
-      else if (row.differs) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-diff'; title = `Khác bảng giá: bảng ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''})`; }
-      else if (row.from_table) { note = 'theo bảng'; title = `Giá ghi theo bảng (${TIER[lookup.tier] ?? ''})`; }
-      else if (row.unit_price_vnd == null && lookup.reason === 'NO_RATE') { note = `thiếu ${TIER[lookup.tier] ?? 'giá'}`; title = `Bảng giá có chuyến từ ${lookup.location ?? 'nơi đi này'} đến ${lookup.destination ?? 'nơi đến này'} nhưng chưa có ${TIER[lookup.tier] ?? 'giá'}`; }
-      else if (row.unit_price_vnd == null && REASONS[lookup.reason]) [note, title] = REASONS[lookup.reason];
-      if (!note) continue;
-      cell.insertAdjacentHTML('beforeend', `<small class="${cls}">${escape(note)}</small>`);
+      const tier = TIER[lookup.tier] ?? '';
+      // `say`: chữ thay "chưa có giá" (chuyến chưa có giá); `tag`: nhãn nhỏ cùng dòng sau số.
+      let say = '', tag = '', cls = 'price-hint', title = '';
+      if (row.ready) { say = 'chờ điền giá'; cls += ' price-ready'; title = `Bảng giá có ${fmt(lookup.unit_price_vnd)} (${tier}${lookup.any_destination ? ', giá chung của nơi đi' : ''}). Bấm "Điền giá theo bảng" để ghi.`; }
+      else if (row.differs) { tag = '≠ bảng'; cls += ' price-diff'; title = `Khác bảng giá: bảng ${fmt(lookup.unit_price_vnd)} (${tier})`; }
+      else if (row.from_table) title = `Giá ghi theo bảng (${tier})`;
+      else if (row.unit_price_vnd == null && lookup.reason === 'NO_RATE') { say = `thiếu ${tier || 'giá'}`; title = `Bảng giá có chuyến từ ${lookup.location ?? 'nơi đi này'} đến ${lookup.destination ?? 'nơi đến này'} nhưng chưa có ${tier || 'giá'}`; }
+      else if (row.unit_price_vnd == null && REASONS[lookup.reason]) [say, title] = REASONS[lookup.reason];
       if (title) cell.title = title;
+      if (say && cell.classList.contains('missing') && cell.children.length === 0) cell.innerHTML = `<span class="${cls}">${escape(say)}</span>`;
+      else if (say || tag) cell.insertAdjacentHTML('beforeend', `<small class="${cls}">${escape(say || tag)}</small>`);
       if (row.differs) cell.classList.add('price-differs');
     }
     const reapply = confirmIds('reapply').length;
@@ -349,15 +355,14 @@
     dialog.hidden = false;
     render();
     try {
-      const response = await fetch(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok || !data?.price_table) throw Error(data?.message || 'Không đọc được bảng giá.');
+      const data = await CongNoNet.fetchJson(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { what: 'bảng giá' });
+      if (!data?.price_table) throw Error('Không đọc được bảng giá.');
       form = fromServer(data.price_table);
       original = data.price_table;
       bookShippers = Array.isArray(data.book_shippers) ? data.book_shippers : [];
       savedShape = shapeOf(form);
       bar = null;
-    } catch (error) { bar = { kind: 'bad', text: error.message || 'Không đọc được bảng giá.' }; loading = false; failed = true; render(); return; }
+    } catch (error) { bar = { kind: 'bad', text: CongNoNet.messageOf(error, 'Không đọc được bảng giá.') }; loading = false; failed = true; render(); return; }
     loading = false;
     render();
     $('.price-grid-title')?.focus();

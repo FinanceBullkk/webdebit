@@ -18,7 +18,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc #error{max-width:1100px;margin:0 0 12px;padding:10px 14px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-weight:600}
 .tc #error button{margin-left:10px}
 .tc-warn{max-width:1100px;margin:0 0 12px;padding:10px 14px;border:1px solid #f0d49b;border-radius:8px;background:var(--warning-soft);color:var(--warning);font-weight:600}
-.tc-newpill{position:sticky;top:12px;z-index:5;display:block;margin:0 auto 10px;min-height:40px;padding:0 18px;border:1px solid var(--accent);border-radius:20px;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 2px 8px #1f293740;cursor:pointer}
+.tc-newpill{position:sticky;top:12px;z-index:5;display:block;margin:0 auto 10px;min-height:40px;padding:0 18px;border:1px solid var(--accent-ink);border-radius:20px;background:var(--accent-ink);color:#fff;font-weight:700;box-shadow:0 2px 8px #1f293740;cursor:pointer}
 #thu-chi{max-width:1100px;display:flex;flex-direction:column;gap:14px}
 .tc .loading,.tc .empty{margin:0;padding:16px;border:1px dashed var(--line);border-radius:var(--radius);background:#fff;color:var(--ink-2)}
 
@@ -29,7 +29,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-figs{display:flex;flex-wrap:wrap;gap:6px 22px}
 .tc-fig{display:flex;flex-direction:column;min-width:0}
 .tc-fig b{font-size:22px;line-height:1.2;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
-.tc-fig small{color:var(--ink-3);font-size:12.5px}
+.tc-fig small{color:var(--ink-3);font-size:13px}
 .tc-fig.thu b{color:var(--credit)}
 .tc-fig.chi b{color:var(--critical)}
 .tc-fig.ung b{color:var(--warning)}
@@ -60,18 +60,18 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-who small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Tên người gửi xuống tối đa hai dòng thay vì cắt cụt sau vài chữ: đọc được tên đầy đủ mà hàng không cao quá. */
 .tc-who b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
-.tc-who small,.tc-text{color:var(--ink-3);font-size:12.5px}
-.tc-kind{display:inline-block;min-width:44px;padding:1px 8px;border-radius:10px;font-size:12.5px;font-weight:800;text-align:center}
+.tc-who small,.tc-text{color:var(--ink-3);font-size:13px}
+.tc-kind{display:inline-block;min-width:44px;padding:1px 8px;border-radius:10px;font-size:13px;font-weight:800;text-align:center}
 .tc-kind.thu{background:var(--credit-soft);color:var(--credit)}
 .tc-kind.chi{background:var(--critical-soft);color:var(--critical)}
 .tc-kind.ung{background:var(--warning-soft);color:var(--warning)}
 .tc-amt{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tc-amt .dash{color:var(--ink-3);font-weight:600}
-.tc-amt .tc-src{display:block;color:var(--ink-3);font-size:12px;font-weight:600}   /* PR-4b: số do máy đọc từ ảnh, không phải người gõ */
+.tc-amt .tc-src{display:block;color:var(--ink-3);font-size:13px;font-weight:600}   /* PR-4b: số do máy đọc từ ảnh, không phải người gõ */
 .tc-target{min-width:0;overflow-wrap:anywhere}
 .tc-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tc-status b{display:block}
-.tc-status small{display:block;color:var(--ink-3);font-size:12.5px}
+.tc-status small{display:block;color:var(--ink-3);font-size:13px}
 .tc-status.ok b{color:var(--credit)}
 .tc-status.warn b{color:var(--critical)}
 .tc-status.wait b{color:var(--ink-2)}
@@ -80,7 +80,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-side{display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .tc-thumbs{display:flex;gap:4px}
 .tc-thumbs img{display:block;width:40px;height:40px;border-radius:6px;object-fit:cover;border:1px solid var(--line)}
-.tc-thumbs span{align-self:center;color:var(--ink-3);font-size:12.5px}
+.tc-thumbs span{align-self:center;color:var(--ink-3);font-size:13px}
 .tc-open{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;color:var(--accent-ink);font-weight:700;white-space:nowrap}
 .tc-open:hover{background:var(--accent-soft)}
 
@@ -90,10 +90,10 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-act[aria-expanded="true"]{background:#e4eefb;border-color:var(--accent);color:var(--accent-ink)}
 .tc-row.is-open{background:#f6f9fd;border-bottom-color:transparent}
 .tc-rev{color:var(--ink-2)!important;font-weight:600}
-.tc-target .tc-src{display:inline;margin-left:2px;color:var(--ink-3);font-size:12px;font-weight:600}
+.tc-target .tc-src{display:inline;margin-left:2px;color:var(--ink-3);font-size:13px;font-weight:600}
 .tc-panel{padding:10px 14px 14px 80px;background:#f6f9fd;border-bottom:1px solid var(--line-soft);display:flex;flex-direction:column;gap:10px}
 .tc-acts{display:flex;flex-wrap:wrap;gap:8px}
-.tc .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.tc .btn.primary{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
 .tc .btn.primary:hover:not(:disabled){background:var(--accent-ink)}
 .tc .btn.danger{background:var(--critical);border-color:var(--critical);color:#fff}
 .tc .btn.quiet-danger{color:var(--critical)}
@@ -120,7 +120,7 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-opts{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:6px}
 .tc-opt{min-height:36px;max-width:100%;padding:0 12px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;font-weight:600;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tc-opt:hover{background:var(--accent-soft)}
-.tc-opt[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.tc-opt[aria-selected="true"]{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
 .tc-perr{margin:0;padding:8px 12px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-weight:600}
 .tc-done{max-width:1100px;margin:0 0 12px;padding:8px 14px;border:1px solid #b9dcc4;border-radius:8px;background:var(--credit-soft);color:var(--credit);font-weight:700;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 .tc-done .btn{min-height:34px}

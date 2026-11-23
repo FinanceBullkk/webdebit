@@ -8,11 +8,15 @@ Chạy trên hao dưới user runner (timer v7-watchdog, 15 phút một lần):
 Mỗi lượt kiểm tại chỗ, chỉ đọc: web còn trả lời, lượt đối soát còn mới và không báo lỗi ghi, bản chụp Sheet còn mới, nguồn booking
 còn chuyến mới, hộp việc của API còn tính được, các timer còn bật, sao lưu không lỗi, đĩa còn chỗ, và lưới an toàn trên sổ thật
 (`v7_safety_net.py`, LUOI-AN-TOAN-01; chỉ ghi file mốc của chính nó), máy Zalo còn báo nhịp tim (ZALO-AGENT-01, 7–20 giờ) và bot Zalo
-hỏi đáp còn chạy, còn nhận tin (ZALO-BOT-01, 7–20 giờ). Rồi báo về một check trên healthchecks.io: ổn thì ping
-thường, có việc thì ping /fail kèm danh sách.
-hao tắt hay mất mạng thì không còn ping và dịch vụ đó tự gửi email, nên không dùng Uptime Kuma nằm trên chính hao.
+hỏi đáp còn chạy, còn nhận tin (ZALO-BOT-01, 7–20 giờ). Rồi báo về healthchecks.io: ổn thì ping thường, có việc thì ping /fail
+kèm danh sách. hao tắt hay mất mạng thì không còn ping và dịch vụ đó tự gửi email, nên không dùng Uptime Kuma nằm trên chính hao.
 
-Nội dung gửi đi chỉ có mã và số đếm, không có tên khách hay số tiền. Chưa có WEBDEBIT_ALERT_PING_URL thì chỉ in ra journal.
+Nhiều check (audit vận hành 23/11/2026, O2): healthchecks.io chỉ gửi email khi check đổi trạng thái, nên một lỗi kéo dài (lưới an toàn
+chưa ai chấp nhận, đĩa đầy) che mọi lỗi mới cùng check. Các phép kiểm chia nhóm (`GROUPS`), mỗi nhóm báo về check của nó nếu có URL riêng
+(`WEBDEBIT_ALERT_PING_URL_<NHÓM>`), không thì về check chính `WEBDEBIT_ALERT_PING_URL`. Check chính luôn nhận một ping mỗi lượt: khi mọi
+nhóm đã có check riêng thì nó chỉ còn là nhịp sống (hao còn chạy, máy canh còn chạy) và không bao giờ được Pause.
+
+Nội dung gửi đi chỉ có mã và số đếm, không có tên khách hay số tiền. Chưa có URL nào thì chỉ in ra journal.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -46,13 +50,28 @@ SOURCE_DAYS = int(os.getenv("WEBDEBIT_ALERT_SOURCE_DAYS") or 3)
 # Hộp việc tính lại mỗi đợt bản chụp (15 phút): quá 90 phút là nhịp nền đã dừng. Sổ lỗi phải lặp 2 lượt liền mới báo (lỗi lẻ tự lành).
 INBOX_MAX_MINUTES = 90
 INBOX_FAILED_ROUNDS = 2
+# Cờ máy 15 phút phải bật (= drop-in auto-sheet.conf trên hao, audit vận hành 23/11/2026, O4). Cố ý tắt một cờ thì sửa biến này
+# trong alert.env cùng lúc, không thì nhóm tiền báo (đúng ý: tắt nhầm khi sửa drop-in tay là chuyến/giá ngừng vào web mà web vẫn 200).
+AUTO_FLAGS = tuple(flag.strip() for flag in
+                   os.getenv("WEBDEBIT_ALERT_AUTO_FLAGS", "text,trips,prices,road,ps,headers").split(",") if flag.strip())
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
-TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
-                                   "webdebit-ps-snapshot": None, "v7-backup-hourly": 12, "v7-backup-daily": 26,
-                                   "v7-backup-config": 26, "v7-backup-offsite": 26}
+MONEY_TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
+                                         "webdebit-ps-snapshot": None}
+BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26}
+TIMERS: dict[str, float | None] = {**MONEY_TIMERS, **BACKUP_TIMERS}
 DISKS = ("/", "/srv", "/var/lib/postgresql")
 DISK_MIN_FREE = 0.10
 TEST_BODY = "Thử cảnh báo của máy công nợ, không có lỗi thật. Lượt kế sẽ báo ổn lại."
+# Nhóm → biến môi trường của check riêng, theo thứ tự thử. Không có biến nào thì nhóm báo về check chính (MAIN_URL).
+# Lưới an toàn tách khỏi tiền vì nó đỏ kéo dài tới khi có người chấp nhận (LUOI-AN-TOAN-01), sẽ che lỗi ghi của máy đối soát;
+# chưa có check riêng thì nó đi chung check tiền.
+GROUPS: dict[str, tuple[str, ...]] = {
+    "tien": ("WEBDEBIT_ALERT_PING_URL_TIEN",),
+    "luoi": ("WEBDEBIT_ALERT_PING_URL_LUOI", "WEBDEBIT_ALERT_PING_URL_TIEN"),
+    "saoluu": ("WEBDEBIT_ALERT_PING_URL_SAOLUU",),
+    "zalo": ("WEBDEBIT_ALERT_PING_URL_ZALO",),
+}
+MAIN_URL = "WEBDEBIT_ALERT_PING_URL"
 
 
 def now_vn() -> dt.datetime:
@@ -71,14 +90,45 @@ def check_api(url: str, opener: Callable = urllib.request.urlopen) -> list[str]:
     return [] if code == 200 else [f"Web báo lỗi ({code})."]
 
 
+RECONCILE_MAX_DIFFERENT = 40   # = v7_reconcile_auto.MAX_DIFFERENT: hơn số này khách lệch thì máy không ghi gì cả lượt
+
+
+def previous_too_many(path: Path, checked_at: str) -> bool:
+    """Lượt đối soát ngay trước lượt `checked_at` cũng hơn 40 khách lệch? Đọc đuôi `reconcile-log.jsonl` (mỗi lượt một dòng số đếm)."""
+    try:
+        with path.with_name("reconcile-log.jsonl").open("rb") as stream:
+            size = stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, size - 16384))
+            raw = stream.read().splitlines()
+    except OSError:
+        return False
+    lines = []
+    for item in raw[1:] if size > 16384 else raw:   # dòng đầu của khúc đuôi có thể bị cắt
+        try:
+            line = json.loads(item)
+        except ValueError:
+            continue
+        if isinstance(line, dict) and str(line.get("checked_at") or "") < checked_at:
+            lines.append(line)
+    return bool(lines) and ((lines[-1].get("counts") or {}).get("LECH_TONG") or 0) > RECONCILE_MAX_DIFFERENT
+
+
 def check_reconcile(path: Path, now: dt.datetime) -> list[str]:
-    """Cùng luật "có thể cũ" với tab Việc cần làm: một lượt lỗi lẻ thì lượt sau tự lành, quá 3 giờ trong ngày mới là máy đã dừng."""
+    """Cùng luật "có thể cũ" với tab Việc cần làm: một lượt lỗi lẻ thì lượt sau tự lành, quá 3 giờ trong ngày mới là máy đã dừng.
+    Máy chạy chế độ chỉ báo (thiếu `--fix`) và cầu dao hơn 40 khách lệch hai lượt liền cũng báo (audit vận hành 23/11/2026, O4):
+    hai trường hợp này lượt vẫn mới mà máy không ghi gì."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         checked = dt.datetime.fromisoformat(data["checked_at"]) if data.get("checked_at") else None
     except (OSError, ValueError, TypeError):
         return ["Không đọc được kết quả đối soát."]
     found = []
+    if checked is not None and data.get("mode") not in (None, "fix"):
+        found.append(f"Máy đối soát đang chạy chế độ {data['mode']}: không tự sửa (thiếu --fix trong unit v7-reconcile-auto).")
+    if checked is not None and (data.get("details") or {}).get("skipped") == "TOO_MANY_DIFFERENT" \
+            and previous_too_many(path, data["checked_at"]):
+        count = (data.get("counts") or {}).get("LECH_TONG")
+        found.append(f"Máy đối soát dừng ghi hai lượt liền vì {count} khách lệch (quá {RECONCILE_MAX_DIFFERENT}). Cần xem ngay.")
     code = (data.get("last_error") or {}).get("reason")
     tail = f" (lỗi gần nhất: {code})" if code else ""
     if checked is None:
@@ -166,6 +216,17 @@ def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str
     age = inbox.get("computed_age_seconds")
     if isinstance(age, int) and age > INBOX_MAX_MINUTES * 60:
         found.append(f"Hộp việc chưa tính lại {age // 60} phút: nhịp nền của API có thể đã dừng.")
+    # API cũ chưa có các trường dưới thì im (O4).
+    flags = inbox.get("auto_flags")
+    if isinstance(flags, str):
+        missing = [flag for flag in AUTO_FLAGS if flag not in flags.split(",")]
+        if missing:
+            found.append(f"Máy 15 phút trong API đang tắt {', '.join(missing)} (WEBDEBIT_AUTO_SHEET): "
+                         "chuyến, giá hay phí theo Sheet không tự vào web nữa.")
+    errors, error_rounds = inbox.get("auto_errors_last_round"), inbox.get("auto_error_rounds")
+    if isinstance(errors, int) and isinstance(error_rounds, int) and errors and error_rounds >= INBOX_FAILED_ROUNDS:
+        found.append(f"Máy 15 phút trong API lỗi {errors} lần ở lượt vừa rồi, {error_rounds} lượt liền: "
+                     "xem journalctl -u v7-ledger-api | grep 'V7 máy'.")
     return found
 
 
@@ -175,9 +236,9 @@ def systemctl_show(unit: str, *properties: str) -> dict[str, str]:
     return dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
 
 
-def check_units(show: Callable[..., dict[str, str]], now: float) -> list[str]:
+def check_units(show: Callable[..., dict[str, str]], now: float, timers: dict[str, float | None] = TIMERS) -> list[str]:
     found = []
-    for name, max_hours in TIMERS.items():
+    for name, max_hours in timers.items():
         timer = show(f"{name}.timer", "ActiveState", "LastTriggerUSec")
         if timer.get("ActiveState") != "active":
             found.append(f"Timer {name} không chạy.")
@@ -383,10 +444,13 @@ ZALO_BOT_TEXT = {"login_required": "nick phụ cần quét QR đăng nhập lạ
                  "sandbox_missing": "kênh không chạy vì unit thiếu chặn mạng tới API", "unknown": "kênh báo trạng thái lạ"}
 
 
+# Bộ đếm trong ngày của bot (F8): hết hạn mức là báo ngay; "chưa chắc" và lỗi model vượt ngưỡng ngày thì báo.
+ZALO_BOT_DAILY = {"not_sure": 5, "error": 3}
+
+
 def check_zalo_bot(now: dt.datetime) -> list[str]:
-    """Bot Zalo hỏi đáp còn chạy và còn nhận tin (ZALO-BOT-01 Phần 6). Dùng chung bộ đọc với tab Máy chạy, import muộn như `check_zalo`."""
-    if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
-        return []
+    """Bot Zalo hỏi đáp còn chạy và còn nhận tin (ZALO-BOT-01 Phần 6). Dùng chung bộ đọc với tab Máy chạy, import muộn như `check_zalo`.
+    Bộ đếm hạn mức, "chưa chắc" và lỗi được xét cả ngoài giờ làm việc: bộ đếm về 0 lúc nửa đêm, đợi sáng thì mất."""
     web = str(Path(__file__).resolve().parents[1] / "web")
     if web not in sys.path:
         sys.path.insert(0, web)
@@ -394,11 +458,20 @@ def check_zalo_bot(now: dt.datetime) -> list[str]:
     view = v7_machine.zalo_bot(now.timestamp())
     if view["state"] == "missing":
         return []
+    counts = view.get("counts") or {}
+    usage = []
+    if counts.get("over_budget", 0) > 0:
+        usage.append(f"Bot Zalo: đã hết hạn mức chi phí hôm nay ({counts['over_budget']} câu bị từ chối vì hạn mức).")
+    for name, label in (("not_sure", "câu trả lời \"chưa chắc\" (bộ kiểm số chặn)"), ("error", "lần gọi model lỗi")):
+        if counts.get(name, 0) >= ZALO_BOT_DAILY[name]:
+            usage.append(f"Bot Zalo: hôm nay {counts[name]} {label}, ngưỡng {ZALO_BOT_DAILY[name]}.")
+    if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
+        return usage
     limit = v7_machine.ZALO_LATE // 60
     if view["state"] == "silent":
         since = f" từ {dt.datetime.fromisoformat(view['at']):%H:%M ngày %d/%m}" if view["at"] else ""
         return [f"Bot Zalo im lặng{since}: bộ não không ghi nhịp tim quá {limit} phút."]
-    found = []
+    found = usage
     minutes = view["kenh_minutes"]
     if view["enabled"] and view["kenh"] != "online" and (minutes is None or minutes > limit):
         how = "" if minutes is None else f", {minutes} phút"
@@ -417,21 +490,45 @@ def collect(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path,
             offsite: Callable[[dt.datetime], list[str]] = check_offsite_pulls,
             zalo: Callable[[dt.datetime], list[str]] = check_zalo,
             zalo_bot: Callable[[dt.datetime], list[str]] = check_zalo_bot) -> list[str]:
-    """Một phép kiểm hỏng không được che các phép kiểm khác."""
+    """Mọi dòng của mọi nhóm, theo thứ tự phép kiểm."""
+    groups = collect_groups(now, healthz=healthz, reconcile=reconcile, snapshots=snapshots, show=show, safety=safety, offsite=offsite,
+                            zalo=zalo, zalo_bot=zalo_bot)
+    return [line for _, lines in groups for line in lines]
+
+
+def collect_groups(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots: Path, show: Callable = systemctl_show,
+                   safety: Callable[[dt.datetime], list[str]] = check_safety_net,
+                   offsite: Callable[[dt.datetime], list[str]] = check_offsite_pulls,
+                   zalo: Callable[[dt.datetime], list[str]] = check_zalo,
+                   zalo_bot: Callable[[dt.datetime], list[str]] = check_zalo_bot) -> list[tuple[str, list[str]]]:
+    """(nhóm, dòng) cho từng phép kiểm, theo thứ tự. Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
-    checks: tuple[tuple[str, Callable[[], list[str]]], ...] = (
-        ("web", lambda: check_api(healthz)), ("đối soát", lambda: check_reconcile(reconcile, now)),
-        ("bản chụp", lambda: check_snapshots(snapshots, moment)), ("nguồn chuyến", lambda: check_sources(snapshots, now.date())),
-        ("hộp việc", lambda: check_inbox(healthz)), ("timer", lambda: check_units(show, moment)),
-        ("đĩa", lambda: check_disks(DISKS)), ("lưới an toàn", lambda: safety(now)),
-        ("bản sao ngoài máy", lambda: offsite(now)), ("máy Zalo", lambda: zalo(now)), ("bot Zalo", lambda: zalo_bot(now)))
-    found: list[str] = []
-    for label, check in checks:
+    checks: tuple[tuple[str, str, Callable[[], list[str]]], ...] = (
+        ("tien", "web", lambda: check_api(healthz)), ("tien", "đối soát", lambda: check_reconcile(reconcile, now)),
+        ("tien", "bản chụp", lambda: check_snapshots(snapshots, moment)),
+        ("tien", "nguồn chuyến", lambda: check_sources(snapshots, now.date())),
+        ("tien", "hộp việc", lambda: check_inbox(healthz)), ("tien", "timer", lambda: check_units(show, moment, MONEY_TIMERS)),
+        ("saoluu", "timer sao lưu", lambda: check_units(show, moment, BACKUP_TIMERS)), ("saoluu", "đĩa", lambda: check_disks(DISKS)),
+        ("luoi", "lưới an toàn", lambda: safety(now)), ("saoluu", "bản sao ngoài máy", lambda: offsite(now)),
+        ("zalo", "máy Zalo", lambda: zalo(now)), ("zalo", "bot Zalo", lambda: zalo_bot(now)))
+    found: list[tuple[str, list[str]]] = []
+    for group, label, check in checks:
         try:
-            found += check()
+            found.append((group, check()))
         except Exception as exc:  # noqa: BLE001  (máy canh không được chết im vì một phép kiểm)
-            found.append(f"Không kiểm được phần {label} ({type(exc).__name__}).")
+            found.append((group, [f"Không kiểm được phần {label} ({type(exc).__name__})."]))
     return found
+
+
+def ping_routes(env: Mapping[str, str]) -> tuple[str, dict[str, str]]:
+    """(URL check chính, {nhóm: URL}). Nhóm không có check riêng thì về check chính; không có cả hai thì nhóm không có trong bảng."""
+    main = (env.get(MAIN_URL) or "").strip()
+    routes = {}
+    for group, names in GROUPS.items():
+        url = next((value for value in ((env.get(name) or "").strip() for name in names) if value), main)
+        if url:
+            routes[group] = url
+    return main, routes
 
 
 def send(url: str, body: str, *, failed: bool, opener: Callable = urllib.request.urlopen, attempts: int = 3, pause: float = 5) -> bool:
@@ -455,21 +552,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reconcile", type=Path, default=Path(os.getenv("WEBDEBIT_RECONCILE_PATH") or RECONCILE))
     parser.add_argument("--snapshots", type=Path, default=Path(SNAPSHOT_DIR))
     args = parser.parse_args(argv)
-    url = (os.getenv("WEBDEBIT_ALERT_PING_URL") or "").strip()
-    if url and not url.startswith("https://"):
-        print(json.dumps({"ok": False, "error": "WEBDEBIT_ALERT_PING_URL phải bắt đầu bằng https://"}, ensure_ascii=False))
+    main_url, routes = ping_routes(os.environ)
+    if any(not url.startswith("https://") for url in (main_url, *routes.values()) if url):
+        print(json.dumps({"ok": False, "error": "WEBDEBIT_ALERT_PING_URL… phải bắt đầu bằng https://"}, ensure_ascii=False))
         return 2
-    # --dry-run không ghi gì, kể cả mốc của lưới an toàn.
-    found: list[str] = [TEST_BODY] if args.test_fail else collect(
-        now_vn(), healthz=args.healthz, reconcile=args.reconcile, snapshots=args.snapshots,
-        safety=functools.partial(check_safety_net, save_state=not args.dry_run))
-    report: dict[str, Any] = {"ok": not found, "problems": found, "configured": bool(url)}
+    # Mỗi check nhận đúng một ping mỗi lượt: các nhóm chung một check thì gộp dòng; check chính luôn có mặt (nhịp sống).
+    outgoing: dict[str, list[str]] = {main_url: []} if main_url else {}
+    if args.test_fail:   # thử mọi check một lần, mỗi check gửi email riêng
+        found = [TEST_BODY]
+        outgoing = dict.fromkeys([*outgoing, *routes.values()], found)
+    else:
+        # --dry-run không ghi gì, kể cả mốc của lưới an toàn.
+        groups = collect_groups(now_vn(), healthz=args.healthz, reconcile=args.reconcile, snapshots=args.snapshots,
+                                safety=functools.partial(check_safety_net, save_state=not args.dry_run))
+        found = [line for _, lines in groups for line in lines]
+        for group, lines in groups:
+            if group in routes:
+                outgoing.setdefault(routes[group], []).extend(lines)
+    report: dict[str, Any] = {"ok": not found, "problems": found, "configured": bool(outgoing), "checks": len(outgoing)}
     print(json.dumps(report, ensure_ascii=False))
-    if args.dry_run or not url:
+    if args.dry_run or not outgoing:
         return 0
-    if send(url, "\n".join(found) or "Ổn.", failed=bool(found)):
+    failed = [url for url, lines in outgoing.items() if not send(url, "\n".join(lines) or "Ổn.", failed=bool(lines))]
+    if not failed:
         return 0
-    print(json.dumps({"ok": False, "error": "không gửi được báo cáo"}, ensure_ascii=False))
+    print(json.dumps({"ok": False, "error": f"không gửi được báo cáo tới {len(failed)}/{len(outgoing)} check"}, ensure_ascii=False))
     return 3
 
 

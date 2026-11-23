@@ -149,18 +149,15 @@
       }
       action.disabled = true;
       try {
-        const response = await fetch('/api/v7/sheet/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customer_id: customerId, expected_version: ctx.snapshot.version,
-            snapshot_sha256: ctx.snapshot.sheet_sync.snapshot_sha256, source_row: trip.source_row,
-            target_kind: trip.existing_kind, target_id: trip.existing_id, field: action.dataset.sheetField,
-            decision: action.dataset.sheetDecision, idempotency_key: crypto.randomUUID() }) });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message || 'Không xử lý được dòng đối chiếu.');
+        await CongNoNet.postJson('/api/v7/sheet/resolve', { customer_id: customerId, expected_version: ctx.snapshot.version,
+          snapshot_sha256: ctx.snapshot.sheet_sync.snapshot_sha256, source_row: trip.source_row,
+          target_kind: trip.existing_kind, target_id: trip.existing_id, field: action.dataset.sheetField,
+          decision: action.dataset.sheetDecision, idempotency_key: crypto.randomUUID() }, { what: 'quyết định đối chiếu' });
         await api.read();
         const nextButton = root.querySelector(`[data-row="${CSS.escape(rowKey)}"] .sheet-diff`);
         if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
-      } catch (error) { detailNotice(error.message); action.disabled = false; }
+      } catch (error) { detailNotice(CongNoNet.messageOf(error, 'Không xử lý được dòng đối chiếu.')); action.disabled = false; }
     }));
     root.addEventListener('change', event => {
       const checkbox = event.target.closest('.price-conflict-select');
@@ -416,7 +413,7 @@
       const amount = item.status !== 'confirmed' ? 'chưa tính vào số dư'
         : item.amount_vnd == null ? 'chưa có giá' : `thành tiền ${escape(ctx.fmt(item.amount_vnd))}`;
       // Dòng hỏi cùng dạng xóa chuyến ở ô STT: nút Xóa hẳn/Thôi do so-khach-v7-edit-ui.js xử lý (lệnh tripDelete).
-      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="cancel-delete">Thôi</button> <button type="button" class="confirm-delete">Xóa hẳn</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }));
     Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved });

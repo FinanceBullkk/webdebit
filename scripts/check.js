@@ -130,6 +130,14 @@ const steps = [
     cwd: ROOT,
   },
   {
+    // Sàn cỡ chữ 13px trên CSS/HTML giao diện (audit 23/11/2026, F6): chữ nhỏ là lỗi đọc với người dùng trên 40
+    // tuổi ở màn 1280×720, và một dòng chép từ CSS cũ là nó quay lại. Lý do và phạm vi ở đầu file script.
+    name: "lint:css  cỡ chữ tối thiểu",
+    cmd: process.execPath,
+    args: [path.join(__dirname, "check-font-size.js")],
+    cwd: ROOT,
+  },
+  {
     // Secrets và dữ liệu nghiệp vụ thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số
     // container, tên khách theo danh sách ngoài repo) trên mọi file đã theo dõi. Trước 18/11/2026 lệnh
     // này chỉ chạy tay trước commit, và nhật ký triển khai đã lọt tổng nợ thật vào repo public; chạy ở

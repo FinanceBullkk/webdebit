@@ -96,7 +96,7 @@
             showNotice(text + (result.target_receipt?.duplicate_reference ? ' Tham chiếu trùng với phiếu khác trong sổ.' : ''));
           });
           if (outcome.status === 'stale' || outcome.status === 'unknown') closeDialog();
-        } catch (error) { showNotice(error.message); closeDialog(); }
+        } catch (error) { showNotice(CongNoNet.messageOf(error)); closeDialog(); }
         button.disabled = false;
       });
       box.querySelector('.offset-confirm').focus();
@@ -126,7 +126,7 @@
     async function openOffsetReceipt(cellEl) {
       const { pid, pair, other, otherName, field } = cellEl.dataset;
       let otherLedger;
-      try { otherLedger = await api.readOther(other); } catch (error) { showNotice(error.message); return; }
+      try { otherLedger = await api.readOther(other); } catch (error) { showNotice(CongNoNet.messageOf(error)); return; }
       const rowEl = cellEl.closest('tr');
       if (field === 'date') {
         const original = cellEl.innerHTML;
@@ -143,14 +143,14 @@
           try {
             const outcome = await api.submitOffset('offsetDate', { other_version: otherLedger.version, offset_pair_id: pair, date });
             afterOffset(outcome, box, () => showNotice(`Đã đổi ngày cấn trừ ${pid} sang ${dateText(date)} ở cả hai sổ.`));
-          } catch (error) { box.textContent = error.message; }
+          } catch (error) { box.textContent = CongNoNet.messageOf(error); }
         });
         return;
       }
       root.querySelector('.void-prompt')?.remove();
       const theirs = [...(otherLedger.receipts ?? []), ...(otherLedger.outgoing_offsets ?? [])].find(item => String(item.offset_pair_id) === pair);
       const both = `<strong>${escape(pid)}</strong> ở sổ <strong>${escape(ownName())}</strong> và <strong>${escape(theirs?.pid ?? '–')}</strong> ở sổ <strong>${escape(otherName)}</strong>`;
-      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="${spanOf(rowEl)}"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
+      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="${spanOf(rowEl)}"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="cancel-void">Bỏ qua</button> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
       rowEl.nextElementSibling.querySelector('input').focus();
     }
     async function confirmOffsetVoid(promptRow) {
@@ -160,7 +160,7 @@
       try {
         const outcome = await api.submitOffset('offsetVoid', { other_version: promptRow.dataset.otherVersion, offset_pair_id: promptRow.dataset.pair, reason });
         afterOffset(outcome, box, () => showNotice('Đã hủy cấn trừ ở cả hai sổ.'));
-      } catch (error) { box.textContent = error.message; }
+      } catch (error) { box.textContent = CongNoNet.messageOf(error); }
     }
     // Ô chọn sổ nguồn nằm trong khung Ghi phiếu thu (ngoài #app): nghe ở document.
     if (typeof document.addEventListener === 'function') {

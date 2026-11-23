@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import sys
 import tempfile
 import time
@@ -20,8 +21,11 @@ from pathlib import Path
 
 import v7_safety_net as net  # thêm web/ vào sys.path cho adapter bên dưới
 from pg_v7_harness import (
+    AUDIT_SQL_MIGRATION,
     DATABASE,
+    DIEU_CHINH_THEO_GIA_MIGRATION,
     IMAGE,
+    SO_GON_MIGRATION,
     HarnessError,
     Pg,
     actor_sql,
@@ -104,8 +108,14 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     pg.sql("CREATE ROLE v7_reader LOGIN IN ROLE sokhach_reader")
     pg.rejects("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL sokhach.actor='x'; "
                "SELECT sokhach.get_safety_net('{}'); COMMIT", user="v7_reader", message="permission denied")
-    raw = json.dumps(probe.db.run("get_safety_net", {"ledger_slices": 1}, net.ACTOR, read_only=True), ensure_ascii=False)
+    result = probe.db.run("get_safety_net", {"ledger_slices": 1}, net.ACTOR, read_only=True)
+    # Khối catalog (kiểm 5) là tên hàm/bảng/ràng buộc của lược đồ (vd. adjustment_amount_vnd_check) và md5, không phải dữ liệu sổ.
+    catalog = result.pop("catalog")
+    raw = json.dumps(result, ensure_ascii=False)
     require("FAKE" not in raw and "_vnd" not in raw, "kết quả hàm lộ tên sổ hoặc khóa số tiền")
+    require("FAKE" not in json.dumps(catalog, ensure_ascii=False)
+            and all(re.fullmatch(r"[0-9a-f]{32}(:[OADR])?", value) for part, values in catalog.items() if part != "level"
+                    for value in values.values()), "khối catalog chỉ được có tên đối tượng và md5")
     cases.append("chỉ đọc, một ảnh dữ liệu, chỉ app, không tên/số tiền")
 
     # Sạch: lượt đầu lấy mốc; lệnh ghi thật trên nhiều sổ không gây báo.
@@ -140,15 +150,16 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     pg.sql(f"UPDATE sokhach.customer SET archived=false WHERE id={spare.id}")
     original = mutate(pg, "get_dashboard", "coalesce(sum(total) FILTER (WHERE total>0),0)::bigint recv",
                       "(coalesce(sum(total) FILTER (WHERE total>0),0)+1)::bigint recv")
-    probe.expect("Tổng quan cộng sai", "Tổng quan không khớp tổng các sổ: tổng Còn phải thu.")
+    # Kiểm 5 (audit SQL F1) thấy luôn hàm bị sửa tay.
+    probe.expect("Tổng quan cộng sai", "Tổng quan không khớp tổng các sổ: tổng Còn phải thu.", "Định nghĩa trong DB khác repo")
     pg.sql(original)
     original = mutate(pg, "get_dashboard_debt", "WHERE s.total>0),", f"WHERE s.total>0 AND act.id<>{debtor.id}),")
     probe.expect("dải hạn trả thiếu sổ", "Tổng quan không khớp tổng các sổ: tổng ở dải hạn trả, năm nhóm hạn trả, "
-                 f"danh sách khách nợ (sổ {debtor.id}).")
+                 f"danh sách khách nợ (sổ {debtor.id}).", "Định nghĩa trong DB khác repo")
     pg.sql(original)
     original = mutate(pg, "get_ledger", "'total_outstanding_vnd',v_total::bigint::text",
                       "'total_outstanding_vnd',(v_total+1)::bigint::text")
-    probe.expect("tổng trong sổ sai", "Tổng trong sổ khác tổng Tổng quan dùng ở 3 sổ")
+    probe.expect("tổng trong sổ sai", "Tổng trong sổ khác tổng Tổng quan dùng ở 3 sổ", "Định nghĩa trong DB khác repo")
     pg.sql(original)
     probe.quiet("dựng lại hàm")
     cases.append("kiểm 2: sổ lưu trữ còn nợ, Tổng quan, dải hạn trả, get_ledger sai thì đỏ, đúng lại thì tự hết")
@@ -181,11 +192,16 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     require(probe.run()["summary"].get("skipped"), "thiếu hàm mà không im")
     for _ in range(2):
         pg.sql(MIGRATION.read_text(encoding="utf-8"))
+    # Migration 18/11 là bản cũ của get_safety_net (chưa có bảng băm): kiểm 5 báo tới khi chạy lại migration mới nhất.
+    probe.expect("chạy lại migration cũ", "DB chưa trả bảng băm định nghĩa")
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     probe.quiet("sau migration")
     require(pg.value("SELECT has_function_privilege('v7_app','sokhach.get_safety_net(jsonb)','EXECUTE') AND NOT "
                      "has_function_privilege('v7_app','sokhach._safety_events(bigint,interval)','EXECUTE')") == "t",
             "quyền sau migration")
-    cases.append("DB chưa có hàm thì im; migration chạy hai lần được")
+    cases.append("DB chưa có hàm thì im; migration chạy hai lần được; migration cũ kéo hàm về bản cũ thì kiểm 5 báo")
 
 
 def main() -> int:

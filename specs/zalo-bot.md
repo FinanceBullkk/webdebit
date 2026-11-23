@@ -1,6 +1,6 @@
 # Bot Zalo hỏi đáp công nợ (ZALO-BOT-01)
 
-Trạng thái: **ĐÃ CHỐT hướng làm** ngày 22/11/2026 ([`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md)). Chưa code. Q4 và Q5 chốt với người dùng trước khi bật.
+Trạng thái: **ĐÃ CHỐT hướng làm** ngày 22/11/2026 ([`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md)). Mã PR-1 đến PR-3c đã merge, **chưa cài trên `hao`, chưa bật**. Ngày 23/11/2026 sửa theo audit (bộ kiểm số danh sách trắng, dòng sổ và kỳ, ngày hôm nay, dữ liệu gửi ra theo danh sách giữ lại): xem [Điều kiện bật](#điều-kiện-bật-audit-23112026). Q4 và Q5 ĐÃ CHỐT ngày 24/11/2026 (người dùng nhờ Claude chốt, đúng đề xuất).
 
 Người dùng đã chọn bốn điều trong chat ngày 22/11/2026:
 
@@ -35,9 +35,12 @@ Mẫu câu trả lời (chữ trong `<>` là chỗ điền số thật):
 Khách <tên> còn nợ <số tiền>.
 - Quá hạn: <số tiền>, chuyến cũ nhất tháng <tháng>
 - Trả lần cuối: <ngày>
+Sổ: <tên sổ> (mã <mã sổ>) · <kỳ của số, ví dụ "tháng 10/2026" hay "số hiện tại">
 Nguồn: Tổng quan · dữ liệu lúc <giờ> · khớp Sheet (đối soát <giờ>)
-Mở sổ: <link>
+Mở: <link>
 ```
+
+Dòng "Sổ", "Nguồn", "Mở" do bot viết từ các kết quả công cụ có số được trích; câu trả lời không trích số nào thì không có các dòng này.
 
 Khi khách đang lệch Sheet:
 
@@ -134,7 +137,9 @@ hao: v7-zalo-bot (Python; user riêng; không nạp zca-js)
   - bot giữ vòng thì chèn được bước kiểm số trước khi gửi;
   - Anthropic không giữ lịch sử hội thoại như một kho lưu phiên. Phương án Managed Agents (Anthropic chạy vòng, đang beta) giữ lịch sử phiên tới khi xóa và tính thêm phí thời gian chạy, nên không chọn cho dữ liệu công nợ.
 - **Thư viện:** SDK chính thức `anthropic` cho Python, cài trong venv riêng của bot với file khóa hash riêng. API web và `requirements.txt` không thêm phụ thuộc. Test dùng model giả nên CI không cần SDK. Bộ não không nạp zca-js.
-- **Giới hạn mỗi câu hỏi:** tối đa 8 lượt gọi công cụ và 90 giây. Quá giới hạn thì trả phần đã chắc và nói rõ phần chưa tra được.
+- **Giới hạn mỗi câu hỏi:** tối đa 8 lượt gọi công cụ và 90 giây; mỗi lượt gọi model chờ tối đa phần còn lại của 90 giây, SDK thử lại một lần. Quá giới hạn thì trả câu cố định. Mỗi người tối đa 3 câu chờ tra; câu thứ tư được nhờ đợi. Câu chờ tới lượt mà đã quá 10 phút thì nhờ hỏi lại, không gọi model.
+- **Yêu cầu gửi model:** `max_tokens` 16000 (suy nghĩ luôn bật và tính vào trần này), `effort` chỉ `low`, `medium`, `high` cho tới khi có số đo; lời dặn và bảng công cụ nhớ đệm bằng điểm ngắt ở khối lời dặn, phần hội thoại đang dài ra nhớ đệm tự động (`cache_control` cấp trên).
+- **Ngày hôm nay:** lượt người dùng mở bằng dòng `Hôm nay: YYYY-MM-DD (thứ …), giờ Việt Nam.` (không đặt trong lời dặn, để không làm vỡ nhớ đệm), để model đổi "tháng trước", "hôm qua" ra tháng, ngày cụ thể.
 - **Ngữ cảnh hội thoại:**
   - nhớ 10 lượt gần nhất trong 2 giờ, theo từng người, để hiểu "khách đó", "tháng trước nữa"; nhắn "mới" (không cần dấu; "câu mới", "hỏi mới", "xóa ngữ cảnh" cũng được) thì xóa ngữ cảnh. Chỉ nhớ lượt đã trả lời được; ngữ cảnh nằm trong bộ nhớ của bộ não, khởi động lại là mất;
   - mỗi câu hỏi là một cuộc gọi mới: lượt cũ đưa vào dưới dạng chữ (câu hỏi và câu trả lời cuối), không đưa lại kết quả công cụ cũ;
@@ -211,21 +216,28 @@ Chỗ thiếu đã biết:
 - `/api/v7/inbox` có thể khởi động lượt tính lại của máy (lượt này vẫn chạy mỗi phút). Bot giữ kết quả 60 giây và gọi tối đa một lần mỗi câu hỏi.
 - **Khách khớp Sheet mà sổ đổi sau lần đối soát:** `/inbox` chỉ trả danh sách mã khách khớp, không kèm tổng lúc khớp, nên bot chưa biết sổ đã đổi sau giờ đối soát. Hai cách (CÒN MỞ): so giờ thao tác cuối trong lịch sử sổ với giờ đối soát, hoặc API trả thêm tổng lúc khớp.
 - **Số theo mặt hàng của Tổng quan** tính trong JS của trang (gộp mặt hàng dưới 1% vào "Khác", tách sầu riêng cảng/bộ); `by_commodity` của máy chủ không gộp như vậy. Công cụ `tong_quan` chưa trả số theo mặt hàng cho tới khi có bản Python cùng test so với model JS.
-- **Tên tài xế** (công cụ `doi_xe`) không thuộc nhóm dữ liệu Q5 đã nêu: hỏi lại người dùng cùng lúc chốt Q5.
+- **Dữ liệu gửi model theo danh sách giữ lại** (`KEEP` trong `tools.py`, từ 23/11/2026 thay danh sách bỏ): mỗi công cụ chỉ gửi các khóa đã liệt kê, cộng khóa tiền `*_vnd`. Khóa API mới thêm không tự đi ra ngoài. Danh sách thật ở câu hỏi [Q5](#câu-hỏi-cần-chốt).
+- **Vai trò người hỏi lấy từ web** mỗi câu hỏi (giữ 60 giây): bot gọi `GET /api/v7/admin/zalo-bot-role`, đường không có thật dưới tiền tố admin. Web kiểm vai trò trước khi tìm đường, nên login user nhận 403, admin nhận 404; không handler nào chạy. Không hỏi được web thì coi là user. `role` trong `/etc/webdebit/zalo-bot.json` không bắt buộc và chỉ hạ được quyền.
 
 ### Phần 4: Kiểm số trước khi gửi
 
-Đây là chỗ biến "hỏi tự do" thành "tin được":
+Đây là chỗ biến "hỏi tự do" thành "tin được" (`verify.py`, `model.py`):
 
-- **Số tiền điền bằng tham chiếu.** Model không gõ số tiền mà viết chỗ trống trỏ tới một trường của kết quả công cụ, ví dụ `{t2.qua_han}`; bot điền giá trị và định dạng VND. Trường có tên rõ nghĩa (`tong_no`, `qua_han`, `thu_thang_nay`), nên muốn nói nhầm "quá hạn" thành "tổng nợ" thì model phải chọn sai tên trường.
-- Tách mọi con số trong bản đã điền: tiền (đồng, nghìn, triệu, tỷ), số đếm, ngày và tháng.
-- **Mỗi số tiền phải bằng đúng một giá trị** trong kết quả công cụ hoặc công cụ tính của câu hỏi đó.
-  - Số làm tròn ("khoảng 1,2 tỷ") phải đúng bằng một giá trị đó làm tròn theo đơn vị ghi, và phải có chữ "khoảng".
-- **Dòng nguồn và cảnh báo do bot thêm, không do model viết** (PR-2b): từ các kết quả công cụ được trỏ tới, bot ghi trang nguồn, giờ dữ liệu, khớp Sheet hay chưa, link mở trang; khách đang lệch Sheet, chưa có trong lượt đối soát hay đối soát đã cũ thì bot thêm dòng "Lưu ý" kèm số lệch và lý do máy đoán. Nhờ vậy câu trả lời không thể thiếu nguồn hay quên cảnh báo.
-- **Khi kiểm sai:**
-  1. Trả bản nháp về model một lần, kèm lỗi.
-  2. Vẫn sai thì gửi "Chưa chắc số này, xem trên web: <link>", và ghi lượt đó vào danh sách cần xem.
-- **Giới hạn:** bộ kiểm chặn số không có nguồn, nhưng không bắt được số thật đặt sai chỗ khi model chọn sai trường. Bộ câu hỏi mẫu đo lỗi này và là căn cứ chọn model (Q1).
+- **Số tiền điền bằng tham chiếu.** Model không gõ số tiền mà viết chỗ trống trỏ tới một trường của kết quả công cụ, ví dụ `{t2.no_vnd}`; bot điền giá trị và định dạng VND.
+- **Chỉ trích được năm loại trường** qua chỗ trống: tiền (`*_vnd`), tên sổ (`ten`, `name`…), ngày/tháng (bot viết lại dạng `05/10/2026`), số đếm (`so_…`, mã sổ), tỉ lệ (`ti_le…`). Trường chữ khác (tên trò chuyện Zalo, lý do, tóm tắt) không trích được, để chữ người ngoài đặt không đi qua chỗ trống mà né bộ kiểm. Ngày, số đếm, tỉ lệ bot điền vẫn đi qua bộ kiểm như chữ model viết.
+- **Mọi số còn lại kiểm theo danh sách trắng**, sau khi chuẩn hóa chữ (bỏ dấu, chữ số toàn khổ, nhóm chữ số bằng `.`, `,`, khoảng trắng hay `'`):
+  - số có đơn vị tiền (`đ`, `đồng`, `VND`) hay đơn vị lớn (`nghìn`, `k`, `triệu`, `tr`, `trđ`, `M`, `tỷ`, `tỉ`, `B`, kể cả viết liền `1tỷ2`) phải bằng một giá trị tiền trong kết quả công cụ hoặc công cụ tính của câu hỏi đó;
+  - `0 đ` gõ tay luôn bị chặn (số 0 phải là chỗ trống); số âm gõ tay phải có đúng giá trị âm đó;
+  - số làm tròn phải có ít nhất hai chữ số có nghĩa ("khoảng 1,2 tỷ", không "khoảng 1 tỷ"), có chữ "khoảng/gần/hơn…" ngay trước và đúng chiều: "hơn" thì số thật không nhỏ hơn số ghi và chưa tới bậc kế tiếp, "gần" thì ngược lại;
+  - số nhóm chữ số không kèm đơn vị, và số trơn từ 4 chữ số, phải trùng một giá trị trong kết quả công cụ (năm 2000–2099 được);
+  - số nhỏ trơn phải trùng một số trong kết quả công cụ hay đứng cạnh từ đếm ("3 chuyến", "tháng 10");
+  - phần trăm phải trùng một tỉ lệ của công cụ `tinh`; số tiền viết bằng chữ ("năm trăm triệu") bị chặn.
+- **Dòng sổ, nguồn và cảnh báo do bot thêm, chỉ từ các kết quả được trích:** mỗi kết quả có mã sổ cho một dòng `Sổ: <tên> (mã <mã>) · <kỳ>`, kết quả khác có kỳ thì `Kỳ: …`; rồi trang nguồn, giờ dữ liệu, khớp Sheet (mỗi lần đối soát ghi một lần), link mở trang. Khách đang lệch Sheet, chưa có trong lượt đối soát hay đối soát đã cũ thì thêm dòng "Lưu ý". Câu trả lời không trích kết quả nào thì không có dòng nào, để câu chưa kiểm không trông như đã kiểm. Link model tự viết bị bỏ.
+- **Nhiều sổ trong một câu trả lời:** số tiền của hai sổ trở lên thì mỗi số tiền phải cùng câu với `{tN.ten}` của nó, không thì trả lại model.
+- **Tên mơ hồ:** `tim_khach` ra nhiều sổ mà câu hỏi không nêu mã sổ hay tên đầy đủ (tên dài nhất khớp nếu tên lồng nhau) thì bot không chạy công cụ theo khách cho các sổ đó; model phải liệt kê để người hỏi chọn.
+- **Nói về tiền mà không trích số** ("đã trả hết", "còn nợ nhiều") sau khi đã tra số: trả lại model một lần; vẫn vậy thì gửi mà không có dòng nguồn.
+- **Khi kiểm sai:** trả bản nháp về model một lần kèm lỗi; vẫn sai thì gửi "Chưa chắc số này…" và đếm `not_sure` (máy canh báo khi từ 5 lần trong ngày).
+- **Giới hạn:** bộ kiểm chặn số không có nguồn, nhưng không bắt được số thật của đúng sổ mà sai trường (ví dụ "quá hạn" đọc thành "tổng nợ"), ngày sai hay số đếm sai đi cạnh từ đếm. Dòng "Sổ … · kỳ" giúp người đọc thấy; bộ câu hỏi mẫu đo phần này và là căn cứ chọn model (Q1).
 
 ### Phần 5: Quyền, bí mật, dữ liệu gửi ra ngoài
 
@@ -241,10 +253,10 @@ Chỗ thiếu đã biết:
   - Đề xuất một khóa API riêng cho bot, không dùng chung khóa của Nhật ký và AI giải thích (`WEBDEBIT_ANTHROPIC_KEY_FILE`), để đặt trần chi tiêu riêng và thu hồi riêng.
 - **Cờ tắt hẳn:** `WEBDEBIT_ZALO_BOT=0`.
 - **Trần chi phí:**
-  - bot đếm token mỗi lượt; vượt trần ngày thì trả một câu cố định và báo email qua máy canh ([`CANH-BAO-01`](../docs/decisions/canh-bao-01.md));
+  - bot đếm token mỗi lượt; vượt trần ngày thì trả một câu cố định và báo email qua máy canh ([`CANH-BAO-01`](../docs/decisions/canh-bao-01.md)): `check_zalo_bot` báo khi `over_budget` > 0, `not_sure` từ 5 hay `error` từ 3 trong ngày, kể cả ngoài giờ làm việc;
   - người dùng đặt thêm trần chi tiêu ở trang của Anthropic cho khóa của bot.
 - **Dữ liệu gửi ra ngoài:**
-  - Tới Anthropic: câu hỏi, gói kiến thức (đã sạch), và phần dữ liệu công cụ trả về cho câu hỏi đó (tên khách, mã sổ, số tiền, ngày, trạng thái). Đã có tiền lệ gửi gói đối soát một khách tới Claude ở nút "Giải thích với AI" ([spec](v7-ai-explain.md)), nhưng nút đó hỏi đồng ý từng lần; bot gửi theo mỗi câu hỏi, nên cần người dùng chốt (Q5). Câu hỏi người dùng gõ cho nick phụ là đầu vào của model; tin chat của khách vẫn ở ngoài model như [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md) mục 3.
+  - Tới Anthropic: câu hỏi, gói kiến thức (đã sạch), và phần dữ liệu công cụ trả về cho câu hỏi đó, chỉ các khóa trong danh sách giữ lại (danh sách thật ở Q5). Đã có tiền lệ gửi gói đối soát một khách tới Claude ở nút "Giải thích với AI" ([spec](v7-ai-explain.md)), nhưng nút đó hỏi đồng ý từng lần; bot gửi theo mỗi câu hỏi, nên cần người dùng chốt (Q5). Câu hỏi người dùng gõ cho nick phụ là đầu vào của model; tin chat của khách vẫn ở ngoài model như [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md) mục 3.
   - Tới Zalo: câu hỏi và câu trả lời, như mọi tin chat giữa hai nick. Tin nằm trong lịch sử chat của nick chính, kể cả Zalo PC trên msi; `zalo-agent` chỉ đẩy lên web chat đã chọn, nên không chọn chat với nick phụ.
   - **Không gửi:** chữ gốc của tin chat Zalo hoặc WeChat của khách, ảnh chuyển khoản, số tài khoản. Giữ [`ZALO-THU-CHI-01`](../docs/decisions/zalo-thu-chi-01.md) mục 3 và [`ZALO-AGENT-01`](../docs/decisions/zalo-agent-01.md) mục 4. Về thu chi, bot nói được số tiền, giờ và trạng thái đối chiếu, nhưng không nói chữ gốc của tin.
 
@@ -286,6 +298,36 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
 - Node trên `hao`: P0 kiểm bản; chưa có hoặc cũ hơn 18 thì cài bản của distro.
 - Cài unit và Node lần đầu là đổi hệ thống ngoài runbook: Claude tự làm theo [`TU-LAM-01`](../docs/decisions/tu-lam-01.md), ghi nhật ký trong `docs/deploys/`.
 - Tới PR-4 mới cần thêm role DB.
+
+## Điều kiện bật (audit 23/11/2026)
+
+Bảng go-live của audit chỉ đọc ngày 23/11/2026 (mục 4), cập nhật sau PR sửa F1–F11 cùng ngày. MET nghĩa là có mã và test trong CI; trạng thái trên `hao` chỉ biết sau khi cài.
+
+| Điều kiện | Trạng thái |
+| --- | --- |
+| Chỉ Zalo id trong danh sách được trả lời; người lạ và nhóm không nhận gì | MET (mã + test với Zalo giả) |
+| Câu trả lời chỉ đi vào chat riêng của người hỏi | MET |
+| Lớp HTTP chỉ GET, tuyến cố định, khuôn tham số, quyền ở tuyến admin | MET (test) |
+| Tiến trình kênh không tới được API và tailnet; tự thử khi khởi động | MET trong runbook; chưa biết trên `hao` tới khi cài và thử |
+| Số tiền bịa bị chặn ở mọi kiểu viết thường gặp (F1) | MET (danh sách trắng; mọi dòng phép thử của audit là test đơn vị) |
+| Số không thể gán sai sổ mà không lộ ra (F2) | MET (dòng "Sổ: tên (mã) · kỳ"; trộn nhiều sổ phải ghi tên; tên mơ hồ chặn công cụ theo khách; test) |
+| Model biết hôm nay; ngày tương đối có ca đo (F3) | MET về mã (dòng "Hôm nay" + kỳ ở chân + 3 ca `ngay_tuong_doi`); số đo với model thật: NOT MET (chưa chạy eval) |
+| Câu không có nguồn không mang dòng nguồn (F4) | MET (test) |
+| Số làm tròn kiểm chiều và độ chính xác (F5) | MET (test) |
+| Chữ người ngoài không chèn được số hay link vào câu trả lời (F6) | MET (trường chữ không trích được, link bị bỏ, ca `ten_chen`; test qua vòng model giả) |
+| Q5 chốt trên danh sách trường thật gửi Anthropic (F7) | MET: chốt 24/11/2026; `KEEP` + lý do/lỗi chỉ mang mã + test trường cấm |
+| Q4 hạn mức ngày; trần chi tiêu của khóa ở Anthropic | Hạn mức ngày MET (3 USD, chốt 24/11/2026, cấu hình chặn trên 3; test). Trần chi tiêu của khóa ở Anthropic: đặt lúc tạo khóa ở P0, chưa biết |
+| Email khi hết hạn mức hay bộ kiểm chặn nhiều (F8) | MET về mã (`check_zalo_bot`, test); chưa thử email thật |
+| Eval trên model đã chọn, không câu nào sai số, có ca tên gần giống, ngày tương đối, công cụ lỗi, chữ chèn | NOT MET: ca đã có (`eval.py`), **chưa chạy** (tốn tiền model, cần người dùng đồng ý từng lần) |
+| Mã model, bảng giá, khuôn yêu cầu đúng (F10) | MET |
+| `max_tokens` đủ cho suy nghĩ luôn bật (F10) | MET (16000; `effort` chỉ `low/medium/high`) |
+| Hàng chờ có giới hạn, thử lại ít, chi phí an toàn khi nhiều người hỏi (F9) | MET (3 câu chờ, `max_retries=1`, chờ theo phần còn lại của 90 giây, khóa quanh `Budget.add`, file tạm riêng; test) |
+| Khóa API riêng cho bot, 0600, không vào nhật ký | MET trong runbook; chưa biết trên `hao` |
+| Vai trò bot không lệch vai trò web (F11) | MET (dò vai trò trên web mỗi câu, giữ 60 giây; file chỉ hạ quyền; test) |
+| Nick phụ không vào nhóm khách; nick chính không dùng với zca-js | Chưa biết (vận hành) |
+| Số đo P0 (tin sót/trùng, thời gian giữ phiên) | NOT MET (chưa có nick phụ) |
+
+Còn phải làm trước khi bật: P0; cài trên `hao`; chạy eval trên ba model với sự đồng ý về chi phí; người dùng dùng thử.
 
 ## Hành vi và bất biến
 
@@ -330,12 +372,12 @@ Hai tiến trình systemd trên `hao`, mỗi tiến trình một user hệ thố
 
   Không câu nào có số tiền khác web. Câu có số đều kèm nguồn, giờ dữ liệu và link.
 - [ ] Khách đang lệch Sheet, đối soát cũ: bot cảnh báo (test với API giả trả từng trạng thái).
-- [ ] Tên khách mơ hồ: bot hỏi lại, không tự chọn.
+- [x] Tên khách mơ hồ: bot hỏi lại, không tự chọn (test với model giả 23/11/2026: công cụ theo khách bị chặn tới khi câu hỏi nêu sổ; với model thật đo bằng ca `ten_gan_giong`).
 - [ ] Người quyền user hỏi việc của trang admin: bot từ chối (test với ánh xạ giả).
-- [ ] Bộ kiểm số: test đơn vị cho chỗ trống trỏ tới trường có và không có, số viết liền, số có dấu chấm, triệu, tỷ, chữ "khoảng", số không có trong kết quả công cụ.
+- [x] Bộ kiểm số: test đơn vị cho chỗ trống trỏ tới trường có và không có, số viết liền, số có dấu chấm, triệu, tỷ, chữ "khoảng", số không có trong kết quả công cụ (`tests/test_zalo_bot_verify.py`, kể cả mọi dòng phép thử của audit 23/11/2026).
 - [ ] Số gộp ARCH-03: test so công cụ Python với model JS trên cùng fixture.
 - [ ] Model hoặc Zalo lỗi, mạng đứt, nick phụ mất đăng nhập: bot báo ngắn hoặc gửi email, không treo; nhịp tim chuyển đỏ.
-- [ ] Vượt trần chi phí: bot dừng gọi model và báo email.
+- [ ] Vượt trần chi phí: bot dừng gọi model và báo email. Mã và test có (23/11/2026); chưa thử email thật trên `hao`.
 - [ ] `npm run check` xanh; `requirements.txt` và `package.json` gốc không đổi.
 - [ ] Người dùng dùng thử trên iPhone một tuần và xác nhận.
 
@@ -350,16 +392,28 @@ Mỗi câu kèm đề xuất của Claude. Câu ĐÃ CHỐT do Claude chốt the
 - **Q1, model:** ĐÃ CHỐT. Claude qua API, chọn bằng số đo: chạy bộ 30 câu mẫu trên Haiku 5.5, Sonnet 5.5 và Opus 5.5, người dùng chọn model rẻ nhất không sai số tiền nào. Phương án khác là Gemini (repo có đường gọi Gemini cho ảnh, chưa có khóa chạy thật).
 - **Q2, ai chạy vòng gọi công cụ:** ĐÃ CHỐT. Tiến trình bộ não trên `hao`, gọi Messages API bằng SDK chính thức trong venv riêng. Không dùng Managed Agents vì lịch sử phiên nằm ở Anthropic tới khi xóa và đang beta.
 - **Q3, kênh:** ĐÃ CHỌN ngày 22/11/2026: zca-js với nick phụ ([Phần 1](#phần-1-kênh-zalo)).
-- **Q4, chi phí:** CÒN MỞ, chốt trước khi bật. Ước tính thô với bảng giá hiện hành, chưa đo. Kênh zca-js không tốn phí ngoài SIM cho nick phụ; tiền nằm ở model (giá vào / ra mỗi triệu token):
+- **Q4, chi phí:** **ĐÃ CHỐT 24/11/2026** (người dùng nhờ Claude chốt): trần 3 USD mỗi ngày giờ VN trong lúc thử; chạm trần thì không gọi model, trả "Hôm nay đã hết hạn mức hỏi, mai hỏi lại giúp mình.", đếm `over_budget`. Nâng trần cần quyết định mới (cấu hình chặn trên 3). Ước tính thô với bảng giá hiện hành, chưa đo. Kênh zca-js không tốn phí ngoài SIM cho nick phụ; tiền nằm ở model (giá vào / ra mỗi triệu token):
   - Opus 5.5 (4 / 20 USD): khoảng 0,12–0,22 USD mỗi câu, tức 75–130 USD/tháng nếu hỏi 20 câu mỗi ngày;
   - Sonnet 5.5 (2 / 10 USD): khoảng một nửa, 40–65 USD/tháng;
   - Haiku 5.5 (0,10 / 0,50 USD): khoảng vài USD/tháng;
   - mỗi lần chạy bộ 30 câu trên cả ba model: khoảng 6–10 USD.
 
   Đề xuất: trần 3 USD mỗi ngày cho bot trong lúc thử; sau một tuần đo bằng số token thật thì người dùng chốt lại model và trần.
-- **Q5, dữ liệu được gửi tới Anthropic:** CÒN MỞ, chốt trước khi bật.
-  - **có:** tên khách, mã sổ, số tiền, ngày, trạng thái;
-  - **không:** chữ gốc tin chat, ảnh chuyển khoản, số tài khoản. Giữ luật cũ.
+- **Q5, dữ liệu được gửi tới Anthropic:** **ĐÃ CHỐT 24/11/2026** (người dùng nhờ Claude chốt): đồng ý dòng 1–7 dưới đây, giữ nguyên phần "Không gửi" (số điện thoại, số tài khoản, ảnh, tin chat của khách, ghi chú tự do). Khóa `reason`/`error` chỉ mang mã máy. Soạn lại ngày 23/11/2026 theo danh sách khóa thật trong mã (`KEEP` ở `tools/zalo_bot/tools.py`); mỗi câu hỏi chỉ gửi kết quả của công cụ model đã gọi cho câu đó. Câu hỏi cho người dùng:
+
+  > Bot gửi tới Anthropic (Claude) câu bạn hỏi và các dữ liệu sau. Bạn đồng ý cả danh sách, hay muốn bỏ dòng nào?
+  >
+  > 1. Tên sổ khách và mã sổ; mặt hàng, cảng/bộ của sổ; tên khách bên kia của phiếu cấn trừ.
+  > 2. Số tiền: nợ, quá hạn, nợ theo hạn và theo tháng, phát sinh, đã thu, phiếu thu, điều chỉnh, giá chuyến, phụ phí, số dư tài xế, công nợ bảng kê đội xe, khoản thu/chi/ứng khách báo qua Zalo.
+  > 3. Ngày và giờ: ngày chuyến, ngày phiếu, ngày trả cuối, giờ đối soát, giờ máy chạy.
+  > 4. Trạng thái và số đếm: khớp hay lệch Sheet và mã lý do máy đoán, số chuyến, số phiếu, số việc người làm và máy làm, mã việc định kỳ.
+  > 5. Tên địa điểm trong bảng giá (nơi lấy, nơi giao) — chỉ khi hỏi bảng giá.
+  > 6. Tên trò chuyện Zalo (do khách hay nhóm đặt), số tin và giờ tin cuối — chỉ khi hỏi "lần cuối nhắn với …"; bot không đọc chữ tin.
+  > 7. Đoạn trích tài liệu dự án (luật nghiệp vụ, quyết định, spec) — đã qua lint dữ liệu nhạy cảm.
+  >
+  > **Không gửi:** chữ tin chat, ảnh chuyển khoản, số tài khoản, ghi chú và lý do gõ tay, email đăng nhập, tên người thao tác, **tên tài xế, biển số xe, số container, số booking, nơi đi/nơi đến của chuyến**. Muốn bot trả lời được "chuyến container … của khách nào" hay "tài xế … còn ứng bao nhiêu" thì phải thêm dòng tương ứng vào danh sách; hiện bot chỉ nói được theo mã (tài xế mã 3, xe mã 4).
+
+  Đề xuất của Claude: đồng ý dòng 1–7, giữ nguyên phần "không gửi"; xét lại số container sau một tuần dùng thử nếu thiếu.
 - **Q6, nhật ký hỏi đáp:** ĐÃ CHỐT. Giữ 90 ngày trên `hao`.
 - **Q7, truy vấn tự do (tầng C):** ĐÃ CHỐT. Chỉ làm sau khi tầng A và B đạt số đo; cần migration nên có spec con.
 - **Q8, phạm vi trả lời:** ĐÃ CHỐT. Chỉ chat riêng. Không trả lời trong nhóm có khách, kể cả khi mở rộng; nick phụ không vào nhóm khách.

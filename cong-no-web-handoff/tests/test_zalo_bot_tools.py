@@ -27,7 +27,7 @@ DATA = {
         {"id": 8, "name": "KHACH A2", "status": "active", "commodity": "Dừa", "transport_mode": None, "aliases": ["Khách Á hai"]},
         {"id": 9, "name": "KHACH B", "status": "active", "commodity": "Dừa"}]},
     "/api/v7/dashboard": {"as_of": "2026-11-22", "receivable": {"total_vnd": "1234567890", "customers": 3},
-                          "top_debtors": [{"customer_id": 7, "name": "Khách A", "receivable_vnd": "350000000"}],
+                          "top_debtors": [{"customer_id": 7, "name": "Khách A", "outstanding_vnd": "350000000", "truong_moi_cua_api": "bí mật"}],
                           "today": {"trips": 4, "receipts": 1, "received_vnd": "45000", "by_actor": [{"actor": "nv@example.com"}]}},
     "/api/v7/dashboard/debt": {"as_of": "2026-11-22", "summary": {"overdue_vnd": "120500000", "overdue_customers": 1},
                                "due_tiers": [{"tier": "not_due", "receivable_vnd": "229500000"}], "this_month": {"received_vnd": "45000"},
@@ -38,7 +38,8 @@ DATA = {
     "/api/v7/ledger?customer=9": {"total_outstanding_vnd": "0", "months": [], "trips": [], "receipts": [], "adjustments": []},
     "/api/v7/ledger?customer=7": {
         "total_outstanding_vnd": "350000000", "months": [{"month": "2026-10-01", "outstanding_vnd": "100000000", "charges_vnd": "100000000"}],
-        "trips": [{"container": "MAUU1000101", "event_date": "2026-10-03", "amount_vnd": "100000000", "note": "ghi chú riêng", "shipper": "X"},
+        "trips": [{"id": 31, "container": "MAUU1000101", "booking": "BKG777", "origin": "Kho riêng", "destination": "Cửa khẩu",
+                   "event_date": "2026-10-03", "amount_vnd": "100000000", "note": "ghi chú riêng", "shipper": "X"},
                   {"container": "MAUU1000102", "event_date": "2026-11-01", "amount_vnd": "250000000"}],
         "receipts": [{"pid": 5, "date": "2026-10-20", "amount_vnd": "45000", "reference": "STK 0123456789", "void_reason": None}],
         "adjustments": [], "legacy_rows": [{"display": "chữ thô"}], "sheet_sync": {"x": 1}},
@@ -59,8 +60,19 @@ DATA = {
                                            "reason": "HELD", "groups": [{"kind": "receipt", "month": "2026-11-01", "count": 1, "delta_vnd": "45000",
                                                                          "rows": [{"note": "chữ"}]}], "findings": ["chữ"]},
     "/api/v7/cash-chat": {"from": "2026-11-15", "to": "2026-11-22", "totals": {"thu_vnd": 45000, "chi_vnd": 0, "ung_vnd": 0},
-                          "items": [{"direction": "thu", "amount_vnd": 45000, "status": "MATCHED", "target": {"label": "Khách A"},
-                                     "day": "2026-11-20", "text": "ck 45k", "sender_name": "Người gửi", "image": "x.jpg"}]},
+                          "items": [{"direction": "thu", "amount_vnd": 45000, "status": "MATCHED", "target": {"kind": "customer", "id": 7, "label": "Khách A"},
+                                     "day": "2026-11-20", "text": "ck 45k", "sender_name": "Người gửi", "image": "x.jpg"},
+                                    {"direction": "ung", "amount_vnd": 5000, "status": "OPEN", "target": {"kind": "driver", "id": 3, "label": "Tài xế Tư"},
+                                     "day": "2026-11-21"}],
+                          "counts": {"MATCHED": 1, "Tên lạ": "x"}},
+    "/api/v7/doixe?thang=2026-11-01": {"nguoi": [{"id": 3, "ten": "Tài xế Tư", "vai": "tai_xe", "so_du_vnd": "5000"}],
+                                       "xe": [{"id": 4, "bien_so": "99C-00000", "nhom": "dau_keo", "chua_phi": 1}]},
+    "/api/v7/doixe/bang-ke?thang=2026-11-01": {"cong_no_vnd": "7000", "dong": [{"tai_xe": "Tài xế Tư", "so_xe": "99C-00000"}]},
+    "/api/v7/activity": {"day": "2026-11-22", "total": 2, "events": [
+        {"customer_id": 7, "customer": "Khách A", "kind": "trip", "actor": "nv@example.com", "actor_name": "Nhân viên", "at": "2026-11-22T09:00+07:00"},
+        {"customer_id": 7, "customer": "Khách A", "kind": "receipt", "actor_name": None, "at": "2026-11-22T10:00+07:00"}]},
+    "/api/v7/nhat-ky": {"days": {"2026-11-22": {"changes": [["#1", "Tên PR", "web", 1, 1, 1, "09:00"], ["#2", "PR khác", "web", 1, 1, 1, "10:00"]],
+                                                "headline": "Hai thay đổi"}}},
 }
 
 
@@ -126,17 +138,37 @@ class ToolTests(unittest.TestCase):
 
     def test_month_view_keeps_numbers_and_drops_free_text(self):
         result, _ = self.run_tool("so_khach_thang", {"khach_id": 7, "thang": "2026-10"})
-        self.assertEqual([row["container"] for row in result["chuyen"]], ["MAUU1000101"])
+        self.assertEqual(result["chuyen"], [{"id": 31, "event_date": "2026-10-03", "amount_vnd": "100000000"}])
         self.assertEqual(result["phieu_thu"], [{"pid": 5, "date": "2026-10-20", "amount_vnd": "45000"}])
         text = json.dumps(result, ensure_ascii=False)
-        for secret in ("ghi chú riêng", "STK", "chữ thô", "shipper"):
+        for secret in ("ghi chú riêng", "STK", "chữ thô", "shipper", "MAUU1000101", "BKG777", "Kho riêng", "Cửa khẩu"):
             self.assertNotIn(secret, text)
+
+    def test_q5_reason_and_error_are_codes_only(self):
+        """Q5 (24/11/2026): lý do, lỗi gửi model chỉ khi là mã máy; chữ gõ tay thành None."""
+        rows = [{"customer_id": 7, "reason": "HELD"}, {"customer_id": 8, "reason": "khách hẹn trả, gọi 0901 234 567"},
+                {"customer_id": 9, "reason": "WEB_AHEAD", "error": "Traceback: kết nối hỏng"}]
+        self.assertEqual(tools.compact(rows, "doi_soat"), [{"customer_id": 7, "reason": "HELD"}, {"customer_id": 8, "reason": None},
+                                                           {"customer_id": 9, "reason": "WEB_AHEAD"}])
+        self.assertEqual(tools.compact([{"name": "dong_bo", "error": "mat_ket_noi"}, {"name": "x", "error": "lỗi lạ: xem log"}], "may_chay"),
+                         [{"name": "dong_bo", "error": "mat_ket_noi"}, {"name": "x", "error": None}])
+
+    def test_q5_forbidden_fields_never_leave(self):
+        """Q5 (24/11/2026): không gửi số điện thoại, số tài khoản, ảnh, tin chat, ghi chú tự do, ở công cụ nào cũng vậy."""
+        forbidden = {"phone": "0901234567", "so_dien_thoai": "0901234567", "bank_account": "0123456789", "account_number": "0123456789",
+                     "so_tai_khoan": "0123456789", "image": "a.jpg", "image_url": "https://x/a.jpg", "anh": "a.jpg", "text": "tin khách",
+                     "message": "tin khách", "message_excerpt": "tin khách", "body": "tin khách", "note": "ghi chú", "ghi_chu": "ghi chú",
+                     "void_reason": "gõ tay", "comment": "ghi chú", "email": "a@example.com", "actor": "a@example.com"}
+        for tool in tools.KEEP:
+            with self.subTest(tool=tool):
+                self.assertEqual(tools.compact({**forbidden, "amount_vnd": "1000"}, tool), {"amount_vnd": "1000"})
+                self.assertFalse((tools.KEEP_COMMON | tools.KEEP[tool]) & set(forbidden))
 
     def test_history_is_filtered_by_date_without_actor_emails(self):
         result, _ = self.run_tool("lich_su_so", {"khach_id": 7})
         self.assertEqual(result["so_thao_tac"], 1)
         self.assertNotIn("nv@example.com", json.dumps(result))
-        self.assertEqual(result["thao_tac"][0]["actor_name"], "Nhân viên")
+        self.assertEqual(result["thao_tac"], [{"id": 1, "kind": "trip", "label": "Thêm chuyến", "at": "2026-11-20T09:00:00+07:00"}])
 
     def test_receipt_book_by_day_and_by_customer(self):
         day, _ = self.run_tool("bang_thu", {"thang": "2026-11", "ngay": "2026-11-02"})
@@ -162,8 +194,26 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(result["tong"], {"thu_vnd": "45000", "chi_vnd": "0", "ung_vnd": "0"})
         self.assertEqual(result["khoan"][0]["so_tien_vnd"], "45000")
         text = json.dumps(result, ensure_ascii=False)
-        for secret in ("ck 45k", "Người gửi", "x.jpg"):
+        for secret in ("ck 45k", "Người gửi", "x.jpg", "Tài xế Tư", "Tên lạ"):
             self.assertNotIn(secret, text)
+        self.assertEqual([row["doi_tuong"] for row in result["khoan"]],
+                         [{"loai": "customer", "id": 7, "ten": "Khách A"}, {"loai": "driver", "id": 3}])
+        self.assertEqual(result["dem"], {"MATCHED": 1})
+
+    def test_only_kept_keys_reach_the_model(self):
+        """F7: khóa API mới, tên tài xế, biển số, tên người thao tác không đi ra ngoài; nhật ký web chỉ đếm số thay đổi."""
+        board, _ = self.run_tool("tong_quan", {})
+        self.assertEqual(board["khach_no_nhieu_nhat"], [{"customer_id": 7, "name": "Khách A", "outstanding_vnd": "350000000"}])
+        self.assertNotIn("nv@example.com", json.dumps(board))
+        fleet, _ = self.run_tool("doi_xe", {"thang": "2026-11"})
+        self.assertEqual((fleet["tai_xe"], fleet["xe"]), ([{"id": 3, "vai": "tai_xe", "so_du_vnd": "5000"}], [{"id": 4, "nhom": "dau_keo", "chua_phi": 1}]))
+        self.assertNotIn("99C", json.dumps(fleet, ensure_ascii=False))
+        done, _ = self.run_tool("viec_da_lam", {})
+        self.assertEqual((done["so_viec_nguoi_lam"], done["so_viec_may_lam"]), (1, 1))
+        self.assertNotIn("Nhân viên", json.dumps(done, ensure_ascii=False))
+        news, _ = self.run_tool("nhat_ky_web", {})
+        self.assertEqual(news["ngay"], [{"ngay": "2026-11-22", "so_thay_doi": 2, "tom_tat": "Hai thay đổi"}])
+        self.assertEqual(set(tools.KEEP), {tool.name for tool in tools.TOOLS} - {"tim_khach", "lan_cuoi_noi_chuyen", "tra_tai_lieu", "thu_chi", "nhat_ky_web"})
 
     def test_bad_arguments_are_short_errors_and_make_no_call(self):
         self.assertEqual(self.run_tool("no_khach", {"khach_id": "7"}), ({"loi": "khach_id_sai"}, True))

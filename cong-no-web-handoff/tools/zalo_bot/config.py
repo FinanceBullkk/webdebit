@@ -2,9 +2,11 @@
 
 Danh sách người hỏi `/etc/webdebit/zalo-bot.json` (chủ root, nhóm của bộ não, 0640):
 
-    {"users": [{"zalo_id": "<uid Zalo>", "login": "<login Tailscale>", "role": "admin" | "user"}]}
+    {"users": [{"zalo_id": "<uid Zalo>", "login": "<login Tailscale>", "role": "user"}]}
 
-`role` theo QUYEN-01. Bộ não chỉ trả lời người có trong file; thiếu file là không ai được hỏi.
+Vai trò lấy từ web mỗi câu hỏi (trang Người dùng, QUYEN-02; `tools.web_role`), nên hạ quyền trên web là bot theo ngay.
+`role` trong file không bắt buộc và chỉ hạ được quyền: ghi "user" thì bot luôn coi là user dù web là admin. Bộ não chỉ trả lời
+người có trong file; thiếu file là không ai được hỏi.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ RELEASE_ENV = "WEBDEBIT_ZALO_BOT_RELEASE"
 MODEL_ENV = "WEBDEBIT_ZALO_BOT_MODEL"            # trống: chưa gọi model, trả câu cố định (PR-1)
 EFFORT_ENV = "WEBDEBIT_ZALO_BOT_EFFORT"
 CAP_ENV = "WEBDEBIT_ZALO_BOT_CAP_USD"            # trần chi phí ngày (Q4), USD
+CAP_MAX = 3                                      # Q4 chốt 24/11/2026: tối đa 3 USD/ngày lúc thử; nâng cần quyết định mới
 LINK_ENV = "WEBDEBIT_ZALO_BOT_LINK_BASE"         # gốc link trang web (địa chỉ Tailscale Serve), không ghi vào repo
 API_ENV = "WEBDEBIT_ZALO_BOT_API"
 DOCS_ENV = "WEBDEBIT_ZALO_BOT_DOCS"              # gốc có docs/ và specs/ cho công cụ tra tài liệu (mặc định: bản phát hành)
@@ -36,7 +39,7 @@ RELEASE_LINK = "/srv/v7/auto-releases/current"
 ROLES = ("admin", "user")
 LOGIN = re.compile(r"^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}$")
 MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5")   # phải trùng bảng giá ở budget.py
-EFFORTS = ("low", "medium", "high", "xhigh", "max")
+EFFORTS = ("low", "medium", "high")   # xhigh/max chưa đo: suy nghĩ dài hơn dễ chạm MAX_TOKENS (F10)
 LINK = re.compile(r"^https://[A-Za-z0-9.-]{1,253}(:\d{1,5})?$")
 
 
@@ -88,7 +91,7 @@ def from_env(env: dict[str, str] | None = None) -> Config:
     if effort not in EFFORTS:
         raise ConfigError("effort_unknown")
     cap = env.get(CAP_ENV) or "3"
-    if not cap.isdigit() or not 1 <= int(cap) <= 100:
+    if not cap.isdigit() or not 1 <= int(cap) <= CAP_MAX:
         raise ConfigError("cap_usd")
     link = env.get(LINK_ENV) or ""
     if link and not LINK.fullmatch(link):
@@ -117,9 +120,9 @@ def load_users(path: Path) -> dict[str, User]:
         raise ConfigError("users_missing")
     users: dict[str, User] = {}
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {"zalo_id", "login", "role"}:
+        if not isinstance(row, dict) or not {"zalo_id", "login"} <= set(row) <= {"zalo_id", "login", "role"}:
             raise ConfigError("user_shape")
-        zalo_id, login, role = row["zalo_id"], row["login"], row["role"]
+        zalo_id, login, role = row["zalo_id"], row["login"], row.get("role", "admin")   # "admin": trần, web quyết
         if not isinstance(zalo_id, str) or not ID.fullmatch(zalo_id):
             raise ConfigError("user_zalo_id")
         if not isinstance(login, str) or not LOGIN.fullmatch(login):

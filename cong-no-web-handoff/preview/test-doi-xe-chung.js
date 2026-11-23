@@ -91,11 +91,11 @@ test('ghi: thân 2xx không đọc được thì báo lỗi "chưa rõ", không 
   } finally { t.tra(); }
 });
 
-test('getJson: lỗi mang mã và trạng thái của máy chủ, thân không phải JSON thì dùng câu mặc định', async () => {
+test('getJson: lỗi mang mã và trạng thái của máy chủ, thân không phải JSON thì câu tiếng Việt, không mã HTTP trần', async () => {
   const t = dung(n => (n === 1 ? { status: 403, body: { error: 'LOGIN_NOT_ALLOWED', message: 'chưa cấp quyền' } } : { status: 500 }));
   try {
     await assert.rejects(t.api.getJson('/g'), e => e.status === 403 && e.code === 'LOGIN_NOT_ALLOWED' && e.message === 'chưa cấp quyền');
-    await assert.rejects(t.api.getJson('/g'), e => e.status === 500 && e.message === 'Lỗi 500');
+    await assert.rejects(t.api.getJson('/g'), e => e.status === 500 && e.message === 'Máy chủ đang bận hoặc vừa khởi động lại. Chờ ít phút rồi bấm lại.');
   } finally { t.tra(); }
 });
 
@@ -189,4 +189,52 @@ test('post: không có crypto.randomUUID thì mã dự phòng có tiền tố c�
     if (goc) Object.defineProperty(globalThis, 'crypto', goc); else delete globalThis.crypto;
     t.tra();
   }
+});
+
+test('xep (audit DX-02): lệnh sửa ô gõ liền tay khi lệnh trước chưa xong thì chờ tới lượt, không bị bỏ; chạy đúng thứ tự, sau lần tải lại', async () => {
+  let thaLoad = null, soLoad = 0;
+  const t = dung(() => ({ status: 200, body: { ok: 1 } }), { load: () => { soLoad += 1; return new Promise(r => { thaLoad = r; }); } });
+  const cho = async () => {
+    const han = Date.now() + 2000;
+    while (!thaLoad) {
+      if (Date.now() > han) throw Error('load không được gọi trong 2 giây');
+      await new Promise(r => setImmediate(r));
+    }
+    const tha = thaLoad;
+    thaLoad = null;
+    tha();
+  };
+  try {
+    const thay = [];
+    const a = t.api.xep(() => { thay.push(`a@${soLoad}`); return t.api.ghi('/sua', { o: 'a' }); });
+    const b = t.api.xep(() => { thay.push(`b@${soLoad}`); return t.api.ghi('/sua', { o: 'b' }); });
+    await new Promise(r => setImmediate(r));
+    assert.equal(t.S.busy, true);
+    assert.equal(await t.api.ghi('/khac', {}), null, 'ghi thường vẫn bỏ khi đang bận');
+    await cho();
+    assert.deepEqual(await a, { ok: 1 });
+    await cho();
+    assert.deepEqual(await b, { ok: 1 });
+    assert.deepEqual(thay, ['a@0', 'b@1'], 'b chạy sau khi a đã tải lại sổ');
+    assert.deepEqual(t.calls.map(c => c.body.o), ['a', 'b']);
+    // Việc trong hàng ném lỗi không chặn việc sau.
+    await assert.rejects(t.api.xep(() => { throw Error('hỏng'); }), /hỏng/);
+    assert.equal(await t.api.xep(() => 'xong'), 'xong');
+    assert.equal(t.S.busy, false);
+  } finally { t.tra(); }
+});
+
+test('getJson và post: mất mạng báo câu của màn, máy chủ lỗi không có câu thì câu tiếng Việt, không hiện mã HTTP trần (audit 23/11 F3)', async () => {
+  const t = dung(n => {
+    if (n === 1) throw new TypeError('Failed to fetch');
+    if (n === 2) return { status: 502 };
+    if (n === 3) return { status: 403 };
+    return { status: 404 };
+  });
+  try {
+    await assert.rejects(t.api.getJson('/g'), e => e.code === 'NETWORK' && e.message === 'MẤT MẠNG');
+    await assert.rejects(t.api.getJson('/g'), e => e.status === 502 && e.message === 'Máy chủ đang bận hoặc vừa khởi động lại. Chờ ít phút rồi bấm lại.');
+    await assert.rejects(t.api.getJson('/g'), e => e.message === 'Tài khoản này chưa được cấp quyền.');
+    await assert.rejects(t.api.post('/p', { a: 1 }), e => e.status === 404 && !/Lỗi \d/.test(e.message));
+  } finally { t.tra(); }
 });

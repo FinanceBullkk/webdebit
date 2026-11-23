@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -28,6 +30,48 @@ READ_ONLY_PROCESS_TIMEOUT = 90
 SNAPSHOT_PROCESS_TIMEOUT = 300
 SNAPSHOT_READS = frozenset({"get_dashboard", "get_dashboard_debt", "list_customers", "get_fee_types", "get_ledger_export"})
 _UNAVAILABLE = "Sổ tạm thời không truy cập được."
+# Audit 23/11/2026 (F3): mỗi lần gọi là một tiến trình psql và một kết nối PostgreSQL. hao đặt max_connections = 20 (còn
+# loader, timer, backup), nên tiến trình này giữ tối đa 12 kết nối cùng lúc; lượt thứ 13 chờ chỗ thay vì làm cả đội nhận 503.
+DB_SLOTS = threading.BoundedSemaphore(12)
+DB_WAIT_SECONDS = 10.0
+_BUSY = ("DB_BUSY", "Sổ đang bận. Chờ vài giây rồi thử lại.")
+PAYLOAD_VAR = ":'payload'"
+
+
+def sql_literal(text: str) -> str:
+    """Hằng chữ SQL dạng dollar-quote, thẻ ngẫu nhiên không có trong chữ (audit 23/11/2026, F12).
+
+    Trước đây payload là một đối số `-v payload=...` của psql: Linux giới hạn một đối số 128 KiB (MAX_ARG_STRLEN), thấp hơn
+    trần thân 256 KiB, nên lệnh lớn hỏng ở execve thành 503. Nay payload nằm trong chữ SQL gửi qua stdin. psql không thay
+    biến và không đọc lệnh gạch ngược trong chuỗi dollar-quote; PostgreSQL không xử lý thoát ký tự trong đó, nên chữ vào nguyên vẹn.
+    Kiểm cả thẻ bỏ dấu `$` cuối: chữ kết thúc bằng phần đầu của thẻ không được ghép với thẻ đóng thành điểm kết thúc sớm.
+    """
+    while True:
+        tag = f"$v7_{secrets.token_hex(8)}$"
+        if tag[:-1] not in text:
+            return tag + text + tag
+
+
+def with_payload(statement: str, payload: dict, variable: str = PAYLOAD_VAR) -> str:
+    """Câu SQL đã thay `:'payload'` bằng hằng chữ JSON của payload."""
+    return statement.replace(variable, sql_literal(json.dumps(payload, ensure_ascii=False, separators=(",", ":"))))
+
+
+def _db_slot() -> None:
+    if not DB_SLOTS.acquire(timeout=DB_WAIT_SECONDS):
+        print("V7 API: psql hết chỗ, một lượt chờ quá hạn (DB_BUSY)", file=sys.stderr, flush=True)
+        raise ApiError(503, *_BUSY)
+
+
+def log_psql_failure(function: str, stderr: str) -> None:
+    """F11: lỗi psql không ánh xạ được thì journal có SQLSTATE (không chép thông điệp: có thể chứa dữ liệu sổ)."""
+    code = re.search(r"(?m)ERROR:  ([0-9A-Z]{5}): ?([A-Z_]*)", stderr)
+    if code:
+        detail = f"SQLSTATE {code.group(1)}" + (f" {code.group(2)}" if code.group(1) == "P0001" and code.group(2) else "")
+    else:
+        first = next((line for line in stderr.splitlines() if line.strip()), "không có stderr")
+        detail = first.strip()[:200]
+    print(f"V7 API: psql lỗi {function}: {detail}", file=sys.stderr, flush=True)
 
 
 def begin_sql(*, read_only: bool = False, consistent: bool = False) -> str:
@@ -105,20 +149,19 @@ class _PsqlRunner:
         """
         if not calls or any(function not in SNAPSHOT_READS for function, _ in calls):
             raise ValueError("snapshot accepts read functions only")
-        statements, variables = [], []
-        for index, (function, payload) in enumerate(calls):
-            statements.append(SQL[function].replace(":'payload'", f":'p{index}'"))
-            variables += ["-v", f"p{index}=" + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))]
+        statements = [with_payload(SQL[function], payload) for function, payload in calls]
         sql = ("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\n"
                f"SET LOCAL statement_timeout = '{READ_ONLY_STATEMENT_TIMEOUT}';\n"
                "SET LOCAL sokhach.actor = :'actor';\n" + "\n".join(statements) + "\nCOMMIT;\n")
         env = {**os.environ, "PGOPTIONS": "-c statement_timeout=15000 -c lock_timeout=12000"}
+        _db_slot()   # giữ chỗ cả lượt: một giao dịch, một kết nối
         with tempfile.TemporaryFile() as errors:   # stderr ra file: ống đầy không chặn được psql
             try:
-                process = subprocess.Popen(self._argv() + variables + ["-v", "actor=" + actor], stdin=subprocess.PIPE,
+                process = subprocess.Popen(self._argv() + ["-v", "actor=" + actor], stdin=subprocess.PIPE,
                                            stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8",
                                            errors="replace", env=env)
             except OSError as exc:
+                DB_SLOTS.release()
                 raise ApiError(503, "DB_UNAVAILABLE", _UNAVAILABLE) from exc
             timer = threading.Timer(timeout, process.kill)
             feeder = threading.Thread(target=_feed, args=(process.stdin, sql), daemon=True)
@@ -141,7 +184,10 @@ class _PsqlRunner:
                     process.wait()
                 process.stdout.close()
                 feeder.join(5)
+                DB_SLOTS.release()
             if process.returncode or count != len(calls):
+                errors.seek(0)
+                log_psql_failure("snapshot", errors.read().decode("utf-8", "replace"))
                 raise ApiError(503, "DB_UNAVAILABLE", _UNAVAILABLE)
 
     def _argv(self) -> list[str]:
@@ -161,21 +207,15 @@ class _PsqlRunner:
         sql = (
             begin_sql(read_only=read_only, consistent=consistent)
             + "SET LOCAL sokhach.actor = :'actor';\n"
-            + statement
+            + with_payload(statement, payload)
             + "\nCOMMIT;\n"
         )
         env = os.environ.copy()
         env["PGOPTIONS"] = "-c statement_timeout=15000 -c lock_timeout=12000"
+        _db_slot()
         try:
             result = subprocess.run(
-                argv
-                + [
-                    "-v",
-                    "payload="
-                    + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-                    "-v",
-                    "actor=" + actor,
-                ],
+                argv + ["-v", "actor=" + actor],
                 input=sql,
                 text=True,
                 encoding="utf-8",
@@ -198,6 +238,8 @@ class _PsqlRunner:
             raise ApiError(
                 503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
             ) from exc
+        finally:
+            DB_SLOTS.release()
         if result.returncode:
             match = re.search(
                 r"(?m)^psql:.*: ERROR:  P0001: ([A-Z_]+)\s*$", result.stderr
@@ -221,6 +263,7 @@ class _PsqlRunner:
                         except (ValueError, ApiError):
                             pass
                 raise ApiError(status, match.group(1), message, extra)
+            log_psql_failure(function, result.stderr)
             raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.")
         return result.stdout.strip()
 

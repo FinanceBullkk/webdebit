@@ -493,7 +493,9 @@ def check_void_get(pg: Pg) -> None:
     require(receipt["voided_by_event"] is not None, "GET lacks void event")
     shown = [(line["month"], line["kind"], line["amount_vnd"]) for line in receipt["allocations"]
              if line["superseded_by_event"] == receipt["voided_by_event"]]
-    require(shown == at_void and len(receipt["allocations"]) > len(shown),
+    # Audit SQL F4 (23/11/2026): get_ledger không trả bản phân bổ cũ đã bị phân bổ lại thay; phiếu đã hủy chỉ còn đúng các dòng
+    # bị chính lệnh hủy thay (tháng của phiếu lúc hủy). Lịch sử phân bổ vẫn nằm trong receipt_line và Lịch sử.
+    require(shown == at_void and len(receipt["allocations"]) == len(shown),
             "void shows reallocation history or loses current allocation")
 
 

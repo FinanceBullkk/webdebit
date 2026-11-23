@@ -40,7 +40,7 @@
 #doi-no .dot.r-high { background: #d92d20; }
 #doi-no .dot.r-watch { background: #f79009; }
 #doi-no .dot.r-ok { background: #12b76a; }
-#doi-no .tiny { color: var(--muted, #6b7280); font-size: 12px; margin-top: 10px; }
+#doi-no .tiny { color: var(--muted, #6b7280); font-size: 13px; margin-top: 10px; }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);

@@ -46,6 +46,11 @@ function serverFor(opts = {}) {
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? sample));
     if (route === '/api/v7/dashboard') return send(opts.dashboardStatus ?? 200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(opts.debtStatus ?? 200, { customers: value(opts.unsorted ?? []) });
+    if (route === '/api/v7/todo-badge') {   // số đệm menu ở trang khác (web/v7_todo_badge.py)
+      if ((opts.dashboardStatus ?? 200) !== 200 || (opts.debtStatus ?? 200) !== 200) return send(503, { error: 'DB_UNAVAILABLE' });
+      const debt = { customers: value(opts.unsorted ?? []) };
+      return send(200, { inbox: value(opts.inbox ?? sample), dashboard: opts.dashboard ?? dashboard, debt: { customers: (debt?.customers ?? []).map(({ customer_id, name, commodity, transport_mode }) => ({ customer_id, name, commodity, transport_mode })) } });
+    }
     if (route === '/api/v7/customers') return send(200, { customers: opts.customers ?? customers });
     if (route === '/api/v7/price-table/status') return send(200, opts.priceStatus ?? { trips: [] });
     if (route === '/api/v7/ledger') return send(opts.ledgerStatus ?? 200, value(opts.ledger ?? ledger));
@@ -106,6 +111,20 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     assert.equal(await page.locator('.receipt-review').count(), 0);
     assert.deepEqual(await page.evaluate(() => ['9,2', '9.2', '0,000001'].map(v => globalThis.InboxTable.parseMillions(v))), ['9200000', '9200000', '1']);
     for (const value of ['', '0', '-1', '9x', '9.200.000', '0,0000001', '9223372036855']) assert.equal(await page.evaluate(v => { try { globalThis.InboxTable.parseMillions(v); return false; } catch { return true; } }, value), true);
+  }));
+  test('F1 audit 23/11: ô triệu hiện đơn vị; 45000000 (45 nghìn tỷ) hay 0,5 (500 nghìn) hỏi "Kiểm lại đơn vị" trước khi ghi, 9,2 thì không', async () => withPage(designFixture(), async page => {
+    await page.locator('[data-book="2"] .book-name').click();
+    await page.locator('[data-manual-price]').first().waitFor();
+    assert.equal(await page.locator('.price-unit').first().innerText(), 'triệu');
+    const input = page.locator('[data-manual-price]').first();
+    await input.fill('45000000'); await page.locator('[data-command="price"]').first().click();
+    assert.match(await page.locator('.pending-action').innerText(), /Kiểm lại đơn vị: 45\.000\.000\.000\.000 đ là trên 1 tỷ đ/);
+    await page.locator('[data-action-cancel]').first().click();
+    await input.fill('0,5'); await page.locator('[data-command="price"]').first().click();
+    assert.match(await page.locator('.pending-action').innerText(), /Kiểm lại đơn vị: 500\.000 đ là dưới 1\.000\.000 đ/);
+    await page.locator('[data-action-cancel]').first().click();
+    await input.fill('9,2'); await page.locator('[data-command="price"]').first().click();
+    assert.doesNotMatch(await page.locator('.pending-action').innerText(), /Kiểm lại đơn vị/);
   }));
   test('đã ghi hôm nay: máy chỉ một chip, không hiện tên kỹ thuật', async () => {
     const machine = { actor: 'may-theo-sheet', trips: 13, receipts: 0, voids: 0, received_vnd: '0' };

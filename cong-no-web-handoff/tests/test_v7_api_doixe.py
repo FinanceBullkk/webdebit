@@ -16,6 +16,7 @@ MIGRATION = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe.sql"
 MIGRATION_THU = ROOT / "tools" / "migrations" / "2026-11-18-v7-doi-xe-thu.sql"
 MIGRATION_DIEU_DO = ROOT / "tools" / "migrations" / "2026-11-19-v7-doi-xe-dieu-do.sql"
 MIGRATION_TAI_CHINH = ROOT / "tools" / "migrations" / "2026-11-19-v7-doi-xe-tai-chinh-chang.sql"
+MIGRATION_AUDIT = ROOT / "tools" / "migrations" / "2026-11-23-v7-doi-xe-sua-audit.sql"
 
 
 class FakePsql:
@@ -61,32 +62,40 @@ class DoiXeApiTest(unittest.TestCase):
             ("/api/v7/doixe/chang/sua", "doixe_sua_chang", {"chang_id": 9, "cot": "ngay", "truoc": "2026-11-01", "gia_tri": "2026-11-02"}),
             ("/api/v7/doixe/chang/sua", "doixe_sua_chang", {"chang_id": 9, "cot": "nguoi_tra", "truoc": "4", "gia_tri": "cong_ty"}),
             ("/api/v7/doixe/chang/sua", "doixe_sua_chang", {"chang_id": 9, "cot": "ghi_chu", "truoc": "vá vỏ", "gia_tri": None}),
-            ("/api/v7/doixe/chang/xoa", "doixe_xoa_chang", {"chang_id": 9}),
-            ("/api/v7/doixe/ung", "doixe_ghi_ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "3000000"}),
-            ("/api/v7/doixe/ung", "doixe_ghi_ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "3000000", "ghi_chu": "đi đường"}),
+            ("/api/v7/doixe/chang/xoa", "doixe_xoa_chang", {"chang_id": 9, "tong_vnd": "750000"}),
+            ("/api/v7/doixe/chang/xoa", "doixe_xoa_chang", {"chang_id": 9, "tong_vnd": "0"}),
+            ("/api/v7/doixe/ung", "doixe_ghi_ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "3000000", "so_du_vnd": "-50000"}),
+            ("/api/v7/doixe/ung", "doixe_ghi_ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "3000000", "ghi_chu": "đi đường",
+                                                    "so_du_vnd": "0"}),
             ("/api/v7/doixe/ung/huy", "doixe_huy_ung", {"ung_id": 2, "ly_do": "ghi trùng"}),
-            ("/api/v7/doixe/hoan", "doixe_ghi_hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "0", "dong_ids": [5, 6]}),
+            ("/api/v7/doixe/hoan", "doixe_ghi_hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "0", "dong_ids": [5, 6],
+                                                      "tong_dong_vnd": "1150000", "so_du_vnd": "650000"}),
             ("/api/v7/doixe/hoan/huy", "doixe_huy_hoan", {"dot_id": 1, "ly_do": "chuyển nhầm"}),
             ("/api/v7/doixe/thang/khoa", "doixe_khoa_thang", {"thang": "2026-10-01", "khoa": False}),
             # DOI-XE-THU-01
             ("/api/v7/doixe/bang-ke/gui", "doixe_gui_bang_ke", {"thang": "2026-10-01", "doi_vnd": "123000", "so_chang": 7,
                                                                 "dau": "0123456789abcdef0123456789abcdef"}),
             ("/api/v7/doixe/bang-ke/doi-chieu", "doixe_doi_chieu_xong", {"thang": "2026-10-01", "doi_vnd": "0"}),
-            ("/api/v7/doixe/bang-ke/dieu-chinh", "doixe_ghi_dieu_chinh_bk", {"dong_id": 5, "so_tien_vnd": "-380000", "ly_do": "HTH báo trùng"}),
-            ("/api/v7/doixe/bang-ke/tien-ve", "doixe_ghi_tien_ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "1000"}),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", "doixe_ghi_dieu_chinh_bk", {"dong_id": 5, "so_tien_vnd": "-380000", "ly_do": "HTH báo trùng",
+                                                                             "doi_vnd": "2680000"}),
             ("/api/v7/doixe/bang-ke/tien-ve", "doixe_ghi_tien_ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "1000",
-                                                                    "ghi_chu": "chuyển khoản"}),
+                                                                    "con_vnd": "2680000"}),
+            ("/api/v7/doixe/bang-ke/tien-ve", "doixe_ghi_tien_ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "1000",
+                                                                    "ghi_chu": "chuyển khoản", "con_vnd": "1000"}),
             ("/api/v7/doixe/bang-ke/tien-ve/huy", "doixe_huy_tien_ve", {"tien_ve_id": 3, "ly_do": "ghi nhầm"}),
             ("/api/v7/doixe/thu/cuoc", "doixe_sua_cuoc", {"chang_id": 9, "truoc": None, "gia_tri": "24000000"}),
             ("/api/v7/doixe/thu/cuoc", "doixe_sua_cuoc", {"chang_id": 9, "truoc": "24000000", "gia_tri": None}),
             ("/api/v7/doixe/thu/tuyen", "doixe_gan_tuyen", {"chang_id": 9, "tuyen_id": 2, "nho": True}),
             ("/api/v7/doixe/thu/tuyen", "doixe_gan_tuyen", {"chang_id": 9, "tuyen_id": None, "nho": False}),
             ("/api/v7/doixe/gia", "doixe_luu_gia", {"tuyen_id": 2, "tu_ngay": "2026-12-01", "gia_vnd": "12200000"}),
+            ("/api/v7/doixe/gia", "doixe_luu_gia", {"tuyen_id": 2, "tu_ngay": "2026-01-01", "gia_vnd": "12200000", "xac_nhan_ngay_cu": True}),
             ("/api/v7/doixe/tuyen", "doixe_luu_tuyen", {"tuyen_id": None, "loai": "hang", "hang": "Sầu riêng", "di": "Krông Pắc",
                                                         "den": "Cát Lái", "ten_goc": [{"hang": "Sầu đông", "tinh": None}],
                                                         "gia_vnd": "25000000", "tu_ngay": "2026-01-01"}),
             ("/api/v7/doixe/tuyen", "doixe_luu_tuyen", {"tuyen_id": 4, "loai": "chuyen_cang", "hang": None, "di": "Các cảng", "den": None,
-                                                        "ten_goc": [], "dang_dung": False}),
+                                                        "ten_goc": [], "dang_dung": False, "ten_goc_truoc": []}),
+            ("/api/v7/doixe/tuyen", "doixe_luu_tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None,
+                                                        "ten_goc": [{"hang": "A", "tinh": "B"}], "ten_goc_truoc": ["A|B", "A|C"]}),
             ("/api/v7/doixe/phat-sinh", "doixe_luu_phat_sinh", {"ma": "neo", "ten": "Neo", "cach": "theo_ngay", "muc_vnd": "1500000",
                                                                 "muc_them_vnd": "2000000", "chi_ho": False, "cot": "ps", "ten_goc": ["Neo"]}),
         ]
@@ -119,11 +128,32 @@ class DoiXeApiTest(unittest.TestCase):
             ("/api/v7/doixe/chang/sua", {"chang_id": 9, "cot": "phi:neo", "truoc": None, "gia_tri": "1.5"}, "INVALID_VND"),
             ("/api/v7/doixe/chang/sua", {"chang_id": 9, "cot": "ngay", "truoc": None, "gia_tri": None}, "INVALID_REQUEST"),
             ("/api/v7/doixe/chang/sua", {"chang_id": 9, "cot": "phi:neo", "gia_tri": "1"}, "INVALID_REQUEST"),
-            ("/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "0"}, "INVALID_VND"),
-            ("/api/v7/doixe/ung", {"nguoi_id": "4", "ngay": "2026-11-18", "so_tien_vnd": "1"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "0", "so_du_vnd": "0"}, "INVALID_VND"),
+            ("/api/v7/doixe/ung", {"nguoi_id": "4", "ngay": "2026-11-18", "so_tien_vnd": "1", "so_du_vnd": "0"}, "INVALID_REQUEST"),
+            # Audit DX-03, DX-06: số đang thấy là bắt buộc và phải là chuỗi số nguyên VND (có dấu).
+            ("/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "so_du_vnd": -5}, "INVALID_VND"),
+            ("/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "so_du_vnd": "-0"}, "INVALID_VND"),
+            ("/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "so_du_vnd": "1.5"}, "INVALID_VND"),
+            ("/api/v7/doixe/hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "dong_ids": [5], "so_du_vnd": "0"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "dong_ids": [5], "so_du_vnd": "0",
+                                    "tong_dong_vnd": None}, "INVALID_VND"),
+            ("/api/v7/doixe/chang/xoa", {"chang_id": 9}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/chang/xoa", {"chang_id": 9, "tong_vnd": "1,5"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-100", "ly_do": "x"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-100", "ly_do": "x", "doi_vnd": "-1"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "1"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/gia", {"tuyen_id": 2, "tu_ngay": "2026-01-01", "gia_vnd": "1", "xac_nhan_ngay_cu": "true"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": []}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [],
+                                     "ten_goc_truoc": "A|B"}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": None, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [],
+                                     "gia_vnd": "1", "tu_ngay": "2026-01-01", "ten_goc_truoc": []}, "INVALID_REQUEST"),
             ("/api/v7/doixe/ung/huy", {"ung_id": 2, "ly_do": "  "}, "LY_DO_THIEU"),
-            ("/api/v7/doixe/hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "dong_ids": []}, "DONG_THIEU"),
-            ("/api/v7/doixe/hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "dong_ids": [5, 5]}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "dong_ids": [], "so_du_vnd": "0",
+                                    "tong_dong_vnd": "0"}, "DONG_THIEU"),
+            ("/api/v7/doixe/hoan", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "dong_ids": [5, 5], "so_du_vnd": "0",
+                                    "tong_dong_vnd": "0"}, "INVALID_REQUEST"),
             ("/api/v7/doixe/hoan/huy", {"dot_id": 1}, "INVALID_REQUEST"),
             ("/api/v7/doixe/thang/khoa", {"thang": "2026-10-15", "khoa": True}, "INVALID_MONTH"),
             ("/api/v7/doixe/thang/khoa", {"thang": "2026-10-01", "khoa": "true"}, "INVALID_REQUEST"),
@@ -134,11 +164,11 @@ class DoiXeApiTest(unittest.TestCase):
             ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1", "so_chang": 1, "dau": "ABC"}, "INVALID_REQUEST"),
             ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1", "so_chang": 1}, "INVALID_REQUEST"),
             ("/api/v7/doixe/bang-ke/gui", {"thang": "2026-10-01", "doi_vnd": "1"}, "INVALID_REQUEST"),
-            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "0", "ly_do": "x"}, "INVALID_VND"),
-            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-1.5", "ly_do": "x"}, "INVALID_VND"),
-            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-100", "ly_do": "  "}, "LY_DO_DIEU_CHINH"),
-            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "18/11/2026", "so_tien_vnd": "1"}, "INVALID_DATE"),
-            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "0"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "0", "ly_do": "x", "doi_vnd": "1"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-1.5", "ly_do": "x", "doi_vnd": "1"}, "INVALID_VND"),
+            ("/api/v7/doixe/bang-ke/dieu-chinh", {"dong_id": 5, "so_tien_vnd": "-100", "ly_do": "  ", "doi_vnd": "1"}, "LY_DO_DIEU_CHINH"),
+            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "18/11/2026", "so_tien_vnd": "1", "con_vnd": "1"}, "INVALID_DATE"),
+            ("/api/v7/doixe/bang-ke/tien-ve", {"thang": "2026-10-01", "ngay": "2026-11-18", "so_tien_vnd": "0", "con_vnd": "1"}, "INVALID_VND"),
             ("/api/v7/doixe/bang-ke/tien-ve/huy", {"tien_ve_id": 3, "ly_do": ""}, "LY_DO_THIEU"),
             ("/api/v7/doixe/thu/cuoc", {"chang_id": 9, "truoc": None, "gia_tri": "-1"}, "INVALID_VND"),
             ("/api/v7/doixe/thu/tuyen", {"chang_id": 9, "tuyen_id": 2, "nho": "true"}, "INVALID_REQUEST"),
@@ -147,10 +177,11 @@ class DoiXeApiTest(unittest.TestCase):
                                      "gia_vnd": "1", "tu_ngay": "2026-01-01"}, "TUYEN_THIEU"),
             ("/api/v7/doixe/tuyen", {"tuyen_id": None, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": []}, "INVALID_REQUEST"),
             ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [],
-                                     "gia_vnd": "1"}, "INVALID_REQUEST"),
-            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "xe", "hang": "A", "di": "B", "den": None, "ten_goc": []}, "INVALID_REQUEST"),
-            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [{"hang": "A"}]},
+                                     "gia_vnd": "1", "ten_goc_truoc": []}, "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "xe", "hang": "A", "di": "B", "den": None, "ten_goc": [], "ten_goc_truoc": []},
              "INVALID_REQUEST"),
+            ("/api/v7/doixe/tuyen", {"tuyen_id": 4, "loai": "hang", "hang": "A", "di": "B", "den": None, "ten_goc": [{"hang": "A"}],
+                                     "ten_goc_truoc": []}, "INVALID_REQUEST"),
             ("/api/v7/doixe/phat-sinh", {"ma": "Neo", "ten": "Neo", "cach": "theo_ngay", "muc_vnd": None, "muc_them_vnd": None,
                                          "chi_ho": False, "cot": "ps", "ten_goc": ["Neo"]}, "INVALID_REQUEST"),
             ("/api/v7/doixe/phat-sinh", {"ma": "neo", "ten": "Neo", "cach": "theo_ngay", "muc_vnd": None, "muc_them_vnd": None,
@@ -161,7 +192,7 @@ class DoiXeApiTest(unittest.TestCase):
         for path, body, code in bad:
             with self.subTest(path=path, body=body):
                 self.rejects("POST", path, {**key, **body}, code)
-        self.rejects("POST", "/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1"}, "INVALID_REQUEST")
+        self.rejects("POST", "/api/v7/doixe/ung", {"nguoi_id": 4, "ngay": "2026-11-18", "so_tien_vnd": "1", "so_du_vnd": "0"}, "INVALID_REQUEST")
         self.rejects("POST", "/api/v7/doixe/khong-co", {**key}, "NOT_FOUND")
 
     def test_reads_and_actor_names(self):
@@ -190,7 +221,8 @@ class DoiXeApiTest(unittest.TestCase):
         self.assertIn("actor_name", value["chang"][0]["dong"][0])
 
     def test_sql_matches_migration_functions(self):
-        source = "".join(m.read_text(encoding="utf-8") for m in (MIGRATION, MIGRATION_THU, MIGRATION_DIEU_DO, MIGRATION_TAI_CHINH))
+        source = "".join(m.read_text(encoding="utf-8") for m in (MIGRATION, MIGRATION_THU, MIGRATION_DIEU_DO, MIGRATION_TAI_CHINH,
+                                                                 MIGRATION_AUDIT))
         names = {name for granted in re.findall(r"GRANT EXECUTE ON FUNCTION (.*?) TO sokhach_app;", source, re.S)
                  for name in re.findall(r"doixe\.(\w+)\(", granted)}
         used = {re.search(r"doixe\.(\w+)\(", tables.SQL[key]).group(1) for key in tables.SQL if key.startswith("doixe_")}

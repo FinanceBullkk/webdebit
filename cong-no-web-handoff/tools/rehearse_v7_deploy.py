@@ -42,6 +42,7 @@ from test_v7_load_real_copy import fixture
 
 TOOLS = ROOT / 'cong-no-web-handoff/tools'
 CHECK = TOOLS / 'v7_post_deploy_check.sql'
+MANIFEST = TOOLS / 'v7_catalog_manifest.json'  # audit SQL 23/11/2026 (F1): bảng băm checker so với DB
 DB = 'v7_rehearsal'
 LOADER = 'v7_loader'
 # These exact templates are shared with the runbook and recorded without paths/data.
@@ -54,7 +55,7 @@ COMMANDS = {
     'create': 'CREATE DATABASE <db_v7>;',
     'schema': 'psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -f <release>/specs/v7-backend/schema-draft.sql',
     'functions': 'psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -f <release>/cong-no-web-handoff/tools/v7_backend_functions.sql',
-    'check': 'psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql',
+    'check': 'psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -v manifest=<release>/cong-no-web-handoff/tools/v7_catalog_manifest.json -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql',
     'plan': 'python <release>/cong-no-web-handoff/tools/v7_load_direct.py --from-clean <clean_dir> --socket-dir /var/run/postgresql --database <db_v7> --loader-role <loader_role>',
     'apply': 'python <release>/cong-no-web-handoff/tools/v7_load_direct.py --from-clean <clean_dir> --socket-dir /var/run/postgresql --database <db_v7> --loader-role <loader_role> --apply',
     'reconcile': 'python <release>/cong-no-web-handoff/tools/v7_reconcile_sheet.py --api http://127.0.0.1:<port> --sheet-dir <clean_dir> --out <new_outside_repo_dir> --brief',
@@ -66,6 +67,13 @@ STEPS = ('preflight', 'backup_restore', 'provision', 'load', 'api_reconcile',
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def manifest_variable():
+    """Bảng băm của release vào biến psql `manifest_json`, như `-v manifest=<file>` trên hao (psql chạy trong container)."""
+    text = json.dumps(json.loads(MANIFEST.read_text(encoding='utf-8')), separators=(',', ':'), sort_keys=True)
+    require("'" not in text and '\\' not in text, 'manifest needs psql quoting')
+    return "\\set manifest_json '" + text + "'\n"
 
 
 def count_sql(schema):
@@ -181,7 +189,7 @@ class Rehearsal:
             self.sql('DROP DATABASE ' + name, 'postgres')
 
     def check(self, customers=None, openings=None, extra=''):
-        variables = '\\set db_v7 ' + DB + '\n\\set loader_role ' + LOADER + '\n'
+        variables = '\\set db_v7 ' + DB + '\n\\set loader_role ' + LOADER + '\n' + manifest_variable()
         if customers is not None:
             variables += '\\set expect_customers ' + str(customers) + '\n'
         if openings is not None:
@@ -202,7 +210,7 @@ class Rehearsal:
         script = CHECK.read_text(encoding='utf-8')
         for name, (mutation, error) in cases.items():
             probe = script.replace('BEGIN READ ONLY;', 'BEGIN; ' + mutation)
-            result = self.pg.sql('\\set db_v7 ' + DB + '\n\\set loader_role ' + LOADER + '\n' + probe,
+            result = self.pg.sql('\\set db_v7 ' + DB + '\n\\set loader_role ' + LOADER + '\n' + manifest_variable() + probe,
                                  database=DB, check=False)
             require(result.returncode != 0 and error in result.stderr, 'checker wrong rejection ' + name)
         try:

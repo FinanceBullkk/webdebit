@@ -34,6 +34,7 @@ from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần m
 )
 from v7_api_validate import ApiError
 from v7_header_fees import added_columns, writable
+from v7_price_queue import snapshot_stale
 from v7_ps_queue import auto_ps, best_columns
 from v7_road_queue import NOTE as ROAD_NOTE
 
@@ -82,8 +83,11 @@ RECONCILE_PATH = os.getenv("WEBDEBIT_RECONCILE_PATH") or "/var/lib/webdebit-shee
 def auto_prices(prices: dict[str, Any]) -> list[dict[str, Any]]:
     """Dòng giá Sheet máy được ghi (MAY-GIA-01): READY và MONTH_LOCKED, tháng nợ từ AUTO_PRICES_FROM.
 
-    Giá khác web, nhiều chuyến khớp, phụ phí gõ tay, chuyến chờ kiểm vẫn ở "Cần xem" cho người quyết.
+    Giá khác web, nhiều chuyến khớp, phụ phí gõ tay, chuyến chờ kiểm vẫn ở "Cần xem" cho người quyết. Tab của sổ hỏng (KIEM-TAB-01)
+    hoặc bản chụp giá cũ hơn SNAPSHOT_MAX_AGE_SECONDS thì không ghi dòng nào (audit 23/11/2026, O1 + O7).
     """
+    if (prices.get("tab_health") or {}).get("status") == "broken" or snapshot_stale(prices.get("snapshot_created_at")):
+        return []
     rows = list(prices.get("ready") or []) + [row for row in prices.get("review") or [] if row.get("status") == "MONTH_LOCKED"]
     return [row for row in rows if str(row.get("month") or "") >= AUTO_PRICES_FROM]
 
@@ -96,8 +100,16 @@ def date_fill(item: dict[str, Any]) -> bool:
             and month != "" and str(item.get("existing_debt_month") or "")[:7] == month)
 
 
+AUTO_KINDS = ("text", "trips", "prices", "road", "ps", "headers")
+
+
 def auto_enabled(kind: str) -> bool:
     return kind in {part.strip() for part in os.getenv("WEBDEBIT_AUTO_SHEET", "").split(",")}
+
+
+def auto_flags() -> str:
+    """Cờ máy đang bật theo `WEBDEBIT_AUTO_SHEET`, thứ tự cố định, nối bằng dấu phẩy (máy canh so với cờ phải có)."""
+    return ",".join(kind for kind in AUTO_KINDS if auto_enabled(kind))
 
 
 def _vn_day(timestamp: float) -> str:
@@ -376,6 +388,9 @@ class Inbox:
         self.unavailable = False
         self.auto_log: deque = deque(maxlen=AUTO_LOG)
         self.auto_errors = 0
+        # Lỗi máy của lượt nền vừa xong và số lượt liền có lỗi (audit vận hành 23/11/2026, O4): máy canh báo khi lỗi lặp hai lượt.
+        self.auto_errors_last_round = 0
+        self.auto_error_rounds = 0
         self.auto_run_at: float | None = None
         self.machine_open: dict[int, list[str]] = {}    # tháng máy đã mở mà chưa khóa, theo sổ (lượt nền vừa đọc)
         self.relock_due: dict[int, float] = {}          # sổ có tháng máy mới mở, chưa tới hạn khóa lại → lúc tới hạn
@@ -543,9 +558,9 @@ class Inbox:
                     self.done += 1
         INSURANCE_INDEX.mark_complete(set(customers))   # đọc đủ mọi sổ: khớp container và nhóm "giấy chưa có chuyến" tính được
         self._seed_log()   # trước các bước máy của lượt này, để RAM chưa có việc nào của lượt
+        errors_before = self.auto_errors
         self._relock(shared)
-        text, trips, prices, road, ps, headers = (auto_enabled(kind)
-                                                  for kind in ("text", "trips", "prices", "road", "ps", "headers"))
+        text, trips, prices, road, ps, headers = (auto_enabled(kind) for kind in AUTO_KINDS)
 
         def pasting(book: dict) -> bool:
             return bool((trips and book["trips_new"] - book["road_new"]) or (road and book["road_new"]))
@@ -582,6 +597,8 @@ class Inbox:
         with self.lock:
             self.books, self.failed = books, failed
             self.failed_rounds = self.failed_rounds + 1 if failed else 0
+            self.auto_errors_last_round = self.auto_errors - errors_before
+            self.auto_error_rounds = self.auto_error_rounds + 1 if self.auto_errors_last_round else 0
             self.computed_at, self.key, self.running = self.clock(), key, False
             self.unavailable = key is None
 
@@ -590,14 +607,20 @@ class Inbox:
 
         Bản chụp Sheet hỏng làm mọi sổ thành `failed` mà không có dòng lỗi nào và máy ngừng dán chuyến, ghi giá: chỉ máy canh thấy
         được qua đây (diễn tập 1/12, đo 18/11/2026). `failed_rounds` để một sổ lỗi lẻ ở một lượt rồi tự lành không thành email.
+        Bổ sung 23/11/2026 (audit vận hành O4): lỗi của máy ở lượt nền vừa xong và số lượt liền có lỗi, cờ đang bật (chuỗi, không
+        mảng) và lần ghi cuối theo việc máy đã làm trong ngày (`last_write_at`, UTC; nạp lại từ Lịch sử sau khi API khởi động lại).
         """
         with self.lock:
             if self.computed_at is None:
                 state = "computing"
             else:
                 state = "unavailable" if self.unavailable else "ready"
+            last = max((entry["at"] for entry in self.auto_log), default=None)
             return {"state": state, "books": self.total, "failed": len(self.failed), "failed_rounds": self.failed_rounds,
-                    "computed_age_seconds": None if self.computed_at is None else max(0, int(now - self.computed_at))}
+                    "computed_age_seconds": None if self.computed_at is None else max(0, int(now - self.computed_at)),
+                    "auto_flags": auto_flags(), "auto_errors_last_round": self.auto_errors_last_round,
+                    "auto_error_rounds": self.auto_error_rounds,
+                    "last_write_at": None if last is None else datetime.fromtimestamp(last, UTC).isoformat(timespec="seconds")}
 
     def _auto_text(self, runner, customer_id: int) -> None:
         """Lấy theo Sheet mọi ô chữ lệch của một sổ, bằng đúng lệnh giải quyết lệch người dùng bấm (decision use_sheet).

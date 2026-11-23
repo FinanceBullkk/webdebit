@@ -4,10 +4,12 @@ import re
 
 from pg_v7_harness import (
     AUDIT_KIEN_TRUC_MIGRATION,
+    AUDIT_SQL_MIGRATION,
     BANG_GIA_NOI_DEN_MIGRATION,
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
+    DIEU_CHINH_THEO_GIA_MIGRATION,
     GIA_TU_DOI_MIGRATION,
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
@@ -16,6 +18,7 @@ from pg_v7_harness import (
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
     SHEET_CONFLICT_MIGRATION,
+    SO_GON_MIGRATION,
     XEM_TRUOC_BANG_GIA_MIGRATION,
     ZALO_GROUP_MIGRATION,
     call,
@@ -357,6 +360,9 @@ def check_price_migration(pg):
     pg.sql(XEM_TRUOC_BANG_GIA_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-05
     pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01: bản edit_trip_info/resolve_sheet_conflict hiện hành (16/11)
     pg.sql(AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8"))  # audit 19/11: bản edit_trip_info/record_mark hiện hành
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
+    pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -396,7 +402,10 @@ def check_price_migration(pg):
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
                      "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql", "2026-11-13-v7-dau-doc.sql", "2026-11-16-v7-bao-cao-thang.sql", "2026-11-16-v7-chuan-hoa-chu.sql", "2026-11-16-v7-nguon-het-bao.sql", "2026-11-18-v7-luoi-an-toan.sql", "2026-11-18-v7-mo-so-tat-jit.sql", "2026-11-18-v7-tong-quan-tat-jit.sql", "2026-11-19-v7-khach-moi.sql",
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
-                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql"):
+                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
+                     "2026-11-23-v7-audit-sql.sql",
+                     "2026-11-23-v7-dieu-chinh-theo-gia.sql",
+                     "2026-11-23-v7-so-gon.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for name, query, expected in zip(("functions", "columns", "constraints"), (catalog, cols, constraints), fresh, strict=True):
         got = pg.sql(query, database=db).stdout.strip()

@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+# Ghim phiên bản uv (audit vận hành 23/11/2026, O10): không để mỗi lượt CI tự lấy bản mới nhất. Nâng tay khi cần.
+env:
+  UV_VERSION: 0.13.9
+
 # CI chạy trên GitHub-hosted runners; production `hao` không chạy test.
 # Linux/DB dùng ubuntu-latest; Windows compatibility dùng windows-latest.
 # Vẫn giữ concurrency + path-filter như cũ.
@@ -55,6 +59,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: requirements*.txt
       - name: Unit and HTTP fixture tests (no database)
@@ -73,12 +78,14 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Characterize repository ledger schema on PostgreSQL 18.6
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
       - name: Verify F2/F3 migration from pre-fix schema on isolated PostgreSQL
         run: |
           git show 8c78c0f:cong-no-web-handoff/tools/pg_ledger_schema.sql > "$RUNNER_TEMP/pg-ledger-base.sql"
-          uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-migration.json --base-schema "$RUNNER_TEMP/pg-ledger-base.sql" --migration cong-no-web-handoff/tools/migrations/2026-10-16-ledger-f2f3.sql
+          uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-migration.json --base-schema "$RUNNER_TEMP/pg-ledger-base.sql" --migration cong-no-web-handoff/tools/migrations/2026-10-16-ledger-f2f3.sql
       - name: Upload PostgreSQL characterization report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -102,13 +109,15 @@ jobs:
         with:
           node-version-file: .node-version
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: V7 backend contract and migration upgrade
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test
       # File đọc định nghĩa hiện hành (cong-no-web-handoff/schema/v7_schema_current.pgsql) phải khớp SQL nguồn.
       # Lệch thì đỏ và in lệnh sinh lại. Chạy cả khi bước trên đỏ để thấy đủ hai kết quả.
       - name: V7 schema snapshot matches SQL sources
         if: success() || failure()
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/v7_schema_snapshot.py --check
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/v7_schema_snapshot.py --check
 
   postgres-v7-p0:
     needs: changes
@@ -120,8 +129,10 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: V7 P0 write paths
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_p0_harness.py --strict
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_p0_harness.py --strict
 
   postgres-v7-grants-direct:
     needs: changes
@@ -133,12 +144,19 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: V7 least privilege grants
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict
       - name: V7 direct socket API and loader
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_direct.py --strict
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_direct.py --strict
       - name: V7 deployment rehearsal
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/rehearse_v7_deploy.py --strict
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/rehearse_v7_deploy.py --strict
+      # Sao lưu → khôi phục thật trên PostgreSQL 18 (audit vận hành 23/11/2026, O5). Biến môi trường làm thiếu Docker thành lỗi, không bỏ qua.
+      - name: V7 backup and restore on isolated PostgreSQL
+        env:
+          WEBDEBIT_BACKUP_E2E_REQUIRED: '1'
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_v7_backup.py -v
 
   # Chuỗi lệnh ghi tiền ngẫu nhiên (Hypothesis, seed cố định) so với mô hình tham chiếu sau mỗi lệnh
   # (specs/v7-fifo-ngau-nhien.md). Hypothesis ghim ở requirements-dev.txt, chỉ dùng trong job này.
@@ -151,11 +169,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: requirements*.txt
       - name: V7 FIFO random command sequences vs reference model
         run: >-
-          uv run --python 3.13 --with-requirements requirements-dev.txt
+          uv run --python 3.14 --with-requirements requirements-dev.txt
           python cong-no-web-handoff/tools/test_pg_v7_fifo_ngau_nhien.py
 
   # Bất biến tiền (specs/v7-bat-bien-tien.md): chuỗi lệnh ngẫu nhiên seed cố định trên ba sổ giả, kiểm số dư, FIFO,
@@ -168,8 +187,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: V7 money invariants over seeded random command sequences
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_bat_bien.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_bat_bien.py
 
   # Lưới an toàn của máy canh (specs/v7-luoi-an-toan.md): sổ giả sạch không báo; mỗi phép kiểm có vi phạm cố ý làm nó đỏ.
   postgres-v7-luoi-an-toan:
@@ -180,8 +201,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: V7 safety net checks on isolated PostgreSQL
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_luoi_an_toan.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_luoi_an_toan.py
 
   # Đội xe đợt 1 (specs/chi-phi-xe-01.md): schema doixe trên PostgreSQL dùng một lần; lệnh ghi thật, quyền, chống ghi trùng,
   # số dư theo công thức đã chốt, khóa tháng, không ghi sokhach.
@@ -193,17 +216,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Doi xe schema on isolated PostgreSQL
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe.py
       # Đội xe đợt 2 (specs/doi-xe-thu-01.md): bảng kê HTH, giá tuyến, tiền về, công nợ cước.
       - name: Doi xe bang ke (thu cuoc) on isolated PostgreSQL
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_thu.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_thu.py
       # Đội xe điều độ (specs/doi-xe-dieu-do-01.md): phân xe, luật nối việc ↔ chặng, đổi/bỏ phân công, nhận booking, mã nhà xe.
       - name: Doi xe dieu do on isolated PostgreSQL
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_dieu_do.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_dieu_do.py
       # Đội xe mục Chặng (specs/doi-xe-chang-01.md): hàm đọc thu, chi, lãi gộp của chặng; tổng bằng get_so và get_bang_ke.
       - name: Doi xe chang tai chinh on isolated PostgreSQL
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_doixe_chang.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_chang.py
+      # Audit Đội xe 23/11/2026: áp giá ngược phải xác nhận, số đang thấy ở ứng/hoàn/tiền về/điều chỉnh/xóa chặng/tên gốc, container lặp.
+      - name: Doi xe sua audit on isolated PostgreSQL
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_audit.py
+      # DOI-XE-SAU-KHOA-01 (audit DX-05): ứng, đợt hoàn và hủy vào tháng đã khóa vẫn ghi, gắn cờ sau khóa.
+      - name: Doi xe sau khoa on isolated PostgreSQL
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_sau_khoa.py
 
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;
   # hàm Tổng quan hay get_ledger bị làm sai thì tự kiểm đỏ.
@@ -215,8 +246,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: V7 whole-ledger export on isolated PostgreSQL
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_xuat_so.py
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_v7_xuat_so.py
 
   postgres-m1-history-queries:
     needs: changes
@@ -231,8 +264,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Test HistoryDB M1 queries on isolated PostgreSQL 18.6
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
       - name: Upload PostgreSQL M1 query report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -249,8 +284,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
       - name: Test immutable approval revisions and opening resolution on PostgreSQL 18.6
-        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
       - name: Upload versioned approval fixture report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -286,6 +323,7 @@ jobs:
           cache: npm
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: requirements*.txt
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

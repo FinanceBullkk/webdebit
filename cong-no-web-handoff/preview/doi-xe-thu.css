@@ -7,7 +7,7 @@
 .dxt-thang{display:inline-flex;flex-direction:column;align-items:flex-start;min-height:44px;padding:3px 14px;border:1px solid #c9d1db;border-radius:8px;background:#fff;color:var(--ink);font:inherit;line-height:1.25;text-align:left;cursor:pointer}
 .dxt-thang:hover{background:#eaf2fc}
 .dxt-thang.on{border-color:var(--accent-ink);background:#eaf2fc}
-.dxt-thang span{font-size:12.5px}
+.dxt-thang span{font-size:13px}
 .tt-nhap{color:#6f6d67}
 .tt-gui,.tt-doi{color:var(--accent-ink)}
 .tt-du{color:var(--credit)}
@@ -75,6 +75,7 @@
 .dxt-cut{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .dxt-loai{margin-right:6px;padding:1px 6px;border-radius:4px;background:#eef1f4;color:#33465c;font-size:13px;font-weight:600}
 .dxt-chua{color:#8a5300;font-weight:700}
+.dxt-lap{display:inline-block;margin-left:4px;padding:0 5px;border-radius:4px;background:#fdecc8;color:#6b4400;font-size:13px;font-weight:700;text-decoration:none}
 .dxt-khac{color:#8a5300;font-weight:700;text-decoration:underline dotted}
 .dxt-tong{min-height:44px;background:var(--head);border-top:1px solid var(--line);font-weight:700;font-variant-numeric:tabular-nums}
 .dxt-ct{display:flex;flex-direction:column;gap:6px;padding:8px 16px 12px 78px;border-top:1px dashed #e1e6ec;font-size:14px;color:#33465c}
@@ -104,4 +105,9 @@
 .dxt-goc-i{display:inline-flex;align-items:center;gap:2px;padding:0 0 0 8px;border:1px solid #c9d1db;border-radius:14px;background:#fff;font-size:13px}
 .dxt-goc-i button{width:28px;height:28px;border:0;background:none;color:var(--ink-3);cursor:pointer}
 .dxt-ngung{margin-left:auto;font-size:14px;color:#a12622}
+/* Audit DX-07: hỏi trước khi ngưng tuyến; danh sách tuyến đã ngưng có nút Dùng lại. */
+.dxt-hoi{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-left:auto;padding:8px 10px;border:1px solid #e8c9a0;border-radius:8px;background:#fff8ec;font-size:14px;color:#6b4400}
+.dxt-ngung-ds{border-top:1px solid #e3e7ec}
+.dxt-ngung-ds>summary{display:flex;align-items:center;min-height:44px;padding:0 16px;font-size:14px;color:var(--ink-2);cursor:pointer}
+.dxt-ngung-ds .dxt-g-r{grid-template-columns:110px minmax(0,1fr) 112px 0 auto;color:var(--ink-2)}
 @media (max-width:760px){.dxt-so{grid-template-columns:1fr}.dxt-congno{margin-left:0;flex-basis:100%}}

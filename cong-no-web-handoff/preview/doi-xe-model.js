@@ -106,6 +106,34 @@
     return ngayHopLe(y, +m[2], +m[1]);
   }
 
+  // Ngày áp dụng giá (Bảng giá, audit DX-01): như docNgayGo, nhưng gõ thiếu năm thì lấy năm gần nhất mà ngày không trước tháng này
+  // (tháng 12 gõ 01/01 là 01/01 năm sau, không phải 01/01 năm nay). Muốn áp ngược về trước tháng này thì gõ đủ năm; `cu` báo
+  // ngày đó trước tháng này để màn hỏi lại.
+  function docNgayApGia(text, homNay) {
+    const t = String(text ?? '').trim();
+    if (!t) return { v: null };
+    const m = /^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?$/.exec(t);
+    if (!m) return { loi: 'Ngày lạ' };
+    const thangNay = thangCua(homNay);
+    let r;
+    if (m[3]) {
+      let y = +m[3];
+      if (y < 100) y += 2000;
+      r = ngayHopLe(y, +m[2], +m[1]);
+    } else {
+      // Thiếu năm: lấy ngày gần hôm nay nhất trong ba năm (tháng 12 gõ 01/01 là năm sau; gõ 25/11 là tháng trước, áp ngược nên hỏi).
+      const y = +String(homNay).slice(0, 4), now = Date.parse(homNay);
+      const ds = [y - 1, y, y + 1].map(n => ngayHopLe(n, +m[2], +m[1])).filter(x => x.v);
+      r = ds.length ? ds.reduce((a, b) => (Math.abs(Date.parse(b.v) - now) < Math.abs(Date.parse(a.v) - now) ? b : a)) : ngayHopLe(y, +m[2], +m[1]);
+    }
+    return r.v ? { v: r.v, cu: r.v < thangNay } : r;
+  }
+  // Ô "Áp dụng từ ngày" mặc định: mùng 1 tháng sau, đủ năm.
+  function ngayApMacDinh(homNay) {
+    const y = +String(homNay).slice(0, 4), mo = +String(homNay).slice(5, 7);
+    return mo === 12 ? `01/01/${y + 1}` : `01/${pad2(mo + 1)}/${y}`;
+  }
+
   // Các tháng trên thanh tháng: tháng có dữ liệu, luôn thêm tháng trước và tháng này (sổ mới vẫn sang được tháng trước để dán),
   // và tháng đang xem; giữ 6 tháng gần nhất nhưng không bỏ tháng đang xem.
   function cacThang(thangCo, homNay, dangXem) {
@@ -365,6 +393,10 @@
   const tongTien = list => list.reduce((s, x) => s + x.tien, 0);
   // Đợt hoàn: tổng các dòng − số thực chuyển (dương là phần trừ vào tiền ứng đang giữ).
   const chenhDot = dot => so(dot.tong_dong_vnd) - so(dot.so_tien_vnd);
+  // Khoản (ứng, tiền về) chưa hủy cùng ngày, cùng số tiền với khoản sắp ghi: hộp ghi cảnh báo trùng trước khi ghi (audit DX-03).
+  const khoanTrung = (ds, ngay, tien) => (ds ?? []).find(x => !x.huy && x.ngay === ngay && so(x.so_tien_vnd) === tien) ?? null;
+  // Tổng mọi khoản phí ở mọi dòng của chặng (cả phí công ty trả), như máy chủ so khi xóa chặng (audit DX-06). Không ô nào: 0.
+  const tongPhiChang = c => c.dong.reduce((s, d) => Object.values(d.phi).reduce((t, v) => t + so(v), s), 0);
   const tongChon = (dongs, chon) => dongs.reduce((s, x) => s + (chon.has(x.dong.id) ? x.tien : 0), 0);
 
   // Hoàn khác tổng: âm là chuyển ít hơn (phần thiếu trừ vào tiền ứng đang giữ), dương là chuyển nhiều hơn (như ứng thêm).
@@ -469,6 +501,8 @@
   const TEN_COT = { ngay: 'Ngày', container: 'Container', loai: 'Loại chặng', xe_id: 'Xe', noi_lay: 'Nơi lấy', noi_ha: 'Nơi hạ', kho: 'Kho',
     ghi_chu: 'Ghi chú', ...Object.fromEntries(Object.entries(SO_LUONG).map(([k, sl]) => [k, sl.ten])) };
   const tenCot = (cot, loaiPhi) => (String(cot).startsWith('phi:') ? loaiPhi.find(p => p.ma === cot.slice(4))?.ten ?? cot : TEN_COT[cot] ?? cot);
+  // DX-05: ứng, đợt hoàn và hủy khi tháng của khoản đã khóa (DOI-XE-SAU-KHOA-01).
+  const sk = s => (s.sau_khoa ? ' · sau khóa (tháng đã khóa)' : '');
   const LY_DC = { thang_khoa: 'Tháng đã khóa', da_hoan: 'Dòng đã hoàn', co_dieu_chinh: 'Đã có điều chỉnh' };
 
   function moTaSuKien(e, dm, loaiPhi) {
@@ -486,14 +520,14 @@
       case 'doi_nguoi_tra': Object.assign(out, { viec: 'Đổi người trả', chi: chang, truoc: giaTri('nguoi_tra', t.nguoi_tra, dm), sau: giaTri('nguoi_tra', s.nguoi_tra, dm) }); break;
       case 'xoa_chang': Object.assign(out, { viec: 'Xóa chặng', chi: chang, truoc: `Chi ${fmt(so(t.tien_vnd) ?? 0)}`, sau: 'đã xóa' }); break;
       case 'bo_chang': Object.assign(out, { viec: 'Bỏ chặng', chi: `${LY_DC[s.ly_do_dc] ?? ''} · ${chang}`, truoc: `Chi ${fmt(so(t.tien_vnd) ?? 0)}`, sau: 'thêm dòng trừ lại' }); break;
-      case 'ghi_ung': Object.assign(out, { viec: 'Ghi ứng', chi: `${fmt(so(s.so_tien_vnd))} · chuyển ngày ${ddmm(s.ngay)}${s.ghi_chu ? ` · ${s.ghi_chu}` : ''}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
-      case 'huy_ung': Object.assign(out, { viec: 'Hủy lần ứng', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
+      case 'ghi_ung': Object.assign(out, { viec: 'Ghi ứng', chi: `${fmt(so(s.so_tien_vnd))} · chuyển ngày ${ddmm(s.ngay)}${s.ghi_chu ? ` · ${s.ghi_chu}` : ''}${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
+      case 'huy_ung': Object.assign(out, { viec: 'Hủy lần ứng', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))}${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
       case 'ghi_hoan': {
         const lech = so(s.tong_dong_vnd) - so(s.so_tien_vnd);
-        Object.assign(out, { viec: 'Ghi đợt hoàn', chi: `${s.so_dong} dòng ${fmt(so(s.tong_dong_vnd))}${lech > 0 ? ` · trừ ứng ${fmt(lech)}` : ''} · chuyển ${fmt(so(s.so_tien_vnd))} ngày ${ddmm(s.ngay)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) });
+        Object.assign(out, { viec: 'Ghi đợt hoàn', chi: `${s.so_dong} dòng ${fmt(so(s.tong_dong_vnd))}${lech > 0 ? ` · trừ ứng ${fmt(lech)}` : ''} · chuyển ${fmt(so(s.so_tien_vnd))} ngày ${ddmm(s.ngay)}${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) });
         break;
       }
-      case 'huy_hoan': Object.assign(out, { viec: 'Hủy đợt hoàn', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))} · ${s.dong_tro_lai} dòng trở lại Chưa hoàn`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
+      case 'huy_hoan': Object.assign(out, { viec: 'Hủy đợt hoàn', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))} · ${s.dong_tro_lai} dòng trở lại Chưa hoàn${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
       case 'khoa_thang': Object.assign(out, { viec: `${s.khoa ? 'Khóa' : 'Mở khóa'} tháng ${Number(String(s.thang).slice(5, 7))}/${String(s.thang).slice(0, 4)}`, chi: 'Cả đội xe', truoc: t.khoa ? 'Đã khóa' : 'Đang mở', sau: s.khoa ? 'Đã khóa' : 'Đang mở' }); break;
       default: out.viec = e.viec;
     }
@@ -501,9 +535,9 @@
   }
 
   return {
-    LOAI, TEN_LOAI, COT, SO_LUONG, docSoLuong, ganSoLuong, gioMay, kmTinh, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, cacThang, chuanCont,
+    LOAI, TEN_LOAI, COT, SO_LUONG, docSoLuong, ganSoLuong, gioMay, kmTinh, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, docNgayApGia, ngayApMacDinh, cacThang, chuanCont,
     tachTSV, doanLoai, timXe, dongTuSheet, hoanThien, nhapTuGo, moiCo, khoaChang, khoaDaLuu, chiNhap, kiemDong, danKhoi, dongGui, loiMay,
-    tienDong, phiHieuLuc, phiGoc, tienChang, coPhi, daHoan, chuaNoi, laChuaHoan, dongChuaHoan, tongTien, chenhDot, tongChon, lechHoan, truUngGiu, sauKhiGhi,
+    tienDong, phiHieuLuc, phiGoc, tienChang, coPhi, daHoan, chuaNoi, laChuaHoan, dongChuaHoan, tongTien, chenhDot, tongPhiChang, khoanTrung, tongChon, lechHoan, truUngGiu, sauKhiGhi,
     sauKhiHuy, cuoiThe, loiDu, nhanCuoi, cotPhiGon, phiKhac, phiKhacNhap, tongCot, tongChi, theXe, xepNguoi, tongNguoi, tenNguoi, tenCot,
     moTaSuKien,
   };

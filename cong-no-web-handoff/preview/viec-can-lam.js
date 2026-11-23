@@ -310,12 +310,10 @@
     if (!preview?.enabled || state.sending) return;
     inbox.dc.ai.set(id, { preview, sending: true }); paintInbox();
     try {
-      const response = await fetch('/api/v7/ai/explain', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer_id: id, fingerprint: preview.fingerprint, consent: true }) });
-      const body = await response.json();
-      if (!response.ok) throw Error(body.message ?? 'Claude chưa trả lời được.');
+      const body = await CongNoNet.postJson('/api/v7/ai/explain', { customer_id: id, fingerprint: preview.fingerprint, consent: true },
+        { what: 'lời giải thích' });
       inbox.dc.ai.set(id, { preview, result: body });
-    } catch (error) { inbox.dc.ai.set(id, { preview, error: error.message ?? 'Claude chưa trả lời được.' }); }
+    } catch (error) { inbox.dc.ai.set(id, { preview, error: CongNoNet.messageOf(error, 'Claude chưa trả lời được.') }); }
     paintInbox();
   }
   const dcSet = (map, id) => { if (!map.has(id)) map.set(id, new Set()); return map.get(id); };
@@ -466,7 +464,7 @@
     const kind = button.dataset.command;
     const row = ledger.trips?.find(r => r.id === Number(button.dataset.trip));
     const body = { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID() };
-    let title, text, path, inlineText;
+    let title, text, path, inlineText, warn = '';
     try {
       if (kind === 'ps' || kind === 'approve') {
         const part = kind === 'ps' ? ledger.ps_fees : ledger.sheet_sync;
@@ -491,6 +489,8 @@
         if (kind === 'price') {
           body.unit_price_vnd = globalThis.InboxTable.parseMillions(inboxRoot.querySelector(`[data-manual-price="${row.id}"]`).value);
           body.other_fee_vnd = row.other_fee_vnd;
+          // Ô nhập bằng triệu: "45000000" thành 45 nghìn tỷ đồng, "0,5" chỉ 500 nghìn. Ngoài [1 triệu, 1 tỷ] thì nêu đầu câu hỏi.
+          if (SoKhachV7Model.priceDoubt(body.unit_price_vnd)) warn = `Kiểm lại đơn vị: ${SoKhachV7Model.priceDoubtText(body.unit_price_vnd)} `;
           next = SoKhachV7Model.tripAmount({ unitPriceVnd: body.unit_price_vnd, otherFeeVnd: row.other_fee_vnd, container: row.container, status: row.status }).amountVnd.toString();
           title = `Ghi đơn giá ${F.full(body.unit_price_vnd)} cho ${row.container}`;
           path = '/api/v7/trips/price';
@@ -501,8 +501,8 @@
           title = `${kind === 'confirm' ? 'Tính vào sổ' : 'Loại chuyến'} ${row.container}`;
           path = '/api/v7/trips/review';
         }
-        text = `Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))}. ${body.reason ?? 'Chuyến bắt đầu tính nợ theo đơn giá đã nhập.'}`;
-        inlineText = `${kind === 'price' ? `Ghi giá ${globalThis.InboxTable.million(body.unit_price_vnd)} tr` : kind === 'confirm' ? 'Chuyến riêng' : 'Bỏ chuyến'} · ${next === '0' ? 'nợ không đổi' : `nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))} tr`}`;
+        text = `${warn}Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))}. ${body.reason ?? 'Chuyến bắt đầu tính nợ theo đơn giá đã nhập.'}`;
+        inlineText = `${warn}${kind === 'price' ? `Ghi giá ${globalThis.InboxTable.million(body.unit_price_vnd)} tr` : kind === 'confirm' ? 'Chuyến riêng' : 'Bỏ chuyến'} · ${next === '0' ? 'nợ không đổi' : `nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))} tr`}`;
       }
       inbox.action = { title, text, inlineText, path, body, id: inbox.open, rowKey: row ? `${kind === 'price' ? 'price' : 'review'}:${row.id}` : null, reasonRequired: kind === 'confirm' || kind === 'reject' };
       paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
@@ -543,11 +543,12 @@
     const summary = [...counts].map(([price, n]) => `${n} chuyến ${T.millionInput(price)} tr`).join(' · ');
     const last = group.last, lastDate = last?.date ? ` (${F.dateText(last.date)})` : '';
     const differ = last && [...counts.keys()].some(price => price !== last.price);
+    const priceWarn = [...counts.keys()].filter(price => SoKhachV7Model.priceDoubt(price)).map(price => `Kiểm lại đơn vị: ${SoKhachV7Model.priceDoubtText(price)} `).join('');
     inbox.action = { id: inbox.open, rowKey: `price-group:${key}`, groupKey: key, route: group.label, priceBatch: true, path: '/api/v7/trips/price', count: items.length,
       groupTrips: group.trips.map(r => String(r.id)),
       before, after, title: `Ghi giá ${items.length} chuyến ${group.label}`,
-      text: `${summary}. Còn nợ ${F.full(before)} → ${F.full(after)}.${differ ? ` Giá gần nhất cùng tuyến là ${F.full(last.price)}${lastDate}.` : ''} Mỗi chuyến ghi Lịch sử riêng.`,
-      inlineText: `Ghi ${summary} · nợ ${T.million(before)} → ${T.million(after)} tr${differ ? ` · khác giá gần nhất ${T.millionInput(last.price)} tr${lastDate}` : ''}`,
+      text: `${priceWarn}${summary}. Còn nợ ${F.full(before)} → ${F.full(after)}.${differ ? ` Giá gần nhất cùng tuyến là ${F.full(last.price)}${lastDate}.` : ''} Mỗi chuyến ghi Lịch sử riêng.`,
+      inlineText: `${priceWarn}Ghi ${summary} · nợ ${T.million(before)} → ${T.million(after)} tr${differ ? ` · khác giá gần nhất ${T.millionInput(last.price)} tr${lastDate}` : ''}`,
       tasks: items.map(({ row, price }) => ({ done: false, body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: hexKey(),
         trip_id: row.id, unit_price_vnd: price, other_fee_vnd: row.other_fee_vnd } })) };
     inbox.action.summaryText = inbox.action.inlineText;

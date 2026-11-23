@@ -365,7 +365,7 @@ class Shadow:
         for trip in book.trips:
             if trip.counted():
                 add(trip.month, trip.base())
-                if trip.adj_rows:
+                if trip.adj_rows and trip.base() is not None:  # DIEU-CHINH-THEO-GIA-01: không còn đơn giá thì điều chỉnh không tính
                     add(trip.month, trip.delta)
         for adj in book.adjs:
             if not adj.deleted:
@@ -484,13 +484,16 @@ class Shadow:
                                 "otherFeeVnd": None if row["fee"] is None else str(row["fee"])})
                 desc.append(f"{container} ngày {day} giá {row['unit']} phụ phí {row['fee']}"
                             + (" (trùng → chờ kiểm)" if status != "confirmed" else ""))
-            future = any(t.day is not None and t.day > today for t in rows)
+            # Thứ tự kiểm như paste_trips: dòng có ngày sau hôm nay thì FUTURE_DATE; dòng phí lẻ không ngày vào tháng nợ của lệnh,
+            # nên tháng đó khóa thì MONTH_LOCKED (audit SQL 23/11, F2). Dòng có ngày vẫn nhập bù vào tháng khóa (NHAP-SHEET-01 (7)).
+            refused = next(("FUTURE_DATE" if t.day is not None else "MONTH_LOCKED" for t in rows
+                            if (t.day is not None and t.day > today) or (t.day is None and self.locked(book, month))), None)
             count = len(rows)
             touch(book.idx, "paste", lambda b, a: None if len(a.get("trips", [])) == count
                   else f"{len(a.get('trips', []))} chuyến, chờ {count}")
             plan.update(sql=self.call("paste_trips", book.id, book.version, self.tag("k"), month,
                                       json.dumps(payload, ensure_ascii=False)),
-                        expect="FUTURE_DATE" if future else None, apply=lambda: book.trips.extend(rows),
+                        expect=refused, apply=lambda: book.trips.extend(rows),
                         text=f"sổ {book.name}: dán lô tháng {month[:7]}: " + "; ".join(desc))
             return plan
 

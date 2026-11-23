@@ -16,11 +16,17 @@ $$;
 
 -- Trip adjustments follow current information; pending/deleted trips contribute nothing.
 -- A deleted month adjustment and its reversal sum to 0 in the same month, so both are hidden (XOA-DC-THANG-01).
+-- DIEU-CHINH-THEO-GIA-01 (người dùng chọn 23/11/2026, audit SQL F6): điều chỉnh của chuyến chỉ tính khi chuyến còn số tiền gốc
+-- (có đơn giá, hoặc dòng chỉ phụ phí có phụ phí), cùng điều kiện chuyến được cộng vào nợ ở v_outstanding_month_raw. Xóa đơn giá
+-- thì cả chuyến lẫn điều chỉnh của nó ra khỏi số dư; nhập lại đơn giá thì điều chỉnh tính lại. Dòng điều chỉnh không bị xóa.
 CREATE OR REPLACE VIEW sokhach.v_adjustment_current AS
 SELECT a.id,a.customer_id,coalesce(t.debt_month,a.debt_month) AS debt_month,
        a.trip_id,a.legacy_row_id,a.amount_vnd,a.field,a.new_value_vnd,a.note,a.actor,a.at,a.created_by_event
 FROM sokhach.adjustment a LEFT JOIN sokhach.v_trip_current t ON t.id=a.trip_id
-WHERE NOT a.fee_absorbed AND (a.trip_id IS NULL OR (NOT t.deleted AND t.status='confirmed'))
+LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
+    WHERE trip_id=a.trip_id ORDER BY id DESC LIMIT 1) p ON a.trip_id IS NOT NULL
+WHERE NOT a.fee_absorbed AND (a.trip_id IS NULL OR (NOT t.deleted AND t.status='confirmed'
+      AND (p.unit_price_vnd IS NOT NULL OR ((t.container IS NULL OR t.container='') AND p.other_fee_vnd IS NOT NULL))))
   AND a.reverses_adjustment_id IS NULL
   AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment r WHERE r.reverses_adjustment_id=a.id);
 
@@ -91,6 +97,12 @@ $$;
 -- Đặt ở đây, không ở schema-draft.sql, vì hàm chỉ có sau khi nạp file này.
 CREATE INDEX IF NOT EXISTS legacy_row_container_key ON sokhach.legacy_row (sokhach._normalize_key(display->>'container'));
 CREATE INDEX IF NOT EXISTS legacy_trip_rev_container_key ON sokhach.legacy_trip_rev (sokhach._normalize_key(container));
+-- Audit SQL 23/11/2026 (F5): Tổng quan lọc event theo khoảng giờ, hoàn tác lô tra event theo khóa lệnh, xóa chuyến tra điều chỉnh
+-- theo chuyến, Tổng quan tra phiếu theo event hủy. Trước đó cả bốn quét tuần tự.
+CREATE INDEX IF NOT EXISTS event_at ON sokhach.event (at);
+CREATE INDEX IF NOT EXISTS event_customer_key ON sokhach.event (customer_id, idempotency_key);
+CREATE INDEX IF NOT EXISTS adjustment_trip ON sokhach.adjustment (trip_id) WHERE trip_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS receipt_voided_by_event ON sokhach.receipt (voided_by_event) WHERE voided_by_event IS NOT NULL;
 CREATE FUNCTION sokhach._booking_key(p_booking text,p_container text,p_date date) RETURNS text
 LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
     SELECT CASE WHEN sokhach._normalize_key(p_booking) ~ '[[:alnum:]]'
@@ -122,6 +134,50 @@ BEGIN
           AND (CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END) IS NULL);
 END $$;
 
+-- Audit SQL 23/11/2026 (F8): dòng sổ gốc ĐÃ SỬA (có bản sửa) ở bất kỳ sổ nào, cùng container, có ngày cách p_date tối đa 3 ngày.
+-- baseline_trip_ref chụp lúc nạp mốc nên không thấy container/ngày sửa sau đó; dòng chưa sửa vẫn do baseline_trip_ref trả lời.
+CREATE OR REPLACE FUNCTION sokhach._legacy_edited_date_match(p_container text, p_date date) RETURNS boolean
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    IF coalesce(p_container,'')='' OR p_date IS NULL THEN RETURN false; END IF;
+    RETURN EXISTS (SELECT 1 FROM (SELECT DISTINCT y.legacy_row_id FROM sokhach.legacy_trip_rev y
+            WHERE sokhach._normalize_key(y.container)=p_container) c
+        JOIN sokhach.legacy_row l ON l.id=c.legacy_row_id AND l.kind='trip'
+        JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id) AND cc.status='active'
+        CROSS JOIN LATERAL (SELECT x.event_date,x.container,x.deleted FROM sokhach.legacy_trip_rev x
+            WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r
+        WHERE NOT r.deleted AND sokhach._normalize_key(r.container)=p_container
+          AND r.event_date IS NOT NULL AND abs(r.event_date-p_date)<=3);
+END $$;
+
+-- Audit SQL 23/11/2026 (F8): một chỗ tính lý do đưa chuyến vào CHỜ KIỂM, dùng chung cho paste_trips, edit_trip_info và _change_legacy
+-- (trước đó ba bản chép tay lệch nhau, gốc của lỗi A12). Thứ tự giữ như paste_trips. p_exclude_trip: chuyến đang sửa không tự trùng
+-- với chính nó; p_batch: các dòng đã xét trước trong cùng lệnh dán (NULL khi không dán).
+CREATE OR REPLACE FUNCTION sokhach._trip_dup_reason(p_customer bigint, p_cutover bigint, p_container text, p_booking text,
+    p_date date, p_exclude_trip bigint, p_batch jsonb) RETURNS text
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=p_cutover
+        AND r.booking_norm=p_booking AND r.container_norm=p_container)
+    THEN RETURN 'BASELINE_CODE_MATCH'; END IF;
+    IF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=p_cutover
+        AND r.container_norm=p_container AND abs(r.event_date-p_date)<=3)
+       OR sokhach._legacy_edited_date_match(p_container,p_date)
+    THEN RETURN 'BASELINE_DATE_WINDOW'; END IF;
+    IF sokhach._legacy_undated_match(p_container,p_date) THEN RETURN 'BASELINE_UNDATED_MONTH'; END IF;
+    IF EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE NOT t.deleted AND t.customer_id=p_customer
+        AND t.id IS DISTINCT FROM p_exclude_trip
+        AND sokhach._normalize_key(t.container)=p_container
+        AND (sokhach._booking_key(t.booking,t.container,t.event_date)=p_booking OR abs(t.event_date-p_date)<=3))
+    THEN RETURN 'WEB_DUPLICATE'; END IF;
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(p_batch,'[]'::jsonb)) r
+        WHERE sokhach._normalize_key(r->>'container')=p_container
+        AND (sokhach._booking_key(r->>'booking',r->>'container',(r->>'event_date')::date)=p_booking
+            OR abs((r->>'event_date')::date-p_date)<=3))
+    THEN RETURN 'BATCH_DUPLICATE'; END IF;
+    RETURN NULL;
+END $$;
+
 CREATE OR REPLACE FUNCTION sokhach.paste_trips(customer_id bigint, expected_version bigint,
     idempotency_key text, debt_month date, trips jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
@@ -130,7 +186,7 @@ DECLARE v_payload jsonb := jsonb_build_object('command','paste_trips','month',de
         v_item jsonb; v_fee_item jsonb; v_id bigint; v_event bigint; v_rows jsonb := '[]'::jsonb;
         v_changes jsonb; v_date date; v_unit bigint; v_fee bigint; v_fee_total numeric; v_date_text text;
         v_fee_only boolean; v_cutover bigint; v_booking text; v_container text;
-        v_reason text; v_pending jsonb := '[]';
+        v_reason text; v_pending jsonb := '[]'; v_lock integer;
 BEGIN
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
@@ -143,6 +199,13 @@ BEGIN
     IF debt_month IS NULL OR extract(day FROM debt_month)<>1 THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
     IF jsonb_typeof(trips) IS DISTINCT FROM 'array' OR jsonb_array_length(trips)=0
     THEN RAISE EXCEPTION 'INVALID_TRIPS'; END IF;
+    -- Audit SQL 23/11/2026 (F9): khóa container của dòng Sheet lấy trước, theo thứ tự khóa, thay vì từng dòng theo thứ tự lô trong
+    -- trigger guard_sheet_cross_customer (trigger lấy lại cùng khóa, không chờ). Hai lô cùng container khác thứ tự hết kẹt chéo.
+    FOR v_lock IN SELECT DISTINCT hashtext(sokhach._normalize_key(x->>'container')) FROM jsonb_array_elements(trips) x
+        WHERE jsonb_typeof(x)='object' AND x->>'src' ~ '^sheet:[0-9a-f]{64}:[0-9]+$' AND nullif(x->>'container','') IS NOT NULL
+        ORDER BY 1 LOOP
+        PERFORM pg_advisory_xact_lock(746193,v_lock);
+    END LOOP;
     FOR v_item IN SELECT value FROM jsonb_array_elements(trips) LOOP
         IF v_item ? 'fees' AND (jsonb_typeof(v_item->'fees')<>'array' OR v_item->>'otherFeeVnd' IS NOT NULL)
         THEN RAISE EXCEPTION 'INVALID_TRIP_INPUT'; END IF;
@@ -171,6 +234,13 @@ BEGIN
         -- cùng luật với sửa ngày tại ô (_trip_date); chuyến đồng bộ từ Sheet cũng đi qua đây.
         IF v_date > (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
         THEN RAISE EXCEPTION 'FUTURE_DATE'; END IF;
+        -- Audit SQL 23/11/2026 (F2): dòng phí lẻ không ngày vào tháng nợ của lệnh, nên theo luật của adjust_month: không sau tháng
+        -- hiện tại giờ VN và tháng phải mở (khóa tháng 24/10/2026). Dòng có ngày giữ ngoại lệ nhập bù NHAP-SHEET-01 (7).
+        IF v_date IS NULL THEN
+            IF debt_month > date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+            THEN RAISE EXCEPTION 'FUTURE_DATE'; END IF;
+            PERFORM sokhach._month_open(customer_id,debt_month,clock_timestamp());
+        END IF;
         BEGIN
             v_unit := (v_item->>'unitPriceVnd')::bigint;
             v_fee := (v_item->>'otherFeeVnd')::bigint;
@@ -195,24 +265,7 @@ BEGIN
         IF NOT v_fee_only THEN
             v_container := sokhach._normalize_key(v_item->>'container');
             v_booking := sokhach._booking_key(v_item->>'booking',v_container,v_date);
-            IF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
-                AND r.booking_norm=v_booking AND r.container_norm=v_container)
-            THEN v_reason := 'BASELINE_CODE_MATCH';
-            ELSIF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
-                AND r.container_norm=v_container AND abs(r.event_date-v_date)<=3)
-            THEN v_reason := 'BASELINE_DATE_WINDOW';
-            ELSIF sokhach._legacy_undated_match(v_container,v_date)
-            THEN v_reason := 'BASELINE_UNDATED_MONTH';
-            ELSIF EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE NOT t.deleted AND t.customer_id=paste_trips.customer_id
-                AND sokhach._normalize_key(t.container)=v_container
-                AND (sokhach._booking_key(t.booking,t.container,t.event_date)=v_booking
-                    OR abs(t.event_date-v_date)<=3))
-            THEN v_reason := 'WEB_DUPLICATE';
-            ELSIF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rows) r
-                WHERE sokhach._normalize_key(r->>'container')=v_container
-                AND (sokhach._booking_key(r->>'booking',r->>'container',(r->>'event_date')::date)=v_booking
-                    OR abs((r->>'event_date')::date-v_date)<=3))
-            THEN v_reason := 'BATCH_DUPLICATE'; END IF;
+            v_reason := sokhach._trip_dup_reason(paste_trips.customer_id,v_cutover,v_container,v_booking,v_date,NULL,v_rows);
         END IF;
         v_id := nextval(pg_get_serial_sequence('sokhach.trip','id'));
         IF v_reason IS NOT NULL THEN
@@ -381,16 +434,8 @@ BEGIN
         WHERE cc.customer_id=edit_trip_info.customer_id AND cc.status='active' AND c.status='active';
       IF NOT EXISTS(SELECT FROM sokhach.baseline_trip_ref WHERE cutover_id=v_cutover) THEN RAISE EXCEPTION 'BASELINE_REF_MISSING'; END IF;
       v_container:=sokhach._normalize_key(t.container); v_booking:=sokhach._booking_key(t.booking,t.container,t.event_date);
-      IF EXISTS(SELECT FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover AND r.container_norm=v_container AND r.booking_norm=v_booking)
-      THEN v_reason:='BASELINE_CODE_MATCH';
-      ELSIF EXISTS(SELECT FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover AND r.container_norm=v_container AND abs(r.event_date-t.event_date)<=3)
-      THEN v_reason:='BASELINE_DATE_WINDOW';
-      -- Audit 19/11/2026 (A12): cùng thứ tự kiểm như paste_trips; dòng sổ gốc không ngày cùng container, cùng tháng nợ thì vào chờ kiểm.
-      ELSIF sokhach._legacy_undated_match(v_container,t.event_date)
-      THEN v_reason:='BASELINE_UNDATED_MONTH';
-      ELSIF EXISTS(SELECT FROM sokhach.v_trip_current v WHERE v.customer_id=edit_trip_info.customer_id AND v.id<>t.id AND NOT v.deleted
-        AND sokhach._normalize_key(v.container)=v_container AND (sokhach._booking_key(v.booking,v.container,v.event_date)=v_booking OR abs(v.event_date-t.event_date)<=3))
-      THEN v_reason:='WEB_DUPLICATE'; END IF;
+      -- Audit 19/11/2026 (A12), 23/11/2026 (F8): cùng một hàm tính lý do như paste_trips, trừ chính chuyến đang sửa.
+      v_reason:=sokhach._trip_dup_reason(edit_trip_info.customer_id,v_cutover,v_container,v_booking,t.event_date,t.id,NULL);
       IF v_reason IS NOT NULL THEN t.status:='pending_review'; END IF;
     END IF;
     v_after:=jsonb_build_object('trip',jsonb_build_object('id',t.id,'field',field,'value',v_value,'debt_month',t.debt_month,'status',t.status));
@@ -473,7 +518,7 @@ DECLARE v_payload jsonb:=jsonb_build_object('command',CASE WHEN p_delete THEN 'd
       'legacy_row_id',legacy_row_id,'field',field,'value',value);
     v_retry jsonb; l sokhach.legacy_row%ROWTYPE; v_old jsonb; v_new jsonb; v_value text;
     v_month date; v_old_month date; v_count bigint; v_old_count bigint; v_event bigint; v_changes jsonb;
-    v_fee bigint;
+    v_fee bigint; v_cutover bigint; v_trip sokhach.v_trip_current%ROWTYPE; v_review jsonb := '[]'; v_review_reason text;
 BEGIN
     IF p_fee_event IS NULL THEN
     v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
@@ -524,11 +569,39 @@ BEGIN
     END IF;
     IF v_month<>v_old_month THEN PERFORM sokhach._month_open(customer_id,v_month,clock_timestamp()); END IF;
     v_new:=v_new||jsonb_build_object('month',v_month,'debt_month',v_month,'counted_vnd',v_count::text,'field',field,'value',v_new->field);
+    -- Audit SQL 23/11/2026 (F8): sửa container/ngày của dòng sổ gốc thành trùng một chuyến web đang tính (cùng sổ, cùng container;
+    -- dòng không ngày cùng tháng nợ, hoặc có ngày cách tối đa 3 ngày) thì chuyến đó vào CHỜ KIỂM, như chiều ngược lại ở edit_trip_info.
+    -- Chỉ xét chuyến chưa có lý do trùng nào trước lần sửa này (cùng hàm _trip_dup_reason): chuyến người đã duyệt giữ không bị đẩy lại.
+    IF NOT p_delete AND p_fee_event IS NULL AND l.kind='trip' AND field IN ('container','event_date')
+       AND nullif(v_new->>'container','') IS NOT NULL THEN
+      SELECT cc.cutover_id INTO v_cutover FROM sokhach.cutover_customer cc JOIN sokhach.cutover c ON c.id=cc.cutover_id
+        WHERE cc.customer_id=_change_legacy.customer_id AND cc.status='active' AND c.status='active';
+      v_review_reason:=CASE WHEN v_new->>'event_date' IS NULL THEN 'BASELINE_UNDATED_MONTH' ELSE 'BASELINE_DATE_WINDOW' END;
+      FOR v_trip IN SELECT t.* FROM sokhach.v_trip_current t
+          WHERE t.customer_id=_change_legacy.customer_id AND NOT t.deleted AND t.status='confirmed'
+            AND sokhach._normalize_key(t.container)=sokhach._normalize_key(v_new->>'container')
+            AND CASE WHEN v_new->>'event_date' IS NULL THEN t.debt_month=v_month
+                     ELSE abs(t.event_date-(v_new->>'event_date')::date)<=3 END
+          ORDER BY t.id LOOP
+        IF sokhach._trip_dup_reason(v_trip.customer_id,v_cutover,sokhach._normalize_key(v_trip.container),
+             sokhach._booking_key(v_trip.booking,v_trip.container,v_trip.event_date),v_trip.event_date,v_trip.id,NULL) IS NULL THEN
+          PERFORM sokhach._month_open(v_trip.customer_id,v_trip.debt_month,clock_timestamp());
+          v_review:=v_review||jsonb_build_array(v_trip.id);
+        END IF;
+      END LOOP;
+    END IF;
     IF p_fee_event IS NULL THEN
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
       VALUES(customer_id,CASE WHEN p_delete THEN 'legacy_delete' ELSE 'legacy_edit' END,sokhach._actor(),
-        jsonb_build_object('legacy',v_old||jsonb_build_object('field',field,'value',v_old->field)),jsonb_build_object('legacy',v_new),idempotency_key) RETURNING id INTO v_event;
+        jsonb_build_object('legacy',v_old||jsonb_build_object('field',field,'value',v_old->field)),jsonb_build_object('legacy',v_new)
+          ||CASE WHEN jsonb_array_length(v_review)>0 THEN jsonb_build_object('review_trips',v_review,'review_reason',v_review_reason)
+                 ELSE '{}'::jsonb END,idempotency_key) RETURNING id INTO v_event;
     ELSE v_event:=p_fee_event; END IF;
+    IF jsonb_array_length(v_review)>0 THEN
+      INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,status,created_by_event)
+      SELECT t.id,t.customer_id,t.debt_month,t.event_date,t.container,t.carrier,t.shipper,t.origin,t.destination,'pending_review',v_event
+        FROM sokhach.v_trip_current t WHERE t.id IN (SELECT (x#>>'{}')::bigint FROM jsonb_array_elements(v_review) x);
+    END IF;
     IF p_fee_event IS NULL AND field='other_fee_vnd' AND NOT p_delete THEN
       UPDATE sokhach.trip_fee_line SET voided_by_event=v_event
         WHERE trip_fee_line.legacy_row_id=l.id AND voided_by_event IS NULL;
@@ -548,7 +621,8 @@ BEGIN
         UNION ALL SELECT v_month,v_count WHERE v_month<>v_old_month) d WHERE delta<>0;
     IF p_fee_event IS NOT NULL THEN RETURN v_new; END IF;
     v_changes:=sokhach.reallocate(customer_id,idempotency_key);
-    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('legacy_row_id',l.id,'deleted',p_delete,'reallocated',v_changes));
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('legacy_row_id',l.id,'deleted',p_delete,
+      'review_trips',v_review,'reallocated',v_changes));
 EXCEPTION WHEN numeric_value_out_of_range THEN
     IF p_fee_event IS NOT NULL THEN RAISE EXCEPTION 'FEE_AMOUNT_INVALID'; END IF;
     RAISE EXCEPTION 'INVALID_VND';
@@ -799,7 +873,8 @@ BEGIN
        OR p_payload IS NULL THEN
         RAISE EXCEPTION 'INVALID_COMMAND';
     END IF;
-    SELECT version INTO v_version FROM sokhach.customer WHERE id = p_customer FOR UPDATE;
+    -- Audit SQL 23/11/2026 (F9): NO KEY UPDATE đủ chặn lệnh tiền khác trên sổ, không chặn dòng con (zalo_link, contact_mark…).
+    SELECT version INTO v_version FROM sokhach.customer WHERE id = p_customer FOR NO KEY UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
     SELECT * INTO v_saved FROM sokhach.idempotency WHERE customer_id = p_customer AND key = p_key;
     IF FOUND THEN
@@ -909,7 +984,7 @@ DECLARE v_months date[] := ARRAY[]::date[]; v_left bigint[] := ARRAY[]::bigint[]
         v_event bigint; v_actor text; v_changes jsonb := '[]'::jsonb; i integer;
         v_row jsonb;
 BEGIN
-    SELECT version INTO v_amount FROM sokhach.customer WHERE id = p_customer FOR UPDATE;
+    SELECT version INTO v_amount FROM sokhach.customer WHERE id = p_customer FOR NO KEY UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
     v_actor := sokhach._actor();
     PERFORM sokhach._baseline(p_customer);
@@ -995,20 +1070,34 @@ BEGIN
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND';
 END $$;
 
+-- Audit SQL 23/11/2026 (F4): một chuyến đang có của sổ, đúng các trường và cách in của mục `trips` trong get_ledger (giá từ bản
+-- giá mới nhất). apply_sheet_price, keep_sheet_task, undo_sheet_batch so web_value với hàm này thay vì dựng cả sổ bằng get_ledger
+-- (ở sổ lớn mất vài giây, nằm trong giới hạn 15 giây của mỗi lệnh). NULL khi không có hoặc đã xóa.
+CREATE OR REPLACE FUNCTION sokhach._trip_current_row(p_customer bigint, p_trip bigint) RETURNS jsonb
+LANGUAGE sql STABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+    SELECT jsonb_build_object('id',t.id,'event_date',t.event_date,'container',t.container,'status',t.status,'booking',t.booking,
+        'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text)
+    FROM sokhach.v_trip_current t
+    LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
+        WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
+    WHERE t.id=p_trip AND t.customer_id=p_customer AND NOT t.deleted
+$$;
+
 CREATE OR REPLACE FUNCTION sokhach._ledger_events(p_customer bigint) RETURNS jsonb
 LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
         'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
-        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
+        -- Audit SQL 23/11/2026 (F4): chỉ event có khóa `receipt` mới có thể là cấn trừ; event khác bỏ qua hai câu con.
+        'counterparty_customer_id',CASE WHEN event."after" ? 'receipt' THEN (SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
+        'counterparty_name',CASE WHEN event."after" ? 'receipt' THEN (SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
             ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
                 ELSE p.source_customer_id END
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
         'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
             'price',"before"->'price' || jsonb_build_object(
                 'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
@@ -1112,9 +1201,7 @@ BEGIN
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'shipper',t.shipper,'status',t.status,'booking',t.booking,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r
             JOIN sokhach.event e ON e.id=r.created_by_event WHERE r.trip_id=t.id ORDER BY r.id DESC LIMIT 1),
-            (SELECT x->>'review_reason' FROM sokhach.trip tr JOIN sokhach.event e ON e.id=tr.created_by_event
-            CROSS JOIN LATERAL jsonb_array_elements(e."after"->'trips') x
-            WHERE tr.id=t.id AND x->>'trip_id'=t.id::text)),
+            pr.reason),
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
         'fee_lines',sokhach._fee_lines(t.id,NULL),
@@ -1139,6 +1226,13 @@ BEGIN
     LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
         WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
     LEFT JOIN sokhach.month_state ms ON (ms.customer_id,ms.month)=(t.customer_id,t.debt_month)
+    -- Audit SQL 23/11/2026 (F4): lý do lúc dán đọc một lượt: mỗi event tạo chuyến của sổ bung mảng `trips` đúng một lần
+    -- (trước: mỗi chuyến bung lại cả mảng của lô nó, bậc hai theo cỡ lô).
+    LEFT JOIN (SELECT (x->>'trip_id')::bigint AS trip_id, x->>'review_reason' AS reason
+        FROM (SELECT DISTINCT tr.created_by_event FROM sokhach.trip tr WHERE tr.customer_id=get_ledger.customer_id) ev
+        JOIN sokhach.event e ON e.id=ev.created_by_event
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e."after"->'trips')='array' THEN e."after"->'trips' ELSE '[]'::jsonb END) x
+        WHERE x ? 'review_reason') pr ON pr.trip_id=t.id
     WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'month',debt_month,
         'trip_id',trip_id,'legacy_row_id',legacy_row_id,'amount_vnd',amount_vnd::text,'note',note,'at',at)
@@ -1154,7 +1248,10 @@ BEGIN
         (SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'month',l.debt_month,
             'kind',l.kind,'amount_vnd',l.amount_vnd::text,'superseded_by_event',
             l.superseded_by_event) ORDER BY l.id),'[]'::jsonb)
-            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id)) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
+            -- Audit SQL 23/11/2026 (F4): bỏ các bản phân bổ cũ đã bị phân bổ lại thay; giữ dòng còn hiệu lực và dòng bị chính
+            -- lệnh hủy phiếu thay (tháng của phiếu đã hủy). Số dòng không còn tăng theo số lần phân bổ lại.
+            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id
+              AND (l.superseded_by_event IS NULL OR l.superseded_by_event=r.voided_by_event))) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
     INTO v_receipts FROM sokhach.receipt r WHERE r.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'month',o.debt_month,
         'amount_vnd',o.amount_vnd::text,'editable',false) ORDER BY o.debt_month),'[]'::jsonb)
@@ -1946,7 +2043,7 @@ BEGIN
     IF p_target=p_source THEN RAISE EXCEPTION 'OFFSET_SAME_BOOK'; END IF;
     IF p_key IS NULL OR btrim(p_key)='' OR p_source IS NULL OR p_target IS NULL
     THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
-    PERFORM id FROM sokhach.customer WHERE id IN (p_source,p_target) ORDER BY id FOR UPDATE;
+    PERFORM id FROM sokhach.customer WHERE id IN (p_source,p_target) ORDER BY id FOR NO KEY UPDATE;
     GET DIAGNOSTICS v_count=ROW_COUNT;
     IF v_count<>2 THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
     SELECT * INTO v_saved FROM sokhach.offset_command
@@ -2150,7 +2247,7 @@ BEGIN
   e AS (SELECT actor,coalesce(sum(jsonb_array_length(e."after"->'trips')) FILTER (WHERE kind='paste'),0)::int trips,count(*) FILTER (WHERE kind='receipt')::int receipts,
     coalesce(sum((e."after"->>'amount_vnd')::bigint) FILTER (WHERE kind='receipt'),0)::bigint received,
     count(*) FILTER (WHERE kind='void' AND EXISTS (SELECT 1 FROM sokhach.receipt z WHERE z.voided_by_event=e.id))::int voids
-    FROM sokhach.event e WHERE (e.at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date=d
+    FROM sokhach.event e WHERE e.at>=(d::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh') AND e.at<((d+1)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh')
       AND (kind IN ('paste','receipt') OR (kind='void' AND EXISTS (SELECT 1 FROM sokhach.receipt z WHERE z.voided_by_event=e.id))) GROUP BY actor),
   t AS (SELECT coalesce(sum(total) FILTER (WHERE total>0),0)::bigint recv,count(*) FILTER (WHERE total>0)::int recv_n,
     coalesce(sum(total) FILTER (WHERE total<0),0)::bigint cred,count(*) FILTER (WHERE total<0)::int cred_n FROM a),
@@ -3660,8 +3757,7 @@ BEGIN
   OR (task_kind='removed' AND target_kind<>'trip')
  THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
  IF target_kind='trip' THEN
-  SELECT t.value INTO v_row FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
-   WHERE (t.value->>'id')::bigint=target_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+  v_row:=sokhach._trip_current_row(customer_id,target_id);  -- audit SQL F4: một chuyến, không dựng cả sổ
  ELSE
   SELECT sokhach._legacy_current(l.id) INTO v_row FROM sokhach.legacy_row l
    JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id)
@@ -3707,13 +3803,16 @@ BEGIN
   OR (sheet_price->>'other_fee_vnd' IS NOT NULL AND sheet_price->>'other_fee_vnd' !~ '^-?[0-9]+$')
  THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
  IF target_kind='trip' THEN
-  SELECT jsonb_build_object('unit_price_vnd',t.value->>'unit_price_vnd','other_fee_vnd',t.value->>'other_fee_vnd')
-   INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
-   WHERE (t.value->>'id')::bigint=target_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+  -- audit SQL F4: một chuyến/một dòng sổ gốc, không dựng cả sổ bằng get_ledger.
+  SELECT jsonb_build_object('unit_price_vnd',r->>'unit_price_vnd','other_fee_vnd',r->>'other_fee_vnd')
+   INTO v_current FROM sokhach._trip_current_row(customer_id,target_id) r WHERE r IS NOT NULL;
  ELSE
-  SELECT jsonb_build_object('unit_price_vnd',l.value->'current'->>'unit_price_vnd','other_fee_vnd',l.value->'current'->>'other_fee_vnd')
-   INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'legacy_rows') l
-   WHERE (l.value->>'id')::bigint=target_id AND l.value->>'kind'='trip' AND NOT coalesce((l.value->'current'->>'deleted')::boolean,false);
+  SELECT jsonb_build_object('unit_price_vnd',cur->>'unit_price_vnd','other_fee_vnd',cur->>'other_fee_vnd')
+   INTO v_current FROM sokhach.legacy_row l
+   JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id) JOIN sokhach.cutover c ON c.id=cc.cutover_id
+   CROSS JOIN LATERAL sokhach._legacy_current(l.id) cur
+   WHERE l.customer_id=apply_sheet_price.customer_id AND l.id=target_id AND l.kind='trip'
+     AND cc.status='active' AND c.status='active' AND NOT coalesce((cur->>'deleted')::boolean,false);
  END IF;
  IF v_current IS NULL THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
  IF v_current IS DISTINCT FROM web_value THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
@@ -3861,8 +3960,7 @@ BEGIN
    v_result:=sokhach.void_receipt(customer_id,v_version,v_undo_key,e."after"->>'pid','Hoàn tác lần ghi từ Việc cần làm');
   ELSIF e.kind='price_edit' THEN
    v_before:=e."before"->'price'; v_after:=e."after"->'price'; v_id:=(v_after->>'trip_id')::bigint;
-   SELECT t.value INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
-    WHERE (t.value->>'id')::bigint=v_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+   v_current:=sokhach._trip_current_row(customer_id,v_id);  -- audit SQL F4: một chuyến, không dựng cả sổ mỗi khóa
    IF v_current IS NULL OR v_current->>'unit_price_vnd' IS DISTINCT FROM v_after->>'unit_price_vnd'
     OR v_current->>'other_fee_vnd' IS DISTINCT FROM v_after->>'other_fee_vnd' THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
    v_result:=sokhach.edit_trip_price(customer_id,v_version,v_undo_key,v_id,
@@ -4308,13 +4406,91 @@ BEGIN
     RETURN jsonb_build_object('books', (SELECT count(*) FROM sokhach.customer), 'allocations', v_alloc,
         'totals', jsonb_build_object('codes', to_jsonb(v_codes), 'customers', to_jsonb(v_bad), 'archived', to_jsonb(v_archived)),
         'ledger', v_ledger,
-        'fingerprints', sokhach._safety_fingerprints(), 'events', sokhach._safety_events(v_upto, make_interval(secs => v_settle)));
+        'fingerprints', sokhach._safety_fingerprints(), 'events', sokhach._safety_events(v_upto, make_interval(secs => v_settle)),
+        -- Audit SQL 23/11/2026 (F1): bảng băm định nghĩa để v7_safety_net.py so với tools/v7_catalog_manifest.json của release.
+        'catalog', sokhach._catalog_manifest());
 END $$;
 
 REVOKE ALL ON FUNCTION sokhach._safety_fingerprints() FROM PUBLIC, sokhach_app, sokhach_reader;
 REVOKE ALL ON FUNCTION sokhach._safety_events(bigint, interval) FROM PUBLIC, sokhach_app, sokhach_reader;
 REVOKE ALL ON FUNCTION sokhach.get_safety_net(jsonb) FROM PUBLIC, sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.get_safety_net(jsonb) TO sokhach_app;
+
+
+-- Audit SQL 23/11/2026 (F10): cờ lưu trữ đổi qua đường lệnh có Lịch sử (event customer_attr, tăng version), như mặt hàng/phương
+-- thức. Sổ lưu trữ ra khỏi mọi tổng Tổng quan nên chỉ lưu trữ được khi số dư bằng 0; bỏ lưu trữ thì luôn được. Chỉ chủ schema gọi
+-- (chưa có nút trên web); trước đó cờ chỉ đổi được bằng UPDATE tay, không dấu vết.
+CREATE OR REPLACE FUNCTION sokhach.set_customer_archived(customer_id bigint, expected_version bigint, idempotency_key text,
+    archived boolean) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_payload jsonb := jsonb_build_object('command','set_customer_archived','archived',archived);
+    v_retry jsonb; v_before jsonb; v_after jsonb; v_balance numeric;
+BEGIN
+    v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+    IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+    IF archived IS NULL THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+    SELECT to_jsonb(c) INTO v_before FROM sokhach.customer c WHERE c.id=set_customer_archived.customer_id;
+    IF (v_before->>'archived')::boolean = archived THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
+    IF archived THEN
+        SELECT coalesce(sum(v.outstanding_vnd),0) INTO v_balance FROM sokhach.v_outstanding_month v
+         WHERE v.customer_id=set_customer_archived.customer_id;
+        IF v_balance <> 0 THEN RAISE EXCEPTION 'ARCHIVE_BALANCE_NOT_ZERO'; END IF;
+    END IF;
+    UPDATE sokhach.customer c SET archived=set_customer_archived.archived WHERE c.id=set_customer_archived.customer_id
+        RETURNING to_jsonb(c) INTO v_after;
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+    VALUES (customer_id,'customer_attr',sokhach._actor(),jsonb_build_object('customer',v_before),
+        jsonb_build_object('customer',v_after,'archived',archived),idempotency_key);
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('archived',archived));
+END $$;
+REVOKE ALL ON FUNCTION sokhach.set_customer_archived(bigint,bigint,text,boolean) FROM PUBLIC, sokhach_app, sokhach_reader;
+
+-- Audit SQL 23/11/2026 (F1): mức lược đồ. Mỗi migration đổi lược đồ `sokhach` tăng hằng này (YYYYMMDDnn của migration), để API và
+-- máy canh biết DB đang ở bản nào mà không phải đoán từ thân hàm.
+CREATE OR REPLACE FUNCTION sokhach.schema_level() RETURNS integer
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$ SELECT 2026112303 $$;
+REVOKE ALL ON FUNCTION sokhach.schema_level() FROM PUBLIC, sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.schema_level() TO sokhach_app;
+
+-- Audit SQL 23/11/2026 (F1): v_trip_current bung `SELECT *` của trip_info_rev theo thứ tự cột vật lý; cột thêm bằng ALTER (shipper trên
+-- hao) nằm cuối, cài mới đặt giữa. Sắp danh sách "SELECT x.a, x.b" trước khi băm để hai đường cài cho cùng một dấu.
+CREATE OR REPLACE FUNCTION sokhach._catalog_view_text(p_def text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_list text; v_out text := p_def;
+BEGIN
+    FOR v_list IN SELECT m[1] FROM regexp_matches(p_def, '(SELECT (?:x\.\w+,\s+)+x\.\w+)', 'g') m LOOP
+        v_out := replace(v_out, v_list, 'SELECT ' || (SELECT string_agg(c[1], ',' ORDER BY c[1] COLLATE "C")
+                                                      FROM regexp_matches(substr(v_list, 8), '(x\.\w+)', 'g') c));
+    END LOOP;
+    RETURN v_out;
+END $$;
+REVOKE ALL ON FUNCTION sokhach._catalog_view_text(text) FROM PUBLIC, sokhach_app, sokhach_reader;
+
+-- Audit SQL 23/11/2026 (F1): bảng băm định nghĩa của schema: md5 từng thân hàm (pg_get_functiondef, gồm SET search_path/jit và
+-- SECURITY DEFINER), view, trigger kèm cờ bật/tắt (tgenabled), index, ràng buộc. v7_schema_snapshot.py ghi bảng của bản cài mới vào
+-- tools/v7_catalog_manifest.json; v7_post_deploy_check.sql và lưới an toàn so bảng của DB thật với file đó và báo khi lệch (chạy lại
+-- một migration cũ kéo hàm khác về bản cũ, trigger bị tắt, index mất). search_path ghim nên tên in ra giống nhau ở mọi phiên gọi.
+CREATE OR REPLACE FUNCTION sokhach._catalog_manifest() RETURNS jsonb
+LANGUAGE sql STABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+SELECT jsonb_build_object(
+    'level', sokhach.schema_level(),
+    'functions', (SELECT coalesce(jsonb_object_agg(p.oid::regprocedure::text,
+                    md5(CASE WHEN p.prokind = 'a' THEN p.proname::text ELSE pg_get_functiondef(p.oid) END)), '{}'::jsonb)
+                  FROM pg_proc p WHERE p.pronamespace = 'sokhach'::regnamespace),
+    'views', (SELECT coalesce(jsonb_object_agg(c.relname, md5(sokhach._catalog_view_text(pg_get_viewdef(c.oid)))), '{}'::jsonb)
+              FROM pg_class c WHERE c.relnamespace = 'sokhach'::regnamespace AND c.relkind IN ('v', 'm')),
+    'triggers', (SELECT coalesce(jsonb_object_agg(c.relname || '.' || t.tgname,
+                   md5(pg_get_triggerdef(t.oid)) || ':' || t.tgenabled::text), '{}'::jsonb)
+                 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+                 WHERE c.relnamespace = 'sokhach'::regnamespace AND NOT t.tgisinternal),
+    'indexes', (SELECT coalesce(jsonb_object_agg(ic.relname, md5(pg_get_indexdef(i.indexrelid))), '{}'::jsonb)
+                FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid JOIN pg_class ic ON ic.oid = i.indexrelid
+                WHERE c.relnamespace = 'sokhach'::regnamespace),
+    'constraints', (SELECT coalesce(jsonb_object_agg(c.relname || '.' || k.conname, md5(pg_get_constraintdef(k.oid))), '{}'::jsonb)
+                    FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid
+                    WHERE k.connamespace = 'sokhach'::regnamespace AND k.contype <> 'n'))
+$$;
+REVOKE ALL ON FUNCTION sokhach._catalog_manifest() FROM PUBLIC, sokhach_app, sokhach_reader;
 
 RESET ROLE;
 COMMIT;

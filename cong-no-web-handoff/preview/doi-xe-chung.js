@@ -50,15 +50,28 @@
    *   chuaRo    câu báo khi máy chủ trả 2xx nhưng thân không đọc được (mặc định dùng matMang)
    *   toastMs   số ms câu báo tự tắt
    *   taiLai    mã lỗi của máy chủ mà màn phải đọc lại số liệu ngay sau khi báo */
+  // Máy chủ trả lỗi mà không có câu (proxy trả trang HTML): nói chuyện gì xảy ra và cần làm gì, không hiện mã HTTP trần
+  // (audit giao diện 23/11/2026 F3; mục 4.6 audit UX).
+  function loiMayChu(status) {
+    if (status === 401 || status === 403) return 'Tài khoản này chưa được cấp quyền.';
+    if (status >= 500) return 'Máy chủ đang bận hoặc vừa khởi động lại. Chờ ít phút rồi bấm lại.';
+    return 'Máy chủ từ chối yêu cầu. Tải lại trang rồi thử lại.';
+  }
+
   function tao(o) {
     const { S, draw, load, toastBox, esc, tienTo, matMang, chuaRo, toastMs } = o;
     const taiLai = new Set(o.taiLai);
     const keys = new Map();   // nội dung lệnh → mã yêu cầu, giữ tới khi máy chủ trả lời được
 
     async function getJson(url) {
-      const r = await globalThis.fetch(url, { cache: 'no-store' });
+      let r;
+      try {
+        r = await globalThis.fetch(url, { cache: 'no-store' });
+      } catch {
+        throw Object.assign(Error(matMang), { code: 'NETWORK' });
+      }
       const body = await r.json().catch(() => null);
-      if (!r.ok) throw Object.assign(Error(body?.message || `Lỗi ${r.status}`), { code: body?.error, status: r.status });
+      if (!r.ok) throw Object.assign(Error(body?.message || loiMayChu(r.status)), { code: body?.error, status: r.status });
       return body;
     }
     // Cùng đường dẫn và nội dung thì dùng lại mã: bấm lặp hoặc gửi lại sau mất mạng, máy chủ trả kết quả cũ thay vì ghi lần hai.
@@ -76,7 +89,7 @@
       const out = await r.json().catch(() => { doc = false; return null; });
       if (!r.ok) {
         if (r.status !== 503) keys.delete(sig);
-        throw Object.assign(Error(out?.message || `Lỗi ${r.status}`), { code: out?.error, status: r.status });
+        throw Object.assign(Error(out?.message || loiMayChu(r.status)), { code: out?.error, status: r.status });
       }
       // Trả lời 2xx mà thân không đọc được: chưa biết kết quả, nên giữ mã như khi mất mạng để bấm lại không ghi lần hai
       // (máy chủ trả kết quả cũ). Bỏ mã ở đây thì lần bấm lại sinh mã mới và có thể ghi hai lần.
@@ -121,10 +134,24 @@
       } finally {
         S.busy = false;
         draw();
+        for (const r of choRanh.splice(0)) r();
       }
     }
-    return { getJson, post, bao, ghi, drawToast };
+    // Hàng chờ (audit DX-02): sửa ô liền tay (Tab rồi gõ ô sau) khi lệnh trước chưa xong thì không bị bỏ như `ghi`, mà chờ tới lượt.
+    // Việc chạy theo thứ tự đã xếp, mỗi việc khi không lệnh ghi nào đang chạy; `fn` đọc số "đang thấy" ngay lúc chạy (sổ đã tải lại
+    // sau lệnh trước), nên hai lần sửa cùng một ô không tự gây CHANGED. Trả kết quả của `fn`.
+    let hang = Promise.resolve();
+    const choRanh = [];
+    function xep(fn) {
+      const p = hang.then(async () => {
+        while (S.busy) await new Promise(r => { choRanh.push(r); });
+        return fn();
+      });
+      hang = p.catch(() => null);
+      return p;
+    }
+    return { getJson, post, bao, ghi, xep, drawToast };
   }
 
-  return { thangUrl, duongDanMuc, withFocus, tao };
+  return { thangUrl, duongDanMuc, withFocus, tao, loiMayChu };
 }));

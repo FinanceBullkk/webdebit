@@ -386,6 +386,18 @@ test('Thu chi: nguồn sổ đọc lỗi thì báo rõ và khoản liên quan gh
     assert.equal(await page.locator('.tc-chip', { hasText: 'Chưa vào sổ' }).innerText().then(clean), 'Chưa vào sổ0');
   }));
 
+test('Thu chi: nhóm chat thứ 21 trở đi không được đọc thì nói rõ số nhóm; đủ nhóm thì không có dòng đó', async () => {
+  await withPage(() => ({ body: body([item('s1', '2026-11-10', 9, 'thu', 5_000_000, 'WAITING', { target: so(1, 'SỔ A') })], { conversations_skipped: 3 }) }), async page => {
+    await ready(page);
+    assert.equal(await page.locator('#source-warn').isVisible(), true);
+    assert.match(await page.locator('#source-warn').innerText(), /^Còn 3 nhóm chat chưa được đọc ở đây \(mỗi lần chỉ đọc 20 nhóm có tin mới nhất\)/);
+  });
+  await withPage(() => ({ body: body([item('s2', '2026-11-10', 9, 'thu', 5_000_000, 'WAITING', { target: so(1, 'SỔ A') })], { conversations_skipped: 0 }) }), async page => {
+    await ready(page);
+    assert.equal(await page.locator('#source-warn').isVisible(), false);
+  });
+});
+
 // PR-4b: ảnh chuyển khoản máy đọc (source 'anh'). Số, ngân hàng và tên sổ bịa.
 const PAY = 'd'.repeat(64);
 const shot = { id: PAY, mime: 'image/jpeg' };

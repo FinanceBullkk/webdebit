@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import io
 import ipaddress
 import json
 import os
@@ -45,6 +46,7 @@ import v7_read_cache
 import v7_role
 import v7_sheet_refresh
 import v7_telegram
+import v7_todo_badge
 import v7_zalo_chat
 from v7_api_sheet import (
     apply_sheet_price,
@@ -131,6 +133,17 @@ MEDIA_CHUNK_SECONDS = 15.0
 MEDIA_MIN_SECONDS = 60.0
 MEDIA_MIN_RATE = 32 * 1024
 MEDIA_CLOCK = time.monotonic        # test thay đồng hồ để kiểm trần mà không phải chờ
+# Audit 23/11/2026 (F1–F3): độ sẵn sàng của hai cổng. Bắt tay TLS của cổng 8445 chạy trong luồng xử lý, tối đa 5 giây
+# (trước đây chạy trong luồng nhận kết nối, một kết nối im làm treo cả cổng). Phần đầu yêu cầu có hạn tuyệt đối 10 giây,
+# thân lệnh và thân trả lời có hạn theo tốc độ tối thiểu chứ không phải 5 giây cho cả lần gửi.
+TLS_HANDSHAKE_SECONDS = 5.0
+HEAD_SECONDS = 10.0                 # dòng đầu + header: client nhỏ giọt từng byte không giữ luồng quá hạn này
+UPLOAD_MIN_RATE = 16 * 1024         # thân lệnh: hạn = max(HEAD_SECONDS, cỡ / 16 KB/s)
+BODY_CHUNK = 256 * 1024             # thân trả lời gửi từng lát, hạn đặt lại cho từng lát (~8,7 KB/s trở lên vẫn nhận đủ)
+BODY_CHUNK_SECONDS = 30.0
+BODY_MIN_SECONDS = 60.0             # trần tổng một thân trả lời = max(60 giây, cỡ / 32 KB/s)
+BODY_MIN_RATE = 32 * 1024
+WORKERS = 96                        # luồng xử lý tối đa mỗi cổng; SSE tối đa 40 (v7_presence) vẫn còn chỗ cho trang
 
 
 def declared_length(value: str, limit: int) -> int | None:
@@ -329,7 +342,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
            demo: bool = False, real_copy: bool = False, serve_hosts: tuple[str, ...] = (),
-           allowed_logins: frozenset[str] | None = None) -> tuple[int, dict]:
+           allowed_logins: frozenset[str] | None = None, local_port: int = 0,
+           read_only_uids: frozenset[int] = frozenset()) -> tuple[int, dict]:
     headers = {name.lower(): value for name, value in headers.items()}
     request_host = checked_host(headers.get("host", ""), port, host, behind_tailscale_serve, serve_hosts)
     if method == "POST":
@@ -352,7 +366,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     # không truyền actor mới tới nhánh này.
     if actor is None:
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                          behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
+                                          behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins,
+                                          local_port=local_port, read_only_uids=read_only_uids, write=method != "GET")
     if method == "POST":
         if parts.path == "/api/v7/ai/explain":
             return v7_ai_explain.explain(raw, runner, actor)
@@ -372,6 +387,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, INBOX.view(runner)
+    elif parts.path == "/api/v7/todo-badge":   # số đệm menu Quản trị: ba nguồn của Việc cần làm, chỉ phần hàm đếm cần
+        return 200, v7_todo_badge.handle_get(parts.query, runner, READS, INBOX, actor)
     elif parts.path == "/api/v7/machine/booking":
         # KIEM-BOOKING-01: kết quả kiểm Sheet sổ nợ so với booking; file của lượt đối soát, không qua DB, sau xác thực danh tính.
         if parts.query:
@@ -473,6 +490,28 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     return 200, result
 
 
+class _DeadlineReader(io.RawIOBase):
+    """rfile của Handler (audit 23/11/2026, F3): mỗi lần recv có hạn = min(hạn nghỉ của lớp, thời gian còn tới mốc tuyệt đối).
+
+    Hạn của socket chỉ tính cho từng lần recv, nên client gửi một byte mỗi 4 giây giữ luồng mãi. Mốc `read_deadline` do
+    Handler đặt: HEAD_SECONDS cho phần đầu, theo cỡ cho thân lệnh, hạn xả cho thân bị từ chối.
+    """
+
+    def __init__(self, handler: Handler):
+        super().__init__()
+        self.handler = handler
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        left = self.handler.read_deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("request read deadline")
+        self.handler.connection.settimeout(min(self.handler.timeout, left))
+        return self.handler.connection.recv_into(buffer)
+
+
 class Handler(BaseHTTPRequestHandler):
     runner: Psql
     bind_host = "127.0.0.1"
@@ -484,13 +523,59 @@ class Handler(BaseHTTPRequestHandler):
     allowed_logins: frozenset[str] | None = None  # ACCESS-01; None only outside Serve mode
     admin_logins: frozenset[str] | None = None  # QUYEN-01; None: every allowed login is admin
     localapi = None
+    read_only_uids: frozenset[int] = frozenset()   # F4: uid cục bộ được dùng header danh tính chỉ để đọc (bot Zalo)
     demo = False
     real_copy = False
     body_taken = False
+    response_started = False   # đầu trả lời đã gửi: lỗi sau đó chỉ còn cách đóng kết nối, không trả lời lần hai
+    status_sent: int | None = None
+    actor: str | None = None
+    read_deadline = 0.0
     # Audit 19/11/2026 (A10): StreamRequestHandler.setup đặt hạn này cho socket TRƯỚC khi đọc dòng đầu và header. Trước đây
     # hạn 5 giây chỉ đặt trong _request, tức sau khi header đã đọc xong: client gửi header dở dang giữ một luồng mãi mãi.
     # Hết hạn lúc đọc header thì handle_one_request đóng kết nối; kết nối keep-alive rảnh quá hạn cũng đóng như vậy.
     timeout = 5
+
+    def setup(self) -> None:
+        super().setup()
+        self.read_deadline = time.monotonic() + HEAD_SECONDS
+        self.rfile.close()
+        self.rfile = io.BufferedReader(_DeadlineReader(self))
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self.status_sent = code
+        super().send_response(code, message)
+
+    def end_headers(self) -> None:
+        self.response_started = True   # trước khi gửi: lỗi giữa chừng vẫn coi như client đã nhận một phần
+        super().end_headers()
+
+    def send_body(self, data: bytes) -> None:
+        """Thân trả lời theo lát (audit 23/11/2026, F2): hạn đặt lại cho từng lát, trần tổng theo cỡ.
+
+        Hạn của socket áp cho cả lần sendall: một lần ghi 8 MB trên mạng điện thoại bị cắt sau 5 giây. Ghi từng lát thì
+        client chậm mà đều vẫn nhận đủ; client đứng im quá BODY_CHUNK_SECONDS hoặc quá trần tổng thì kết nối bị đóng.
+        """
+        view = memoryview(data)
+        deadline = time.monotonic() + max(BODY_MIN_SECONDS, len(data) / BODY_MIN_RATE)
+        try:
+            for start in range(0, len(view), BODY_CHUNK):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    raise TimeoutError("response write deadline")
+                self.connection.settimeout(min(BODY_CHUNK_SECONDS, left))
+                self.wfile.write(view[start:start + BODY_CHUNK])
+        finally:
+            self.connection.settimeout(self.timeout)
+
+    def fail(self, status: int, value: dict) -> None:
+        """Trả lời lỗi; đầu trả lời đã đi rồi thì chỉ đóng kết nối (thân đã hứa Content-Length, chèn JSON là hỏng file)."""
+        if self.response_started:
+            self.close_connection = True
+            print(f"V7 API: bỏ dở trả lời {self.status_sent} {self.command} {urlsplit(self.path).path} "
+                  f"({value.get('error')})", file=sys.stderr, flush=True)
+            return
+        self.reply(status, value)
 
     def unread_body_bytes(self) -> int:
         headers = getattr(self, "headers", None)  # dòng đầu hoặc header hỏng: chưa từng có headers
@@ -508,7 +593,7 @@ class Handler(BaseHTTPRequestHandler):
         remaining = self.unread_body_bytes()
         if not remaining:
             return
-        deadline = time.monotonic() + DISCARD_SECONDS
+        deadline = self.read_deadline = time.monotonic() + DISCARD_SECONDS
         try:
             self.connection.shutdown(socket.SHUT_WR)
             while remaining > 0 and (left := deadline - time.monotonic()) > 0:
@@ -556,7 +641,7 @@ class Handler(BaseHTTPRequestHandler):
                                "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; media-src 'self'; base-uri 'none'; frame-ancestors 'none'")):
             self.send_header(header, value)
         self.end_headers()
-        self.wfile.write(data)
+        self.send_body(data)
         return True
 
     def forbidden_page(self) -> None:
@@ -569,7 +654,7 @@ class Handler(BaseHTTPRequestHandler):
                             ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")):
             self.send_header(name, field)
         self.end_headers()
-        self.wfile.write(data)
+        self.send_body(data)
 
     def reply(self, status: int, value: dict) -> None:
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -583,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
                             ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")):
             self.send_header(name, field)
         self.end_headers()
-        self.wfile.write(data)
+        self.send_body(data)
 
     def send_export(self, actor: str) -> None:
         """XUAT-SO-01: dựng file cả sổ rồi gửi; kết quả tự kiểm ở header `X-Xuat-So`, journal ghi một dòng số đếm."""
@@ -610,7 +695,7 @@ class Handler(BaseHTTPRequestHandler):
                             ("X-Xuat-So", result.header())):
             self.send_header(name, field)
         self.end_headers()
-        self.wfile.write(result.data)
+        self.send_body(result.data)
 
     def send_doixe_xlsx(self, actor: str, query: str) -> None:
         """DOI-XE-THU-01: file Excel bảng kê tháng gửi HTH, dựng từ đúng dữ liệu đọc của màn Bảng kê."""
@@ -627,7 +712,7 @@ class Handler(BaseHTTPRequestHandler):
                             ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")):
             self.send_header(name, field)
         self.end_headers()
-        self.wfile.write(body)
+        self.send_body(body)
 
     def stream(self, actor: str, tab: str) -> None:
         """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
@@ -712,18 +797,29 @@ class Handler(BaseHTTPRequestHandler):
                 self.connection.settimeout(self.timeout)   # máy chủ chạy HTTP/1.0: kết nối đóng sau yêu cầu, đặt lại hạn thường cho phần dọn dẹp
 
     def request(self) -> None:
+        started = time.monotonic()
         try:
             self._request()
-        except (BrokenPipeError, ConnectionResetError) as exc:
-            # Client ngắt giữa chừng (audit DevOps 31/10, #15): một dòng log, không traceback, không trả lời nữa.
+        except OSError as exc:
+            # Client ngắt giữa chừng (audit DevOps 31/10, #15), hoặc ghi quá hạn/TLS hỏng khi đang gửi (audit 23/11, F2):
+            # một dòng log, không traceback, không trả lời nữa.
             self.close_connection = True
             print(f"V7 API: client ngắt kết nối ({type(exc).__name__}) {self.command} {urlsplit(self.path).path}",
                   file=sys.stderr, flush=True)
+            return   # đã có một dòng cho yêu cầu này
+        self.log_outcome(started)
+
+    def log_outcome(self, started: float) -> None:
+        """F11: một dòng journal cho mỗi POST và mỗi trả lời không 2xx/304 (không thân, không query: có thể chứa mã sổ)."""
+        status = self.status_sent
+        if self.command == "POST" or status is None or not (200 <= status < 300 or status == 304):
+            print(f"V7 API: {self.command} {urlsplit(self.path).path} -> {status or 'không trả lời'} "
+                  f"{self.actor or '-'} {(time.monotonic() - started) * 1000:.0f} ms", file=sys.stderr, flush=True)
 
     def _request(self) -> None:
         try:
             self.connection.settimeout(5)
-            for name in ("Host", "Origin", "Content-Length", "Content-Type", "Tailscale-User-Login"):
+            for name in ("Host", "Origin", "Content-Length", "Content-Type", "Tailscale-User-Login", "Sec-Fetch-Site"):
                 if len(self.headers.get_all(name, [])) > 1:
                     raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
             if self.headers.get("Transfer-Encoding"):
@@ -736,6 +832,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                          self.behind_tailscale_serve, self.serve_hosts)
+            # Audit 23/11/2026 (F7): trang khác mở trong trình duyệt của người được phép không được gọi /api/ (kể cả GET:
+            # không đọc được kết quả nhưng vẫn bắt máy chủ làm việc). Trình duyệt không gửi header này (curl, bot) thì cho qua.
+            if (urlsplit(self.path).path.startswith("/api/")
+                    and self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none")):
+                raise ApiError(403, "CROSS_SITE", "Yêu cầu từ trang khác bị chặn.")
             # QUYEN-02: danh sách có hiệu lực gộp phần cố định (cấu hình unit) với file sửa trên trang Người dùng.
             # Chưa đặt file thì giữ đúng danh sách của lớp Handler (test thay thuộc tính lớp).
             store = v7_access.STORE
@@ -745,7 +846,9 @@ class Handler(BaseHTTPRequestHandler):
             if actor is None:
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
                                                   source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve,
-                                                  allowed_logins=allowed_logins)
+                                                  allowed_logins=allowed_logins, local_port=self.connection.getsockname()[1],
+                                                  read_only_uids=self.read_only_uids, write=self.command != "GET")
+            self.actor = actor
             route = urlsplit(self.path)
             role = v7_role.role(actor, admin_logins)
             if not v7_role.allowed(route.path, role, PAGES):
@@ -779,7 +882,7 @@ class Handler(BaseHTTPRequestHandler):
                                     ("Referrer-Policy", "no-referrer")):
                     self.send_header(name, field)
                 self.end_headers()
-                self.wfile.write(data)
+                self.send_body(data)
                 return
             if self.command == "GET" and route.path == v7_api_doixe.XLSX_PATH:
                 self.send_doixe_xlsx(actor, route.query)
@@ -799,6 +902,8 @@ class Handler(BaseHTTPRequestHandler):
                 if length_value > limit:
                     raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
                 self.body_taken = True  # kể cả khi đọc hết giờ (408): client chậm không được giữ thêm luồng để xả
+                # F3: hạn tuyệt đối theo cỡ thân (tối thiểu 16 KB/s), không phải 5 giây cho mỗi lần recv.
+                self.read_deadline = time.monotonic() + max(HEAD_SECONDS, length_value / UPLOAD_MIN_RATE)
                 raw = self.rfile.read(length_value)
                 if len(raw) != length_value:
                     bad()
@@ -814,18 +919,27 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"ACCESS-01: từ chối login ngoài danh sách: {exc.detail} (peer {self.client_address[0]})",
                       file=sys.stderr, flush=True)
                 v7_access.DENIED.record(exc.detail)   # QUYEN-02: trang Người dùng cho vào bằng một bấm
-                self.reply(403, {"error": exc.code,
-                                 "message": "Tài khoản này chưa được cấp quyền dùng sổ. Báo quản trị thêm vào danh sách."})
+                self.fail(403, {"error": exc.code,
+                                "message": "Tài khoản này chưa được cấp quyền dùng sổ. Báo quản trị thêm vào danh sách."})
             else:
-                self.reply(403, {"error": exc.code})
+                if exc.code in ("UNTRUSTED_LOCAL_PEER", "READ_ONLY_PEER"):
+                    # F4: tiến trình cục bộ không phải tailscaled gửi header danh tính; uid vào journal, không vào trả lời.
+                    print(f"ACCESS-01: từ chối header danh tính từ tiến trình cục bộ ({exc.code}, {exc.detail}) "
+                          f"{self.command} {urlsplit(self.path).path}", file=sys.stderr, flush=True)
+                self.fail(403, {"error": exc.code})
         except TimeoutError:
-            self.reply(408, {"error": "REQUEST_TIMEOUT", "message": "Yêu cầu gửi quá chậm."})
+            self.fail(408, {"error": "REQUEST_TIMEOUT", "message": "Yêu cầu gửi quá chậm."})
         except ApiError as exc:
-            self.reply(exc.status, {"error": exc.code, "message": exc.message, **exc.extra})
-        except (BrokenPipeError, ConnectionResetError):
+            self.fail(exc.status, {"error": exc.code, "message": exc.message, **exc.extra})
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             raise  # request() ghi một dòng; không cố gửi 503 vào kết nối đã đứt
         except OSError:
-            self.reply(503, {"error": "ASSET_UNAVAILABLE", "message": "Không đọc được trang thử."})
+            self.fail(503, {"error": "ASSET_UNAVAILABLE", "message": "Không đọc được trang thử."})
+        except Exception as exc:  # noqa: BLE001  mọi lỗi lạ vẫn có trả lời 500, không traceback
+            # F6: lỗi bất ngờ (ví dụ file của job khác hình dạng) vẫn có trả lời và mã lỗi; journal một dòng, không traceback.
+            print(f"V7 API: lỗi bất ngờ {type(exc).__name__} {self.command} {urlsplit(self.path).path} {self.actor or '-'}",
+                  file=sys.stderr, flush=True)
+            self.fail(500, {"error": "INTERNAL", "message": "Máy chủ gặp lỗi. Báo quản trị kiểm."})
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = request
 
@@ -858,14 +972,58 @@ class ThreadingHTTPServer(HTTPServer):
         if tailnet_https and (enabled or not handler.behind_tailscale_serve or
                              ipaddress.ip_address(server_address[0]) not in ipaddress.ip_network("100.64.0.0/10")):
             raise ValueError("tailnet HTTPS requires verified identity and no dev actor")
+        if enabled and handler.behind_tailscale_serve:
+            # F8: mọi người tới được Serve sẽ là `dev:<tên>` có quyền ghi; hai chế độ không bao giờ đi cùng nhau.
+            raise ValueError("dev actor cannot be combined with Tailscale Serve mode")
         self.dev_actor = None
         if enabled:
             if not isinstance(name, str) or not name.strip() or len(name) > 252 or any(ord(c) < 32 for c in name):
                 raise ValueError("invalid dev actor")
             self.dev_actor = "dev:" + name.strip()
+        self.slots = threading.BoundedSemaphore(WORKERS)
         super().__init__(server_address, handler, bind_and_activate=bind_and_activate)
         if enabled:
             print("WARNING: insecure dev actor enabled; identity verification bypassed (loopback only)", file=sys.stderr)
+
+    def process_request(self, request, client_address) -> None:
+        # F3: tối đa WORKERS luồng xử lý. Hết chỗ thì luồng nhận kết nối chờ: kết nối mới nằm ở hàng đợi của kernel
+        # (request_queue_size) thay vì mở luồng không giới hạn; mọi hạn đọc/ghi bảo đảm chỗ được trả lại.
+        self.slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
+class TailnetHTTPSServer(ThreadingHTTPServer):
+    """Cổng HTTPS trực tiếp trên IP tailnet (8445): luồng nhận kết nối chỉ accept TCP, bắt tay TLS trong luồng xử lý.
+
+    Audit 23/11/2026 (F1): trước đây socket nghe được bọc TLS, nên accept() bắt tay ngay trong luồng nhận kết nối, không
+    có hạn: một kết nối TCP im (máy quét cổng, điện thoại mất sóng giữa chừng) làm treo cả cổng cho mọi người. Nay mỗi
+    bắt tay có hạn tuyệt đối TLS_HANDSHAKE_SECONDS (hạn của socket tính cho cả lần do_handshake), hỏng thì đóng lặng lẽ.
+    """
+
+    def __init__(self, server_address, handler, context: ssl.SSLContext, *, bind_and_activate=True):
+        self.tls_context = context
+        super().__init__(server_address, handler, tailnet_https=True, bind_and_activate=bind_and_activate)
+
+    def finish_request(self, request, client_address) -> None:
+        try:
+            request.settimeout(TLS_HANDSHAKE_SECONDS)
+            secure = self.tls_context.wrap_socket(request, server_side=True)
+        except OSError:   # gồm ssl.SSLError, TimeoutError, client đóng giữa chừng; shutdown_request đóng socket gốc
+            return
+        try:
+            super().finish_request(secure, client_address)
+        finally:
+            self.shutdown_request(secure)   # socket gốc đã tách sang `secure`; lớp cha chỉ còn đóng vỏ rỗng
 
 
 def main() -> None:
@@ -880,9 +1038,8 @@ def main() -> None:
     parser.add_argument("--database")
     # ponytail: fake harness has no app EXECUTE grants; switch to v7_app after grants exist.
     parser.add_argument("--db-user")
-    parser.add_argument(
-        "--insecure-dev-actor", default=os.getenv("V7_API_INSECURE_DEV_ACTOR")
-    )
+    # F8 (audit 23/11/2026): chỉ bật bằng cờ dòng lệnh, không bằng biến môi trường (dễ sót trong drop-in hay profile).
+    parser.add_argument("--insecure-dev-actor")
     parser.add_argument(
         "--behind-tailscale-serve",
         action="store_true",
@@ -903,6 +1060,9 @@ def main() -> None:
     parser.add_argument("--admin-login", action="append", default=[],
                         help="Tailscale login that sees the admin pages (QUYEN-01); repeatable, merged with "
                              "WEBDEBIT_ADMIN_LOGINS. Unset: every allowed login is admin")
+    parser.add_argument("--read-only-peer-uid", action="append", default=[],
+                        help="Local uid allowed to send the Tailscale identity header for GET only (F4, e.g. the Zalo bot); "
+                             "repeatable, merged with WEBDEBIT_READ_ONLY_PEER_UIDS. uid 0 (tailscaled) is always trusted")
     parser.add_argument("--access-file", default=os.getenv("WEBDEBIT_ACCESS_FILE"),
                         help="JSON file of logins managed on the Người dùng page (QUYEN-02); added to the fixed lists")
     source = parser.add_mutually_exclusive_group()
@@ -917,10 +1077,19 @@ def main() -> None:
     args = parser.parse_args()
     if args.serve_host and not args.behind_tailscale_serve:
         parser.error("--serve-host requires --behind-tailscale-serve")
+    if args.insecure_dev_actor is not None and args.behind_tailscale_serve:
+        parser.error("--insecure-dev-actor cannot be combined with Tailscale Serve mode (F8)")
+    peer_env = os.getenv("WEBDEBIT_READ_ONLY_PEER_UIDS")
+    try:
+        read_only_uids = v7_identity.parse_peer_uids(" ".join([*args.read_only_peer_uid, peer_env or ""]))
+    except v7_identity.IdentityError:
+        parser.error("read-only peer uids must be positive integers other than 0 (F4)")
+    if read_only_uids and not args.behind_tailscale_serve:
+        parser.error("--read-only-peer-uid requires --behind-tailscale-serve")
     if any((args.tailnet_https_ip, args.tailnet_https_host, args.tailnet_tls_cert, args.tailnet_tls_key)):
         if not all((args.tailnet_https_ip, args.tailnet_https_host, args.tailnet_tls_cert, args.tailnet_tls_key)):
             parser.error("tailnet HTTPS requires IP, host, certificate and key")
-        if not args.behind_tailscale_serve or args.insecure_dev_actor is not None:
+        if not args.behind_tailscale_serve:
             parser.error("tailnet HTTPS requires Serve mode and no dev actor")
         if not 1 <= args.tailnet_https_port <= 65535:
             parser.error("invalid tailnet HTTPS port")
@@ -951,7 +1120,7 @@ def main() -> None:
         allowed_logins = v7_identity.parse_allowed_logins(allowed_raw)
     except v7_identity.IdentityError as exc:
         parser.error(f"allowed logins invalid: {exc.code}")
-    if args.behind_tailscale_serve and args.insecure_dev_actor is None and not allowed_logins:
+    if args.behind_tailscale_serve and not allowed_logins:
         parser.error("--behind-tailscale-serve requires at least one allowed login "
                      "(--allowed-login or WEBDEBIT_ALLOWED_LOGINS; ACCESS-01)")
     # QUYEN-01: admin list lives next to the allowlist on the host. Each admin must also be allowed, or the list is a typo.
@@ -996,6 +1165,7 @@ def main() -> None:
     Handler.serve_hosts = tuple(accepted_hosts)
     Handler.allowed_logins = allowed_logins
     Handler.admin_logins = admin_logins
+    Handler.read_only_uids = read_only_uids
     if args.access_file and not os.path.isdir(os.path.dirname(os.path.abspath(args.access_file))):
         parser.error("access file folder does not exist (QUYEN-02)")
     v7_access.STORE = v7_access.AccessStore(args.access_file, allowed_logins, admin_logins)
@@ -1007,8 +1177,8 @@ def main() -> None:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(args.tailnet_tls_cert, args.tailnet_tls_key)
-        secure = ThreadingHTTPServer((args.tailnet_https_ip, args.tailnet_https_port), Handler, tailnet_https=True)
-        secure.socket = context.wrap_socket(secure.socket, server_side=True)
+        # F1: socket nghe để trần; mỗi kết nối bắt tay TLS trong luồng của nó, có hạn (TailnetHTTPSServer).
+        secure = TailnetHTTPSServer((args.tailnet_https_ip, args.tailnet_https_port), Handler, context)
     plain = ThreadingHTTPServer((args.host, args.port), Handler)
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm

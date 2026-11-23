@@ -106,6 +106,12 @@ class ConfigTests(unittest.TestCase):
         self.write({"users": [{"zalo_id": "1111", "login": "chu@example.com", "role": "admin"}]})
         self.assertEqual(config.load_users(self.file), {"1111": USER})
 
+    def test_role_is_optional_and_only_caps_the_web_role(self):
+        """F11: không ghi role thì web quyết (trần admin); ghi "user" thì bot luôn coi là user."""
+        self.write({"users": [{"zalo_id": "1111", "login": "chu@example.com"}, {"zalo_id": "2222", "login": "nv@example.com", "role": "user"}]})
+        users = config.load_users(self.file)
+        self.assertEqual((users["1111"].role, users["2222"].role), ("admin", "user"))
+
     def test_ambiguous_or_wrong_files_stop_the_bot(self):
         bad = {"user_role": {"zalo_id": "1", "login": "a@b.c", "role": "boss"},
                "user_login": {"zalo_id": "1", "login": "không phải login", "role": "user"},
@@ -357,6 +363,21 @@ class HeartbeatReaderTests(unittest.TestCase):
         self.assertEqual(dog.check_zalo_bot(ten), [])                       # lượt kiểm quá 26 giờ: không báo theo lượt cũ
         self.write()
         self.assertIsNone(v7_machine.zalo_bot(NOW)["tool_check"])
+
+    def test_watchdog_reports_budget_not_sure_and_errors_even_after_hours(self):
+        """F8: hết hạn mức báo ngay; "chưa chắc" từ 5 và lỗi model từ 3 trong ngày thì báo, kể cả ngoài giờ làm việc."""
+        ten = dt.datetime.fromtimestamp(NOW, VN)
+        self.write(counts={"answered": 9, "not_sure": 4, "error": 2})
+        self.assertEqual(dog.check_zalo_bot(ten), [])
+        self.write(counts={"over_budget": 2, "not_sure": 5, "error": 3})
+        self.assertEqual(dog.check_zalo_bot(ten), [
+            "Bot Zalo: đã hết hạn mức chi phí hôm nay (2 câu bị từ chối vì hạn mức).",
+            "Bot Zalo: hôm nay 5 câu trả lời \"chưa chắc\" (bộ kiểm số chặn), ngưỡng 5.",
+            "Bot Zalo: hôm nay 3 lần gọi model lỗi, ngưỡng 3."])
+        night = NOW + 11 * 3600
+        self.write(at=night, counts={"over_budget": 1})
+        self.assertEqual(dog.check_zalo_bot(dt.datetime.fromtimestamp(night, VN)),
+                         ["Bot Zalo: đã hết hạn mức chi phí hôm nay (1 câu bị từ chối vì hạn mức)."])
 
     def test_a_broken_bot_check_does_not_hide_other_checks(self):
         for name in ("check_api", "check_reconcile", "check_snapshots", "check_sources", "check_inbox", "check_units", "check_disks"):

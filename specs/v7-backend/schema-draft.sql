@@ -1324,7 +1324,7 @@ DECLARE v_payload jsonb:=jsonb_build_object('command',CASE WHEN p_delete THEN 'd
       'legacy_row_id',legacy_row_id,'field',field,'value',value);
     v_retry jsonb; l sokhach.legacy_row%ROWTYPE; v_old jsonb; v_new jsonb; v_value text;
     v_month date; v_old_month date; v_count bigint; v_old_count bigint; v_event bigint; v_changes jsonb;
-    v_fee bigint;
+    v_fee bigint; v_cutover bigint; v_trip sokhach.v_trip_current%ROWTYPE; v_review jsonb := '[]'; v_review_reason text;
 BEGIN
     IF p_fee_event IS NULL THEN
     v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
@@ -1375,11 +1375,39 @@ BEGIN
     END IF;
     IF v_month<>v_old_month THEN PERFORM sokhach._month_open(customer_id,v_month,clock_timestamp()); END IF;
     v_new:=v_new||jsonb_build_object('month',v_month,'debt_month',v_month,'counted_vnd',v_count::text,'field',field,'value',v_new->field);
+    -- Audit SQL 23/11/2026 (F8): sửa container/ngày của dòng sổ gốc thành trùng một chuyến web đang tính (cùng sổ, cùng container;
+    -- dòng không ngày cùng tháng nợ, hoặc có ngày cách tối đa 3 ngày) thì chuyến đó vào CHỜ KIỂM, như chiều ngược lại ở edit_trip_info.
+    -- Chỉ xét chuyến chưa có lý do trùng nào trước lần sửa này (cùng hàm _trip_dup_reason): chuyến người đã duyệt giữ không bị đẩy lại.
+    IF NOT p_delete AND p_fee_event IS NULL AND l.kind='trip' AND field IN ('container','event_date')
+       AND nullif(v_new->>'container','') IS NOT NULL THEN
+      SELECT cc.cutover_id INTO v_cutover FROM sokhach.cutover_customer cc JOIN sokhach.cutover c ON c.id=cc.cutover_id
+        WHERE cc.customer_id=_change_legacy.customer_id AND cc.status='active' AND c.status='active';
+      v_review_reason:=CASE WHEN v_new->>'event_date' IS NULL THEN 'BASELINE_UNDATED_MONTH' ELSE 'BASELINE_DATE_WINDOW' END;
+      FOR v_trip IN SELECT t.* FROM sokhach.v_trip_current t
+          WHERE t.customer_id=_change_legacy.customer_id AND NOT t.deleted AND t.status='confirmed'
+            AND sokhach._normalize_key(t.container)=sokhach._normalize_key(v_new->>'container')
+            AND CASE WHEN v_new->>'event_date' IS NULL THEN t.debt_month=v_month
+                     ELSE abs(t.event_date-(v_new->>'event_date')::date)<=3 END
+          ORDER BY t.id LOOP
+        IF sokhach._trip_dup_reason(v_trip.customer_id,v_cutover,sokhach._normalize_key(v_trip.container),
+             sokhach._booking_key(v_trip.booking,v_trip.container,v_trip.event_date),v_trip.event_date,v_trip.id,NULL) IS NULL THEN
+          PERFORM sokhach._month_open(v_trip.customer_id,v_trip.debt_month,clock_timestamp());
+          v_review:=v_review||jsonb_build_array(v_trip.id);
+        END IF;
+      END LOOP;
+    END IF;
     IF p_fee_event IS NULL THEN
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
       VALUES(customer_id,CASE WHEN p_delete THEN 'legacy_delete' ELSE 'legacy_edit' END,sokhach._actor(),
-        jsonb_build_object('legacy',v_old||jsonb_build_object('field',field,'value',v_old->field)),jsonb_build_object('legacy',v_new),idempotency_key) RETURNING id INTO v_event;
+        jsonb_build_object('legacy',v_old||jsonb_build_object('field',field,'value',v_old->field)),jsonb_build_object('legacy',v_new)
+          ||CASE WHEN jsonb_array_length(v_review)>0 THEN jsonb_build_object('review_trips',v_review,'review_reason',v_review_reason)
+                 ELSE '{}'::jsonb END,idempotency_key) RETURNING id INTO v_event;
     ELSE v_event:=p_fee_event; END IF;
+    IF jsonb_array_length(v_review)>0 THEN
+      INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,status,created_by_event)
+      SELECT t.id,t.customer_id,t.debt_month,t.event_date,t.container,t.carrier,t.shipper,t.origin,t.destination,'pending_review',v_event
+        FROM sokhach.v_trip_current t WHERE t.id IN (SELECT (x#>>'{}')::bigint FROM jsonb_array_elements(v_review) x);
+    END IF;
     IF p_fee_event IS NULL AND field='other_fee_vnd' AND NOT p_delete THEN
       UPDATE sokhach.trip_fee_line SET voided_by_event=v_event
         WHERE trip_fee_line.legacy_row_id=l.id AND voided_by_event IS NULL;
@@ -1399,7 +1427,8 @@ BEGIN
         UNION ALL SELECT v_month,v_count WHERE v_month<>v_old_month) d WHERE delta<>0;
     IF p_fee_event IS NOT NULL THEN RETURN v_new; END IF;
     v_changes:=sokhach.reallocate(customer_id,idempotency_key);
-    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('legacy_row_id',l.id,'deleted',p_delete,'reallocated',v_changes));
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('legacy_row_id',l.id,'deleted',p_delete,
+      'review_trips',v_review,'reallocated',v_changes));
 EXCEPTION WHEN numeric_value_out_of_range THEN
     IF p_fee_event IS NOT NULL THEN RAISE EXCEPTION 'FEE_AMOUNT_INVALID'; END IF;
     RAISE EXCEPTION 'INVALID_VND';
@@ -1449,15 +1478,16 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
         'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
-        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
+        -- Audit SQL 23/11/2026 (F4): chỉ event có khóa `receipt` mới có thể là cấn trừ; event khác bỏ qua hai câu con.
+        'counterparty_customer_id',CASE WHEN event."after" ? 'receipt' THEN (SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
+        'counterparty_name',CASE WHEN event."after" ? 'receipt' THEN (SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
             ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
                 ELSE p.source_customer_id END
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
         'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
             'price',"before"->'price' || jsonb_build_object(
                 'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
@@ -1559,9 +1589,7 @@ BEGIN
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'shipper',t.shipper,'status',t.status,'booking',t.booking,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r
             JOIN sokhach.event e ON e.id=r.created_by_event WHERE r.trip_id=t.id ORDER BY r.id DESC LIMIT 1),
-            (SELECT x->>'review_reason' FROM sokhach.trip tr JOIN sokhach.event e ON e.id=tr.created_by_event
-            CROSS JOIN LATERAL jsonb_array_elements(e."after"->'trips') x
-            WHERE tr.id=t.id AND x->>'trip_id'=t.id::text)),
+            pr.reason),
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
         'fee_lines',sokhach._fee_lines(t.id,NULL),
@@ -1586,6 +1614,13 @@ BEGIN
     LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
         WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
     LEFT JOIN sokhach.month_state ms ON (ms.customer_id,ms.month)=(t.customer_id,t.debt_month)
+    -- Audit SQL 23/11/2026 (F4): lý do lúc dán đọc một lượt: mỗi event tạo chuyến của sổ bung mảng `trips` đúng một lần
+    -- (trước: mỗi chuyến bung lại cả mảng của lô nó, bậc hai theo cỡ lô).
+    LEFT JOIN (SELECT (x->>'trip_id')::bigint AS trip_id, x->>'review_reason' AS reason
+        FROM (SELECT DISTINCT tr.created_by_event FROM sokhach.trip tr WHERE tr.customer_id=get_ledger.customer_id) ev
+        JOIN sokhach.event e ON e.id=ev.created_by_event
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e."after"->'trips')='array' THEN e."after"->'trips' ELSE '[]'::jsonb END) x
+        WHERE x ? 'review_reason') pr ON pr.trip_id=t.id
     WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'month',debt_month,
         'trip_id',trip_id,'legacy_row_id',legacy_row_id,'amount_vnd',amount_vnd::text,'note',note,'at',at)
@@ -1601,7 +1636,10 @@ BEGIN
         (SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'month',l.debt_month,
             'kind',l.kind,'amount_vnd',l.amount_vnd::text,'superseded_by_event',
             l.superseded_by_event) ORDER BY l.id),'[]'::jsonb)
-            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id)) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
+            -- Audit SQL 23/11/2026 (F4): bỏ các bản phân bổ cũ đã bị phân bổ lại thay; giữ dòng còn hiệu lực và dòng bị chính
+            -- lệnh hủy phiếu thay (tháng của phiếu đã hủy). Số dòng không còn tăng theo số lần phân bổ lại.
+            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id
+              AND (l.superseded_by_event IS NULL OR l.superseded_by_event=r.voided_by_event))) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
     INTO v_receipts FROM sokhach.receipt r WHERE r.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'month',o.debt_month,
         'amount_vnd',o.amount_vnd::text,'editable',false) ORDER BY o.debt_month),'[]'::jsonb)

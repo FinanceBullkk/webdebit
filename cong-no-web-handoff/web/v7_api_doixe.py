@@ -40,6 +40,7 @@ TEXT_COLS = ("noi_lay", "noi_ha", "kho", "ghi_chu")
 ROW_FIELDS = {"ngay", "container", "loai", "xe_id", "tai_xe_id", "tra", "nguoi_tra_id", "noi_lay", "noi_ha", "kho", "tinh",
               "ten_hang", "ghi_chu", "phi", *SO_LUONG}
 MONEY = re.compile(r"0|[1-9][0-9]{0,15}")
+SIGNED_OR_ZERO = re.compile(r"0|-?[1-9][0-9]{0,15}")
 MONTH = re.compile(r"[0-9]{4}-[0-9]{2}-01")
 KEY_LIMIT = 128
 
@@ -170,8 +171,15 @@ def _check_rows(body: dict) -> None:
         _row(row)
 
 
+def _seen(value: object) -> None:
+    """Số máy người bấm đang thấy (số dư, tổng dòng): chuỗi số nguyên VND có dấu. Hàm SQL so với số hiện tại (audit DX-03)."""
+    if not isinstance(value, str) or not SIGNED_OR_ZERO.fullmatch(value):
+        bad("INVALID_VND", "Số đang thấy phải là số nguyên VND.")
+
+
 def _check_ung(body: dict) -> None:
     _id(body["nguoi_id"])
+    _seen(body["so_du_vnd"])
     _date(body["ngay"])
     _money(body["so_tien_vnd"], nullable=False)
     if body["so_tien_vnd"] == "0":
@@ -181,6 +189,8 @@ def _check_ung(body: dict) -> None:
 
 def _check_hoan(body: dict) -> None:
     _id(body["nguoi_id"])
+    _seen(body["so_du_vnd"])
+    _seen(body["tong_dong_vnd"])
     _date(body["ngay"])
     _money(body["so_tien_vnd"], nullable=False)
     ids = body["dong_ids"]
@@ -243,6 +253,7 @@ def _check_doi_chieu(body: dict) -> None:
 
 def _check_dieu_chinh(body: dict) -> None:
     _id(body["dong_id"])
+    _money(body["doi_vnd"], nullable=False)   # số đòi đang thấy (DX-03)
     if not isinstance(body["so_tien_vnd"], str) or not SIGNED.fullmatch(body["so_tien_vnd"]):
         bad("INVALID_VND", "Số tiền điều chỉnh phải là số nguyên VND khác 0.")
     _text(body["ly_do"], 500)
@@ -252,6 +263,7 @@ def _check_dieu_chinh(body: dict) -> None:
 
 def _check_tien_ve(body: dict) -> None:
     _month_body(body["thang"])
+    _money(body["con_vnd"], nullable=False)   # còn phải thu đang thấy (DX-03)
     _date(body["ngay"])
     _money(body["so_tien_vnd"], nullable=False)
     if body["so_tien_vnd"] == "0":
@@ -277,6 +289,8 @@ def _check_gia(body: dict) -> None:
     _money(body["gia_vnd"], nullable=False)
     if body["gia_vnd"] == "0":
         bad("INVALID_VND", "Giá phải lớn hơn 0.")
+    if "xac_nhan_ngay_cu" in body:   # DX-01: áp giá ngược về trước tháng này phải xác nhận
+        _flag(body["xac_nhan_ngay_cu"])
 
 
 def _check_tuyen(body: dict) -> None:
@@ -297,11 +311,16 @@ def _check_tuyen(body: dict) -> None:
     if "dang_dung" in body:
         _flag(body["dang_dung"])
     if body["tuyen_id"] is None:
-        if "gia_vnd" not in body or "tu_ngay" not in body:
+        if "gia_vnd" not in body or "tu_ngay" not in body or "ten_goc_truoc" in body:
             bad()
         _check_gia({"tuyen_id": 1, "tu_ngay": body["tu_ngay"], "gia_vnd": body["gia_vnd"]})
-    elif "gia_vnd" in body or "tu_ngay" in body:
-        bad()
+    else:
+        # DX-06: sửa tuyến có sẵn kèm bộ tên gốc đang thấy ('HÀNG|TỈNH'); SQL so với bộ hiện tại (TUYEN_DOI).
+        before = body.get("ten_goc_truoc")
+        if "gia_vnd" in body or "tu_ngay" in body or not isinstance(before, list) or len(before) > 50:
+            bad()
+        for item in before:
+            _text(item, 260, required=True)
 
 
 def _check_phat_sinh(body: dict) -> None:
@@ -381,7 +400,7 @@ def _check_nhan_booking(body: dict) -> None:
 POST_HANDLERS = {
     CHANG_PATH: _write("luu_chang", {"rows"}, _check_rows),
     PREFIX + "/chang/sua": _write("sua_chang", {"chang_id", "cot", "truoc", "gia_tri"}, lambda b: (_id(b["chang_id"]), _cell(b))),
-    PREFIX + "/chang/xoa": _write("xoa_chang", {"chang_id"}, lambda b: _id(b["chang_id"])),
+    PREFIX + "/chang/xoa": _write("xoa_chang", {"chang_id", "tong_vnd"}, lambda b: (_id(b["chang_id"]), _seen(b["tong_vnd"]))),
     # DOI-XE-CHANG-01
     PREFIX + "/chang/phan-xe": _write("phan_xe", {"container", "ngay_dong", "xe_id"}, _check_phan_xe,
                                       {"ngay", "loai", "tai_xe_id", "noi_lay", "noi_ha", "kho", "tinh", "ten_hang", "ghi_chu", "ngay_dong_khac"},
@@ -389,22 +408,22 @@ POST_HANDLERS = {
     PREFIX + "/chang/doi-phan-cong": _write("doi_phan_cong", {"chang_id", "truoc", "xe_id", "tai_xe_id", "ngay"}, _check_doi_phan_cong),
     PREFIX + "/chang/bo-phan-cong": _write("bo_phan_cong", {"chang_id"}, lambda b: _id(b["chang_id"])),
     PREFIX + "/chang/nhan-booking": _write("nhan_booking", {"chang_id", "kieu"}, _check_nhan_booking, {"ngay_dong", "container", *NHAN_TEXT}),
-    PREFIX + "/ung": _write("ghi_ung", {"nguoi_id", "ngay", "so_tien_vnd"}, _check_ung, {"ghi_chu"}),
+    PREFIX + "/ung": _write("ghi_ung", {"nguoi_id", "ngay", "so_tien_vnd", "so_du_vnd"}, _check_ung, {"ghi_chu"}),
     PREFIX + "/ung/huy": _write("huy_ung", {"ung_id", "ly_do"}, _check_huy("ung_id")),
-    PREFIX + "/hoan": _write("ghi_hoan", {"nguoi_id", "ngay", "so_tien_vnd", "dong_ids"}, _check_hoan),
+    PREFIX + "/hoan": _write("ghi_hoan", {"nguoi_id", "ngay", "so_tien_vnd", "dong_ids", "tong_dong_vnd", "so_du_vnd"}, _check_hoan),
     PREFIX + "/hoan/huy": _write("huy_hoan", {"dot_id", "ly_do"}, _check_huy("dot_id")),
     PREFIX + "/thang/khoa": _write("khoa_thang", {"thang", "khoa"}, _check_khoa),
     # DOI-XE-THU-01
     PREFIX + "/bang-ke/gui": _write("gui_bang_ke", {"thang", "doi_vnd", "so_chang", "dau"}, _check_gui),
     PREFIX + "/bang-ke/doi-chieu": _write("doi_chieu_xong", {"thang", "doi_vnd"}, _check_doi_chieu),
-    PREFIX + "/bang-ke/dieu-chinh": _write("ghi_dieu_chinh_bk", {"dong_id", "so_tien_vnd", "ly_do"}, _check_dieu_chinh),
-    PREFIX + "/bang-ke/tien-ve": _write("ghi_tien_ve", {"thang", "ngay", "so_tien_vnd"}, _check_tien_ve, {"ghi_chu"}),
+    PREFIX + "/bang-ke/dieu-chinh": _write("ghi_dieu_chinh_bk", {"dong_id", "so_tien_vnd", "ly_do", "doi_vnd"}, _check_dieu_chinh),
+    PREFIX + "/bang-ke/tien-ve": _write("ghi_tien_ve", {"thang", "ngay", "so_tien_vnd", "con_vnd"}, _check_tien_ve, {"ghi_chu"}),
     PREFIX + "/bang-ke/tien-ve/huy": _write("huy_tien_ve", {"tien_ve_id", "ly_do"}, _check_huy("tien_ve_id")),
     PREFIX + "/thu/cuoc": _write("sua_cuoc", {"chang_id", "truoc", "gia_tri"}, _check_cuoc),
     PREFIX + "/thu/tuyen": _write("gan_tuyen", {"chang_id", "tuyen_id", "nho"}, _check_gan_tuyen),
-    PREFIX + "/gia": _write("luu_gia", {"tuyen_id", "tu_ngay", "gia_vnd"}, _check_gia),
+    PREFIX + "/gia": _write("luu_gia", {"tuyen_id", "tu_ngay", "gia_vnd"}, _check_gia, {"xac_nhan_ngay_cu"}),
     PREFIX + "/tuyen": _write("luu_tuyen", {"tuyen_id", "loai", "hang", "di", "den", "ten_goc"}, _check_tuyen,
-                              {"dang_dung", "gia_vnd", "tu_ngay"}),
+                              {"dang_dung", "gia_vnd", "tu_ngay", "ten_goc_truoc"}),
     PREFIX + "/phat-sinh": _write("luu_phat_sinh", {"ma", "ten", "cach", "muc_vnd", "muc_them_vnd", "chi_ho", "cot", "ten_goc"},
                                   _check_phat_sinh),
 }
