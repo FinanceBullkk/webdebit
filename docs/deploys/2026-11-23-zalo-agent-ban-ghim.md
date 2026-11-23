@@ -1,6 +1,6 @@
 # Triển khai tay: agent Zalo chạy từ bản ghim theo SHA (ZALO-AGENT-01, 23/11/2026)
 
-**ĐÃ THỬ trên task thử ở máy có Zalo (`msi`) ngày 23/11/2026; task thật `ZaloAgent` CHƯA chuyển** (chờ phiên điều phối nhắn "đã merge, chuyển đi"). Phần "Chuyển task thật" bên dưới ghi sau khi chuyển.
+**ĐÃ THỬ trên task thử và ĐÃ CHUYỂN task thật `ZaloAgent` (máy có Zalo, `msi`) sang bản ghim `c70d8822f5da` lúc 11:41 ngày 23/11/2026** (phiên điều phối nhắn "đã merge, chuyển đi" sau khi #597 vào `main`). Kết quả ở mục "Chuyển task thật".
 
 Bối cảnh: rà kỹ thuật Zalo/WeChat 23/11/2026 (chỉ đọc) thấy agent chạy thẳng từ checkout dev. Mục đích: mọi PR agent của đợt (đọc tiền ảnh, OCR engine, canh WeChat) triển khai bằng một lệnh, lùi bằng một lệnh, và `agent_version` nói đúng mã đang chạy.
 
@@ -61,11 +61,17 @@ Task thử `ZaloAgentTest` đăng ký từ XML của `ZaloAgent` (cùng trigger,
 
 ## Chuyển task thật
 
-CHƯA làm. Sau khi phiên điều phối nhắn "đã merge, chuyển đi": chạy `Deploy` trên task `ZaloAgent`, ghi vào đây SHA đang chạy, kết quả kiểm máy và `hao`, và cách lùi.
+Đã làm 23/11/2026 11:40 → 11:41 bằng `zalo_agent_release.ps1 Deploy -Sha c70d8822f5da` (PowerShell không nâng quyền, mã thoát 0), từ checkout dev `D:\webdebit\repo` (đang ở `main`) sang `D:\zalo-agent\releases\c70d8822f5da`.
+
+- **Trước:** task chạy từ checkout dev; `status.json` (máy và `hao`) báo `agent_version` `d174318bf9cd`, trong khi HEAD của checkout dev đã là `c70d8822f5da` — đúng loại lệch mà bản ghim loại bỏ. Mã agent ở hai SHA giống hệt nhau (giữa chúng chỉ có thay đổi phía `hao` và chính script).
+- **Sau:** `D:\zalo-agent\state\status.json` và `hao:/srv/v7/zalo-agent/status.json` đều báo `agent_version` `c70d8822f5da` lúc 11:41:01; một tiến trình agent, task `Running`, thư mục làm việc là bản ghim.
+- **Dòng lệnh task mới** (chỉ đổi đường dẫn gói và thư mục làm việc; Python, trigger, cài đặt pin, principal giữ nguyên): `pythonw -X utf8 -I "D:\zalo-agent\releases\c70d8822f5da\cong-no-web-handoff\tools\zalo_agent" run --insurance-target hao:/srv/v7/insurance --money-images on --reads-target hao:/srv/v7/zalo-reads --wechat --wechat-images`.
+- **Số đo giữ nguyên:** `money_images` read 52, review 16, pending 0, failed 0, asking 0, độ lùi 0 revision; `bundle` và `insurance` không lỗi, độ lùi 0 (bundle ở revision 1342); WeChat không lỗi (61 tin).
+- **Lùi:** `zalo_agent_release.ps1 Rollback` đưa task về `D:\webdebit\repo` (bản trước, chạy thẳng từ checkout dev); XML task cũ ở `D:\zalo-agent\releases\task-ZaloAgent-<giờ>.xml`. Sau lần chuyển này, `git pull` hay đổi nhánh ở checkout dev không còn ảnh hưởng agent đang chạy; mỗi PR agent mới triển khai bằng `Deploy`.
 
 ## CÒN MỞ
 
-- Chưa thử tới tận lúc agent thật chuyển bản (xem mục trên).
+- Lần chuyển thật đã đạt, chưa gặp lỗi nào ở các nhánh `Restore-Task` (xem bảng thử); hai nhánh đó vẫn CHƯA được thử trực tiếp.
 - Chưa có bước dọn `D:\zalo-agent-test` (thư mục gốc rỗng còn lại: hệ thống chặn xóa chính thư mục đó, nội dung đã xóa).
 
 ## Rollback của việc này
