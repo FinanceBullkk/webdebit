@@ -72,6 +72,13 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
    bảng chuyến cuộn ngang trong khung như màn hẹp, tiêu đề cột cuộn cùng bảng, không cắt mất cột Khác/Thành tiền. */
 .ledger .columns th.fee-narrow{padding:1px 3px;font-size:14px;line-height:1.1;overflow-wrap:normal}
 .ledger-book.fee-over .trip-card{overflow-x:auto}.ledger-book.fee-over .ledger-head{position:static}
+/* SO-GON-07 (23/11/2026, người dùng chọn A): bảng vẫn rộng hơn khung (nhiều cột phí có khoản trong tháng) thì chỉ phần giữa
+   cuộn ngang; cột Thành tiền ghim phải, luôn thấy. */
+.ledger-book.fee-over .trip-card .ledger-head th.amount-h,.ledger-book.fee-over .trip-card .trip-list tr>td:last-child,
+.ledger-book.fee-over .trip-card tr.subtotal>td.amount-total{position:sticky;right:0;z-index:2;box-shadow:-2px 0 0 #c9d3de}
+.ledger-book.fee-over .trip-card .trip-list tr>td:last-child{background:#fff}
+.fee-cols-toggle{min-height:36px;padding:0 12px;border:1px solid #8daac9;border-radius:6px;background:#fff;color:#173d65;font:inherit;font-size:14px;cursor:pointer}
+.fee-cols-toggle:hover{background:#eef4fb}
 .ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
 .ledger .columns th{height:35px}
 .pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}
