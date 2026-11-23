@@ -310,12 +310,10 @@
     if (!preview?.enabled || state.sending) return;
     inbox.dc.ai.set(id, { preview, sending: true }); paintInbox();
     try {
-      const response = await fetch('/api/v7/ai/explain', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer_id: id, fingerprint: preview.fingerprint, consent: true }) });
-      const body = await response.json();
-      if (!response.ok) throw Error(body.message ?? 'Claude chưa trả lời được.');
+      const body = await CongNoNet.postJson('/api/v7/ai/explain', { customer_id: id, fingerprint: preview.fingerprint, consent: true },
+        { what: 'lời giải thích' });
       inbox.dc.ai.set(id, { preview, result: body });
-    } catch (error) { inbox.dc.ai.set(id, { preview, error: error.message ?? 'Claude chưa trả lời được.' }); }
+    } catch (error) { inbox.dc.ai.set(id, { preview, error: CongNoNet.messageOf(error, 'Claude chưa trả lời được.') }); }
     paintInbox();
   }
   const dcSet = (map, id) => { if (!map.has(id)) map.set(id, new Set()); return map.get(id); };

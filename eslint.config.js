@@ -58,6 +58,7 @@ module.exports = [
         TinhHinhModel: "readonly",
         CongNoFormat: "readonly",
         CongNoModal: "readonly",
+        CongNoNet: "readonly",
         DashboardModel: "readonly",
         DoiXeChung: "readonly",
         DoiXeModel: "readonly",

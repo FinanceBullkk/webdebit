@@ -48,7 +48,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger .columns .pay{background:#dfeeff}
 .ledger .month th{height:48px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
 .month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:15px;font-weight:400}
-.badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:12px}.badge.open{background:#dbf5e4;color:#145b32}
+.badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:13px}.badge.open{background:#dbf5e4;color:#145b32}
 .month-lock{min-width:32px;min-height:28px;border:1px solid #b6d3ed;border-radius:4px;background:#fff;cursor:pointer;font-size:16px}
 .change-customer,.history-toggle,.fee-settings-open,.history-close,.add-month-adjustment{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit}
 .change-customer,.history-toggle,.fee-settings-open{white-space:nowrap}.add-month-adjustment{margin-left:8px;padding:2px 6px;font-weight:400}
@@ -101,12 +101,12 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-drawer header button,.fee-panel header button{margin-left:auto;min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}
 .fee-body{flex:1;overflow-y:auto;padding:10px 12px}
 .fee-lines{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
-.fee-lines th{font-size:12px;color:#3e5871;text-align:left;padding:4px;border-bottom:1px solid #d8e1ec}.fee-lines th.num{text-align:right}
+.fee-lines th{font-size:14px;color:#3e5871;text-align:left;padding:4px;border-bottom:1px solid #d8e1ec}.fee-lines th.num{text-align:right}
 .fee-lines td{padding:4px;border-bottom:1px solid #edf1f6;vertical-align:middle}.fee-lines td:first-child{width:118px}
 .fee-lines select,.fee-lines input,.fee-add select,.fee-add input{width:100%;height:34px;border:1px solid #98b1c7;border-radius:4px;padding:0 6px;background:#fff;color:#162d48;font:inherit;font-size:13px}
 .fee-lines .fee-amt{text-align:right;font-weight:700;white-space:nowrap;cursor:text}.fee-lines .fee-amt:hover,.fee-lines .fee-amt:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .fee-lines .fee-amt input{text-align:right}
-.fee-tag{display:inline-block;margin:2px 4px 0 0;padding:0 6px;border-radius:9px;background:#e3effc;color:#193d64;font-size:11px;font-weight:600}.fee-tag.pass{background:#e7f0e9;color:#145b32}
+.fee-tag{display:inline-block;margin:2px 4px 0 0;padding:0 6px;border-radius:9px;background:#e3effc;color:#193d64;font-size:13px;font-weight:600}.fee-tag.pass{background:#e7f0e9;color:#145b32}
 .fee-del{width:34px;height:34px;border:1px solid #d8a3a3;border-radius:4px;background:#fff;color:#a01616;cursor:pointer}
 .fee-sumline{display:flex;justify-content:space-between;margin:10px 0 0;padding:6px 10px;background:#f6f7f9;font-weight:700}
 .fee-sumline.calc{margin:0 0 10px;font-weight:400;color:#33465a}.fee-sumline.calc b{color:#123f79}
@@ -116,7 +116,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-add button:disabled{opacity:.5;cursor:wait}
 .fee-error{margin:0;color:#a01616;font-weight:700;font-size:13px}.fee-error:empty{display:none}
 .fee-info{padding:8px 10px;border-radius:4px;background:#fff3c4;color:#452600;font-weight:600}
-.fee-muted{color:#5d6f82;font-size:12px}
+.fee-muted{color:#5d6f82;font-size:13px}
 .fee-confirm{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:#162d4855}
 .fee-confirm-box{width:480px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
 .fee-confirm-box h2{margin:0 0 8px;font-size:16px}.fee-confirm-box ul{margin:6px 0;padding-left:20px}
@@ -134,7 +134,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .debit-panel header button:disabled{opacity:.45;cursor:not-allowed}
 .debit-main{flex:1;display:flex;min-height:0}.debit-form{width:320px;flex:none;overflow:auto;padding:4px 12px 12px;border-right:1px solid #c9d6e3;background:#f7f9fb}
 .debit-form fieldset{margin:8px 0 0;padding:0;border:0}.debit-form legend{padding:6px 0 2px;font-weight:700;color:#173d65;font-size:14px}
-.debit-field{display:block;margin:6px 0}.debit-field span{display:block;font-size:13px;color:#3e5871;margin-bottom:2px}.debit-field small{display:block;font-size:12px;color:#5f6b7a}
+.debit-field{display:block;margin:6px 0}.debit-field span{display:block;font-size:13px;color:#3e5871;margin-bottom:2px}.debit-field small{display:block;font-size:13px;color:#5f6b7a}
 .debit-field input,.debit-field select,.debit-field textarea{width:100%;box-sizing:border-box;min-height:32px;padding:4px 8px;border:1px solid #9eb4ca;border-radius:4px;font:inherit;font-size:14px;background:#fff}
 .debit-field textarea{resize:vertical}.debit-check,.debit-ack{display:flex;gap:8px;align-items:center;font-size:14px;margin:6px 0}.debit-ack[hidden]{display:none}
 .debit-side{flex:1;min-width:0;display:flex;flex-direction:column}.debit-review{padding:8px 12px;border-bottom:1px solid #c9d6e3;max-height:150px;overflow:auto}
@@ -170,7 +170,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .dn4-msg{margin:0 0 12px;padding:8px 10px;border-radius:6px;background:#eaf1fa;white-space:pre-line}
 .dn4-done-actions{display:flex;flex-wrap:wrap;gap:8px}.dn4-done-actions button{min-height:44px;padding:0 16px;border:1px solid #8daac9;border-radius:6px;background:#fff;color:#173d65;font:inherit;cursor:pointer}
 .dn4-done-actions .dn4-copy{border-color:#173d65;background:#173d65;color:#fff;font-weight:600}
-.fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
+.fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:14px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
 .fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-name-btn{min-height:36px;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;text-decoration:underline dotted #8193a6;text-underline-offset:3px;cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
 .fee-types select{height:32px;font:inherit}.fee-types button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;white-space:nowrap;cursor:pointer}
@@ -178,7 +178,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-types td:nth-child(5){white-space:nowrap}
 .fee-colall{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.fee-colall button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600;cursor:pointer}.fee-colall button:disabled{opacity:.5;cursor:not-allowed}
 .fee-colbox{display:flex;align-items:center;gap:6px}.fee-colbox input{width:18px;height:18px}
-.fee-pos{display:inline-block;min-width:22px;padding:0 6px;border-radius:9px;background:#145fa9;color:#fff;font-size:12px;text-align:center}
+.fee-pos{display:inline-block;min-width:22px;padding:0 6px;border-radius:9px;background:#145fa9;color:#fff;font-size:13px;text-align:center}
 .fee-newtype{display:flex;gap:8px;align-items:center;margin-top:12px;padding:10px;border:1px dashed #8daac9;border-radius:6px}
 .fee-newtype input{width:260px;height:36px;padding:0 8px;font:inherit}.fee-newtype select{height:36px;font:inherit}
 .fee-newtype button{min-height:36px;padding:0 14px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-weight:700;cursor:pointer}
@@ -260,7 +260,7 @@ div.lock-ask button,li.lock-ask button{margin-left:0}
 .ledger .subtotal td.pay{background:#e2efff}
 .ledger .spacer td{height:16px;padding:0;background:#eef3f8;border:0}
 .ledger-book section:last-child .spacer td{height:calc(100vh - var(--banner) - var(--bar) - var(--head) - var(--chips) - var(--cols))}
-.receipt-ref{display:block;font-size:13px;line-height:1.3;font-weight:400;color:#425b73;text-align:right;cursor:pointer}.receipt-ref.voided{text-decoration:line-through}.receipt-allocation{display:block;font-size:12px;line-height:1.3;font-weight:400;color:#5d6f82;text-align:right;white-space:normal}.receipt-reference{display:block;width:100%;min-width:0;min-height:26px;margin-top:2px;font:inherit;font-size:13px;color:#162d48}
+.receipt-ref{display:block;font-size:13px;line-height:1.3;font-weight:400;color:#425b73;text-align:right;cursor:pointer}.receipt-ref.voided{text-decoration:line-through}.receipt-allocation{display:block;font-size:13px;line-height:1.3;font-weight:400;color:#5d6f82;text-align:right;white-space:normal}.receipt-reference{display:block;width:100%;min-width:0;min-height:26px;margin-top:2px;font:inherit;font-size:13px;color:#162d48}
 .muted{color:#475d73}
 /* SO-GON-04: thanh chip tháng dính trên tiêu đề cột; chip đang tô = tháng ở trên cùng vùng dữ liệu. Tháng thu gọn chỉ còn
    thanh tháng. Vùng bấm cao 40px. */
@@ -270,7 +270,7 @@ div.lock-ask button,li.lock-ask button{margin-left:0}
 .month-chip.locked{background:#e6eaef;color:#33465a}
 .month-chip.on{background:#24496e;border-color:#24496e;color:#fff}.month-chip.locked.on{background:#5f7184;border-color:#5f7184}
 .month-chip:hover{border-color:#145fa9}.month-chip:focus-visible{outline:3px solid #145fa9;outline-offset:-3px}
-.month-chip .chip-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center}
+.month-chip .chip-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:13px;font-weight:700;line-height:20px;text-align:center}
 /* SO-GON-05: dòng tóm tắt của tháng đang xem (Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng) và chữ trạng thái khóa. */
 .month-lock-text{margin-left:-6px;font-size:14px;font-weight:400;color:#d6e4f2}
 .month-stats i{font-style:normal;color:#9fbad6}.month-stats .month-end b{font-size:17px}
@@ -439,7 +439,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .pm-paste{width:100%;box-sizing:border-box;min-height:84px;padding:8px 10px;border:2px dashed #2563c9;border-radius:6px;background:#f6f9fc;color:#162d48;font:inherit;font-size:16px;resize:vertical}
 .price-help{display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;padding:14px 16px;border:1px solid #c9d6e3;border-radius:8px;background:#fff}
 .price-help>div{flex:1;min-width:300px;max-width:420px}.price-help p{margin:0 0 10px}
-.price-sheet{border-collapse:collapse;font:12px/1.2 Arial,sans-serif;background:#fff}
+.price-sheet{border-collapse:collapse;font:13px/1.2 Arial,sans-serif;background:#fff}
 .price-sheet td{border:1px solid #d5dbe2;padding:4px 7px;white-space:nowrap;color:#202124}
 .price-sheet tr:first-child td{font-weight:700}.price-sheet td.s{background:#e3edfb}.price-sheet td.n{text-align:right}
 .price-sheet tr td.s:first-child{border-left:2px solid #2563c9}.price-sheet td.s.r{border-right:2px solid #2563c9}
@@ -454,7 +454,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .rv-tile b{display:block;white-space:nowrap;font-size:20px;line-height:1.2;font-variant-numeric:tabular-nums}.rv-tile span{font-size:14px;color:#4a5b6d}
 .rv-list{flex:1;min-height:60px;overflow:auto;margin:4px 0 8px;border:1px solid #d8e1ec;border-radius:6px}
 .rv-list table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
-.rv-list th{position:sticky;top:0;background:#f6f9fc;color:#4a5b6d;font-size:13px;font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid #c9d6e3;white-space:nowrap}
+.rv-list th{position:sticky;top:0;background:#f6f9fc;color:#4a5b6d;font-size:14px;font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid #c9d6e3;white-space:nowrap}
 .rv-list td{padding:6px 8px;border-bottom:1px solid #e3eaf2;white-space:nowrap}
 .rv-list .num{text-align:right}.rv-list .muted{color:#5d6f82}
 .rv-list small{color:#4a5b6d;font-size:14px}.rv-list tr.rv-group td{background:#f6f9fc;color:#4a5b6d;font-size:14px;font-weight:600}
@@ -516,7 +516,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .image-thumb{position:relative;display:inline-flex}.image-thumb.on .image-thumb-open{outline:2px solid #1e4e8c}
 .image-thumb-open{width:48px;height:48px;padding:0;border:1px solid #8daac9;border-radius:4px;background:#fff;overflow:hidden;cursor:pointer}
 .image-thumb-open img{width:100%;height:100%;object-fit:cover;object-position:top}
-.image-thumb-drop{position:absolute;top:0;right:0;width:18px;height:18px;padding:0;border:0;border-radius:0 0 0 4px;background:#24496ecc;color:#fff;font-size:12px;line-height:18px;cursor:pointer}
+.image-thumb-drop{position:absolute;top:0;right:0;width:18px;height:18px;padding:0;border:0;border-radius:0 0 0 4px;background:#24496ecc;color:#fff;font-size:13px;line-height:18px;cursor:pointer}
 .image-warn,.image-error{margin:6px 0 0;padding:6px 8px;border-radius:4px;font-size:13px;line-height:1.4}
 .image-warn{background:#fff3c4;color:#5a3a00;border:1px solid #e3c766}.image-error{background:#fdecec;color:#8a1414;border:1px solid #efb4b4}
 .image-viewer{position:fixed;z-index:55;top:calc(var(--banner) + var(--bar) + var(--head) + var(--chips) + 6px);bottom:12px;left:12px;width:470px;max-width:calc(100vw - 24px);display:flex;flex-direction:column;background:#fff;border:2px solid #1e4e8c;border-radius:8px;box-shadow:0 8px 28px #11182740}
@@ -532,7 +532,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .image-remove input{width:100%;height:32px;border:1px solid #c98585;border-radius:4px;padding:0 6px;font:inherit}
 .image-reason-error{color:#8a1414}.image-remove-actions{display:flex;gap:8px;justify-content:flex-end}
 .image-remove-actions .danger{background:#b91c1c;border-color:#b91c1c;color:#fff;font-weight:700}
-.image-viewer-foot{margin:0;padding:6px 10px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;line-height:1.4}
+.image-viewer-foot{margin:0;padding:6px 10px;border-top:1px solid #d1d5db;font-size:13px;color:#374151;line-height:1.4}
 /* Audit UX 31/10/2026 (P1-6): đọc sổ lỗi — một câu "chuyện gì · cần làm gì" và nút Thử lại. */
 .load-error{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:16px 4px;padding:12px 16px;border:1px solid #efb7b7;border-radius:8px;background:#fdecec;color:#8a1414;font-size:16px}
 .load-error p{margin:0}.load-retry,.history-retry{min-height:40px;padding:0 18px;border:1px solid #a01616;border-radius:6px;background:#fff;color:#8a1414;font:inherit;font-weight:700;cursor:pointer}
@@ -561,7 +561,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .page-tab{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border:0;border-bottom:3px solid transparent;background:none;color:#3e5871;font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
 .page-tab:hover{background:#eef3f8;color:#123f79}.page-tab[aria-selected="true"]{border-bottom-color:#145fa9;color:#123f79}
 .page-tab:focus-visible,.page-back:focus-visible,.tab-go:focus-visible{outline:3px solid #145fa9;outline-offset:-3px}
-.tab-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center}
+.tab-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:13px;font-weight:700;line-height:20px;text-align:center}
 body[data-the]:not([data-the="so"]) :is(#the-so,.fee-selbar,.entry-drawer,.fee-drawer,.image-viewer),
 body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) #the-trao-doi,body:not([data-the="ho-so"]) #the-ho-so{display:none}
 .tab-go{min-height:40px;padding:0 16px;border:1px solid #145fa9;border-radius:4px;background:#fff;color:#145fa9;font:inherit;font-weight:700;cursor:pointer}

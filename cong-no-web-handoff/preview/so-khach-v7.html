@@ -17,14 +17,14 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger{width:100%;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
 .ledger-head{position:sticky;top:70px;z-index:30}
 .ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 5px;vertical-align:middle;overflow-wrap:anywhere}
-.ledger th{font-weight:700;text-align:left}.ledger td{min-height:38px;height:38px;font-size:13px}
-.ledger .group th{height:30px;padding:3px 6px;background:#dbe8f7;color:#16385f;font-size:13px}
+.ledger th{font-weight:700;text-align:left}.ledger td{min-height:38px;height:38px;font-size:14px}
+.ledger .group th{height:30px;padding:3px 6px;background:#dbe8f7;color:#16385f;font-size:14px}
 .ledger .group .group-pay{background:#cfe5ff;border-left:3px solid #3269a4}
-.ledger .columns th{height:38px;padding:3px 5px;background:#eaf1fa;font-size:13px;line-height:1.12}
+.ledger .columns th{height:38px;padding:3px 5px;background:#eaf1fa;font-size:14px;line-height:1.12}
 .ledger .columns .pay{background:#dfeeff}
 .ledger .month th{position:sticky;top:138px;z-index:20;height:42px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
 .month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
-.badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:12px}.badge.open{background:#dbf5e4;color:#145b32}
+.badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:13px}.badge.open{background:#dbf5e4;color:#145b32}
 .month-lock{min-width:32px;min-height:28px;border:1px solid #b6d3ed;border-radius:4px;background:#fff;cursor:pointer;font-size:16px}
 .history-toggle,.history-close,.add-month-adjustment{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit}
 .history-toggle{white-space:nowrap}.add-month-adjustment{margin-left:8px;padding:2px 6px;font-weight:400}
@@ -32,7 +32,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .history-panel[hidden]{display:none}.history-panel header{display:flex;justify-content:space-between;align-items:center}.history-panel h2{margin:0;font-size:18px}
 .history-panel ol{padding-left:22px}.history-panel li{padding:8px 0;border-bottom:1px solid #d8e1ec}.history-panel li time,.history-panel li span,.history-panel li strong{display:block}.history-panel li p{margin:4px 0}
 .month-adjustment-input input{min-height:28px;max-width:100%;font:inherit}.month-adjustment-input .month-amount{width:100%;text-align:right}
-.ledger td.num{text-align:right;white-space:nowrap;font-size:13px}
+.ledger td.num{text-align:right;white-space:nowrap;font-size:14px}
 .ledger td.pay{background:#f2f8ff}.ledger td.pay-pin{position:sticky;z-index:15}.ledger td.pay-pin-last{box-shadow:inset 0 -2px 0 #3269a4}.ledger td.pay-start,.ledger th.pay-start{border-left:3px solid #3269a4}
 .ledger .missing{background:#ffddb0;color:#72410a;font-weight:700}
 .ledger .editable{cursor:text;min-height:38px}.ledger .editable:hover,.ledger .editable:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
@@ -40,7 +40,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .receipt-date,.receipt-amount,.receipt-method{width:100%;min-height:28px;min-width:0;font:inherit;color:#162d48}.receipt-amount{text-align:right}.receipt-date::placeholder{color:#425b73}
 .ledger .receipt:not(.voided):not(.voided-method){cursor:pointer}.ledger .receipt:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .ledger .voided{text-decoration:line-through;color:#475d73}.ledger .voided-method{font-weight:700;color:#8b2020}
-.void-prompt td,.void-trace td{background:#fff1e5;font-size:13px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
+.void-prompt td,.void-trace td{background:#fff1e5;font-size:14px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
 .receipt-status td{background:#e2f5e8;color:#145b32;font-size:14px;font-weight:700;min-height:38px}
 .adjustment td{background:#fff2f2}.adjustment-note{min-width:250px;min-height:28px;font:inherit}
 .paste-row td{background:#f2f8ff}.paste-input{display:block;width:100%;min-height:48px;font:inherit}
@@ -51,9 +51,9 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .muted{color:#475d73}.empty-entry{display:block;min-height:28px}
 .months-nav{position:sticky;top:148px;flex:0 0 150px;width:150px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;padding:8px}
 .months-nav h2{font-size:13px;margin:0 0 6px;color:#183c63}
-.months-nav a{display:flex;min-height:32px;align-items:center;justify-content:space-between;gap:4px;color:#174b82;text-decoration:none;border-top:1px solid #e3eaf2;font-size:12px}
+.months-nav a{display:flex;min-height:32px;align-items:center;justify-content:space-between;gap:4px;color:#174b82;text-decoration:none;border-top:1px solid #e3eaf2;font-size:13px}
 .months-nav a:hover,.months-nav a:focus-visible{background:#e4f0ff;text-decoration:underline}
-.months-nav small{font-size:11px;color:#37536f;text-align:right}
+.months-nav small{font-size:13px;color:#37536f;text-align:right}
 a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 @media(max-width:1599px){
   .layout{max-width:1258px}.ledger-book{width:1258px;flex-basis:1258px}.months-nav{display:none}
