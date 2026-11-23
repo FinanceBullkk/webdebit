@@ -127,6 +127,10 @@ DISCARD_CHUNK = 64 * 1024
 # Media trang Chat (23/11/2026): gửi từng khúc, hạn đặt lại cho từng khúc (~4 KB/s trở lên vẫn nhận đủ), không phải cho cả file.
 MEDIA_CHUNK = 64 * 1024
 MEDIA_CHUNK_SECONDS = 15.0
+# Trần tổng cho một lần gửi: client nhỏ giọt ~4 KB/s không giữ luồng hàng giờ với video lớn. Hạn = max(60 giây, cỡ / 32 KB/s).
+MEDIA_MIN_SECONDS = 60.0
+MEDIA_MIN_RATE = 32 * 1024
+MEDIA_CLOCK = time.monotonic        # test thay đồng hồ để kiểm trần mà không phải chờ
 
 
 def declared_length(value: str, limit: int) -> int | None:
@@ -691,19 +695,21 @@ class Handler(BaseHTTPRequestHandler):
                 return
             handle.seek(first)
             remaining = length
+            deadline = MEDIA_CLOCK() + max(MEDIA_MIN_SECONDS, length / MEDIA_MIN_RATE)
+            self.close_connection = True   # đã hứa Content-Length: bỏ dở giữa chừng thì chỉ có đóng kết nối là báo được cho client
             try:
                 while remaining:
-                    chunk = handle.read(min(remaining, MEDIA_CHUNK))
-                    if not chunk:   # file ngắn đi giữa chừng: dừng, không treo client chờ byte không bao giờ tới
-                        self.close_connection = True
+                    left = deadline - MEDIA_CLOCK()
+                    chunk = handle.read(min(remaining, MEDIA_CHUNK)) if left > 0 else b""
+                    if not chunk:   # quá trần tổng, hoặc file ngắn đi giữa chừng: dừng, không giữ luồng/treo client
                         return
-                    self.connection.settimeout(MEDIA_CHUNK_SECONDS)
+                    self.connection.settimeout(min(MEDIA_CHUNK_SECONDS, left))
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
             except TimeoutError:
-                self.close_connection = True   # client đứng quá hạn: đầu trả lời đã đi, không chèn JSON 408 vào thân
+                pass   # client đứng quá hạn khúc: đầu trả lời đã đi, không chèn JSON 408 vào thân
             finally:
-                self.connection.settimeout(self.timeout)   # kết nối giữ sống chờ yêu cầu kế tiếp theo hạn thường
+                self.connection.settimeout(self.timeout)   # máy chủ chạy HTTP/1.0: kết nối đóng sau yêu cầu, đặt lại hạn thường cho phần dọn dẹp
 
     def request(self) -> None:
         try:

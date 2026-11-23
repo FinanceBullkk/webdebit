@@ -728,19 +728,48 @@ class ZaloMediaRangeTest(unittest.TestCase):
             def __getattr__(self, name):
                 return getattr(self.sock, name)
 
+        finished = threading.Event()
+
         class Watched(self.server.RequestHandlerClass):
             def setup(self):
                 super().setup()
                 self.connection = Recorder(self.connection)
 
+            def finish(self):
+                try:
+                    super().finish()
+                finally:
+                    finished.set()
+
         self.server.RequestHandlerClass = Watched
         chunks = 5
         (self.root / "media" / f"{self.BIG}.mp4").write_bytes(b"\0" * (api.MEDIA_CHUNK * chunks - 7))
         self.assertEqual(len(self.get(self.BIG)[2]), api.MEDIA_CHUNK * chunks - 7)
+        # Client đọc đủ thân trước khi luồng máy chủ chạy xong khối finally: chờ luồng xử lý kết thúc rồi mới đọc `calls`.
+        self.assertTrue(finished.wait(10))
         self.assertEqual(calls[0], 5)                                   # _request: hạn đọc yêu cầu
         self.assertEqual(calls[1:-1], [api.MEDIA_CHUNK_SECONDS] * chunks)   # một lần cho mỗi khúc
         self.assertEqual(calls[-1], api.Handler.timeout)                # rồi về hạn thường cho yêu cầu kế tiếp
         self.assertGreaterEqual(api.MEDIA_CHUNK_SECONDS, 5)
+
+    def test_total_time_cap_stops_a_trickling_client(self):
+        # Mỗi khúc có 15 giây nên client ~4 KB/s giữ luồng hàng giờ; trần tổng = max(60 giây, cỡ / 32 KB/s) cắt kết nối.
+        chunks = 10
+        size = api.MEDIA_CHUNK * chunks
+        (self.root / "media" / f"{self.BIG}.mp4").write_bytes(b"\1" * size)
+        self.assertEqual(max(api.MEDIA_MIN_SECONDS, size / api.MEDIA_MIN_RATE), 60)
+        ticks = iter(range(0, 10_000, 20))   # đồng hồ giả: mỗi lần hỏi trôi thêm 20 giây (lần đầu = lúc bắt đầu gửi)
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
+        try:
+            with patch.object(api, "MEDIA_CLOCK", lambda: next(ticks)):
+                conn.request("GET", chat.MEDIA_PREFIX + self.BIG)
+                response = conn.getresponse()
+                self.assertEqual((response.status, response.getheader("Content-Length")), (200, str(size)))
+                with self.assertRaises(http.client.IncompleteRead) as cut:
+                    response.read()
+        finally:
+            conn.close()
+        self.assertEqual(len(cut.exception.partial), 2 * api.MEDIA_CHUNK)   # hạn 60 giây: còn 40 và 20 giây cho hai khúc đầu, khúc 3 hết hạn
 
     def test_slow_reader_still_gets_the_whole_file_after_five_seconds(self):
         # Hạn 5 giây của _request từng áp cho cả lần sendall: file lớn trên mạng chậm bị cắt. Giờ hạn tính theo từng khúc.
