@@ -57,6 +57,7 @@ module.exports = [
         MayChayOffice: "readonly",
         TinhHinhModel: "readonly",
         CongNoFormat: "readonly",
+        CongNoNet: "readonly",
         DashboardModel: "readonly",
         DoiXeChung: "readonly",
         DoiXeModel: "readonly",

@@ -96,7 +96,7 @@
             showNotice(text + (result.target_receipt?.duplicate_reference ? ' Tham chiếu trùng với phiếu khác trong sổ.' : ''));
           });
           if (outcome.status === 'stale' || outcome.status === 'unknown') closeDialog();
-        } catch (error) { showNotice(error.message); closeDialog(); }
+        } catch (error) { showNotice(CongNoNet.messageOf(error)); closeDialog(); }
         button.disabled = false;
       });
       box.querySelector('.offset-confirm').focus();
@@ -126,7 +126,7 @@
     async function openOffsetReceipt(cellEl) {
       const { pid, pair, other, otherName, field } = cellEl.dataset;
       let otherLedger;
-      try { otherLedger = await api.readOther(other); } catch (error) { showNotice(error.message); return; }
+      try { otherLedger = await api.readOther(other); } catch (error) { showNotice(CongNoNet.messageOf(error)); return; }
       const rowEl = cellEl.closest('tr');
       if (field === 'date') {
         const original = cellEl.innerHTML;
@@ -143,7 +143,7 @@
           try {
             const outcome = await api.submitOffset('offsetDate', { other_version: otherLedger.version, offset_pair_id: pair, date });
             afterOffset(outcome, box, () => showNotice(`Đã đổi ngày cấn trừ ${pid} sang ${dateText(date)} ở cả hai sổ.`));
-          } catch (error) { box.textContent = error.message; }
+          } catch (error) { box.textContent = CongNoNet.messageOf(error); }
         });
         return;
       }
@@ -160,7 +160,7 @@
       try {
         const outcome = await api.submitOffset('offsetVoid', { other_version: promptRow.dataset.otherVersion, offset_pair_id: promptRow.dataset.pair, reason });
         afterOffset(outcome, box, () => showNotice('Đã hủy cấn trừ ở cả hai sổ.'));
-      } catch (error) { box.textContent = error.message; }
+      } catch (error) { box.textContent = CongNoNet.messageOf(error); }
     }
     // Ô chọn sổ nguồn nằm trong khung Ghi phiếu thu (ngoài #app): nghe ở document.
     if (typeof document.addEventListener === 'function') {
