@@ -285,12 +285,14 @@ Mốc nằm trong `pending.timing` của con trỏ `bundle` nên lượt đẩy 
   - "Zalo đã mở nhưng chưa đọc được tin, có thể đang chờ đăng nhập (N phút)": `reprobing` từ 5 phút (lúc Zalo vừa mở thì chỉ thoáng qua), như dòng đầu trang Chat và Thu chi;
   - "Chậm 12 phút";
   - "Không nghe máy Zalo từ 08:05";
-  - dòng WeChat (WECHAT-01): "Chưa mở trên máy Zalo (12 phút)", "Đang chờ cập nhật, chưa mở lại trên máy Zalo", "Chờ đăng nhập trên máy Zalo, xác nhận trên điện thoại", "Đang chạy, không giải được ảnh".
+  - dòng WeChat (WECHAT-01): "Chưa mở trên máy Zalo (12 phút)", "Đang chờ cập nhật, chưa mở lại trên máy Zalo", "Chờ đăng nhập trên máy Zalo, xác nhận trên điện thoại", "Đang chạy, không giải được ảnh"; "Đang chạy, đọc lần cuối 3 phút trước, tin mới nhất 14 giờ trước, 53 tin đã nhập", "Im 16 phút: chưa đọc được lượt nào" (23/11/2026, xem "Sức khỏe đọc tin" ở mục Nguồn WeChat).
 - `tools/v7_watchdog.py` thêm phép kiểm `zalo`, chỉ trong 7:00–20:00 giờ VN, chỉ khi đã có `status.json` và đã chọn ít nhất một nhóm:
   - `status.json` cũ quá 15 phút → "máy Zalo im lặng";
   - `waiting_for_zalo` quá 15 phút (tính từ `identity_since`) → "Zalo chưa mở";
   - `reprobing` quá 15 phút (tính từ `identity_since`) → "Zalo đã mở nhưng máy chưa đọc được tin: xem Zalo có đang chờ đăng nhập lại không". Thêm 23/11/2026: ngày 22/11 Zalo mở lại 06:03 rồi kẹt như vậy hơn 18 giờ (cửa sổ Zalo ở cỡ màn đăng nhập), mà máy canh, tab Máy chạy và dòng đầu Chat đều coi là ổn;
   - `processors.wechat.app` là `closed`, `update` hay `login` quá 15 phút (tính từ `app_since`) → "WeChat chưa mở / đang chờ cập nhật / đang chờ đăng nhập trên máy Zalo"; `images` = `no_key` quá 15 phút → "WeChat không giải được ảnh". `unknown` không báo;
+  - WeChat im (23/11/2026): `groups` > 0 và lượt đọc thành công gần nhất (`read_ok_at`, hoặc `started_at` nếu muộn hơn) cũ hơn ngưỡng = 3 nhịp đọc (`read_every`), tối thiểu 15 phút → "WeChat im N phút: chưa đọc được lượt nào". Không phụ thuộc trạng thái app. Chỉ bỏ câu này khi câu khác về cùng nguyên nhân THẬT SỰ được báo: app đóng/chờ cập nhật/chờ đăng nhập quá 15 phút, hay lỗi quá 15 phút. App vừa đóng 3 phút hay `unknown` kéo dài thì vẫn báo "im", để người dùng tắt/mở lại WeChat không làm cảnh báo biến mất (email "đã ổn") rồi lỗi lại. Không báo khi tuổi lượt đọc thiếu (agent cũ) hay chưa chọn nhóm WeChat. `started_at` = lúc agent chạy lại hoặc msi ngủ dậy (`step` cách nhau quá 2 phút): giờ đọc cũ nạp từ `<state>` chưa nói được gì tới khi lượt đọc đầu (có thể kèm lượt ảnh 7 ngày, 2 × 60 giây) xong. Email "đã ổn" chỉ khi lượt đọc thành công mới hơn ngưỡng, không phải khi nhịp tim sáng lại. Giờ tin mới nhất (`newest_at`) chỉ để hiển thị: nhóm có thể im cả đêm;
+  - tin WeChat mất trên đường lên (23/11/2026): với mỗi ngày trong `processors.wechat.daily` (số tin của nhóm đã chọn đã vào kho ở máy Zalo quá 30 phút), số tin khác mã của các hội thoại "WeChat · …" trong gói trên `hao` (`messages.jsonl` cộng `messages-delta.jsonl` tới `delta_bytes`, đúng như trang chat đọc) ít hơn → "tin WeChat có ở máy Zalo mà chưa có trong gói trên máy chủ (dd/mm: gói a/b tin)". Chỉ số đếm. Thư mục gói lấy như API (`WEBDEBIT_ZALO_EXPORT_DIR`, mặc định `/srv/v7/zalo-bundle`, thuộc nhóm `v7app` nên user chạy máy canh phải đọc được); không đọc được gói (thiếu thư mục, thiếu quyền, sai khuôn) thì không kết luận lệch nhưng VẪN báo "máy canh không đối chiếu được số tin WeChat", để đường sai hay thiếu quyền không làm phép này chết im. Tin đã ghi trước khi agent chạy lại tính như vào kho lúc khởi động (chờ đủ 30 phút mới đưa vào số đếm). Zalo chưa đối chiếu (nguồn là kho live-sync, không rẻ);
   - một bộ xử lý chậm quá 15 phút → "chậm";
   - một bộ xử lý hoặc `push` báo `error` liên tục quá 15 phút → "lỗi" kèm mã ngắn;
   - tin mới lên web chậm: `latency.hour.total` có ít nhất 3 lượt và p95 quá 5 phút (mục tiêu 30 giây) → "tin mới lên web chậm". Chặng `zalo` không xét: tin đọc bù sau khi máy tắt qua đêm luôn dài và không do agent;
@@ -438,6 +440,14 @@ WeChat DB ─► wechat_export.py (tiến trình con, venv WeChat, chỉ đọc)
 - `images` + `images_since` (chỉ khi bật ảnh): `ok` hay `no_key`, theo dòng `end` (`image_keys`) của lượt đọc thành công gần nhất. WeChat thoát thì xóa rồi tạo lại các file `kvcomm`, nên thư mục trống trong vài giây. Lúc đó tiến trình đọc vẫn giữ khóa đã kiểm, nên `images` không nháy `no_key`. Khóa chỉ bị suy lại khi trong thư mục có mã khác thay chỗ.
 - Mốc `…_since` nhớ trong `<state>/wechat-app.json` và `wechat-images.json`, nên chạy lại agent không mất. `hao` (`v7_machine.zalo`) đổi ra số phút (`app_minutes`, `images_minutes`); mã lạ thành không rõ.
 
+**Sức khỏe đọc tin (23/11/2026).** Rà kỹ thuật cùng ngày tìm ra bốn chỗ để WeChat ngừng đọc mà không ai biết (đợt Zalo 20/11 17:07 → 23/11 00:19 mất 18 giờ cũng vì máy canh coi `last_ok_at` là đủ), nên:
+
+- `last_ok_at` của bộ xử lý chỉ là nhịp tim (sáng cả khi không có lượt đọc nào). `processors.wechat` thêm `read_ok_at` (lúc lượt `read` THÀNH CÔNG gần nhất: tiến trình con trả dòng `end` và nhập kho xong; nhớ trong `<state>/wechat.json`), `newest_at` (giờ tin mới nhất đã thấy, không bao giờ lùi), `started_at` (lúc agent chạy lại / msi dậy), `groups` (số nhóm WeChat đang đọc), `read_every` (nhịp đọc, giây) và `daily` (`{"yyyy-mm-dd": số tin}` của 3 ngày VN gần nhất, chỉ tin đã vào kho quá 30 phút để tin vừa tới chưa kịp lên gói không bị tính là lệch). `hao` (`v7_machine.zalo`) đổi ra `read_minutes`, `read_limit_minutes` (3 nhịp, tối thiểu 15 phút), `newest_minutes`; `read_minutes` tính từ lượt đọc cuối hoặc `started_at`, cái nào muộn hơn; `groups` = 0 thì `read_minutes` là `null`.
+- Luồng đọc chết (ngoại lệ lạ, hoặc thoát mà không trả kết quả) → lỗi `thread_died`, tiến trình con bị giết, lượt sau dựng luồng mới (lùi dần như mọi lỗi). Trước đây `outcome` vẫn `None` và `thread` không về `None` nên không bao giờ đọc lại mà status vẫn xanh. Ngoại lệ lạ khi nhập kho → `ingest_failed`.
+- `wechat-groups.json` có mà hỏng (JSON dở, sai khuôn) → lỗi `groups_corrupt`, vẫn đọc danh sách nhóm đọc được lần cuối; thiếu file vẫn là "chưa chọn nhóm nào" (không lỗi). Trước đây hỏng cũng thành rỗng nên ngừng đọc im lặng.
+- `media.json` hay `users.json` của kho hỏng → lỗi `media_index_corrupt` hay `users_index_corrupt`, lượt đó không nhập gì (con trỏ không tiến, không ghi đè, log không nối), tiếp tục khi người dùng khôi phục file. Trước đây đọc hỏng coi như rỗng rồi ghi đè bằng phần mới, mất chỉ mục ảnh cũ.
+- **Khôi phục khi chỉ mục hỏng** (cho người dùng/phiên vận hành): mở `D:\zalo-agent\wechat\` trên msi, chép lại `media.json` hay `users.json` từ bản sao lưu gần nhất (hoặc từ `D:\zalo-agent\bundle` nếu bản dựng gói còn nguyên: cùng nội dung, chỉ thiếu các mục chưa vào gói); lượt đọc kế tự chạy lại, tin chưa nhập vẫn còn vì con trỏ không tiến. KHÔNG xóa `users.json` cho xong: mất tên người gửi (hiện "Thành viên WeChat") tới khi mỗi người nhắn lại; xóa `media.json` làm ảnh cũ mất khỏi gói. `wechat-groups.json` hỏng: sửa tay hoặc chạy lại `wechat-add` cho từng nhóm.
+
 **ĐÃ KIỂM CHỨNG trên máy Zalo (22/11/2026, 16:30–16:39, người dùng thao tác qua phiên điều phối):**
 
 | Người dùng làm | `status.json` | Tab Máy chạy trên `hao` |
@@ -566,8 +576,18 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   - phía `hao`: `test_extras_reach_the_api_and_bad_values_are_dropped`.
 - [ ] Người dùng tự đi Luồng 1–2 (tắt Zalo 20 phút trong giờ làm, nhận email, mở lại, nhận email "đã ổn") và Luồng 3 trên trang Thu chi.
 
+## Triển khai agent từ bản ghim (23/11/2026)
+
+Task `ZaloAgent` không chạy thẳng từ checkout dev mà từ `D:\zalo-agent\releases\<sha12>`: một git repo riêng, bất biến, ở đúng SHA của `main`. Lý do: kéo `main` hay đổi nhánh ở checkout dev làm agent đang chạy nạp lười mã mới lẫn mã cũ (import muộn, `ocr_child.py` và tiến trình WeChat sinh lại), và lượt chạy kế tiếp chạy nhầm nhánh.
+
+- Một lệnh: `cong-no-web-handoff/tools/zalo_agent_release.ps1` (`Deploy`, `Rollback`, `Status`, `Prune`). Không sửa mã agent: `agent_version` vẫn lấy từ `git rev-parse` ở gốc repo của bản ghim (`REPO = parents[3]`).
+- Khởi động lại phải chờ tiến trình cũ chết rồi mới `Start` (khóa `agent.lock`), kiểm `agent_version` ở `status.json` máy và `hao`, tự lùi khi máy lỗi.
+- Quy tắc cho mọi PR agent từ nay: merge vào `main` xong thì triển khai bằng `Deploy`, không `git pull` ở checkout dev để agent chạy mã mới.
+- Chi tiết, kết quả thử và cách lùi: [nhật ký 23/11/2026](../docs/deploys/2026-11-23-zalo-agent-ban-ghim.md).
+
 ## Hoàn tác
 
+- **Bản ghim:** `zalo_agent_release.ps1 Rollback` về bản trước (bản đầu tiên là checkout dev).
 - **Chuyển:** tắt task `zalo-agent`, bật lại `WebdebitZaloSync` (đã tắt chứ không xóa). Gói trên `hao` vẫn đọc được vì thiếu phần thêm thì chỉ đọc gói gốc.
 - **PR-3:** bật lại `ZaloInsurancePush` từ worktree cũ; giữ worktree tới khi PR-3 chạy ổn hai tuần.
 - **PR-4:** `ZALO_AGENT_EXTERNAL=off`, hoặc tắt bộ xử lý `money_images`. Trang Thu chi chỉ thiếu số đọc từ ảnh.

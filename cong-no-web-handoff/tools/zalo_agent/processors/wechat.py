@@ -22,13 +22,15 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 import zalo_web_bundle as wb
 
 from .. import cursor as cursors
 from .. import wechat_app
-from ..source import read_json, retry_io
+from ..cursor import now_iso
+from ..source import VN, read_json, retry_io
 from ..status import track_value
 from ..wechat_export import XMLISH, clean_content
 
@@ -46,6 +48,9 @@ THUMB_PIXELS = 240 * 240    # ảnh từ chừng này điểm ảnh trở xuốn
 SMALL_RETRY = 600           # giây: ảnh thu nhỏ hoặc tải dở thử tìm bản lớn/trọn hơn mỗi 10 phút trong cửa sổ
 MISSING_RETRY = 60          # giây: tin ảnh chưa có ảnh nào thử lại mỗi phút (không mỗi 10 giây: upstream duyệt cả cây ảnh mỗi lần thử)
 IMAGE_MIMES = ("image/jpeg", "image/png", "image/gif", "image/webp")   # `wb.sniff` còn nhận video; tin ảnh chỉ lấy ảnh
+SETTLE = 30 * 60            # giây: tin đã vào kho chừng này mà vẫn chưa có trong gói trên hao mới tính là lệch (số đếm theo ngày)
+RESUME_GAP = 120            # giây: `step` cách nhau quá chừng này (máy ngủ dậy, vòng lặp đứng) thì coi như vừa khởi động lại
+DAILY_DAYS = 3              # số ngày VN gần nhất đưa vào số đếm `daily` của status
 SELF_NAME = "Tôi (WeChat)"
 # local_type của WeChat 4.x (tên do upstream đặt) → message_type của gói Zalo (TYPE_NAMES trong web/v7_zalo_chat.py).
 KINDS = {"文本": 1, "图片": 2, "文件/链接/卡片": 19, "系统消息": -4, "语音": 3, "视频": 18, "位置": 17, "动画表情": 4,
@@ -68,6 +73,23 @@ def conversation_id(username: str) -> str:
 def message_id(username: str, local_id: int, sort_seq: int) -> str:
     # `local_id` của WeChat 4.x lặp lại giữa các phân mảnh DB (upstream ghi rõ), nên thêm `sort_seq` để hai tin không trùng mã.
     return sha(f"wechat:{username}:{local_id}:{sort_seq}")
+
+
+def seconds(value: object) -> float | None:
+    """Giờ của dòng tin trong gói (mili giây dạng chuỗi hay số) → giây; None khi không đọc được."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.isdigit():
+        value = int(value)
+    return value / 1000 if isinstance(value, int) else None
+
+
+def number(value: object) -> float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def day_of(stamp: float) -> str:
+    return datetime.fromtimestamp(stamp, VN).date().isoformat()
 
 
 def sender_id(wxid: str) -> str:
@@ -184,17 +206,54 @@ class Selection:
 
     def __init__(self, path: Path):
         self.path = Path(path)
+        self.error: str | None = None   # `groups_corrupt` khi file có mà không đọc được ở lần `groups()` gần nhất
+        self.good: dict[str, str] = {}  # danh sách đọc được lần cuối: file hỏng thì vẫn đọc nhóm này, không rơi về "chưa chọn nhóm nào"
 
     def groups(self) -> dict[str, str]:
-        document = read_json(self.path, {}) or {}
-        return {g["username"]: g.get("name") or "" for g in document.get("groups", [])
-                if isinstance(g, dict) and isinstance(g.get("username"), str) and g["username"].endswith("@chatroom")}
+        """Thiếu file là chưa chọn nhóm nào (hợp lệ, `{}`). File có mà hỏng (JSON dở, sai khuôn) thì KHÔNG phải "chưa chọn": giữ danh
+        sách đọc được lần cuối và đặt `error` (23/11/2026: trước đây file hỏng làm WeChat ngừng đọc im lặng, status vẫn xanh)."""
+        missing = object()
+        document = read_json(self.path, missing)
+        if document is missing and not self.path.exists():
+            self.error, self.good = None, {}
+            return {}
+        if not isinstance(document, dict) or not isinstance(document.get("groups", []), list):
+            self.error = "groups_corrupt"
+            return dict(self.good)
+        self.error = None
+        self.good = {g["username"]: g.get("name") or "" for g in document.get("groups", [])
+                     if isinstance(g, dict) and isinstance(g.get("username"), str) and g["username"].endswith("@chatroom")}
+        return dict(self.good)
 
     def save(self, groups: dict[str, str]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(f"{self.path.name}.tmp-{os.getpid()}")
         tmp.write_bytes(wb.dump({"schema": 1, "groups": [{"username": u, "name": n} for u, n in sorted(groups.items())]}))
         retry_io(lambda: os.replace(tmp, self.path))
+
+
+class IndexCorrupt(Exception):
+    """`media.json` hay `users.json` của kho có mà không đọc được. `code` là mã lỗi của status."""
+
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.code = f"{name.split('.')[0]}_index_corrupt"
+
+
+def load_index(path: Path) -> dict:
+    """Chỉ mục JSON của kho: thiếu file là `{}` (chưa có gì); có file mà hỏng thì ném `IndexCorrupt`, KHÔNG trả `{}` (ghi đè bằng phần
+    mới sẽ làm mất chỉ mục ảnh/tên cũ). Lỗi đọc tạm (OSError) ném nguyên để vòng sau thử lại."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return {}
+    try:
+        value = json.loads(data)
+    except ValueError:
+        raise IndexCorrupt(path.name) from None
+    if not isinstance(value, dict):
+        raise IndexCorrupt(path.name)
+    return value
 
 
 class Store:
@@ -204,6 +263,7 @@ class Store:
         self.dir, self.selection = Path(root), selection
         self.log, self.users_path, self.media_path = self.dir / "log.jsonl", self.dir / "users.json", self.dir / "media.json"
         self.dir.mkdir(parents=True, exist_ok=True)
+        self.checked: dict[Path, tuple[int, int]] = {}   # chỉ mục đã kiểm hợp lệ: (mtime_ns, byte), đổi mới kiểm lại
         (self.dir / "media").mkdir(exist_ok=True)
         if self.log.is_file():   # lượt chết giữa chừng có thể để dòng dở: cắt về dòng trọn cuối cùng
             data = self.log.read_bytes()
@@ -217,18 +277,47 @@ class Store:
     def size(self) -> int:
         return self.log.stat().st_size if self.log.is_file() else 0
 
+    def check_indexes(self) -> None:
+        """Ném `IndexCorrupt` khi `media.json` hay `users.json` có mà hỏng. Gọi trước mỗi lượt nhập: chỉ mục hỏng thì không nhập gì (con
+        trỏ không tiến, không ghi đè), lỗi báo ra status tới khi người dùng khôi phục file. Chỉ đọc lại file khi mtime/kích thước đổi."""
+        for path in (self.media_path, self.users_path):
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                self.checked.pop(path, None)
+                continue
+            signature = (stat.st_mtime_ns, stat.st_size)
+            if self.checked.get(path) != signature:
+                load_index(path)
+                self.checked[path] = signature
+
     def append(self, rows: list[dict], users: dict[str, str], media: dict[str, dict]) -> None:
+        known_media = load_index(self.media_path) if media else {}   # đọc cả hai TRƯỚC khi ghi gì: một cái hỏng thì không ghi cái nào
+        known_users = load_index(self.users_path) if users else {}
         if media:
-            known = read_json(self.media_path, {}) or {}
-            wb.write_atomic(self.media_path, wb.dump({**known, **media}))
+            wb.write_atomic(self.media_path, wb.dump({**known_media, **media}))
         if users:
-            known = read_json(self.users_path, {}) or {}
-            wb.write_atomic(self.users_path, wb.dump({**{key: safe_name(name) for key, name in known.items()}, **users}))
+            wb.write_atomic(self.users_path, wb.dump({**{key: safe_name(name) for key, name in known_users.items()}, **users}))
         if rows:
             with self.log.open("ab") as stream:
                 stream.write(b"".join(wb.dump(row) + b"\n" for row in rows))
                 stream.flush()
                 os.fsync(stream.fileno())
+
+    def recent(self, since: float) -> dict[str, tuple[str, str]]:
+        """Mã tin → (ngày VN, conversation_id) của tin trong log có giờ từ `since` (giây); bản cuối của mỗi mã thắng. Quét một lần."""
+        out: dict[str, tuple[str, str]] = {}
+        if not self.log.is_file():
+            return out
+        for raw in self.log.read_bytes().splitlines():
+            try:
+                row = json.loads(raw)
+            except ValueError:
+                continue
+            stamp = seconds(row.get("timestamp")) if isinstance(row, dict) else None
+            if stamp is not None and stamp >= since and isinstance(row.get("message_id"), str) and isinstance(row.get("conversation_id"), str):
+                out[row["message_id"]] = (day_of(stamp), row["conversation_id"])
+        return out
 
     def media_quality(self, digest: str) -> tuple[bool, int] | None:
         """`quality` của một ảnh đã lưu trong `media/` (None: không có file, hoặc không đọc được kích thước)."""
@@ -462,6 +551,14 @@ class WeChatProcessor:
         self.failures = 0
         self.thread: threading.Thread | None = None
         self.outcome: tuple[str | None, list[dict], dict] | None = None
+        # Sức khỏe đọc tin (status.json, canh WeChat ngừng đọc): lúc lượt đọc THÀNH CÔNG gần nhất (đọc được và nhập xong, không phải
+        # nhịp tim) và giờ của tin mới nhất từng thấy. Nhớ trong `<state>` để chạy lại agent không mất.
+        self.started_at = self.clock()   # lúc (chạy lại / dậy) gần nhất: lượt đọc đầu chưa xong thì máy canh chưa được coi giờ đọc cũ là "im"
+        self.last_step: float | None = None
+        self.read_ok = number(saved.get("read_ok_at"))
+        self.newest = saved.get("newest") if isinstance(saved.get("newest"), int) and not isinstance(saved.get("newest"), bool) else None
+        self.recent: dict[str, tuple[str, str, float]] | None = None   # tin ba ngày gần nhất: mã → (ngày VN, nhóm, lúc vào kho); nạp lười
+        self.daily_at: tuple[float, dict[str, int]] | None = None
         self.last = {"action": "idle", "revision": None, "error": None, "messages": self.total}
 
     def wants_work(self) -> bool:
@@ -504,14 +601,31 @@ class WeChatProcessor:
         return None, [item for item in items if item.get("kind") == "message" and item.get("username") in groups], end
 
     def work(self, groups: dict[str, str]) -> None:
-        self.outcome = self.poll(groups)
+        try:
+            self.outcome = self.poll(groups)
+        except Exception:  # noqa: BLE001  (luồng đọc chết vì lỗi lạ: báo mã, vòng sau dựng luồng mới, không im lặng vĩnh viễn)
+            self.outcome = ("thread_died", [], {})
 
     def step(self) -> dict:
         groups = self.store.selection.groups()
-        if self.outcome is not None:
-            error, items, end = self.outcome
+        now = self.clock()
+        if self.last_step is not None and now - self.last_step > RESUME_GAP:
+            self.started_at = now   # msi ngủ dậy: giờ đọc cũ trong `<state>` chưa nói được gì tới khi lượt đọc đầu xong
+        self.last_step = now
+        # Hỏi luồng đã thoát chưa TRƯỚC khi đọc `outcome`: luồng thoát thì `outcome` (nếu có) đã được đặt xong, nên không báo `thread_died` nhầm
+        # khi luồng vừa trả kết quả giữa hai câu hỏi.
+        dead = self.thread is not None and not self.thread.is_alive()
+        outcome = self.outcome
+        if outcome is not None:
+            error, items, end = outcome
             self.outcome, self.thread = None, None
             self.apply(error, items, end, groups)
+        elif dead:
+            # Luồng đã thoát mà không để lại kết quả (bị giết, lỗi ngoài `Exception`): trước đây `self.thread` không bao giờ về None nên
+            # không đọc lại nữa mà status vẫn xanh. Giết tiến trình con (nếu có) để lượt sau dựng lại từ đầu.
+            self.thread = None
+            getattr(self.run, "stop", lambda: None)()
+            self.apply("thread_died", [], {}, groups)
         elif self.thread is None and groups and self.clock() >= self.next_at:
             self.next_at = self.clock() + self.interval
             if self.background:
@@ -522,7 +636,39 @@ class WeChatProcessor:
                 return self.step()
         result = self.last
         self.last = {**result, "action": "idle"}   # kết quả một lần: vòng lặp gọi step mỗi giây, đừng ghi log "poll" mãi
-        return {**result, **self.app_fields()}
+        if self.store.selection.error:   # file nhóm hỏng: gốc của việc ngừng đọc, báo trước mọi lỗi khác
+            result = {**result, "error": self.store.selection.error}
+        return {**result, **self.app_fields(), **self.health_fields(groups)}
+
+    def health_fields(self, groups: dict[str, str]) -> dict:
+        """Cho `status.json`: số nhóm đang đọc, nhịp đọc (giây), lúc lượt đọc thành công gần nhất, giờ tin mới nhất, và số tin theo ngày
+        đã vào kho (`daily`) để máy canh trên hao so với gói. Chỉ số và giờ, không chữ tự do."""
+        out: dict = {"groups": len(groups), "read_every": max(1, int(self.interval)), "started_at": now_iso(self.started_at)}
+        if self.read_ok is not None:
+            out["read_ok_at"] = now_iso(self.read_ok)
+        if self.newest is not None:
+            out["newest_at"] = now_iso(self.newest)
+        daily = self.daily(groups)
+        if daily:
+            out["daily"] = daily
+        return out
+
+    def daily(self, groups: dict[str, str]) -> dict[str, int]:
+        """Số tin (mã khác nhau) của nhóm đang chọn theo ngày VN trong `DAILY_DAYS` ngày gần nhất, chỉ tin đã vào kho quá `SETTLE` giây:
+        tin vừa tới chưa kịp lên gói không tính là lệch. Tính lại mỗi phút."""
+        now = self.clock()
+        if self.daily_at is not None and 0 <= now - self.daily_at[0] < 60:
+            return self.daily_at[1]
+        days = {day_of(now - n * 86400) for n in range(DAILY_DAYS)}
+        self.ensure_recent()
+        self.recent = {mid: value for mid, value in self.recent.items() if value[0] in days}
+        chosen = {conversation_id(username) for username in groups}
+        counts: dict[str, int] = {}
+        for day, cid, at in self.recent.values():
+            if cid in chosen and at <= now - SETTLE:
+                counts[day] = counts.get(day, 0) + 1
+        self.daily_at = (now, counts)
+        return counts
 
     def app_fields(self) -> dict:
         """`app` (wechat_app.STATES) và `images` ("ok" | "no_key"), mỗi cái kèm `…_since`, cho `status.json` và máy canh. App kiểm
@@ -543,13 +689,18 @@ class WeChatProcessor:
         end = end or {}
         if error is None:
             try:
+                self.store.check_indexes()
                 error = self.ingest(items, groups)
                 # Đã đọc lại và sửa người gửi của tin cũ ở MỌI nhóm (nhóm vắng mặt lúc đọc thì chưa): lần sau đọc như thường.
                 if error is None and self.resend_sent and not end.get("missing_groups"):
                     self.sender_rule = SENDER_RULE
                     self.save()
+            except IndexCorrupt as exc:   # chỉ mục hỏng: không nhập, không ghi đè, báo mã
+                error = exc.code
             except OSError:
                 error = "store_failed"
+            except Exception:  # noqa: BLE001  (dòng tin lạ làm `ingest` ném: báo mã, không để lỗi lan ra vòng lặp và không im lặng)
+                error = "ingest_failed"
         self.failures = self.failures + 1 if error else 0
         if not error and self.images:   # lượt đọc thành công cho biết tiến trình con có suy được khóa ảnh không
             value = "ok" if end.get("image_keys") else "no_key"
@@ -571,11 +722,16 @@ class WeChatProcessor:
     def ingest(self, items: list[dict], groups: dict[str, str]) -> str | None:
         if self.known is None:
             self.known = self.store.known()
+        self.ensure_recent()
         rows, users, media, moved, staged, seen_fp = [], {}, {}, {}, {}, {}   # staged: dấu vết chỉ nhớ sau khi nối log thành công
         retry: dict[tuple, float | None] = {}
+        newest = self.newest or 0
         for item in items:
             if item.get("username") not in groups:   # nhóm vừa bỏ chọn giữa lượt đọc nền: không nhập, không trả con trỏ
                 continue
+            created = item.get("create_time")
+            if isinstance(created, int) and not isinstance(created, bool) and created > newest:
+                newest = created
             photo = item.get("type") == "图片"
             data = self.read_image(item["image"]) if item.get("image") and self.images else None
             image = None   # (mã sha256, dữ liệu, (trọn, số điểm ảnh) | None) khi file là ảnh dùng được; CHƯA lưu (chỉ lưu khi dùng)
@@ -667,14 +823,36 @@ class WeChatProcessor:
             else:
                 self.retry_at[key] = at
         self.appended = len(rows)
+        self.remember_recent(rows)
+        self.newest = newest or self.newest
+        self.read_ok = self.clock()   # tới đây lượt đọc đã THÀNH CÔNG (đọc được, nhập xong): không phải nhịp tim
         self.cursors = {**{u: c for u, c in self.cursors.items() if u in groups}, **{u: c for u, c in moved.items() if u in groups}}
         self.total = len(self.known)   # số TIN khác nhau trong kho (tab Máy chạy), không đếm lần ghi lại một tin (ảnh, người gửi, thu hồi)
         self.save()
         return None
 
+    def ensure_recent(self) -> None:
+        """Nạp tin ba ngày gần nhất từ log, tính như vào kho lúc khởi động (tin vừa ghi trước khi tắt chưa chắc đã lên gói: chờ đủ `SETTLE`
+        mới đưa vào số đếm). Gọi trước khi nối tin mới, để tin mới không bị tính là cũ."""
+        if self.recent is None:
+            self.recent = {mid: (day, cid, self.started_at) for mid, (day, cid) in self.store.recent(self.clock() - (DAILY_DAYS + 1) * 86400).items()}
+
+    def remember_recent(self, rows: list[dict]) -> None:
+        """Tin vừa ghi vào kho nhập vào số đếm theo ngày với lúc vào kho (mã đã có giữ lúc cũ: đã quá `SETTLE` thì không bị đếm lại)."""
+        now = self.clock()
+        for row in rows:
+            stamp = seconds(row.get("timestamp"))
+            if stamp is not None and row["message_id"] not in self.recent:
+                self.recent[row["message_id"]] = (day_of(stamp), row["conversation_id"], now)
+
     def save(self) -> None:
         if not self.dry_run:
-            cursors.save(self.state, NAME, {"groups": self.cursors, "messages": self.total, "sender_rule": self.sender_rule}, self.clock())
+            state = {"groups": self.cursors, "messages": self.total, "sender_rule": self.sender_rule}
+            if self.read_ok is not None:
+                state["read_ok_at"] = self.read_ok
+            if self.newest is not None:
+                state["newest"] = self.newest
+            cursors.save(self.state, NAME, state, self.clock())
 
     def read_image(self, name: str) -> bytes | None:
         """Byte của file tiến trình con vừa giải ra trong `incoming/` (đọc xong là xóa); None khi không đọc được. Xóa lỗi (phần mềm
