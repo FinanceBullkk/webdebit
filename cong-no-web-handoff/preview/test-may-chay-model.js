@@ -315,14 +315,15 @@ test('Máy Zalo: WeChat ghi "đọc lần cuối" và "tin mới nhất"; quá n
   const ok = line({ read_minutes: 15 });
   assert.deepEqual([texts(ok), ok.tone], [['WeChat: Đang chạy, đọc lần cuối 15 phút trước, 53 tin đã nhập'], 'ok']);   // đúng ngưỡng chưa quá
   const quiet = line({ read_minutes: 16 });
-  assert.deepEqual([texts(quiet), quiet.tone], [['WeChat: Im 16 phút: đã đăng nhập mà chưa đọc được lượt nào'], 'warn']);
-  assert.deepEqual(texts(line({ read_minutes: 18 * 60 + 5 })), ['WeChat: Im 18 giờ 5 phút: đã đăng nhập mà chưa đọc được lượt nào']);
+  assert.deepEqual([texts(quiet), quiet.tone], [['WeChat: Im 16 phút: chưa đọc được lượt nào'], 'warn']);
+  assert.deepEqual(texts(line({ read_minutes: 18 * 60 + 5 })), ['WeChat: Im 18 giờ 5 phút: chưa đọc được lượt nào']);
   assert.deepEqual(texts(line({ read_minutes: 20, read_limit_minutes: 30 })), ['WeChat: Đang chạy, đọc lần cuối 20 phút trước, 53 tin đã nhập']);   // nhịp đọc dài: ngưỡng do máy chủ tính
   assert.equal(line({ read_minutes: 31, read_limit_minutes: 30 }).tone, 'warn');
   assert.deepEqual(texts(line({ read_minutes: 600, app: 'closed', app_minutes: 140 })), ['WeChat: Chưa mở trên máy Zalo (140 phút)']);   // câu về app nói rõ hơn, không nói chồng
   assert.deepEqual(texts(line({ read_minutes: 600, state: 'error', error: 'thread_died' })), ['WeChat: Gặp lỗi, mã: thread_died']);
   assert.deepEqual(texts(line({ read_minutes: null, newest_minutes: null })), ['WeChat: Đang chạy, 53 tin đã nhập']);   // agent cũ hoặc chưa chọn nhóm: không nói gì
-  assert.deepEqual(texts(line({ read_minutes: 600, app: 'unknown' })), ['WeChat: Đang chạy, đọc lần cuối 10 giờ trước, 53 tin đã nhập']);   // không rõ app: không báo nhầm
+  assert.deepEqual(texts(line({ read_minutes: 600, app: 'closed', app_minutes: 3 })), ['WeChat: Im 10 giờ 0 phút: chưa đọc được lượt nào']);   // app vừa đóng: câu về app chưa quá 15 phút nên vẫn nói im
+  assert.deepEqual(texts(line({ read_minutes: 600, app: 'unknown', app_minutes: 900 })), ['WeChat: Im 10 giờ 0 phút: chưa đọc được lượt nào']);   // không rõ app kéo dài: vẫn nói im
 });
 
 console.log('may-chay-model: OK');

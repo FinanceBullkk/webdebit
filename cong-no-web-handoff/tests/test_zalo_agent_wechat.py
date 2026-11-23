@@ -1742,13 +1742,37 @@ class ReadHealthTest(WeChatBase):
         # Luồng đọc đang treo: `error` null nên `last_ok_at` (nhịp tim) vẫn sáng theo từng nhịp, còn `read_ok_at` đứng yên.
         self.db.fail = None
         self.processor = self.make_processor(background=True)   # agent chạy lại: tuổi lượt đọc đọc từ `<state>`
+        started = cursors.now_iso(self.now)
         self.db.gate = threading.Event()
         self.addCleanup(self.db.gate.set)
         self.now += 60
         self.processor.step()   # bắt đầu luồng, treo ở cổng
-        self.now += 600
-        hung = self.status(self.processor.step())
+        for _ in range(6):      # nhịp tim vẫn đều (vòng lặp gọi `step` mỗi giây, ở đây thưa hơn cho nhanh)
+            self.now += 100
+            hung = self.status(self.processor.step())
         self.assertEqual((hung["error"], hung["last_ok_at"], hung["read_ok_at"]), (None, cursors.now_iso(self.now), read_at))
+        # Giờ đọc cũ nạp lại từ `<state>` chưa nói được gì: `started_at` cho máy chủ biết agent vừa chạy lại, lượt đọc đầu có thể còn dài.
+        self.assertEqual(hung["started_at"], started)
+
+    def test_started_at_moves_when_the_machine_wakes_up_not_during_normal_beats(self):
+        self.db.feed = [msg(1, 1000)]
+        self.poll()
+        first = self.processor.step()["started_at"]
+        for _ in range(5):
+            self.now += 30
+            self.assertEqual(self.processor.step()["started_at"], first)
+        self.now += wc.RESUME_GAP + 60   # msi ngủ dậy (hoặc vòng lặp đứng lâu): lượt đọc kế chưa chạy, giờ đọc cũ không đáng tin
+        self.assertEqual(self.processor.step()["started_at"], cursors.now_iso(self.now))
+
+    def test_an_outcome_set_just_as_the_thread_exits_is_applied_not_reported_as_thread_died(self):
+        self.processor = self.make_processor(background=True)
+        done = threading.Thread(target=lambda: None)
+        done.start()
+        done.join()
+        self.processor.thread = done   # luồng đã thoát VÀ đã để lại kết quả: chạy ở bước kế, không phải `thread_died`
+        self.processor.outcome = (None, [msg(1, 1000)], {"kind": "end"})
+        result = self.processor.step()
+        self.assertEqual((result["error"], result["messages"], result["action"]), (None, 1, "poll"))
 
     def test_newest_message_time_only_moves_forward_and_survives_restart(self):
         self.db.feed = [msg(5, 5000)]
@@ -1846,7 +1870,9 @@ class ReadHealthTest(WeChatBase):
         self.db.window = [msg(1, 1000, create_time=base, window=True)]   # đọc lại cùng mã: không đếm đôi, không đổi lúc vào kho
         self.now += 61
         self.assertEqual(self.processor.step()["daily"], {today: 2})
-        self.processor = self.make_processor()   # agent chạy lại: tin trong log coi như đã vào kho từ trước
+        self.processor = self.make_processor()   # agent chạy lại: tin vừa ghi trước khi tắt chưa chắc đã lên gói, chờ đủ SETTLE từ lúc khởi động
+        self.assertNotIn("daily", self.processor.step())
+        self.now += wc.SETTLE + 100
         self.assertEqual(self.processor.step()["daily"], {today: 2})
         self.selection.save({OTHER_USER: "Nhóm khác"})
         self.now += 61

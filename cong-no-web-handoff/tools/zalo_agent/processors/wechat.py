@@ -49,6 +49,7 @@ SMALL_RETRY = 600           # giây: ảnh thu nhỏ hoặc tải dở thử tì
 MISSING_RETRY = 60          # giây: tin ảnh chưa có ảnh nào thử lại mỗi phút (không mỗi 10 giây: upstream duyệt cả cây ảnh mỗi lần thử)
 IMAGE_MIMES = ("image/jpeg", "image/png", "image/gif", "image/webp")   # `wb.sniff` còn nhận video; tin ảnh chỉ lấy ảnh
 SETTLE = 30 * 60            # giây: tin đã vào kho chừng này mà vẫn chưa có trong gói trên hao mới tính là lệch (số đếm theo ngày)
+RESUME_GAP = 120            # giây: `step` cách nhau quá chừng này (máy ngủ dậy, vòng lặp đứng) thì coi như vừa khởi động lại
 DAILY_DAYS = 3              # số ngày VN gần nhất đưa vào số đếm `daily` của status
 SELF_NAME = "Tôi (WeChat)"
 # local_type của WeChat 4.x (tên do upstream đặt) → message_type của gói Zalo (TYPE_NAMES trong web/v7_zalo_chat.py).
@@ -552,6 +553,8 @@ class WeChatProcessor:
         self.outcome: tuple[str | None, list[dict], dict] | None = None
         # Sức khỏe đọc tin (status.json, canh WeChat ngừng đọc): lúc lượt đọc THÀNH CÔNG gần nhất (đọc được và nhập xong, không phải
         # nhịp tim) và giờ của tin mới nhất từng thấy. Nhớ trong `<state>` để chạy lại agent không mất.
+        self.started_at = self.clock()   # lúc (chạy lại / dậy) gần nhất: lượt đọc đầu chưa xong thì máy canh chưa được coi giờ đọc cũ là "im"
+        self.last_step: float | None = None
         self.read_ok = number(saved.get("read_ok_at"))
         self.newest = saved.get("newest") if isinstance(saved.get("newest"), int) and not isinstance(saved.get("newest"), bool) else None
         self.recent: dict[str, tuple[str, str, float]] | None = None   # tin ba ngày gần nhất: mã → (ngày VN, nhóm, lúc vào kho); nạp lười
@@ -605,11 +608,19 @@ class WeChatProcessor:
 
     def step(self) -> dict:
         groups = self.store.selection.groups()
-        if self.outcome is not None:
-            error, items, end = self.outcome
+        now = self.clock()
+        if self.last_step is not None and now - self.last_step > RESUME_GAP:
+            self.started_at = now   # msi ngủ dậy: giờ đọc cũ trong `<state>` chưa nói được gì tới khi lượt đọc đầu xong
+        self.last_step = now
+        # Hỏi luồng đã thoát chưa TRƯỚC khi đọc `outcome`: luồng thoát thì `outcome` (nếu có) đã được đặt xong, nên không báo `thread_died` nhầm
+        # khi luồng vừa trả kết quả giữa hai câu hỏi.
+        dead = self.thread is not None and not self.thread.is_alive()
+        outcome = self.outcome
+        if outcome is not None:
+            error, items, end = outcome
             self.outcome, self.thread = None, None
             self.apply(error, items, end, groups)
-        elif self.thread is not None and not self.thread.is_alive():
+        elif dead:
             # Luồng đã thoát mà không để lại kết quả (bị giết, lỗi ngoài `Exception`): trước đây `self.thread` không bao giờ về None nên
             # không đọc lại nữa mà status vẫn xanh. Giết tiến trình con (nếu có) để lượt sau dựng lại từ đầu.
             self.thread = None
@@ -632,7 +643,7 @@ class WeChatProcessor:
     def health_fields(self, groups: dict[str, str]) -> dict:
         """Cho `status.json`: số nhóm đang đọc, nhịp đọc (giây), lúc lượt đọc thành công gần nhất, giờ tin mới nhất, và số tin theo ngày
         đã vào kho (`daily`) để máy canh trên hao so với gói. Chỉ số và giờ, không chữ tự do."""
-        out: dict = {"groups": len(groups), "read_every": max(1, int(self.interval))}
+        out: dict = {"groups": len(groups), "read_every": max(1, int(self.interval)), "started_at": now_iso(self.started_at)}
         if self.read_ok is not None:
             out["read_ok_at"] = now_iso(self.read_ok)
         if self.newest is not None:
@@ -821,9 +832,10 @@ class WeChatProcessor:
         return None
 
     def ensure_recent(self) -> None:
-        """Nạp tin ba ngày gần nhất từ log (coi như đã vào kho từ lâu). Gọi trước khi nối tin mới, để tin mới không bị tính là cũ."""
+        """Nạp tin ba ngày gần nhất từ log, tính như vào kho lúc khởi động (tin vừa ghi trước khi tắt chưa chắc đã lên gói: chờ đủ `SETTLE`
+        mới đưa vào số đếm). Gọi trước khi nối tin mới, để tin mới không bị tính là cũ."""
         if self.recent is None:
-            self.recent = {mid: (day, cid, 0.0) for mid, (day, cid) in self.store.recent(self.clock() - (DAILY_DAYS + 1) * 86400).items()}
+            self.recent = {mid: (day, cid, self.started_at) for mid, (day, cid) in self.store.recent(self.clock() - (DAILY_DAYS + 1) * 86400).items()}
 
     def remember_recent(self, rows: list[dict]) -> None:
         """Tin vừa ghi vào kho nhập vào số đếm theo ngày với lúc vào kho (mã đã có giữ lúc cũ: đã quá `SETTLE` thì không bị đếm lại)."""

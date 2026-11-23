@@ -282,6 +282,12 @@ def _days(value: Any) -> dict[str, int]:
             and isinstance(count, int) and not isinstance(count, bool) and count >= 0}
 
 
+def _read_age(item: dict[str, Any], now: float) -> int | None:
+    """Số phút kể từ lượt đọc thành công gần nhất, hoặc từ lúc agent (chạy lại / dậy) nếu muộn hơn; None khi không biết (agent cũ)."""
+    read, begun = _minutes_since(item.get("read_ok_at"), now), _minutes_since(item.get("started_at"), now)
+    return read if begun is None else begun if read is None else min(read, begun)
+
+
 def _minutes_since(text: Any, now: float) -> int | None:
     at = _aware(text)
     return None if at is None else max(int((now - at.timestamp()) // 60), 0)
@@ -344,7 +350,8 @@ def zalo(now: float | None = None) -> dict[str, Any]:
                          # App WeChat đang chạy/đăng nhập không, khóa ảnh còn không: mỗi cái kèm số phút đã giữ trạng thái đó.
                          "app": app, "app_minutes": _minutes_since(item.get("app_since"), now) if app else None,
                          "images": images, "images_minutes": _minutes_since(item.get("images_since"), now) if images else None,
-                         "groups": groups, "read_minutes": None if groups == 0 else _minutes_since(item.get("read_ok_at"), now),
+                         # Vừa khởi động lại hay msi vừa dậy (`started_at`): lượt đọc đầu chưa xong thì tuổi lượt đọc tính từ lúc đó, không từ giờ cũ nạp lại.
+                         "groups": groups, "read_minutes": None if groups == 0 else _read_age(item, now),
                          # Quá ngưỡng này mà chưa đọc được lượt nào là "im": 3 nhịp đọc nhưng không dưới 15 phút (lỗi lùi dần tới 15 phút
                          # cũng không làm báo nhầm; lỗi đã có mã riêng).
                          "read_limit_minutes": max(ZALO_LATE, 3 * (every or 0)) // 60,

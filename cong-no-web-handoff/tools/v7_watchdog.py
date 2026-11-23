@@ -236,8 +236,10 @@ ZALO_IDENTITY_TEXT = {"waiting_for_zalo": "Zalo chưa mở trên máy Zalo: khô
                       "reprobing": "Zalo đã mở trên máy Zalo nhưng máy chưa đọc được tin {} phút: xem Zalo có đang chờ đăng nhập lại không."}
 
 
-# WeChat im: app đã đăng nhập mà không có lượt đọc thành công nào quá ngưỡng (3 nhịp đọc, tối thiểu 15 phút; `read_limit_minutes`).
-# Không báo khi app đóng/chờ đăng nhập (đã có câu riêng), khi đã có mã lỗi quá ngưỡng (đã có câu riêng), hay chưa chọn nhóm WeChat nào.
+# WeChat im: có nhóm mà không có lượt đọc thành công nào quá ngưỡng (3 nhịp đọc, tối thiểu 15 phút; `read_limit_minutes`), tính từ lượt
+# đọc cuối hoặc từ lúc agent chạy lại / msi dậy, cái nào muộn hơn. Chỉ bỏ câu này khi câu khác về cùng nguyên nhân THẬT SỰ được báo (app đóng /
+# chờ cập nhật / chờ đăng nhập quá 15 phút, hay lỗi đã quá 15 phút): app vừa đóng 3 phút hay `unknown` kéo dài thì vẫn báo "im", để người
+# dùng tắt/mở lại WeChat không làm cảnh báo biến mất (email "đã ổn") rồi lỗi lại. Không báo khi chưa chọn nhóm WeChat nào.
 # Giờ tin mới nhất (`newest_at`) chỉ để hiển thị: nhóm có thể im cả đêm.
 # Đối chiếu số tin: máy Zalo báo số tin theo ngày đã vào kho quá 30 phút (`daily`); gói trên hao có ít hơn thì tin đã mất trên đường lên.
 ZALO_BUNDLE = "/srv/v7/zalo-bundle"
@@ -249,10 +251,11 @@ def duration_text(minutes: int) -> str:
     return f"{minutes // 60} giờ {minutes % 60} phút" if minutes >= 60 else f"{minutes} phút"
 
 
-def wechat_bundle_counts(directory: Path, days: set[str]) -> dict[str, int] | None:
+def wechat_bundle_counts(directory: Path, days: set[str]) -> tuple[dict[str, int] | None, str | None]:
     """Số tin (mã khác nhau) của các nhóm WeChat trong gói trên hao theo ngày VN, chỉ các ngày `days`. Đúng cái web hiển thị: tin trong
-    `messages.jsonl` cộng phần thêm `messages-delta.jsonl` tới `delta_bytes` của báo cáo. None khi không đọc được gói (đang thay hay chưa
-    có): không đủ để kết luận lệch."""
+    `messages.jsonl` cộng phần thêm `messages-delta.jsonl` tới `delta_bytes` của báo cáo. Trả (số đếm, None), hoặc (None, lý do ngắn) khi không
+    đọc được gói: thiếu thư mục, không có quyền (thư mục gói thuộc nhóm `v7app`), sai khuôn. Không đọc được thì không kết luận được lệch, nhưng
+    phải báo (đường sai hay thiếu quyền mà im thì phép đối chiếu chết vĩnh viễn)."""
     try:
         report = {}
         for name in ("export-report.json", "message-export-report.json"):
@@ -263,7 +266,7 @@ def wechat_bundle_counts(directory: Path, days: set[str]) -> dict[str, int] | No
                 continue
         data = report.get("data_dir") if isinstance(report, dict) else None
         if data is not None and not (isinstance(data, str) and BUNDLE_DATA_DIR.fullmatch(data)):
-            return None
+            return None, "báo cáo gói sai khuôn"
         base = directory / data if data else directory
         conversations = json.loads((base / "conversations.json").read_text(encoding="utf-8"))
         wechat = {item["conversation_id"].encode() for item in conversations
@@ -288,13 +291,17 @@ def wechat_bundle_counts(directory: Path, days: set[str]) -> dict[str, int] | No
                         seen[row["message_id"]] = dt.datetime.fromtimestamp(stamp / 1000, ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
                     except (ValueError, KeyError, TypeError):
                         continue
+    except PermissionError:
+        return None, "không có quyền đọc thư mục gói"
+    except FileNotFoundError:
+        return None, "thiếu thư mục hoặc file của gói"
     except (OSError, ValueError, KeyError, AttributeError, TypeError):
-        return None
+        return None, "gói không đọc được"
     counts: dict[str, int] = {}
     for day in seen.values():
         if day in days:
             counts[day] = counts.get(day, 0) + 1
-    return counts
+    return counts, None
 
 
 def check_wechat(row: dict, limit: int) -> list[str]:
@@ -302,13 +309,15 @@ def check_wechat(row: dict, limit: int) -> list[str]:
     found = []
     stale = row.get("read_minutes")
     boxed = row["error"] and (row["error_minutes"] is None or row["error_minutes"] > limit)
-    if (row.get("app") == "logged_in" and (row.get("groups") or 0) > 0 and stale is not None and not boxed
-            and stale > row.get("read_limit_minutes", limit)):
-        found.append(f"Máy Zalo: WeChat im {duration_text(stale)}: đã đăng nhập mà chưa đọc được lượt nào, tin WeChat mới không về.")
+    app_told = row.get("app") in WECHAT_APP_TEXT and (row.get("app_minutes") or 0) > limit
+    if (row.get("groups") or 0) > 0 and stale is not None and not boxed and not app_told and stale > row.get("read_limit_minutes", limit):
+        found.append(f"Máy Zalo: WeChat im {duration_text(stale)}: chưa đọc được lượt nào, tin WeChat mới không về.")
     daily = row.get("daily") or {}
     if daily:
-        counts = wechat_bundle_counts(Path(os.getenv("WEBDEBIT_ZALO_EXPORT_DIR") or ZALO_BUNDLE), set(daily))
-        short = [(day, daily[day], (counts or {}).get(day, 0)) for day in sorted(daily) if counts is not None and (counts.get(day, 0) < daily[day])]
+        counts, problem = wechat_bundle_counts(Path(os.getenv("WEBDEBIT_ZALO_EXPORT_DIR") or ZALO_BUNDLE), set(daily))
+        if problem:
+            found.append(f"Máy canh không đối chiếu được số tin WeChat với gói trên máy chủ ({problem}): xem WEBDEBIT_ZALO_EXPORT_DIR và quyền đọc.")
+        short = [(day, daily[day], counts.get(day, 0)) for day in sorted(daily) if counts is not None and counts.get(day, 0) < daily[day]]
         if short:
             detail = ", ".join(f"{dt.date.fromisoformat(day):%d/%m}: gói {have}/{want} tin" for day, want, have in short)
             found.append(f"Máy Zalo: tin WeChat có ở máy Zalo mà chưa có trong gói trên máy chủ ({detail}), đã quá 30 phút.")

@@ -289,9 +289,11 @@ const MayChayModel = (() => {
     if (Number.isInteger(item.messages)) parts.push(`${item.messages.toLocaleString('vi-VN')} tin đã nhập`);
     return parts.join(', ');
   }
-  // WeChat đã đăng nhập mà quá ngưỡng (3 nhịp đọc, tối thiểu 15 phút, do máy chủ tính) chưa có lượt đọc thành công nào: im, dù không có mã lỗi.
-  const wechatSilent = item => item.id === 'wechat' && item.app === 'logged_in' && Number.isInteger(item.read_minutes)
-    && item.read_minutes > (Number.isInteger(item.read_limit_minutes) ? item.read_limit_minutes : 15);
+  // WeChat quá ngưỡng (3 nhịp đọc, tối thiểu 15 phút, do máy chủ tính; từ lượt đọc cuối hoặc lúc agent chạy lại) chưa có lượt đọc thành công
+  // nào: im, dù không có mã lỗi. Như máy canh: chỉ nhường cho câu về app khi câu đó đã quá 15 phút (app vừa đóng 3 phút thì vẫn nói im).
+  const wechatSilent = item => item.id === 'wechat' && Number.isInteger(item.read_minutes)
+    && item.read_minutes > (Number.isInteger(item.read_limit_minutes) ? item.read_limit_minutes : 15)
+    && !(WECHAT_APP[item.app] && Number.isInteger(item.app_minutes) && item.app_minutes > 15);
   // App WeChat trên máy Zalo (đọc DB vẫn được khi WeChat tắt, nên phải nói riêng); `app_minutes` là số phút đã như vậy.
   const WECHAT_APP = { closed: 'Chưa mở trên máy Zalo', update: 'Đang chờ cập nhật, chưa mở lại trên máy Zalo', login: 'Chờ đăng nhập trên máy Zalo, xác nhận trên điện thoại' };
   const wechatApp = item => `${WECHAT_APP[item.app]}${Number.isInteger(item.app_minutes) && item.app_minutes > 0 ? ` (${item.app_minutes} phút)` : ''}`;
@@ -308,11 +310,11 @@ const MayChayModel = (() => {
       const wechat = item.id === 'wechat';
       let text = wechat ? wechatText(item) : 'Đang chạy, kịp tin mới', tone = 'ok';
       if (silent) { text = lost; tone = 'bad'; }
+      else if (wechatSilent(item) && item.state !== 'error') { text = `Im ${lasted(item.read_minutes)}: chưa đọc được lượt nào`; tone = 'warn'; }
       else if (wechat && WECHAT_APP[item.app]) { text = wechatApp(item); tone = 'warn'; }
       else if (zalo.identity === 'waiting_for_zalo' && !wechat) { text = 'Zalo chưa mở trên máy Zalo'; tone = 'warn'; }
       else if (unread && !wechat) { text = unread; tone = 'warn'; }
       else if (item.state === 'error') { text = `Gặp lỗi, mã: ${item.error}`; tone = 'bad'; }
-      else if (wechatSilent(item)) { text = `Im ${lasted(item.read_minutes)}: đã đăng nhập mà chưa đọc được lượt nào`; tone = 'warn'; }
       else if (wechat && item.images === 'no_key') { text = 'Đang chạy, không giải được ảnh'; tone = 'warn'; }
       else if (item.state === 'slow') { text = item.minutes === null ? 'Chậm, chưa xong lần nào' : `Chậm ${item.minutes} phút`; tone = 'warn'; }
       else if (item.state === 'catching_up') text = 'Đang đuổi kịp tin mới';

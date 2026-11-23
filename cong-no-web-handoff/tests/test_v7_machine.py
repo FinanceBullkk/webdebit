@@ -256,6 +256,12 @@ class MachineTests(unittest.TestCase):
         self.assertRegex(row["newest_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+07:00$")
         self.status(processors={"wechat": {**wechat, "read_every": 600}})
         self.assertEqual(machine.zalo()["processors"][-1]["read_limit_minutes"], 30)   # 3 nhịp
+        self.status(processors={"wechat": {**wechat, "read_ok_at": ago(600), "started_at": ago(3)}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_minutes"], 3)   # vừa chạy lại: giờ đọc cũ nạp từ `<state>` chưa tính
+        self.status(processors={"wechat": {**wechat, "read_ok_at": ago(2), "started_at": ago(600)}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_minutes"], 2)
+        self.status(processors={"wechat": {**wechat, "read_ok_at": None, "started_at": ago(40)}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_minutes"], 40)  # chưa đọc được lần nào từ lúc chạy lại: tính từ lúc chạy
         self.status(processors={"wechat": {**wechat, "groups": 0}})
         self.assertIsNone(machine.zalo()["processors"][-1]["read_minutes"])   # chưa chọn nhóm WeChat nào: không có lượt đọc để chờ
         self.status(processors={"wechat": {**wechat, "daily": {"2026-11-23": 5, "hôm nay": 1, "2026-11-22": -2, "2026-11-21": True}, "groups": True,

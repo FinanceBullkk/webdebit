@@ -130,7 +130,7 @@ def compose(previous: dict | None, now: float, version: str, selected: int, live
             if isinstance(value, str) and CODE.fullmatch(value):
                 processors[name][key] = value
                 processors[name][f"{key}_since"] = since if isinstance(since, str) and STAMP.fullmatch(since) else None
-        for key in ("read_ok_at", "newest_at"):   # WeChat: lúc lượt đọc THÀNH CÔNG gần nhất (không phải nhịp tim) và giờ tin mới nhất
+        for key in ("read_ok_at", "newest_at", "started_at"):   # WeChat: lượt đọc THÀNH CÔNG gần nhất (không phải nhịp tim), tin mới nhất, lúc (chạy lại / dậy) gần nhất
             found = result.get(key)
             if isinstance(found, str) and STAMP.fullmatch(found):
                 processors[name][key] = found
