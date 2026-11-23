@@ -17,13 +17,16 @@ sys.path.insert(0, str(ROOT / "tools"))
 from test_zalo_agent_money_images import (  # noqa: E402
     JPEG_LOCAL,
     JXL_AS_JPEG,
+    PHOTO,
     SHA_JXL,
     SHA_LOCAL,
     TRANSFER,
     FakeEngine,
     MoneyBase,
+    box,
 )
-from zalo_agent import ocr  # noqa: E402
+from zalo_agent import __main__ as agent_main  # noqa: E402
+from zalo_agent import ocr, reads  # noqa: E402
 from zalo_agent.processors import money_images  # noqa: E402
 
 REPLY = {"boxes": [{"b": [1, 2, 30, 40], "t": "1.500.000 VND", "c": 0.9}]}
@@ -464,6 +467,94 @@ class RapidChildTest(unittest.TestCase):
                 "print('onnxruntime' in sys.modules or 'rapidocr_onnxruntime' in sys.modules or 'cv2' in sys.modules)")
         done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, check=True)
         self.assertEqual(done.stdout.decode().strip(), "False")
+
+
+class SecondEngine(FakeEngine):
+    """Engine đọc lần hai giả: ô chữ theo byte ảnh như `FakeEngine`, tên riêng."""
+    name = "second"
+
+
+class SecondReaderTest(MoneyBase):
+    """Lần đọc hai (RapidOCR): ảnh có số mà lần đọc chính không chắc, hai engine cùng một số thì chắc; còn lại như cũ."""
+    UNSURE = (*TRANSFER[:1], {"b": [0, 100, 600, 200], "t": "1.500.000 đ", "c": 0.4}, {"b": [0, 300, 300, 330], "t": "Vietcombank", "c": 0.95})
+
+    def setUp(self):
+        super().setUp()
+        self.engine.script[JPEG_LOCAL] = list(self.UNSURE)
+        self.second = SecondEngine(version="9.9+t", script={JPEG_LOCAL: TRANSFER})
+
+    def member(self, processor):
+        return processor.state()["members"][SHA_LOCAL]
+
+    def test_corroborates_needs_the_same_number_one_leader_and_confidence(self):
+        read = ocr.analyse(list(self.UNSURE))
+        self.assertEqual(ocr.verdict(read), "unsure")
+        same = {"amount_vnd": 1_500_000, "unique": True, "confidence": 0.8}
+        self.assertEqual(ocr.verdict({**read, "second": same}), "ocr")
+        for other in ({**same, "amount_vnd": 1_500_001}, {**same, "unique": False}, {**same, "confidence": 0.59}, {**same, "amount_vnd": None}):
+            self.assertEqual(ocr.verdict({**read, "second": other}), "unsure", other)
+        weak = ocr.analyse([box(0, 100, 600, 200, "1.500.000 đ", 0.4)])   # thiếu từ khóa và dấu hiệu đã xong: lần hai không thay được
+        self.assertEqual(ocr.verdict({**weak, "second": same}), "none" if not weak["is_money"] else "unsure")
+
+    def test_two_engines_agreeing_make_an_unsure_image_ocr_without_asking_anyone(self):
+        processor = self.make(second=self.second)
+        result = self.drain(processor)
+        self.assertEqual((self.member(processor)["by"], self.member(processor)["verdict"]), ("ocr", "ocr"))
+        self.assertEqual((result["counts"]["review"], result["counts"]["asking"]), (0, 0))
+        self.assertEqual(len(self.second.calls), 1)
+        self.assertIsNotNone(reads.load(self.root / "reads", SHA_LOCAL, "second", "9.9+t"))   # kho riêng của engine hai, chữ chỉ nằm ở máy
+        self.assertNotIn("second", self.stored(SHA_LOCAL))                                    # lần đọc chính không bị ghi thêm gì
+
+    def test_a_different_number_a_weak_read_or_no_number_stays_for_a_human(self):
+        for script in ([*TRANSFER[:1], box(40, 300, 700, 380, "1.500.001 VND"), *TRANSFER[2:5]], [box(40, 300, 700, 380, "1.500.000 VND", 0.3), *TRANSFER[:1]], PHOTO):
+            with self.subTest(script=script[:2]):
+                self.second.script[JPEG_LOCAL] = script
+                processor = self.make(second=self.second)
+                self.drain(processor)
+                self.assertEqual(self.member(processor)["by"], "human")
+                self.assertEqual(processor.counts()["review"], 1)
+                shutil_reset(self)
+
+    def test_the_second_engine_is_only_asked_when_the_first_is_unsure_with_a_number(self):
+        self.engine.script[JPEG_LOCAL] = TRANSFER   # lần đọc chính đã chắc
+        processor = self.make(second=self.second)
+        self.drain(processor)
+        self.assertEqual((self.second.calls, self.member(processor)["by"]), ([], "ocr"))
+
+    def test_an_unavailable_or_crashing_second_engine_changes_nothing(self):
+        class Down(SecondEngine):
+            def read(self, image):
+                raise ocr.OcrUnavailable("rapidocr")
+
+        processor = self.make(second=Down(script={JPEG_LOCAL: TRANSFER}))
+        result = self.drain(processor)
+        self.assertEqual(self.member(processor)["by"], "human")
+        self.assertEqual((result["counts"]["failed"], result["error"]), (0, None))   # lỗi của engine hai không phải lỗi của ảnh hay của engine chính
+
+    def test_reread_with_the_second_engine_then_a_restart_promotes_the_images_already_waiting_for_a_human(self):
+        first = self.make()
+        self.drain(first)
+        self.assertEqual(self.member(first)["by"], "human")
+        first.reread(self.second, 0)   # `zalo_agent reread --engine rapidocr`: chỉ ghi kho
+        restarted = self.make(second=self.second)
+        self.assertEqual((self.member(restarted)["by"], self.member(restarted)["verdict"]), ("ocr", "ocr"))
+
+    def test_the_option_exists_defaults_off_and_offers_only_the_second_engine(self):
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            agent_main.main(["run", "--help"])
+        text = " ".join(out.getvalue().split())
+        self.assertIn("--money-second {off,rapidocr}", text)
+        self.assertIn("MẶC ĐỊNH off", text)
+
+
+def shutil_reset(case):
+    """Mỗi ca con dựng lại từ kho trống: xóa kho kết quả và con trỏ của ca trước."""
+    import shutil
+    shutil.rmtree(case.root / "reads", ignore_errors=True)
+    shutil.rmtree(case.root / "state", ignore_errors=True)
 
 
 if __name__ == "__main__":

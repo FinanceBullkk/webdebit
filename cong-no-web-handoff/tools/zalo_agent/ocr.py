@@ -396,11 +396,20 @@ def refresh(read: dict | None) -> dict | None:
     return {**{key: read[key] for key in ENGINE_FIELDS if key in read}, **stamped(read["boxes"])}
 
 
+def corroborates(read: dict | None, second: dict | None, limit: Decimal | float | None = None) -> bool:
+    """Lần đọc thứ hai (engine khác, `second` = engine/version/amount_vnd/confidence/unique) ra đúng số của lần đọc chính, một ứng viên đứng đầu,
+    độ tin cậy >= T: thay cho điều kiện "độ tin cậy của lần đọc chính >= T" trong `is_confident` (số đo 23/11/2026: 2/2 biên lai easyocr đọc đúng
+    mà tin cậy 0,46-0,55 được cứu, 0 ảnh sai). Các điều kiện khác của lần đọc chính (từ khóa, đã xong, một ứng viên) vẫn phải đủ."""
+    limit = threshold() if limit is None else limit
+    return bool(read and second and read.get("amount_vnd") and second.get("amount_vnd") == read["amount_vnd"] and second.get("unique")
+                and (second.get("confidence") or 0) >= limit)
+
+
 def is_confident(read: dict, limit: Decimal | float | None = None) -> bool:
     """"OCR chắc" (ANH-GEMINI-01): ô số tiền đủ tin cậy, >= 2 từ khóa ngân hàng, một ứng viên đứng đầu, và (luật `a3`) có dấu hiệu giao
-    dịch đã xong (`done`). Tính từ trường đã lưu nên đổi T không cần đọc lại ảnh; lượt đọc theo luật cũ chưa có `done` thì phải qua `refresh`."""
+    dịch đã xong (`done`). Từ lần đọc thứ hai (`second`, gắn trong bộ nhớ, không lưu cạnh ô chữ) độ tin cậy được thay bằng `corroborates`. Tính từ trường đã lưu nên đổi T không cần đọc lại ảnh; lượt đọc theo luật cũ chưa có `done` thì phải qua `refresh`."""
     limit = threshold() if limit is None else limit
-    return bool(read.get("is_money") and read.get("amount_vnd") and (read.get("confidence") or 0) >= limit
+    return bool(read.get("is_money") and read.get("amount_vnd") and ((read.get("confidence") or 0) >= limit or corroborates(read, read.get("second"), limit))
                 and read.get("hits", 0) >= 2 and read.get("unique") and read.get("done"))
 
 
