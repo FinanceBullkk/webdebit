@@ -230,6 +230,12 @@ ERRORS.update({
     "TEN_GOC_TRUNG": (409, "Tên này đang thuộc tuyến hoặc khoản khác."),
     "MUC_PHAT_SINH": (422, "Mức không hợp cách tính: nhập tay thì không có mức; chỉ khoản theo ngày có mức thêm."),
 })
+# Audit Đội xe 23/11/2026 (migration 2026-11-23-v7-doi-xe-sua-audit): số đang thấy, áp giá ngược, tên gốc vừa đổi.
+ERRORS.update({
+    "SO_DU_DOI": (409, "Số dư vừa đổi ở máy khác (có người vừa ghi ứng, hoàn hoặc phí). Tải lại, xem lại rồi ghi."),
+    "NGAY_GIA_CU": (409, "Ngày áp dụng trước tháng này: giá sẽ áp ngược cho chặng đang gom. Xem lại ngày rồi xác nhận."),
+    "TUYEN_DOI": (409, "Tên gốc của tuyến vừa đổi ở máy khác. Tải lại rồi sửa."),
+})
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
               "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS", "INVALID_REVIEW"):

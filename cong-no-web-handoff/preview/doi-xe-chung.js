@@ -121,9 +121,23 @@
       } finally {
         S.busy = false;
         draw();
+        for (const r of choRanh.splice(0)) r();
       }
     }
-    return { getJson, post, bao, ghi, drawToast };
+    // Hàng chờ (audit DX-02): sửa ô liền tay (Tab rồi gõ ô sau) khi lệnh trước chưa xong thì không bị bỏ như `ghi`, mà chờ tới lượt.
+    // Việc chạy theo thứ tự đã xếp, mỗi việc khi không lệnh ghi nào đang chạy; `fn` đọc số "đang thấy" ngay lúc chạy (sổ đã tải lại
+    // sau lệnh trước), nên hai lần sửa cùng một ô không tự gây CHANGED. Trả kết quả của `fn`.
+    let hang = Promise.resolve();
+    const choRanh = [];
+    function xep(fn) {
+      const p = hang.then(async () => {
+        while (S.busy) await new Promise(r => { choRanh.push(r); });
+        return fn();
+      });
+      hang = p.catch(() => null);
+      return p;
+    }
+    return { getJson, post, bao, ghi, xep, drawToast };
   }
 
   return { thangUrl, duongDanMuc, withFocus, tao };
