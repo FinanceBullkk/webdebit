@@ -190,3 +190,36 @@ test('post: không có crypto.randomUUID thì mã dự phòng có tiền tố c�
     t.tra();
   }
 });
+
+test('xep (audit DX-02): lệnh sửa ô gõ liền tay khi lệnh trước chưa xong thì chờ tới lượt, không bị bỏ; chạy đúng thứ tự, sau lần tải lại', async () => {
+  let thaLoad = null, soLoad = 0;
+  const t = dung(() => ({ status: 200, body: { ok: 1 } }), { load: () => { soLoad += 1; return new Promise(r => { thaLoad = r; }); } });
+  const cho = async () => {
+    const han = Date.now() + 2000;
+    while (!thaLoad) {
+      if (Date.now() > han) throw Error('load không được gọi trong 2 giây');
+      await new Promise(r => setImmediate(r));
+    }
+    const tha = thaLoad;
+    thaLoad = null;
+    tha();
+  };
+  try {
+    const thay = [];
+    const a = t.api.xep(() => { thay.push(`a@${soLoad}`); return t.api.ghi('/sua', { o: 'a' }); });
+    const b = t.api.xep(() => { thay.push(`b@${soLoad}`); return t.api.ghi('/sua', { o: 'b' }); });
+    await new Promise(r => setImmediate(r));
+    assert.equal(t.S.busy, true);
+    assert.equal(await t.api.ghi('/khac', {}), null, 'ghi thường vẫn bỏ khi đang bận');
+    await cho();
+    assert.deepEqual(await a, { ok: 1 });
+    await cho();
+    assert.deepEqual(await b, { ok: 1 });
+    assert.deepEqual(thay, ['a@0', 'b@1'], 'b chạy sau khi a đã tải lại sổ');
+    assert.deepEqual(t.calls.map(c => c.body.o), ['a', 'b']);
+    // Việc trong hàng ném lỗi không chặn việc sau.
+    await assert.rejects(t.api.xep(() => { throw Error('hỏng'); }), /hỏng/);
+    assert.equal(await t.api.xep(() => 'xong'), 'xong');
+    assert.equal(t.S.busy, false);
+  } finally { t.tra(); }
+});

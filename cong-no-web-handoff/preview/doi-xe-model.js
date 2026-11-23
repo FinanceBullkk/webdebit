@@ -106,6 +106,33 @@
     return ngayHopLe(y, +m[2], +m[1]);
   }
 
+  // Ngày áp dụng giá (Bảng giá, audit DX-01): như docNgayGo, nhưng gõ thiếu năm thì lấy năm gần nhất mà ngày không trước tháng này
+  // (tháng 12 gõ 01/01 là 01/01 năm sau, không phải 01/01 năm nay). Muốn áp ngược về trước tháng này thì gõ đủ năm; `cu` báo
+  // ngày đó trước tháng này để màn hỏi lại.
+  function docNgayApGia(text, homNay) {
+    const t = String(text ?? '').trim();
+    if (!t) return { v: null };
+    const m = /^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?$/.exec(t);
+    if (!m) return { loi: 'Ngày lạ' };
+    const thangNay = thangCua(homNay);
+    let r;
+    if (m[3]) {
+      let y = +m[3];
+      if (y < 100) y += 2000;
+      r = ngayHopLe(y, +m[2], +m[1]);
+    } else {
+      const y = +String(homNay).slice(0, 4);
+      r = ngayHopLe(y, +m[2], +m[1]);
+      if (r.v && r.v < thangNay) r = ngayHopLe(y + 1, +m[2], +m[1]);
+    }
+    return r.v ? { v: r.v, cu: r.v < thangNay } : r;
+  }
+  // Ô "Áp dụng từ ngày" mặc định: mùng 1 tháng sau, đủ năm.
+  function ngayApMacDinh(homNay) {
+    const y = +String(homNay).slice(0, 4), mo = +String(homNay).slice(5, 7);
+    return mo === 12 ? `01/01/${y + 1}` : `01/${pad2(mo + 1)}/${y}`;
+  }
+
   // Các tháng trên thanh tháng: tháng có dữ liệu, luôn thêm tháng trước và tháng này (sổ mới vẫn sang được tháng trước để dán),
   // và tháng đang xem; giữ 6 tháng gần nhất nhưng không bỏ tháng đang xem.
   function cacThang(thangCo, homNay, dangXem) {
@@ -365,6 +392,10 @@
   const tongTien = list => list.reduce((s, x) => s + x.tien, 0);
   // Đợt hoàn: tổng các dòng − số thực chuyển (dương là phần trừ vào tiền ứng đang giữ).
   const chenhDot = dot => so(dot.tong_dong_vnd) - so(dot.so_tien_vnd);
+  // Khoản (ứng, tiền về) chưa hủy cùng ngày, cùng số tiền với khoản sắp ghi: hộp ghi cảnh báo trùng trước khi ghi (audit DX-03).
+  const khoanTrung = (ds, ngay, tien) => (ds ?? []).find(x => !x.huy && x.ngay === ngay && so(x.so_tien_vnd) === tien) ?? null;
+  // Tổng mọi khoản phí ở mọi dòng của chặng (cả phí công ty trả), như máy chủ so khi xóa chặng (audit DX-06). Không ô nào: 0.
+  const tongPhiChang = c => c.dong.reduce((s, d) => Object.values(d.phi).reduce((t, v) => t + so(v), s), 0);
   const tongChon = (dongs, chon) => dongs.reduce((s, x) => s + (chon.has(x.dong.id) ? x.tien : 0), 0);
 
   // Hoàn khác tổng: âm là chuyển ít hơn (phần thiếu trừ vào tiền ứng đang giữ), dương là chuyển nhiều hơn (như ứng thêm).
@@ -501,9 +532,9 @@
   }
 
   return {
-    LOAI, TEN_LOAI, COT, SO_LUONG, docSoLuong, ganSoLuong, gioMay, kmTinh, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, cacThang, chuanCont,
+    LOAI, TEN_LOAI, COT, SO_LUONG, docSoLuong, ganSoLuong, gioMay, kmTinh, so, fmt, fmtDau, ddmm, ddmmyyyy, thangCua, boDau, chuSo, docSo, docTien, docNgaySheet, docNgayGo, docNgayApGia, ngayApMacDinh, cacThang, chuanCont,
     tachTSV, doanLoai, timXe, dongTuSheet, hoanThien, nhapTuGo, moiCo, khoaChang, khoaDaLuu, chiNhap, kiemDong, danKhoi, dongGui, loiMay,
-    tienDong, phiHieuLuc, phiGoc, tienChang, coPhi, daHoan, chuaNoi, laChuaHoan, dongChuaHoan, tongTien, chenhDot, tongChon, lechHoan, truUngGiu, sauKhiGhi,
+    tienDong, phiHieuLuc, phiGoc, tienChang, coPhi, daHoan, chuaNoi, laChuaHoan, dongChuaHoan, tongTien, chenhDot, tongPhiChang, khoanTrung, tongChon, lechHoan, truUngGiu, sauKhiGhi,
     sauKhiHuy, cuoiThe, loiDu, nhanCuoi, cotPhiGon, phiKhac, phiKhacNhap, tongCot, tongChi, theXe, xepNguoi, tongNguoi, tenNguoi, tenCot,
     moTaSuKien,
   };

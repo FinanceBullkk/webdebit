@@ -12,14 +12,14 @@
 
   const S = {
     man: 'bangke', thang: null, chon: null, data: null, gia: null, loading: true, loadError: '', loc: 'all', mo: null, panel: null,
-    f: null, giaSua: null, psSua: null, tuyenMoi: null, busy: false, toast: null, giuBao: null, seq: 0, lichSu: null,
+    f: null, giaSua: null, psSua: null, tuyenMoi: null, ngungHoi: null, busy: false, toast: null, giuBao: null, seq: 0, lichSu: null,
   };
   // Mạng, ghi và thông báo dùng chung hai màn Đội xe (doi-xe-chung.js).
   const { getJson, bao, ghi, drawToast } = DoiXeChung.tao({
     S, draw: () => draw(), load: () => load(), toastBox, esc, tienTo: 'dxt', toastMs: 8000,
     matMang: 'Mất kết nối, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.',
     chuaRo: 'Chưa đọc được trả lời của máy chủ, chưa rõ đã ghi chưa. Bấm lại: máy chủ không ghi lần hai.',
-    taiLai: ['CHANGED', 'BANG_KE_DOI', 'BANG_KE_DA_GUI', 'CHANG_DA_GUI', 'BANG_KE_DA_DOI_CHIEU'],
+    taiLai: ['CHANGED', 'BANG_KE_DOI', 'BANG_KE_DA_GUI', 'CHANG_DA_GUI', 'BANG_KE_DA_DOI_CHIEU', 'TUYEN_DOI'],
   });
   const { withFocus } = DoiXeChung;
 
@@ -160,6 +160,8 @@
     return html + bangHtml(d, tt);
   }
 
+  // Đã có lần tiền về cùng ngày, cùng số: nút nói rõ là ghi thêm (audit DX-03).
+  const nhanTv = x => (x.trung ? 'Vẫn ghi thêm lần này' : 'Ghi tiền về');
   function panelHtml(d) {
     const p = S.panel, m = T.tenThang(d.thang);
     const nut = (act, text, cls = 'solid') => `<button type="button" class="dx-btn ${cls} big" data-act="${act}" ${S.busy ? 'disabled' : ''}>${S.busy ? 'Đang ghi…' : text}</button>`;
@@ -184,8 +186,9 @@
         + `<label class="dx-f">Ngày tiền về<input id="dxt-tv-ngay" data-f="tv-ngay" value="${esc(p.ngay)}" placeholder="ngày/tháng" autocomplete="off" class="w130"></label>`
         + `<label class="dx-f">Số tiền về<input id="dxt-tv-tien" data-f="tv-tien" value="${esc(p.tien)}" class="dx-money" autocomplete="off"></label></div>`
         + `<div class="num" id="dxt-tv-xem">${esc(x.xem)}</div><div id="dxt-tv-canh" class="dxt-canh">${esc(x.canh)}</div>`
+        + `<div id="dxt-tv-trung" class="dxt-canh" role="status">${esc(x.trung)}</div>`
         + `<div id="dxt-tv-loi" class="dx-loi" role="alert">${S.panel.daBam ? esc(x.loi) : ''}</div>`
-        + `<div class="dxt-p-nut">${nut('ghi-tv', 'Ghi tiền về')}${thoi}</div></section>`;
+        + `<div class="dxt-p-nut">${nut('ghi-tv', nhanTv(x))}${thoi}</div></section>`;
     }
     if (p.k === 'huy') {
       const v = d.tien_ve.find(x => x.id === p.id);
@@ -233,7 +236,8 @@
     const id = tt === 'nhap' ? x.chang_id : x.id;
     const mo = S.mo === id;
     const nhap = tt === 'nhap';
-    const canh = nhap && (x.cuoc_vnd === null || T.khacGia(x) || x.chua_doc > 0 || x.khoan_la > 0 || Boolean(x.trung_gui));
+    const lap = nhap && T.locFn('contlap')(x);
+    const canh = nhap && (x.cuoc_vnd === null || T.khacGia(x) || x.chua_doc > 0 || x.khoan_la > 0 || Boolean(x.trung_gui) || lap);
     const tong = T.tongDong(x), dc = so(x.dc_vnd);
     const ps = so(x.ps_vnd);
     const psTip = (x.ps ?? []).filter(i => !i.loi).map(i => `${i.ten} ${M.fmt(M.so(i.so_tien_vnd))}${i.chi_ho ? ' (chi hộ)' : ''}`).join(' · ');
@@ -246,7 +250,7 @@
     const xe = `${esc(x.so_xe ?? '')} <span class="muted sm">${esc(x.tai_xe ?? '')}</span>`;
     let html = `<div class="dxt-dong${canh ? ' canh' : ''}${mo ? ' mo' : ''}${x.chang_con === false ? ' bo' : ''}"><div class="dxt-r" style="grid-template-columns:${COLS}">`
       + `<span class="num">${M.ddmm(x.ngay)}</span>`
-      + `<button type="button" class="dxt-cont" data-act="mo-dong" data-id="${id}" aria-expanded="${mo}">${esc(x.container)}</button>`
+      + `<button type="button" class="dxt-cont${lap ? ' lap' : ''}" data-act="mo-dong" data-id="${id}" aria-expanded="${mo}"${lap ? ` title="${esc(`Container còn chặng hàng ngày ${x.cont_lap.map(M.ddmm).join(', ')}: bấm để xem`)}"` : ''}>${esc(x.container)}${lap ? ' <span class="dxt-lap" aria-label="container lặp">×2</span>' : ''}</button>`
       + `<span class="dxt-cut" title="${esc(`${x.so_xe ?? ''} ${x.tai_xe ?? ''}`)}">${xe}</span>`
       + `<span class="dxt-cut" title="${esc(T.tenTuyen(x))}">${loai}${esc(tuyenText)}</span>`
       + `<span class="r num">${cuoc}</span><span class="r num">${fmt(so(x.ghep_vnd))}</span><span class="r num">${psCell}</span>`
@@ -303,6 +307,9 @@
     const x = T.tvXem(S.data, S.panel.ngay, S.panel.tien);
     $('dxt-tv-xem').textContent = x.xem;
     $('dxt-tv-canh').textContent = x.canh;
+    $('dxt-tv-trung').textContent = x.trung;
+    const b = root.querySelector('[data-act="ghi-tv"]');
+    if (b && !S.busy) b.textContent = nhanTv(x);
     $('dxt-tv-loi').textContent = S.panel.daBam ? x.loi : '';
   }
 
@@ -331,22 +338,36 @@
       + `<section class="dxt-g" aria-labelledby="dxt-g-tuyen"><div class="dxt-g-h"><h2 id="dxt-g-tuyen">Giá cước theo tuyến</h2><span class="muted">đội xe tính ${esc(g.ben.ten)}</span>`
       + `<button type="button" class="dx-btn line" data-act="mo-tuyen-moi">+ Thêm tuyến</button></div>${S.tuyenMoi ? tuyenMoiHtml() : ''}`
       + '<div class="dxt-g-hd dxt-g-r"><span>Hàng</span><span>Đi → đến</span><span class="r">Giá hôm nay</span><span>Từ ngày</span><span></span></div>'
-      + (rows || '<p class="dx-empty">Chưa có tuyến nào. Bấm + Thêm tuyến.</p>')
+      + (rows || '<p class="dx-empty">Chưa có tuyến nào. Bấm + Thêm tuyến.</p>') + tuyenNgungHtml(g.tuyen.filter(t => !t.dang_dung))
       + '<p class="dxt-g-note">Rút mooc, thả mooc: 70% giá tuyến, làm tròn tới nghìn đồng. Tháng đã gửi HTH giữ giá cũ.</p></section>'
       + `<section class="dxt-g" aria-labelledby="dxt-g-ps"><div class="dxt-g-h"><h2 id="dxt-g-ps">Phát sinh</h2><span class="muted">mỗi khoản một cách tính</span></div>`
       + `<div class="dxt-g-hd dxt-p-r"><span>Khoản</span><span>Cách tính</span><span class="r">Mức</span><span>Chi hộ</span><span></span></div>${ps}`
       + '<p class="dxt-g-note">Chi hộ: đội xe trả giùm rồi đòi HTH đúng số đã trả, không tính vào lãi đội xe. Web đọc phát sinh từ ghi chú kiểu «_ Kiểm hoá 1150k».</p></section></div>';
   }
+  // Nút lưu giá nói rõ khi ngày áp dụng trước tháng này (áp ngược, audit DX-01): bấm là xác nhận, máy chủ nhận kèm xác nhận.
+  const nhanLuuGia = x => (x.cu ? `Lưu, áp ngược từ ${M.ddmmyyyy(x.v)}` : 'Lưu giá mới');
   function giaSuaHtml(t) {
-    const f = S.giaSua;
-    const ng = M.docNgayGo(f.tu, S.gia.hom_nay);
-    const note = ng.v ? `Tháng đã gửi HTH giữ giá cũ. Chặng tháng đang gom từ ${M.ddmm(ng.v)} đổi theo giá mới: ${T.soChangDoi(t, ng.v)} chặng.` : 'Ghi ngày áp dụng kiểu 01/12.';
+    const f = S.giaSua, x = T.giaXem(t, f.tu, S.gia.hom_nay);
+    const ngung = S.ngungHoi === t.id
+      ? `<div class="dxt-hoi" role="group" aria-label="Xác nhận ngưng dùng tuyến"><span>Ngưng dùng tuyến ${esc(t.ten)}? ${(t.cho_doi ?? []).length} chặng đang gom theo tuyến này sẽ thành «Chưa có giá». Tên gốc giữ lại; muốn dùng lại thì bấm «Dùng lại» ở danh sách tuyến đã ngưng.</span>`
+        + `<button type="button" class="dx-btn danger" data-act="ngung-tuyen" data-id="${t.id}" ${S.busy ? 'disabled' : ''}>Ngưng dùng</button><button type="button" class="dx-btn" data-act="thoi-ngung">Thôi</button></div>`
+      : `<button type="button" class="dx-lk dxt-ngung" data-act="hoi-ngung" data-id="${t.id}">Ngưng dùng tuyến này</button>`;
     return `<div class="dxt-g-sua"><div class="dxt-p-o"><label class="dx-f">Giá mới<input data-f="gia-val" id="dxt-gia-val" value="${esc(f.val)}" placeholder="ví dụ 12.200.000" class="dx-money" autocomplete="off"></label>`
-      + `<label class="dx-f">Áp dụng từ ngày<input data-f="gia-tu" id="dxt-gia-tu" value="${esc(f.tu)}" placeholder="ngày/tháng" class="w130" autocomplete="off"></label></div>`
-      + `<div class="sm" id="dxt-gia-note">${esc(note)}</div>${f.loi ? `<div class="dx-loi" role="alert">${esc(f.loi)}</div>` : ''}`
-      + `<div class="dxt-p-nut"><button type="button" class="dx-btn solid big" data-act="luu-gia" data-id="${t.id}" ${S.busy ? 'disabled' : ''}>Lưu giá mới</button><button type="button" class="dx-btn big" data-act="thoi-gia">Thôi</button></div>`
+      + `<label class="dx-f">Áp dụng từ ngày<input data-f="gia-tu" id="dxt-gia-tu" value="${esc(f.tu)}" placeholder="ngày/tháng/năm" class="w130" autocomplete="off"></label></div>`
+      + `<div class="sm${x.cu ? ' dxt-canh' : ''}" id="dxt-gia-note">${esc(x.note)}</div>${f.loi ? `<div class="dx-loi" role="alert">${esc(f.loi)}</div>` : ''}`
+      + `<div class="dxt-p-nut"><button type="button" class="dx-btn solid big" data-act="luu-gia" data-id="${t.id}" ${S.busy ? 'disabled' : ''}>${esc(nhanLuuGia(x))}</button><button type="button" class="dx-btn big" data-act="thoi-gia">Thôi</button></div>`
       + `<div class="dxt-goc"><span class="muted sm">Tên gốc nhận ra:</span>${t.ten_goc.length ? t.ten_goc.map(k => `<span class="dxt-goc-i">${esc(T.tenGoc(k))}<button type="button" data-act="bo-goc" data-id="${t.id}" data-khoa="${esc(k)}" aria-label="Bỏ tên gốc ${esc(T.tenGoc(k))}" title="Bỏ tên gốc này">✕</button></span>`).join('') : '<span class="muted sm">chưa có (gắn ở bảng kê, tick «Nhớ»)</span>'}`
-      + `<button type="button" class="dx-lk dxt-ngung" data-act="ngung-tuyen" data-id="${t.id}">Ngưng dùng tuyến này</button></div></div>`;
+      + `${ngung}</div></div>`;
+  }
+  // Tuyến đã ngưng (audit DX-07): gập dưới bảng giá, mỗi tuyến có nút Dùng lại (giá và tên gốc vẫn giữ).
+  function tuyenNgungHtml(ds) {
+    if (!ds.length) return '';
+    return `<details class="dxt-ngung-ds"><summary>Tuyến đã ngưng (${ds.length})</summary>${ds.map(t => {
+      const { nay } = T.giaHienTai(t, S.gia.hom_nay);
+      return `<div class="dxt-g-r"><strong>${esc(t.loai === 'hang' ? t.hang : T.LOAI_PHU[t.loai])}</strong><span>${esc(t.di)}${t.den ? ` → ${esc(t.den)}` : ''}</span>`
+        + `<span class="r num muted">${nay ? M.fmt(so(nay.gia_vnd)) : '—'}</span><span></span>`
+        + `<button type="button" class="dx-btn" data-act="dung-lai-tuyen" data-id="${t.id}" ${S.busy ? 'disabled' : ''} aria-label="Dùng lại tuyến ${esc(t.ten)}">Dùng lại</button></div>`;
+    }).join('')}</details>`;
   }
   function tuyenMoiHtml() {
     const f = S.tuyenMoi;
@@ -417,7 +438,8 @@
         const p = S.panel, x = T.tvXem(d, p.ngay, p.tien);
         if (x.loi) { p.daBam = true; fillTv(); $('dxt-tv-loi')?.focus?.(); return; }
         const m = T.tenThang(d.thang);
-        ghi('/api/v7/doixe/bang-ke/tien-ve', { thang: d.thang, ngay: x.ngay, so_tien_vnd: String(x.v) }, out => {
+        // Kèm số còn phải thu đang thấy: vừa có người ghi tiền về thì máy chủ chặn (BANG_KE_DOI), tải lại thấy lần đó (audit DX-03).
+        ghi('/api/v7/doixe/bang-ke/tien-ve', { thang: d.thang, ngay: x.ngay, so_tien_vnd: String(x.v), con_vnd: d.tong.con_vnd }, out => {
           S.panel = null;
           const con = so(out.con_sau_vnd);
           bao(con === 0 ? `Đã ghi tiền về. Tháng ${m} thu đủ.` : `Đã ghi tiền về. Tháng ${m} còn thiếu ${M.fmt(con)}.`, con === 0 ? 'ok' : 'warn');
@@ -445,7 +467,7 @@
         const x = dongCua(Number(el.dataset.id)), g = S.f.dc;
         const v = T.dcXem(d.tong, x, g.dau, g.tien, g.lydo);
         if (v.loi) { g.daBam = true; fillDc(); return; }
-        ghi('/api/v7/doixe/bang-ke/dieu-chinh', { dong_id: x.id, so_tien_vnd: String(v.v), ly_do: g.lydo.trim() }, () => {
+        ghi('/api/v7/doixe/bang-ke/dieu-chinh', { dong_id: x.id, so_tien_vnd: String(v.v), ly_do: g.lydo.trim(), doi_vnd: d.tong.doi_vnd }, () => {
           S.f = {}; bao(`Đã ghi điều chỉnh ${M.fmtDau(v.v)} cho dòng ${x.container}.`);
         });
         break;
@@ -481,29 +503,36 @@
       // Bảng giá
       case 'sua-gia': {
         const id = Number(el.dataset.id);
-        const next = S.gia.hom_nay.slice(5, 7) === '12' ? '01/01' : `01/${String(Number(S.gia.hom_nay.slice(5, 7)) + 1).padStart(2, '0')}`;
-        S.giaSua = S.giaSua?.id === id ? null : { id, val: '', tu: next, loi: '' };
+        S.giaSua = S.giaSua?.id === id ? null : { id, val: '', tu: M.ngayApMacDinh(S.gia.hom_nay), loi: '' };
+        S.ngungHoi = null;
         draw();
         $('dxt-gia-val')?.focus();
         break;
       }
-      case 'thoi-gia': S.giaSua = null; draw(); break;
+      case 'thoi-gia': S.giaSua = null; S.ngungHoi = null; draw(); break;
       case 'luu-gia': {
-        const f = S.giaSua, r = M.docTien(f.val), ng = M.docNgayGo(f.tu, S.gia.hom_nay);
+        const f = S.giaSua, r = M.docTien(f.val), ng = M.docNgayApGia(f.tu, S.gia.hom_nay);
         if (r.loi || !r.v) { f.loi = r.loi ? `Giá: ${r.loi.toLowerCase()}.` : 'Nhập giá mới.'; draw(); return; }
-        if (ng.loi || !ng.v) { f.loi = 'Ghi ngày áp dụng kiểu 01/12.'; draw(); return; }
+        if (ng.loi || !ng.v) { f.loi = 'Ghi ngày áp dụng kiểu 01/12/2026.'; draw(); return; }
         const t = S.gia.tuyen.find(x => x.id === f.id);
-        ghi('/api/v7/doixe/gia', { tuyen_id: f.id, tu_ngay: ng.v, gia_vnd: String(r.v) },
+        // Ngày trước tháng này: nút đã ghi «Lưu, áp ngược từ …» nên bấm là xác nhận; thiếu xác nhận thì máy chủ chặn (NGAY_GIA_CU).
+        ghi('/api/v7/doixe/gia', { tuyen_id: f.id, tu_ngay: ng.v, gia_vnd: String(r.v), ...(ng.cu ? { xac_nhan_ngay_cu: true } : {}) },
           out => { S.giaSua = null; bao(`Đã lưu giá mới cho ${t.ten}: ${M.fmt(r.v)} từ ${M.ddmmyyyy(ng.v)}. ${out.so_chang} chặng tháng đang gom đổi theo.`); });
         break;
       }
-      case 'bo-goc': case 'ngung-tuyen': {
+      case 'hoi-ngung': S.ngungHoi = Number(el.dataset.id); draw(); root.querySelector('.dxt-hoi .dx-btn.danger')?.focus(); break;
+      case 'thoi-ngung': S.ngungHoi = null; draw(); break;
+      // Bỏ tên gốc, ngưng dùng, dùng lại tuyến: gửi kèm bộ tên gốc đang thấy (ten_goc_truoc); vừa có người gắn hay bỏ tên gốc thì
+      // máy chủ chặn (TUYEN_DOI) để danh sách cũ không xóa tên gốc của người khác (audit DX-06). Ngưng dùng giữ tên gốc (DX-07).
+      case 'bo-goc': case 'ngung-tuyen': case 'dung-lai-tuyen': {
         const t = S.gia.tuyen.find(x => x.id === Number(el.dataset.id));
-        const goc = act === 'bo-goc' ? t.ten_goc.filter(k => k !== el.dataset.khoa) : [];
+        const goc = act === 'bo-goc' ? t.ten_goc.filter(k => k !== el.dataset.khoa) : t.ten_goc;
         const split = k => { const [hang, tinh] = k.split('|'); return { hang: hang || null, tinh: tinh || null }; };
-        ghi('/api/v7/doixe/tuyen', { tuyen_id: t.id, loai: t.loai, hang: t.hang, di: t.di, den: t.den, ten_goc: goc.map(split),
-          ...(act === 'ngung-tuyen' ? { dang_dung: false } : {}) },
-          () => { S.giaSua = null; bao(act === 'bo-goc' ? 'Đã bỏ tên gốc.' : `Đã ngưng dùng tuyến ${t.ten}.`, 'warn'); });
+        const cau = { 'bo-goc': ['Đã bỏ tên gốc.', 'warn'], 'ngung-tuyen': [`Đã ngưng dùng tuyến ${t.ten}.`, 'warn'],
+          'dung-lai-tuyen': [`Đã dùng lại tuyến ${t.ten}.`, 'ok'] }[act];
+        ghi('/api/v7/doixe/tuyen', { tuyen_id: t.id, loai: t.loai, hang: t.hang, di: t.di, den: t.den, ten_goc: goc.map(split), ten_goc_truoc: t.ten_goc,
+          ...(act === 'ngung-tuyen' ? { dang_dung: false } : act === 'dung-lai-tuyen' ? { dang_dung: true } : {}) },
+          () => { S.giaSua = null; S.ngungHoi = null; bao(...cau); });
         break;
       }
       case 'mo-tuyen-moi': S.tuyenMoi = { loai: 'hang', hang: '', di: '', den: '', gia: '', tu: `01/01/${S.gia.hom_nay.slice(0, 4)}`, loi: '' }; draw(); $('dxt-tm-hang')?.focus(); break;
@@ -552,8 +581,12 @@
     if (f === 'ct-ghichu') { S.f.ghiChu = v; return; }
     if (f === 'gia-val' || f === 'gia-tu') {
       S.giaSua[f === 'gia-val' ? 'val' : 'tu'] = v; S.giaSua.loi = '';
-      const t = S.gia.tuyen.find(x => x.id === S.giaSua.id), ng = M.docNgayGo(S.giaSua.tu, S.gia.hom_nay);
-      $('dxt-gia-note').textContent = ng.v ? `Tháng đã gửi HTH giữ giá cũ. Chặng tháng đang gom từ ${M.ddmm(ng.v)} đổi theo giá mới: ${T.soChangDoi(t, ng.v)} chặng.` : 'Ghi ngày áp dụng kiểu 01/12.';
+      const t = S.gia.tuyen.find(x => x.id === S.giaSua.id), x = T.giaXem(t, S.giaSua.tu, S.gia.hom_nay);
+      const note = $('dxt-gia-note');
+      note.textContent = x.note;
+      note.classList.toggle('dxt-canh', x.cu);
+      const b = root.querySelector('[data-act="luu-gia"]');
+      if (b && !S.busy) b.textContent = nhanLuuGia(x);
       return;
     }
     if (f.startsWith('tm-') && f !== 'tm-loai') { S.tuyenMoi[f.slice(3)] = v; return; }
