@@ -32,5 +32,10 @@ restart unit; xem journal để biết login nào đang bị từ chối. Quy tr
 
 CÒN MỞ: (1) Tailscale ACL cho người dùng được chia sẻ vẫn phải thu hẹp về cổng Vaultwarden (lớp mạng; danh sách
 này là lớp ứng dụng); (2) ở chế độ Serve, API tin header danh tính từ mọi tiến trình loopback trên `hao`, danh sách
-chỉ giới hạn *ai* chứ chưa chặn giả danh từ tiến trình cục bộ; (3) chưa có cách tự phục vụ để thêm người, phải sửa
-file trên `hao` (đã đóng 20/11/2026 bằng trang Người dùng, [`QUYEN-02`](quyen-02.md)).
+chỉ giới hạn *ai* chứ chưa chặn giả danh từ tiến trình cục bộ (đã đóng 23/11/2026, audit API F4: header chỉ được tin
+khi socket client loopback thuộc uid 0, tức `tailscaled`, tra trong `/proc/net/tcp*`; tiến trình khác nhận 403
+`UNTRUSTED_LOCAL_PEER`, uid ghi vào journal. Ngoại lệ duy nhất là uid khai trong `WEBDEBIT_READ_ONLY_PEER_UIDS` /
+`--read-only-peer-uid`: chỉ GET, ghi nhận 403 `READ_ONLY_PEER`; dành cho bộ não bot Zalo, xem
+[runbook](../v7-deploy-runbook.md#bot-zalo-hỏi-đáp-zalo-bot-01--unit-v7-zalo-bot-và-v7-zalo-kenh-chưa-chạy));
+(3) chưa có cách tự phục vụ để thêm người, phải sửa file trên `hao` (đã đóng 20/11/2026 bằng trang Người dùng,
+[`QUYEN-02`](quyen-02.md)). Cũng từ 23/11/2026 (F8): dev actor chỉ bật bằng cờ dòng lệnh, không đi cùng chế độ Serve.
