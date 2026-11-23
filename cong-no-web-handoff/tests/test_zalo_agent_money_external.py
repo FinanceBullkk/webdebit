@@ -787,6 +787,29 @@ class ExportTest(MaskedBase):
                 self.assertEqual((self.remote.dirs[REMOTE_READS] / "redacted-w1" / f"{SHA_JXL}.jpg").read_bytes(), b"masked-2500000")
                 self.assertEqual(self.pushed()["reads"][SHA_JXL]["amount_vnd"], 2_500_000)
 
+    def test_a_redacted_image_that_windows_will_not_let_go_keeps_that_image_on_the_old_rule_until_the_next_load(self):
+        def masked(data, read, prep=None):
+            return (b"masked-" + str(read["amount_vnd"]).encode(), 1) if read.get("boxes") else None
+
+        def confident_other_amount(boxes):   # luật mới: ảnh "không chắc" thành chắc với số khác
+            return {**ANALYSE(boxes), "amount_vnd": 2_500_000, "confidence": 0.99, "hits": 3, "unique": True, "is_money": True, "done": True}
+
+        with patch.object(money_images.redact, "redact", masked):
+            self.drain(self.make())
+            stored = reads.load(self.root / "reads", SHA_LOCAL, "fake", self.engine.version)
+            with patch.object(ocr, "ANALYSIS", "a9"), patch.object(ocr, "analyse", confident_other_amount):
+                with patch.object(money_images.MoneyImagesProcessor, "drop_hidden", side_effect=OSError("giữ file")):
+                    held = self.make()
+                    member = held.state()["members"][SHA_LOCAL]   # nạp con trỏ không ném
+                    self.assertEqual(member["by"], "gemini-2")   # giữ kết luận cũ
+                    self.assertEqual(reads.load(self.root / "reads", SHA_LOCAL, "fake", self.engine.version), stored)   # và kho cũ
+                    self.assertNotEqual(held.state().get("analysis"), "a9")   # chưa đánh dấu: lần nạp sau thử lại
+                again = self.make()
+                self.drain(again)
+                self.assertEqual(again.state()["members"][SHA_LOCAL]["by"], "ocr")
+                self.assertEqual(again.state()["analysis"], "a9")
+                self.assertEqual((self.remote.dirs[REMOTE_READS] / "redacted-w1" / f"{SHA_LOCAL}.jpg").read_bytes(), b"masked-2500000")
+
     def test_a_member_marked_hidden_whose_file_is_gone_gets_its_redacted_image_rebuilt(self):
         processor = self.make()
         self.drain(processor)

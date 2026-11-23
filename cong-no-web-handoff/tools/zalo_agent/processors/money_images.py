@@ -139,19 +139,31 @@ class MoneyImagesProcessor:
             name, version = self.engine.name, self.engine.version
         except ocr.OcrUnavailable:
             return
+        held = False
         for sha, member in cursor["members"].items():
             stored = reads.load(self.reads, sha, name, version)
             read = self.current(sha, stored)
             if read is None:
                 continue
+            if read is stored and ocr.refresh(stored) is not stored:   # `current` không xóa được ảnh che: ảnh này giữ luật cũ
+                held = True
             kind = ocr.verdict(read)
-            if kind != member.get("verdict"):
-                for key in ("ask_tries", "next_ask"):
-                    member.pop(key, None)
-                member["verdict"], member["by"] = kind, self.decide(sha, read)
-                if member["by"] == "ocr" and read.get("amount_vnd") != stored.get("amount_vnd") and not self.dry_run:   # vừa thành `ocr`, số khác: ảnh che cũ sai số
+            if kind == member.get("verdict"):
+                continue
+            moved = member.get("by"), member.get("verdict")
+            member["verdict"], member["by"] = kind, self.decide(sha, read)
+            if member["by"] == "ocr" and read.get("amount_vnd") != stored.get("amount_vnd") and not self.dry_run:   # vừa thành `ocr`, số khác: ảnh che cũ sai số
+                try:
                     self.drop_hidden(sha)
-        cursor["analysis"] = ocr.ANALYSIS
+                except OSError:   # Windows còn giữ file: trả ảnh này về luật cũ (kho và kết luận), lần nạp sau thử lại
+                    reads.save(self.reads, sha, stored)
+                    member["by"], member["verdict"] = moved
+                    held = True
+                    continue
+            for key in ("ask_tries", "next_ask"):
+                member.pop(key, None)
+        if not held:   # còn ảnh giữ luật cũ thì chưa đánh dấu: lần nạp con trỏ sau phân tích lại
+            cursor["analysis"] = ocr.ANALYSIS
         self.export_dirty = True
 
     def current(self, sha: str, read: dict | None) -> dict | None:
