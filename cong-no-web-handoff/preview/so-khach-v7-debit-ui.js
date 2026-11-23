@@ -465,13 +465,13 @@
     // Sửa 13/11/2026: bấm nút từ ô đang gõ thì ô đó vừa gửi lệnh lưu; chờ lệnh xong và sổ đọc lại rồi mới dựng chứng từ.
     await ctx.api.settle?.();
     let config = null, configError = '';
-    try { config = await configLoad; } catch (error) { configError = error.message; configLoad = null; }
+    try { config = await configLoad; } catch (error) { configError = CongNoNet.messageOf(error); configLoad = null; }
     const asked = new URLSearchParams(location.search).get('debit');
     const template = ['v3', 'v4'].includes(asked) ? asked : config?.template ?? 'v3';
     if (template !== 'v4') { showV3(monthKey, opener); return; }
     // Danh bạ đọc lại mỗi lần mở hộp (Sheet sửa xong thì lần mở sau thấy); lỗi thì hộp vẫn dùng như trước.
     let directory = null, directoryError = '';
-    try { directory = await (ctx.api.readCompanyInfo?.() ?? null); } catch (error) { directoryError = error.message; }
+    try { directory = await (ctx.api.readCompanyInfo?.() ?? null); } catch (error) { directoryError = CongNoNet.messageOf(error); }
     showV4(monthKey, opener, config ?? {}, configError, directory, directoryError);
   }
 

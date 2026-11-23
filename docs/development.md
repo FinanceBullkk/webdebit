@@ -93,6 +93,13 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 
 **Helper chuỗi dùng chung nằm ở `cong-no-format.js`** (`CongNoFormat`, từ 31/10/2026): thoát HTML `esc`; bỏ dấu `fold` (khóa tìm kiếm, gộp ký tự lạ thành khoảng trắng) và `foldText` (giữ dấu câu và độ dài, cùng quy tắc với `fold` của `web/v7_zalo_chat.py`); `transportText`/`commodityText`; `customerLabel`/`customerLabels` (khóa `String(id)`); nhãn tháng `monthLabel` "7/2026", `monthTitle` "Tháng 07/2026", `monthTag` "T7"/"T12/2025"; ngày `dateText` "22/10/2026"; số triệu không đơn vị `millions` cho bảng ghi "Đơn vị: triệu đồng" một lần (ma trận); câu lỗi tải trang `loadError` ("Không tải được … Kiểm tra mạng rồi bấm Thử lại.", trang đặt kèm nút "Thử lại"). Mọi trang nạp `cong-no-format.js` trước script khác rồi destructure hàm cần dùng; không định nghĩa lại trong file trang (tiền vẫn ở `so-khach-v7-model.js` theo ARCH-03).
 
+**Đọc/gửi API với lỗi tiếng Việt nằm ở `cong-no-net.js`** (`CongNoNet`, từ 23/11/2026, audit giao diện F3): `fetchJson(url, { what })`
+và `postJson(url, body, { what })` trả JSON hoặc ném lỗi có câu "Không tải được <what>: mất kết nối tới máy chủ…" (mã `NETWORK`),
+câu của API (mã `error` của API), hay câu theo mã HTTP khi proxy trả trang HTML; `fetchResponse`/`readJson` cho chỗ tự xét
+`response.ok`; `messageOf(error, fallback)` đổi lỗi gốc của trình duyệt ("Failed to fetch", "Load failed" của Safari, JSON
+hỏng) thành câu tiếng Việt ở `catch`. Không hiện `error.message` của fetch thẳng lên màn. Lệnh ghi tiền có khóa chống trùng
+giữ đường riêng ("chưa rõ đã ghi"), không đi qua module này.
+
 ## Lint và lệnh check
 
 `npm run check` ở gốc repo chạy chín bước theo thứ tự: `ruff check`, luật nghiệp vụ

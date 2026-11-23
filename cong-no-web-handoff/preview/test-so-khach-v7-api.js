@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { create, stale, unknown } = require('./so-khach-v7-api.js');
 // File sổ khách (và cong-no-format.js dùng chung) nạp theo đúng thứ tự thẻ <script> của trang live (bỏ sheet-refresh.js: test không có ô Cập nhật).
-const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="((?:cong-no-format|so-khach-v7-[a-z0-9-]+)\.js)"><\/script>/g)].map(match => match[1]);
+const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="((?:cong-no-format|cong-no-net|so-khach-v7-[a-z0-9-]+)\.js)"><\/script>/g)].map(match => match[1]);
 
 const reply = (status, body) => ({ ok: status === 200, json: async () => body });
 const ledger = version => ({ status: 'active', customer_id: 7, version, months: [], total_outstanding_vnd: '10' });
