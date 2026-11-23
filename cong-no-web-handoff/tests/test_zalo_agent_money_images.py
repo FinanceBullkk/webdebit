@@ -563,6 +563,17 @@ class AgentTest(MoneyBase):
         self.addCleanup(agent.release)
         return agent
 
+    def test_revisions_without_messages_of_selected_groups_do_not_make_money_images_lag(self):
+        agent = self.agent()
+        for _ in range(4):
+            agent.cycle(force_status=True)
+        self.feed.add_image(OTHER, b"\xff\xd8\xff\xe0other-1")   # hai tin của nhóm không chọn: `bundle` chỉ tiến con trỏ, không ghi gói
+        self.feed.add_image(OTHER, b"\xff\xd8\xff\xe0other-2")
+        for _ in range(2):
+            status = agent.cycle(force_status=True)
+        entry = status["processors"]["money_images"]
+        self.assertEqual((entry["revision"], entry["lag_revisions"]), (self.feed.revision(), 0))   # review #601: không "đang đuổi kịp" mãi
+
     def test_off_by_default(self):
         agent = agent_main.Agent(self.live, self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote, clock=lambda: self.now)
         self.addCleanup(agent.release)

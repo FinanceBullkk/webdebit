@@ -31,7 +31,8 @@ luận mà che được, ảnh đã che `redacted-w1/<sha256 ảnh gốc>.jpg` (
 `hao` chỉ gửi chữ). Ảnh đã che nhớ ở `<root>/redacted-w1/`; `redacted/*` không còn trong kết quả thì bị dọn trên `hao`. Mọi hội thoại trong danh
 sách đã chọn đều được xử lý, nhóm hay chat riêng 1-1 (không lọc theo `is_group`).
 
-Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_bundle` (chưa có gói chat), `scan_failed`, `push_failed`. Ảnh hỏng (sai băm, không giải mã được)
+Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_bundle` (chưa có gói chat), `scan_failed`, `push_failed`, `bundle_stale` (gói còn hội
+thoại vừa bỏ chọn: chưa xuất, chờ `bundle` dựng lại). Ảnh hỏng (sai băm, không giải mã được)
 thử 3 lần rồi bỏ vào `failed` (cấm 1 ngày, `reread` vẫn đọc lại được), chỉ đếm vào `counts.failed`, không làm cả bộ xử lý báo lỗi.
 Engine không dùng được (thiếu thư viện, lỗi DLL, thiếu model) là `ocr_unavailable`, không phải lỗi của ảnh: không tính lần thử, không vào `failed`. `--dry-run` không lưu con trỏ, không đẩy, không gửi ra ngoài (kho kết quả
 vẫn ghi: việc tại máy, idempotent).
@@ -224,9 +225,22 @@ class MoneyImagesProcessor:
         return not member.get("wechat") or self.export_wechat
 
     def result(self, action: str, error: str | None = None) -> dict:
-        cursor = self.state()
-        return {"action": action, "revision": cursor.get("revision"), "error": error, "bytes_sent": 0, "reason": None, "counts": self.counts(),
+        return {"action": action, "revision": self.revision(), "error": error, "bytes_sent": 0, "reason": None, "counts": self.counts(),
                 "drain": self.drain()}
+
+    def revision(self) -> int | None:
+        """Revision live-sync mà bộ xử lý đã theo kịp (status.json tính `lag_revisions` từ đây). Đã quét đúng gói hiện tại thì là revision
+        `bundle` đã xử lý (con trỏ `bundle`): `bundle` chỉ tiến con trỏ mà không ghi lại gói khi revision mới không có tin của nhóm đã chọn,
+        nên revision trong `export-report.json` tụt lại và tab Máy chạy báo "đang đuổi kịp" mãi (review #601)."""
+        cursor = self.state()
+        have = cursor.get("revision")
+        if cursor.get("bundle_key") is None or cursor.get("bundle_key") != self.bundle_key():
+            return have
+        bundle = cursors.load(self.dir, "bundle") or {}
+        done = bundle.get("revision")
+        if bundle.get("pending") or not isinstance(done, int) or (isinstance(have, int) and done < have):
+            return have
+        return done
 
     def drain(self) -> dict:
         """Tốc độ xả hàng chờ: `done_1h` ảnh rời hàng chờ trong 60 phút qua, `pending_since` (hàng chờ có ảnh từ lúc nào),
@@ -324,7 +338,8 @@ class MoneyImagesProcessor:
             return None
         allowed = {*wanted, *(cursor.get("wechat_conversations") or ())}   # ảnh WeChat không bao giờ xuất khi chưa bật cờ
         if selection and not set(cursor.get("conversations") or ()) <= allowed:
-            return None   # vừa bỏ chọn một nhóm, gói chưa dựng lại: members còn ảnh của nhóm đó
+            # vừa bỏ chọn một nhóm, gói chưa dựng lại: members còn ảnh của nhóm đó. Báo mã (status) để gói không dựng lại được thì không im lặng.
+            return "bundle_stale"
         members = {sha: member for sha, member in cursor["members"].items() if self.exported(member)} if selection else {}
         data = self.export_bytes(members)
         digest = hashlib.sha256(data).hexdigest()
@@ -670,6 +685,9 @@ class MoneyImagesProcessor:
         con trỏ (ảnh `failed` đọc được thì lần dựng lại sau hết hạn cấm sẽ nhận nó từ kho). Ném `OcrUnavailable` khi thiếu engine."""
         version = engine.version
         cursor = self.state()
+        key = self.bundle_key()
+        if key is not None and key != cursor.get("bundle_key"):   # con trỏ cũ (nguồn live-sync) hay gói mới: quét gói trước để tên file đúng
+            self.discover(key, self.clock())
         counts = {"wanted": 0, "read": 0, "had": 0, "failed": 0}
         candidates = list(cursor["members"].items()) + [(None, {"raw": raw, **entry}) for raw, entry in cursor["failed"].items()]
         for sha, member in sorted(candidates, key=lambda pair: -pair[1]["ts"]):

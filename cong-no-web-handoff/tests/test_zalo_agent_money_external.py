@@ -660,6 +660,17 @@ class BundleSourceTest(MaskedBase):
         self.assertEqual(state["members"][SHA_LOCAL]["by"], "gemini-2")   # kết luận cũ giữ nguyên, không hỏi lại
         self.assertEqual(len(self.engine.calls), calls)   # không OCR lại
 
+    def test_the_same_picture_sent_in_a_zalo_group_and_a_wechat_group_counts_as_wechat_and_is_not_exported(self):
+        # Điều phối chốt 23/11/2026: an toàn trước (CÒN MỞ trong specs/zalo-thu-chi-real-time.md: ảnh Zalo gửi lại sang WeChat rời tổng thu).
+        (self.src / "web-groups.json").write_text(json.dumps({"conversations": [GROUP, OTHER]}), encoding="utf-8")
+        self.feed.add_image(OTHER, JPEG_LOCAL)   # cùng byte với ảnh của nhóm Zalo GROUP, gửi ở hội thoại coi là WeChat
+        processor = self.make(reads_target="fake:" + REMOTE_READS, run=self.remote_run(), wechat_ids=lambda: [OTHER])
+        self.drain(processor)
+        self.assertTrue(processor.state()["members"][SHA_LOCAL]["wechat"])
+        self.assertFalse(processor.state()["members"][SHA_JXL]["wechat"])
+        self.assertEqual(set(json.loads((self.base / "remote" / "reads" / money_images.EXPORT).read_text(encoding="utf-8"))["reads"]), {SHA_JXL})
+        self.assertEqual(self.gemini.calls, [])
+
     def remote_run(self):
         if not hasattr(self, "remote"):
             (self.base / "remote").mkdir()
@@ -743,7 +754,7 @@ class ExportTest(MaskedBase):
         self.assertIn(hashlib.sha256(other).hexdigest(), self.pushed()["reads"])
         selection.write_text(json.dumps({"conversations": [GROUP]}), encoding="utf-8")   # bỏ nhóm OTHER, gói chưa dựng lại
         calls = len(self.remote.calls)
-        self.assertIsNone(processor.export(self.now + money_images.RESEND * 2))   # gói còn ảnh của nhóm vừa bỏ: chưa xuất
+        self.assertEqual(processor.export(self.now + money_images.RESEND * 2), "bundle_stale")   # gói còn ảnh của nhóm vừa bỏ: chưa xuất, có mã
         self.assertEqual(len(self.remote.calls), calls)
         self.drain(processor)   # gói dựng lại không còn OTHER
         self.assertNotIn(hashlib.sha256(other).hexdigest(), self.pushed()["reads"])
