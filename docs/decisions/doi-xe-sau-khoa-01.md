@@ -23,6 +23,6 @@
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 24/11/2026. Migration `2026-11-24-v7-doi-xe-sau-khoa.sql`: thêm bốn cột cờ ở `doixe.ung` và `doixe.dot_hoan`, thay bốn lệnh ghi và `get_so`. Harness: `test_pg_doixe_sau_khoa.py`. Trạng thái triển khai trên `hao`: nhật ký trong `docs/deploys/`.
+ĐÃ CHỐT 24/11/2026. Migration `2026-11-24-v7-doi-xe-sau-khoa.sql`: thêm bốn cột cờ ở `doixe.ung` và `doixe.dot_hoan`, thay bốn lệnh ghi và `get_so`. Harness: `test_pg_doixe_sau_khoa.py`. ĐÃ TRIỂN KHAI trên `hao` 24/11/2026 (#627): [nhật ký](../deploys/2026-11-24-doi-xe-sau-khoa.md).
 
 Không đổi: công thức số dư, cách hủy, quyền. Cờ chỉ để nhận ra; không có báo cáo riêng cho khoản sau khóa.
