@@ -60,9 +60,12 @@
     // File kết quả đọc ảnh hỏng thì khoản từ ảnh không hiện: nói rõ để không ai tưởng là không có ảnh chuyển khoản nào.
     const sources = $('source-warn');
     const failed = data.sources_failed ?? [];
+    const skipped = Number.isInteger(data.conversations_skipped) ? data.conversations_skipped : 0;
     const names = failed.filter(code => code !== 'reads').map(code => SOURCE_NAMES[code] ?? code);
     sources.textContent = [names.length ? `Không đọc được ${names.join(', ')} lúc này. Các khoản liên quan ghi "Chưa đối chiếu được".` : '',
-      failed.includes('reads') ? 'Không đọc được kết quả đọc ảnh chuyển khoản lúc này: khoản từ ảnh chưa hiện.' : ''].filter(Boolean).join(' ');
+      failed.includes('reads') ? 'Không đọc được kết quả đọc ảnh chuyển khoản lúc này: khoản từ ảnh chưa hiện.' : '',
+      // Máy chủ mỗi lần chỉ đọc 20 nhóm có tin mới nhất (MAX_CONVERSATIONS): nhóm thứ 21 trở đi không có khoản nào ở đây, nói rõ để không ai tưởng là chưa có thu chi.
+      skipped > 0 ? `Còn ${count(skipped)} nhóm chat chưa được đọc ở đây (mỗi lần chỉ đọc 20 nhóm có tin mới nhất): khoản chuyển trong các nhóm đó chưa hiện.` : ''].filter(Boolean).join(' ');
     sources.hidden = !sources.textContent;
   }
 

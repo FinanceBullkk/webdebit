@@ -41,6 +41,20 @@
       try { return api.quick(action, fields, { patch: data => model.patchLedger(data, action, fields), label }); }
       catch (error) { showNotice(error.message); throw error; }
     };
+    // Đơn giá ngoài [1.000.000 đ, 1 tỷ đ] (model.priceDoubt): hỏi tại chỗ, dưới dòng, trước khi gửi. Hỏi chứ không chặn; nút an toàn (Sửa lại) lấy tiêu điểm.
+    // Ô tính bằng đồng nhưng trang Việc cần làm nhập triệu: "45" ở đây là 45 đồng, không phải 45 triệu.
+    function askPrice(cell, value, onYes, onNo) {
+      const row = cell.closest('tr');
+      if (row.nextElementSibling?.classList.contains('price-ask')) row.nextElementSibling.remove();
+      row.insertAdjacentHTML('afterend', `<tr class="move-ask price-ask"><td colspan="${spanOf(row)}">${escape(model.priceDoubtText(value))} `
+        + `<button type="button" class="price-no">Sửa lại</button> <button type="button" class="price-yes">Ghi ${escape(fmt(value))} đ</button></td></tr>`);
+      const ask = row.nextElementSibling;
+      ask.querySelector('.price-yes').addEventListener('click', () => { ask.remove(); onYes(); });
+      ask.querySelector('.price-no').addEventListener('click', () => { ask.remove(); onNo(); });
+      ask.addEventListener('keydown', event => { if (event.key === 'Escape') { ask.remove(); onNo(); } });
+      ask.querySelector('.price-no').focus();
+    }
+    const unitHint = field => (field === 'unit_price_vnd' ? '<span class="cell-unit">đồng, không phải triệu</span>' : '');
     const shownValue = (field, value) => (value === null || value === undefined ? ''
       : field === 'event_date' ? dateText(value) : field.endsWith('_vnd') ? fmt(value) : String(value));
     function savedInPlace(cell, text, money = cell.dataset?.field?.endsWith('_vnd')) {
@@ -60,7 +74,7 @@
       const original = td.innerHTML, spot = markOf(td);
       const start = startValue(kind, id, field);
       const hint = field === 'event_date' ? ' placeholder="dd/mm/yyyy" inputmode="numeric"' : field.endsWith('_vnd') ? ' inputmode="numeric"' : '';
-      td.innerHTML = `<input class="info-input${field.endsWith('_vnd') ? ' money-input' : ''}" aria-label="${escape(fieldNames[field][0].toUpperCase() + fieldNames[field].slice(1))} mới" value="${escape(start)}"${hint}><span class="cell-error" role="status"></span>`;
+      td.innerHTML = `<input class="info-input${field.endsWith('_vnd') ? ' money-input' : ''}" aria-label="${escape(fieldNames[field][0].toUpperCase() + fieldNames[field].slice(1))} mới" value="${escape(start)}"${hint}><span class="cell-error" role="status"></span>${unitHint(field)}`;
       const input = td.querySelector('input');
       input.focus(); input.select();
       let state = 'editing';
@@ -80,12 +94,17 @@
         row.querySelector('.move-yes').focus();
       }
       // down: lưu bằng Enter thì xong tiêu điểm xuống ô cùng cột ở hàng dưới (SO-GON-04, L5); Tab/rời ô thì tiêu điểm đã đi.
-      const save = async (confirmedMove = false, down = false) => {
+      const save = async (confirmedMove = false, down = false, sure = false) => {
         if (state !== 'editing') return;
         if (input.value.trim() === start.trim()) { restore(); if (down) goDown(td); return; }
         const box = td.querySelector('.cell-error');
         let value;
         try { value = model.parseCellEdit(field, input.value, todayIso()); } catch (error) { box.textContent = error.message; return; }
+        if (field === 'unit_price_vnd' && value && !sure && model.priceDoubt(value)) {
+          state = 'asking';
+          askPrice(td, value, () => { state = 'editing'; save(false, down, true); }, () => { state = 'editing'; input.focus(); input.select(); });
+          return;
+        }
         const before = findRow(kind, id);
         if (field === 'event_date' && !confirmedMove && before && monthKey(value) !== monthKey(before.month)) { askMove(value, before); return; }
         // NHAP-NHANH-01: cùng tháng thì ô hiện ngay, lệnh ghi nền; chuyển tháng (đã hỏi) vẫn chờ máy chủ để dời dòng.
@@ -244,20 +263,29 @@
         const locked = !trip.editable;
         const original = editable.innerHTML, spot = markOf(editable);
         const start = locked || trip[field] === null ? '' : fmt(trip[field]);
-        editable.innerHTML = `<input class="money-input" aria-label="${field === 'unit_price_vnd' ? 'Đơn giá mới' : 'Phụ phí mới'}" value="${escape(start)}">${locked ? '<label>Ghi chú <input class="adjustment-note" aria-label="Ghi chú điều chỉnh chuyến (tùy chọn)"></label>' : ''}<span class="cell-error" role="status"></span>`;
+        editable.innerHTML = `<input class="money-input" aria-label="${field === 'unit_price_vnd' ? 'Đơn giá mới' : 'Phụ phí mới'}" value="${escape(start)}">${unitHint(field)}${locked ? '<label>Ghi chú <input class="adjustment-note" aria-label="Ghi chú điều chỉnh chuyến (tùy chọn)"></label>' : ''}<span class="cell-error" role="status"></span>`;
         const input = editable.querySelector('input'); input.focus(); input.select();
         // SO-GON-04 (L5): Enter lưu rồi xuống ô cùng cột hàng dưới; Tab rời ô cũng lưu như ô chữ (tháng khóa: Tab qua lại giữa
         // số tiền và Ghi chú thì chưa). Không đổi gì thì chỉ đóng ô nhập — với Tab thì đóng sau khi tiêu điểm đã sang ô kế.
         // Sửa 13/11/2026 (NHAP-SHEET-01: rời ô là lưu): bấm chuột ra ngoài ô cũng lưu như ô chữ; trước đây số gõ nằm lại trong ô
         // nhập mà không gửi đi. `state` chặn lưu hai lần (Enter/Tab rồi tới lúc mất tiêu điểm) và lưu sau Esc.
         let state = 'editing';
-        const commit = async ({ leaving, down }) => {
+        const commit = async ({ leaving, down, sure = false }) => {
           if (state !== 'editing') return;
           if (input.value.trim() === start) {
             state = 'done';
             if (leaving) setTimeout(() => { if (editable.contains(input)) editable.innerHTML = original; });
             else { editable.innerHTML = original; if (down) goDown(editable); }
             return;
+          }
+          if (field === 'unit_price_vnd' && !sure) {
+            let probe = null;
+            try { probe = moneyText(input.value, true); } catch { /* chữ sai: nhánh dưới báo lỗi như cũ */ }
+            if (probe !== null && model.priceDoubt(probe)) {
+              state = 'asking';
+              askPrice(editable, probe, () => { state = 'editing'; commit({ leaving: false, down, sure: true }); }, () => { state = 'editing'; input.focus(); input.select(); });
+              return;
+            }
           }
           if (!locked) {
             // NHAP-NHANH-01: tháng mở — giá hiện ngay, lệnh ghi nền.
@@ -378,7 +406,7 @@
       const rest = [same ? `${same} chuyến giá như đang có` : '', blank ? `${blank} dòng trống` : ''].filter(Boolean).join(', ');
       // "Dòng N" theo dòng đã dán để đối chiếu với nguồn chép.
       const list = [...writes.map(item => `<li><div class="what">Dòng ${item.line} · ${escape(item.container)} · ${escape(dateText(item.date))} · ${escape(priceText(item.oldPriceVnd))} → <strong>${escape(priceText(item.priceVnd))}</strong>`
-          + `${item.small || item.overwrite ? `<small>${[item.overwrite ? 'ghi đè giá đang có' : '', item.small ? 'giá dưới 1.000.000 đ: nghi sai đơn vị' : ''].filter(Boolean).join(' · ')}</small>` : ''}</div></li>`),
+          + `${item.doubt || item.overwrite ? `<small>${[item.overwrite ? 'ghi đè giá đang có' : '', item.doubt === 'small' ? 'giá dưới 1.000.000 đ: nghi sai đơn vị' : '', item.doubt === 'large' ? 'giá trên 1 tỷ đ: nghi thừa số 0' : ''].filter(Boolean).join(' · ')}</small>` : ''}</div></li>`),
         ...skipped.map(item => `<li class="paste-skip"><div class="what">Dòng ${item.line}${item.container ? ` · ${escape(item.container)}` : ''} · không ghi: ${escape(item.reason)}</div></li>`)].join('');
       if (errors.length) {
         return `<div class="price-panel err" role="alert" aria-label="Chưa dán được giá"><p><strong>Chưa dán được: chưa ghi gì.</strong></p><ul>${errors.slice(0, 8).map(text => `<li><div class="what">${escape(text)}</div></li>`).join('')}</ul>`
