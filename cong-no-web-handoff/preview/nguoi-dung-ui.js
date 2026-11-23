@@ -140,14 +140,13 @@
 
   async function load() {
     try {
-      const response = await fetch(URL_USERS, { cache: 'no-store' });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body || !Array.isArray(body.users)) throw Error(body?.message || 'Không đọc được danh sách người dùng.');
+      const body = await CongNoNet.fetchJson(URL_USERS, { what: 'danh sách người dùng' });
+      if (!body || !Array.isArray(body.users)) throw Error('Không đọc được danh sách người dùng.');
       data = body;
       fail('');
       draw();
     } catch (error) {
-      fail(error.message === 'Failed to fetch' ? 'Mất kết nối tới máy chủ.' : error.message, true);
+      fail(CongNoNet.messageOf(error, 'Không đọc được danh sách người dùng.'), true);
       if (!data) $('users').innerHTML = '';
     }
   }

@@ -66,14 +66,13 @@
   async function load() {
     $('refresh-data').disabled = true;
     try {
-      const response = await fetch('/api/v7/company-info', { cache: 'no-store' });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body) throw Error(body?.message || 'Không đọc được Thông tin cty.');
+      const body = await CongNoNet.fetchJson('/api/v7/company-info', { what: 'Thông tin cty' });
+      if (!body) throw Error('Không đọc được Thông tin cty.');
       data = body;
       $('error').hidden = true;
       draw();
     } catch (error) {
-      $('error').textContent = `${error.message} Bấm làm mới để thử lại.`;
+      $('error').textContent = `${CongNoNet.messageOf(error, 'Không đọc được Thông tin cty.')} Bấm làm mới để thử lại.`;
       $('error').hidden = false;
       if (!data) $('customers').innerHTML = '';
     } finally {
