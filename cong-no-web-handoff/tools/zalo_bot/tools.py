@@ -183,13 +183,26 @@ def fold(text: str) -> str:
     return " ".join("".join(ch for ch in plain if unicodedata.category(ch) != "Mn").split())
 
 
+CODE_KEYS = frozenset({"reason", "error"})
+CODE = re.compile(r"[A-Za-z0-9_]{1,60}")
+
+
+def _code_only(key: object, value: object) -> object:
+    """Q5 (24/11/2026): lý do, lỗi chỉ gửi khi là mã máy; chữ khác (lý do gõ tay, thông báo lỗi) thành None."""
+    if key in CODE_KEYS and isinstance(value, str) and not CODE.fullmatch(value):
+        return None
+    return value
+
+
 def compact(node: object, tool: str, rows: int = MAX_ROWS) -> object:
-    """Chỉ giữ khóa trong `KEEP_COMMON | KEEP[tool]` và khóa tiền `*_vnd`, ở mọi tầng; danh sách dài cắt ở `rows` phần tử kèm số đếm."""
+    """Chỉ giữ khóa trong `KEEP_COMMON | KEEP[tool]` và khóa tiền `*_vnd`, ở mọi tầng; danh sách dài cắt ở `rows` phần tử kèm số đếm.
+
+    Khóa lý do và lỗi (`CODE_KEYS`) chỉ mang mã máy (Q5: không gửi ghi chú tự do)."""
     keep = KEEP_COMMON | KEEP[tool]
 
     def walk(value: object) -> object:
         if isinstance(value, dict):
-            return {key: walk(child) for key, child in value.items() if key in keep or str(key).endswith("_vnd")}
+            return {key: _code_only(key, walk(child)) for key, child in value.items() if key in keep or str(key).endswith("_vnd")}
         if isinstance(value, list):
             kept = [walk(item) for item in value[:rows]]
             return kept if len(value) <= rows else [*kept, {"con_lai": len(value) - rows}]

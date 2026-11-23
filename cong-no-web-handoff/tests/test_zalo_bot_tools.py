@@ -144,6 +144,26 @@ class ToolTests(unittest.TestCase):
         for secret in ("ghi chú riêng", "STK", "chữ thô", "shipper", "MAUU1000101", "BKG777", "Kho riêng", "Cửa khẩu"):
             self.assertNotIn(secret, text)
 
+    def test_q5_reason_and_error_are_codes_only(self):
+        """Q5 (24/11/2026): lý do, lỗi gửi model chỉ khi là mã máy; chữ gõ tay thành None."""
+        rows = [{"customer_id": 7, "reason": "HELD"}, {"customer_id": 8, "reason": "khách hẹn trả, gọi 0901 234 567"},
+                {"customer_id": 9, "reason": "WEB_AHEAD", "error": "Traceback: kết nối hỏng"}]
+        self.assertEqual(tools.compact(rows, "doi_soat"), [{"customer_id": 7, "reason": "HELD"}, {"customer_id": 8, "reason": None},
+                                                           {"customer_id": 9, "reason": "WEB_AHEAD"}])
+        self.assertEqual(tools.compact([{"name": "dong_bo", "error": "mat_ket_noi"}, {"name": "x", "error": "lỗi lạ: xem log"}], "may_chay"),
+                         [{"name": "dong_bo", "error": "mat_ket_noi"}, {"name": "x", "error": None}])
+
+    def test_q5_forbidden_fields_never_leave(self):
+        """Q5 (24/11/2026): không gửi số điện thoại, số tài khoản, ảnh, tin chat, ghi chú tự do, ở công cụ nào cũng vậy."""
+        forbidden = {"phone": "0901234567", "so_dien_thoai": "0901234567", "bank_account": "0123456789", "account_number": "0123456789",
+                     "so_tai_khoan": "0123456789", "image": "a.jpg", "image_url": "https://x/a.jpg", "anh": "a.jpg", "text": "tin khách",
+                     "message": "tin khách", "message_excerpt": "tin khách", "body": "tin khách", "note": "ghi chú", "ghi_chu": "ghi chú",
+                     "void_reason": "gõ tay", "comment": "ghi chú", "email": "a@example.com", "actor": "a@example.com"}
+        for tool in tools.KEEP:
+            with self.subTest(tool=tool):
+                self.assertEqual(tools.compact({**forbidden, "amount_vnd": "1000"}, tool), {"amount_vnd": "1000"})
+                self.assertFalse((tools.KEEP_COMMON | tools.KEEP[tool]) & set(forbidden))
+
     def test_history_is_filtered_by_date_without_actor_emails(self):
         result, _ = self.run_tool("lich_su_so", {"khach_id": 7})
         self.assertEqual(result["so_thao_tac"], 1)
