@@ -557,15 +557,18 @@ class ChatStore:
                 "sender_avatar": avatar if avatar in self.media else None}
 
 
-    def media_file(self, media_id: str) -> tuple[str, bytes]:
-        """Ảnh/video của gói: chỉ sha có trong media.json, chỉ file thường nằm thẳng trong `media/`."""
+    def media_path(self, media_id: str) -> tuple[str, Path]:
+        """Ảnh/video/ghi âm của gói: chỉ sha có trong media.json, chỉ file thường nằm thẳng trong `media/`.
+
+        Trả (kiểu, đường dẫn) chứ không đọc file: Handler gửi theo khúc, video lớn không vào RAM (23/11/2026).
+        """
         item = self.media.get(media_id) if MEDIA_ID.fullmatch(media_id) else None
         if item is None:
             raise ChatError(404, "MEDIA_NOT_FOUND", "Không có ảnh này.")
         path = self.media_dir / (media_id + MEDIA_EXTENSIONS[item["mime"]])
         if path.is_symlink() or not path.is_file():
             raise ChatError(404, "MEDIA_NOT_FOUND", "Không có ảnh này.")
-        return item["mime"], path.read_bytes()
+        return item["mime"], path
 
 
 def _reload(directory: str) -> None:
@@ -651,11 +654,44 @@ def handle_get(path: str, query: str, directory: str | None = None) -> tuple[int
 MEDIA_PREFIX = "/api/v7/zalo/media/"
 
 
-def handle_media(path: str, query: str, directory: str | None = None) -> tuple[str, bytes]:
-    """GET /api/v7/zalo/media/<sha256>: trả (kiểu, byte) cho Handler gửi thẳng; lỗi ném ChatError."""
+def handle_media(path: str, query: str, directory: str | None = None) -> tuple[str, Path]:
+    """GET /api/v7/zalo/media/<sha256>: trả (kiểu, đường dẫn) cho Handler gửi theo khúc; lỗi ném ChatError."""
     if query:
         raise ChatError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
-    return get_store(directory).media_file(path.removeprefix(MEDIA_PREFIX))
+    return get_store(directory).media_path(path.removeprefix(MEDIA_PREFIX))
+
+
+class RangeNotSatisfiable(Exception):
+    """Range hợp lệ nhưng ngoài cỡ file: Handler trả 416 kèm `Content-Range: bytes */<cỡ>`."""
+
+
+_RANGE = re.compile(r"bytes[ \t]*=[ \t]*([0-9]{1,18})?-([0-9]{1,18})?[ \t]*", re.IGNORECASE)
+
+
+def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """Một khoảng `Range` (RFC 9110 §14) → (đầu, cuối) tính cả hai đầu; None = gửi cả file (200).
+
+    Safari iOS hỏi `bytes=0-1` trước và chỉ phát video khi nhận 206. Nhiều khoảng, đơn vị lạ hoặc cú pháp hỏng
+    thì bỏ qua Range, gửi cả file như máy chủ không biết Range (cho phép theo RFC). Ngoài cỡ thì ném RangeNotSatisfiable.
+    """
+    found = _RANGE.fullmatch(header) if header else None
+    if found is None:
+        return None
+    first_text, last_text = found.groups()
+    if first_text is None and last_text is None:
+        return None
+    if first_text is None:   # bytes=-n: n byte cuối; n lớn hơn file thì lấy cả file
+        length = int(last_text)
+        if length == 0 or size == 0:
+            raise RangeNotSatisfiable
+        return max(size - length, 0), size - 1
+    first = int(first_text)
+    last = int(last_text) if last_text is not None else size - 1
+    if last_text is not None and last < first:
+        return None
+    if first >= size:
+        raise RangeNotSatisfiable
+    return first, min(last, size - 1)
 
 
 class _NoDatabase:
