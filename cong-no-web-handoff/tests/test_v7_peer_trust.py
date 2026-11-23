@@ -221,7 +221,7 @@ class CliTest(unittest.TestCase):
         self.addCleanup(setattr, api.v7_access, "STORE", api.v7_access.STORE)
         base = ["api", "--container", "fake", "--behind-tailscale-serve", "--allowed-login", LOGIN]
         with patch.dict(os.environ, {"WEBDEBIT_READ_ONLY_PEER_UIDS": "1002"}, clear=True), \
-                patch.object(sys, "argv", [*base, "--read-only-peer-uid", "1001"]), patch.object(api, "Psql"), \
+                patch.object(sys, "argv", [*base, "--read-only-peer-uid", "1001"]), patch.object(api, api.Psql.__name__), \
                 patch.object(api, "ThreadingHTTPServer"), patch.object(api.INBOX, "start"), \
                 patch.object(api.INBOX, "keep_fresh"), patch.object(api.v7_nhat_ky, "journal"), \
                 patch.object(api.v7_telegram, "start"), patch.object(api.v7_zalo_chat, "warm"):
@@ -230,7 +230,7 @@ class CliTest(unittest.TestCase):
         for argv in ([*base, "--read-only-peer-uid", "0"], [*base, "--read-only-peer-uid", "bot"],
                      ["api", "--container", "fake", "--read-only-peer-uid", "1001"]):
             with self.subTest(argv=argv), patch.dict(os.environ, {}, clear=True), patch.object(sys, "argv", argv), \
-                    patch.object(api, "Psql") as runner, patch.object(sys, "stderr", io.StringIO()), \
+                    patch.object(api, api.Psql.__name__) as runner, patch.object(sys, "stderr", io.StringIO()), \
                     self.assertRaises(SystemExit):
                 api.main()
             runner.assert_not_called()
