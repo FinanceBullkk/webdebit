@@ -49,11 +49,12 @@ class SnapshotPlacementTests(unittest.TestCase):
         self.assertNotEqual(snap.OUTPUT.suffix, ".sql")
 
     def test_output_is_outside_release_archive(self):
-        archive = re.search(r'git archive "\$SHA" ([^|\\]+)', DEPLOY)
-        self.assertIsNotNone(archive, "không tìm thấy git archive trong deploy-hao.yml")
-        paths = archive.group(1).split()
-        self.assertIn("cong-no-web-handoff/tools", paths)
+        # Gói release theo danh sách cho phép (O9); tests/test_release_paths.py kiểm danh sách bằng git ls-files.
+        lines = (REPO / "scripts" / "deploy" / "release-paths.txt").read_text(encoding="utf-8").splitlines()
+        paths = [line.strip() for line in lines if line.strip() and not line.startswith("#") and not line.startswith(":")]
+        self.assertIn("cong-no-web-handoff/web", paths)
         self.assertFalse(any(self.rel == p or self.rel.startswith(p.rstrip("/") + "/") for p in paths), paths)
+        self.assertFalse(self.rel.startswith("cong-no-web-handoff/tools/"), self.rel)
 
     def test_committed_file_is_marked_generated(self):
         head = snap.OUTPUT.read_text(encoding="utf-8").splitlines()[:8]

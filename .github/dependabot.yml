@@ -48,3 +48,35 @@ updates:
       pip-security:
         applies-to: security-updates
         patterns: ["*"]
+
+  # Bot Zalo trên hao (audit vận hành 23/11/2026, O10): kênh zca-js (Node, bản cài riêng /opt/webdebit-zalo-kenh) và venv bộ não
+  # (requirements.txt khóa hash). Kênh cầm phiên nick phụ: PR nâng chỉ là lời nhắc, cài lên hao vẫn theo runbook, đọc diff trước.
+  - package-ecosystem: npm
+    directory: /cong-no-web-handoff/tools/zalo_bot/kenh
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Ho_Chi_Minh
+    open-pull-requests-limit: 2
+    groups:
+      zalo-kenh:
+        applies-to: version-updates
+        patterns: ["*"]
+      zalo-kenh-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /cong-no-web-handoff/tools/zalo_bot
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Asia/Ho_Chi_Minh
+    open-pull-requests-limit: 2
+    groups:
+      zalo-bot:
+        applies-to: version-updates
+        patterns: ["*"]
+      zalo-bot-security:
+        applies-to: security-updates
+        patterns: ["*"]

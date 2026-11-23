@@ -6,6 +6,17 @@
 
 SQL trong `tools/` kế thừa bản xuất có chọn lọc. Domain/ERD/DDL ngày 15/10 nằm trong hồ sơ gốc ngoài repo, chưa phải migration production. Nguyên tắc thiết kế: customer ID + alias, trip ID độc lập container, receipt tách allocation, posting bất biến, provenance và statement có phiên bản. Chưa chứng minh các module đó đã triển khai.
 
-Submit/deploy/SSH, một số importer và test phụ thuộc nằm ngoài repo. Không copy cả workspace để thêm ngược. Thay schema/đường ghi cần hợp đồng riêng và test PostgreSQL thật trên bản sao; repo chưa có môi trường DB integration tự dựng.
+Máy chạy trên `hao` (từ 22/10/2026), mã trong repo, cấu hình ngoài repo:
+
+- **API** `web/v7_ledger_api.py` có nhịp nền mỗi phút (`web/v7_inbox.py`): tính hộp việc theo bản chụp Sheet và, theo cờ `WEBDEBIT_AUTO_SHEET`, tự dán chuyến, ghi giá, phí PS. Đây là đường ghi tiền thứ nhất của máy.
+- **Runner bản chụp Sheet** (`tools/sheet_sync_runner.py`, `v7_price_snapshot.py`, `v7_ps_snapshot.py`; timer 15 phút) chỉ đọc Google Sheet và ghi JSON vào `/var/lib/webdebit-sheet-sync`.
+- **Máy đối soát** `tools/v7_reconcile_auto.py` (timer mỗi giờ, `--fix`): so tổng từng khách với Sheet, chỉ ghi khi đúng một tổ hợp việc khớp tới từng đồng. Đường ghi tiền thứ hai.
+- **Sao lưu** `tools/v7_backup.py` (bản ghim ngoài release): dump mỗi giờ và hằng ngày, gói cấu hình, hộp chờ mã hóa `age` mà các PC kéo bằng `tools/v7_offsite_pull.py`.
+- **Máy canh** `tools/v7_watchdog.py` (timer 15 phút): kiểm mọi thứ trên, gồm lưới an toàn `tools/v7_safety_net.py`, báo về healthchecks.io theo nhóm.
+- **Ngoài `hao`:** agent Zalo (`tools/zalo_agent/`) trên PC `msi`; Apps Script log sửa Sheet (`scripts/sheet-capture/`).
+
+Deploy: merge `main` → `Tests` → `Deploy hao` đẩy gói theo `scripts/deploy/release-paths.txt` qua SSH một lệnh (`scripts/deploy/hao-release.sh`); migration và SQL áp tay theo runbook. Bảng đầy đủ (nhịp, ai biết khi dừng, cách dừng): [van-hanh.md](van-hanh.md); dựng lại máy: [rebuild-hao.md](rebuild-hao.md).
+
+Một số importer và test phụ thuộc nằm ngoài repo. Không copy cả workspace để thêm ngược. Thay schema/đường ghi cần hợp đồng riêng và test PostgreSQL thật trên bản sao (harness `tools/test_pg_*.py` dựng PostgreSQL 18 dùng một lần, chạy trong CI).
 
 Xem [gate còn mở](decisions.md), [nguồn S15/S15R](source-register.md), [map thay đổi](../specs/pending-shipments/README.md).

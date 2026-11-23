@@ -4,7 +4,7 @@ Repository phát triển chung cho dev và AI của sổ công nợ phải thu H
 
 Đọc [hướng dẫn](AGENTS.md), [hồ sơ nghiệp vụ](docs/README.md), [quyết định](docs/decisions.md), [quy trình phát triển](docs/development.md). Bản cơ sở `69a84a41382217265f745c1c9ae87cba9e557c16` là bản xuất mã có chọn lọc, không phải bản sao đầy đủ workspace hay runtime.
 
-Theo dõi mốc và việc còn chặn tại [roadmap](docs/roadmap.md).
+Theo dõi mốc và việc còn chặn tại [roadmap](docs/roadmap.md). Vận hành máy thật (cái gì chạy ở đâu, ai biết khi nó dừng, cách dừng mọi máy ghi, dựng lại): [docs/van-hanh.md](docs/van-hanh.md).
 
 ## Cài và kiểm trên máy mới
 

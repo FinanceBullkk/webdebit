@@ -1,12 +1,16 @@
-# Runbook triển khai V7 — ĐỀ XUẤT
+# Runbook triển khai V7
 
-**Chưa triển khai, chưa chạy trên máy chủ thật. Không bước nào tự chạy.**
-Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md) (đủ điều kiện ở đó, thiếu thì dừng); nạp dữ liệu/mốc và DB legacy vẫn cần người dùng duyệt.
-Đây không phải quyền chạy DDL từ task tài liệu. Không ghi/đổi cấu hình DB `webdebit_ledger`.
+**V7 ĐÃ CHẠY trên `hao` từ 22/10/2026** (API, sổ, các máy theo Sheet, sao lưu, máy canh). Mục 0–8 là quy trình dựng ban đầu, giữ
+làm tham chiếu; các mục sau ghi từng đợt nâng, mỗi mục tự ghi trạng thái (ĐÃ CHẠY / CHƯA CHẠY) và nhật ký trong `deploys/`.
+Cái gì đang chạy ở đâu, ai biết khi nó dừng, cách dừng mọi máy ghi: [van-hanh.md](van-hanh.md). Dựng lại `hao` từ bản sao lưu:
+[rebuild-hao.md](rebuild-hao.md). File append-only: thêm mục mới ở dưới, sửa mục cũ chỉ khi nó sai.
+Claude tự chạy nâng release/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md) (29/10/2026) và nạp dữ liệu/mốc,
+DB legacy, quyền ngoài runbook theo [`TU-LAM-01`](decisions/tu-lam-01.md) (22/11/2026): backup trước, nhật ký sau. Không bước nào
+tự chạy từ task tài liệu.
 
 | Trạng thái | Phạm vi |
 | --- | --- |
-| ĐỀ XUẤT | Quy trình 0–8; SQL schema còn nhãn DRAFT, cần review commit và gate triển khai riêng |
+| ĐÃ CHẠY | Quy trình 0–8 dựng V7 trên `hao` 22/10/2026; từ đó mọi đợt nâng theo các mục bên dưới. SQL nguồn `schema-draft.sql` giữ tên cũ |
 | ĐÃ CHỐT | Người dùng + phiên điều phối, 21/10/2026: PostgreSQL 18 trực tiếp/systemd, chỉ unix socket `/var/run/postgresql`; DB V7 riêng; app/loader dùng OS user riêng, peer, không mật khẩu |
 | ĐÃ KIỂM CHỨNG (bản sao Docker) | Tổng duyệt 21/10/2026 trên PostgreSQL 18.6 dùng một lần (`--network none`, xác thực trust, API chạy ở máy chạy kịch bản): `status=pass` đủ bước 1–7 kể cả rollback B/C và dọn sạch, với bản sạch thật 236 khách / 877 dòng mở đầu (báo cáo và hash ở thư mục log ngoài repo) và với bản giả; đo thời gian từng bước ghi trong báo cáo. KHÔNG phải kiểm máy chủ thật: peer, systemd, Tailscale chưa thử |
 | CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 ([timer](#backup-hằng-ngày--timer-v7-backup-daily)), bản sao ra PC đã cài 29/10/2026 ([mục](#bản-sao-ngoài-máy--timer-v7-backup-offsite)); backup mỗi giờ, gói cấu hình/globals và PC kéo thứ hai đã cài 31/10/2026 ([giờ](#backup-mỗi-giờ--timer-v7-backup-hourly), [cấu hình](#gói-cấu-hình-và-globals--timer-v7-backup-config)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
@@ -980,6 +984,13 @@ Register-ScheduledTask -TaskName 'Webdebit V7 Backup Pull' -Description 'Kéo b�
 `<pc_ssh_dir>` là đường dẫn đầy đủ của `%USERPROFILE%\.ssh` (Task Scheduler không mở biến môi trường trong đối số).
 Kiểm `Start-ScheduledTask`, rồi `Get-ScheduledTaskInfo` có `LastTaskResult` 0 và `pull.log` thêm một dòng `PASS pulled=0`.
 
+**PC tự báo kết quả kéo (bổ sung 23/11/2026, audit vận hành O8).** Máy canh trên `hao` chỉ thấy PC đăng nhập SSH, không thấy
+kéo xong. Mỗi PC một check riêng trên healthchecks.io (chủ sổ tạo, tên `webdebit kéo bản sao <tên PC>`, chu kỳ 1 ngày, thời
+gian chờ 1 ngày, bật email). Lưu link vào `<pc_dir>\ping-url.txt` (chỉ một dòng, quyền như `<pc_dir>`), rồi thêm
+`--ping-url-file "<pc_dir>\ping-url.txt"` vào đối số của task (`Set-ScheduledTask` với action mới, hoặc gỡ rồi đăng ký lại
+như trên). Kéo xong (`PASS`) thì script ping check; lỗi thì ping `/fail` chỉ với chữ `FAIL` (chi tiết ở `pull.log`); dòng
+`pull.log` có thêm `| pinged` hoặc lý do không ping được. Script trên PC phải từ commit có `--ping-url-file`, chép như trên.
+
 ### O5. Phục hồi thử từ bản trên PC (sau khi cài và hằng tháng)
 
 Làm trong một thư mục mới, rỗng, ngoài OneDrive và ngoài mọi checkout; xóa ngay khi xong. Đây cũng là đường phục hồi thật
@@ -1157,7 +1168,8 @@ age --decrypt -i "$env:USERPROFILE\.ssh\webdebit-v7-backup-age-key.txt" -o "<res
 & "<python_dir>\python.exe" -I "<pc_tools>\v7_backup.py" config-verify --tar "<restore_dir>\<ban_config>.tar"
 ```
 
-Kỳ vọng `MATCH config archive: <N> files, <M> links, 0 missing patterns`. Không giải nén cả gói trên Windows (symlink, quyền
+Kỳ vọng `MATCH config archive: <N> files, <M> links, <K> missing patterns`; `<K>` bằng số mẫu `missing` trong journal của
+lượt đó (từ 23/11/2026 có thể gồm `command:inventory/lvm.txt` khi máy không dùng LVM). Không giải nén cả gói trên Windows (symlink, quyền
 POSIX); lấy từng tệp cần bằng `tar -xf <tar> <thành_viên>`. Thử globals: PostgreSQL 18.6 Docker `--network none` như O5
 nhưng **không** tạo trước ba role: `psql -X -f globals.sql` (dòng lỗi `role "postgres" already exists` là bình thường),
 rồi `restore` bản dữ liệu cùng ngày; `MATCH` là globals đủ cho dump. Hai dump legacy: `pg_restore -l` liệt kê được là đọc
@@ -1171,10 +1183,18 @@ máy mới; `globals.sql` chạy trước mọi `pg_restore`; Serve dựng lại
 Hằng ngày: `systemctl is-failed v7-backup-config.service`; dòng cuối `pull.log` của PC có `config_newest=` của ngày đó.
 Rollback: `sudo systemctl disable --now v7-backup-config.timer`, giữ các gói. Gỡ hẳn: xóa hai unit, `daemon-reload`.
 
+Bổ sung 23/11/2026 (audit vận hành O5): `CONFIG_PATHS` thêm `/etc/webdebit-deploy.conf`, danh sách đăng nhập web
+`/var/lib/webdebit-sheet-sync/access/access.json`, bộ CSV mốc sổ gốc `/srv/v7/so-goc-20261020` (máy đối soát cần),
+`/var/lib/webdebit-sheet-sync/baseline-refs.json`, `/etc/fstab`, `/etc/hostname`, `/etc/hosts`, nguồn apt và crontab. Thêm
+`CONFIG_INVENTORY`: bảng kê gói (`dpkg-query`, `apt-mark showmanual`), user/nhóm (`getent`, không đọc shadow), đĩa (`lsblk`,
+`lvs`), unit đang bật và timer, vào `inventory/` của gói. Lệnh bảng kê lỗi hay in rỗng thì ghi `command:<tên>` vào `missing`,
+không làm hỏng lượt. Cài: ghim lại `v7_backup.py` theo [B1](#b1-bản-ghim-và-thư-mục), chạy `sudo systemctl start
+v7-backup-config.service`, journal có `missing` chỉ gồm mẫu đã biết. Dựng lại máy theo gói: [rebuild-hao.md](rebuild-hao.md).
+
 Còn mở:
 - Gói có hash mật khẩu role và khóa SA Google: ai có khóa age là có cả hai. Đổi khóa age theo O6; xoay khóa SA theo audit #18.
 - Danh sách `CONFIG_PATHS` nằm trong công cụ: thêm unit/cấu hình mới ngoài các mẫu trên thì sửa danh sách, ghim lại (B1).
-- Không có cảnh báo khi lượt lỗi.
+- Lượt lỗi có cảnh báo qua máy canh (timer `v7-backup-config`, nhóm sao lưu) từ 18/11/2026.
 
 Map kiểm: lệnh trên → `v7_backup.config/collect/config_members/verify_config` → `tests/test_v7_backup_config.py` (lệnh và
 `age` giả; vòng `age` thật khi máy có `age`), `v7_offsite_pull` họ `v7-config-…` → `tests/test_v7_offsite_pull.py`; cả hai
@@ -2174,6 +2194,26 @@ Bổ sung 18/11/2026 (bản sao ngoài máy, [nhật ký](deploys/2026-11-18-can
 **Thử:** chạy `v7_watchdog.py --test-fail` dưới `v7app` với cùng biến môi trường: email tới trong vài phút; lượt timer kế gửi email hết lỗi. Dừng thử: `systemctl stop v7-watchdog.timer` quá 60 phút thì có email, `start` lại thì hết.
 
 **Tắt:** `systemctl disable --now v7-watchdog.timer`, rồi tắt hoặc xóa check trên healthchecks.io để không báo nhầm là máy dừng. Khi bảo trì `hao` lâu thì bấm Pause trên trang của check.
+
+### Nhiều check (bổ sung 23/11/2026, audit vận hành O2)
+
+Không đổi unit; mã lên bằng `Deploy hao`. Chưa thêm biến nào thì máy canh chạy y như cũ (mọi nhóm về check chính).
+
+1. **Chủ sổ, trên healthchecks.io** (cùng tài khoản, gói miễn phí tới 20 check): đổi tên check cũ thành `webdebit nhịp sống`.
+   Tạo bốn check mới, mỗi cái chu kỳ 15 phút, thời gian chờ 45 phút: `webdebit tiền`, `webdebit lưới an toàn`,
+   `webdebit sao lưu`, `webdebit Zalo`. Trong trang từng check, mục *Notification Methods* phải bật email (check mới
+   thường bật sẵn; tắt thì bấm bật). Muốn người thứ hai cũng nhận: *Integrations* → thêm email của người đó, bật cho mọi check.
+2. **Claude, trên `hao`:** chép `/etc/webdebit/alert.env` ra thư mục backup, thêm bốn dòng
+   `WEBDEBIT_ALERT_PING_URL_TIEN=…`, `WEBDEBIT_ALERT_PING_URL_LUOI=…`, `WEBDEBIT_ALERT_PING_URL_SAOLUU=…`,
+   `WEBDEBIT_ALERT_PING_URL_ZALO=…` (giữ dòng cũ: check chính thành nhịp sống), giữ `root:v7app` 640.
+   Chạy `sudo systemctl start v7-watchdog.service`; `journalctl -u v7-watchdog.service -n 1 -o cat` có `"checks": 5`.
+3. **Thử một lần:** `--test-fail` như trên: mỗi check một email thử; lượt timer kế mỗi check một email hết lỗi. Chủ sổ xác
+   nhận đủ năm email tới hộp thư (đóng E3 của [checklist chuyển hẳn](chuyen-han-checklist.md)).
+
+Nhóm nào chưa có link riêng thì về check chính; riêng lưới an toàn chưa có link riêng thì đi chung check tiền. Nghỉ dài
+(Tết) muốn yên thì Pause check của nhóm ồn (thường là tiền: nguồn chuyến trống), **không Pause nhịp sống**. Máy canh cũng
+báo hai việc mới trong nhóm tiền: `reconcile.json` ghi `mode` khác `fix`, và cầu dao hơn 40 khách lệch giữ hai lượt liền.
+Rollback: xóa bốn dòng, mọi nhóm về lại check chính.
 
 ## Bot Zalo hỏi đáp (ZALO-BOT-01) — unit `v7-zalo-bot` và `v7-zalo-kenh` (CHƯA CHẠY)
 

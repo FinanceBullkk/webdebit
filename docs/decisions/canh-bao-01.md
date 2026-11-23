@@ -64,3 +64,15 @@ Người dùng bấm "Làm cảnh báo" sau khi Claude báo lịch kéo trên m�
 - Giới hạn: đăng nhập chưa chắc là kéo xong; kết quả `PASS` chỉ nằm ở `pull.log` trên PC. PC tắt cả hai ngày (nghỉ dài) thì có email: là báo đúng.
 
 Triển khai: [nhật ký 18/11/2026](../deploys/2026-11-18-canh-bao-keo-ngoai-may.md).
+
+## Bổ sung 23/11/2026: nhiều check, máy đối soát chạy mà không ghi, máy kéo tự báo
+
+Audit vận hành chỉ đọc 23/11/2026 (mục O2, O4, O8) kết luận: mọi cảnh báo dùng chung một check nên một lỗi kéo dài che lỗi mới. Người dùng yêu cầu mở phiên sửa; Claude đặt chi tiết. Không đổi kênh, DB, quyền hay tiền.
+
+- **Nhiều check.** Phép kiểm chia bốn nhóm: tiền (web, đối soát, bản chụp, nguồn chuyến, hộp việc, timer của các máy theo Sheet), lưới an toàn, sao lưu (timer sao lưu, đĩa, bản sao ngoài máy), Zalo (máy Zalo, bot). Nhóm có link riêng (`WEBDEBIT_ALERT_PING_URL_TIEN`, `_LUOI`, `_SAOLUU`, `_ZALO` trong `/etc/webdebit/alert.env`) thì báo về check của nó; chưa có thì về check chính như trước. Lưới an toàn chưa có link riêng thì đi chung check tiền. Check chính luôn nhận một ping mỗi lượt: khi mọi nhóm có check riêng nó chỉ còn là **nhịp sống**, không bao giờ Pause; nghỉ dài muốn yên thì Pause check của nhóm, không Pause nhịp sống.
+- **Lưới an toàn tách riêng** vì nó đỏ tới khi có người chấp nhận ([`LUOI-AN-TOAN-01`](luoi-an-toan-01.md)); chung check với tiền thì lượt máy đối soát ghi sai sau đó không có email.
+- **Máy đối soát chạy mà không ghi** (O4): báo khi `reconcile.json` ghi `mode` khác `fix` (unit thiếu `--fix`), và khi cầu dao hơn 40 khách lệch giữ hai lượt liền (đọc lượt trước trong `reconcile-log.jsonl`). Một lượt quá 40 thì chưa báo: thường là Sheet đang sửa dở.
+- **Máy kéo bản sao tự báo** (O8): PC kéo xong (`PASS`) thì ping check riêng của PC đó, lỗi thì ping `/fail`; link nằm trong một file trên PC (`--ping-url-file`), không trong lệnh hay Git. Phép kiểm đăng nhập SSH của máy canh giữ nguyên.
+- `--test-fail` gửi thử tới mọi check đang cấu hình, mỗi check một email.
+
+Phần hộp việc của máy giá 15 phút (lỗi ghi lặp, thiếu cờ máy) làm sau khi phiên sửa máy giá merge. Cách cài: [runbook](../v7-deploy-runbook.md#máy-canh-báo-email-canh-bao-01--timer-v7-watchdog), tổng quan vận hành: [van-hanh.md](../van-hanh.md).
