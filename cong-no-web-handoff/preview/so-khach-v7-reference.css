@@ -51,7 +51,7 @@ body[data-the=tinh-hinh] #the-tinh-hinh{max-width:1260px;margin:0;padding:12px 2
 .ov-main-row .ov-month.hot{background:#f0f4f9}.ov-main-row .ov-month.on{background:#e4eefb;color:#0d366b;font-weight:800}
 .ov-main-row .ov-month.off{color:#9aa3ad;font-weight:400;cursor:default}
 .ov-plot{position:relative;display:block;height:136px;border-bottom:1px solid #d7dce3}
-.ov-name{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:34px;line-height:1.2}.ov-name small{color:#6f6d67;font-size:13px;font-weight:400}
+.ov-name{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:34px;line-height:1.2}.ov-name small{color:#6f6d67;font-size:13px;font-weight:400;white-space:nowrap}
 .ov-main-row .ov-bar{position:absolute;left:calc(50% - 13px);width:12px;border-radius:2px 2px 0 0}
 .ov-main-row .ov-bar.ps{background:#cfd6de}.ov-main-row .ov-bar.thu{left:calc(50% + 1px);background:#8fbdf0}
 .ov-main-row .ov-month.hot .ov-bar.ps,.ov-main-row .ov-month.on .ov-bar.ps{background:#9aa9bc}.ov-main-row .ov-month.hot .ov-bar.thu,.ov-main-row .ov-month.on .ov-bar.thu{background:#4f94de}

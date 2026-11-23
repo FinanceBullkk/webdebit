@@ -93,7 +93,7 @@ button.today-card[aria-pressed="true"]{border-color:var(--blue)}
 .thu .c-debt{width:120px}
 .thu .c-share{width:20%}
 /* Đủ chỗ cho tiêu đề cả khi máy không có Segoe UI (font thay thế rộng hơn). */
-.thu .c-count{width:96px}
+.thu .c-count{width:112px}
 .thu .c-und{width:160px}
 .thu .c-last{width:128px}
 .thu .c-month{width:130px}
