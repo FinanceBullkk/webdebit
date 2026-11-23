@@ -1,6 +1,6 @@
 # Bot Zalo hỏi đáp công nợ (ZALO-BOT-01)
 
-Trạng thái: **ĐÃ CHỐT hướng làm** ngày 22/11/2026 ([`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md)). Mã PR-1 đến PR-3c đã merge, **chưa cài trên `hao`, chưa bật**. Ngày 23/11/2026 sửa theo audit (bộ kiểm số danh sách trắng, dòng sổ và kỳ, ngày hôm nay, dữ liệu gửi ra theo danh sách giữ lại): xem [Điều kiện bật](#điều-kiện-bật-audit-23112026). Q4 và Q5 chốt với người dùng trước khi bật.
+Trạng thái: **ĐÃ CHỐT hướng làm** ngày 22/11/2026 ([`ZALO-BOT-01`](../docs/decisions/zalo-bot-01.md)). Mã PR-1 đến PR-3c đã merge, **chưa cài trên `hao`, chưa bật**. Ngày 23/11/2026 sửa theo audit (bộ kiểm số danh sách trắng, dòng sổ và kỳ, ngày hôm nay, dữ liệu gửi ra theo danh sách giữ lại): xem [Điều kiện bật](#điều-kiện-bật-audit-23112026). Q4 và Q5 ĐÃ CHỐT ngày 24/11/2026 (người dùng nhờ Claude chốt, đúng đề xuất).
 
 Người dùng đã chọn bốn điều trong chat ngày 22/11/2026:
 
@@ -315,8 +315,8 @@ Bảng go-live của audit chỉ đọc ngày 23/11/2026 (mục 4), cập nhật
 | Câu không có nguồn không mang dòng nguồn (F4) | MET (test) |
 | Số làm tròn kiểm chiều và độ chính xác (F5) | MET (test) |
 | Chữ người ngoài không chèn được số hay link vào câu trả lời (F6) | MET (trường chữ không trích được, link bị bỏ, ca `ten_chen`; test qua vòng model giả) |
-| Q5 chốt trên danh sách trường thật gửi Anthropic (F7) | NOT MET: danh sách giữ lại đã code, câu hỏi Q5 soạn lại ở dưới, **chờ người dùng** |
-| Q4 hạn mức ngày; trần chi tiêu của khóa ở Anthropic | NOT MET: **chờ người dùng** |
+| Q5 chốt trên danh sách trường thật gửi Anthropic (F7) | MET: chốt 24/11/2026; `KEEP` + lý do/lỗi chỉ mang mã + test trường cấm |
+| Q4 hạn mức ngày; trần chi tiêu của khóa ở Anthropic | Hạn mức ngày MET (3 USD, chốt 24/11/2026, cấu hình chặn trên 3; test). Trần chi tiêu của khóa ở Anthropic: đặt lúc tạo khóa ở P0, chưa biết |
 | Email khi hết hạn mức hay bộ kiểm chặn nhiều (F8) | MET về mã (`check_zalo_bot`, test); chưa thử email thật |
 | Eval trên model đã chọn, không câu nào sai số, có ca tên gần giống, ngày tương đối, công cụ lỗi, chữ chèn | NOT MET: ca đã có (`eval.py`), **chưa chạy** (tốn tiền model, cần người dùng đồng ý từng lần) |
 | Mã model, bảng giá, khuôn yêu cầu đúng (F10) | MET |
@@ -327,7 +327,7 @@ Bảng go-live của audit chỉ đọc ngày 23/11/2026 (mục 4), cập nhật
 | Nick phụ không vào nhóm khách; nick chính không dùng với zca-js | Chưa biết (vận hành) |
 | Số đo P0 (tin sót/trùng, thời gian giữ phiên) | NOT MET (chưa có nick phụ) |
 
-Còn phải làm trước khi bật: người dùng chốt Q4, Q5; P0; cài trên `hao`; chạy eval trên ba model với sự đồng ý về chi phí; người dùng dùng thử.
+Còn phải làm trước khi bật: P0; cài trên `hao`; chạy eval trên ba model với sự đồng ý về chi phí; người dùng dùng thử.
 
 ## Hành vi và bất biến
 
@@ -392,14 +392,14 @@ Mỗi câu kèm đề xuất của Claude. Câu ĐÃ CHỐT do Claude chốt the
 - **Q1, model:** ĐÃ CHỐT. Claude qua API, chọn bằng số đo: chạy bộ 30 câu mẫu trên Haiku 5.5, Sonnet 5.5 và Opus 5.5, người dùng chọn model rẻ nhất không sai số tiền nào. Phương án khác là Gemini (repo có đường gọi Gemini cho ảnh, chưa có khóa chạy thật).
 - **Q2, ai chạy vòng gọi công cụ:** ĐÃ CHỐT. Tiến trình bộ não trên `hao`, gọi Messages API bằng SDK chính thức trong venv riêng. Không dùng Managed Agents vì lịch sử phiên nằm ở Anthropic tới khi xóa và đang beta.
 - **Q3, kênh:** ĐÃ CHỌN ngày 22/11/2026: zca-js với nick phụ ([Phần 1](#phần-1-kênh-zalo)).
-- **Q4, chi phí:** CÒN MỞ, chốt trước khi bật. Ước tính thô với bảng giá hiện hành, chưa đo. Kênh zca-js không tốn phí ngoài SIM cho nick phụ; tiền nằm ở model (giá vào / ra mỗi triệu token):
+- **Q4, chi phí:** **ĐÃ CHỐT 24/11/2026** (người dùng nhờ Claude chốt): trần 3 USD mỗi ngày giờ VN trong lúc thử; chạm trần thì không gọi model, trả "Hôm nay đã hết hạn mức hỏi, mai hỏi lại giúp mình.", đếm `over_budget`. Nâng trần cần quyết định mới (cấu hình chặn trên 3). Ước tính thô với bảng giá hiện hành, chưa đo. Kênh zca-js không tốn phí ngoài SIM cho nick phụ; tiền nằm ở model (giá vào / ra mỗi triệu token):
   - Opus 5.5 (4 / 20 USD): khoảng 0,12–0,22 USD mỗi câu, tức 75–130 USD/tháng nếu hỏi 20 câu mỗi ngày;
   - Sonnet 5.5 (2 / 10 USD): khoảng một nửa, 40–65 USD/tháng;
   - Haiku 5.5 (0,10 / 0,50 USD): khoảng vài USD/tháng;
   - mỗi lần chạy bộ 30 câu trên cả ba model: khoảng 6–10 USD.
 
   Đề xuất: trần 3 USD mỗi ngày cho bot trong lúc thử; sau một tuần đo bằng số token thật thì người dùng chốt lại model và trần.
-- **Q5, dữ liệu được gửi tới Anthropic:** CÒN MỞ, chốt trước khi bật. Soạn lại ngày 23/11/2026 theo danh sách khóa thật trong mã (`KEEP` ở `tools/zalo_bot/tools.py`); mỗi câu hỏi chỉ gửi kết quả của công cụ model đã gọi cho câu đó. Câu hỏi cho người dùng:
+- **Q5, dữ liệu được gửi tới Anthropic:** **ĐÃ CHỐT 24/11/2026** (người dùng nhờ Claude chốt): đồng ý dòng 1–7 dưới đây, giữ nguyên phần "Không gửi" (số điện thoại, số tài khoản, ảnh, tin chat của khách, ghi chú tự do). Khóa `reason`/`error` chỉ mang mã máy. Soạn lại ngày 23/11/2026 theo danh sách khóa thật trong mã (`KEEP` ở `tools/zalo_bot/tools.py`); mỗi câu hỏi chỉ gửi kết quả của công cụ model đã gọi cho câu đó. Câu hỏi cho người dùng:
 
   > Bot gửi tới Anthropic (Claude) câu bạn hỏi và các dữ liệu sau. Bạn đồng ý cả danh sách, hay muốn bỏ dòng nào?
   >

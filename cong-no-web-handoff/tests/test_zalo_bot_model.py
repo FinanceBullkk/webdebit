@@ -132,8 +132,12 @@ class AnswererTests(unittest.TestCase):
         self.assertEqual(out.outcome, "answered")
         self.budget.add("claude-opus-5-5", {"output_tokens": 200_000}, NOW)    # 4 USD > trần 3 USD
         idle = FakeClient()
-        self.assertEqual(self.answer(idle).outcome, "over_budget")
+        capped = self.answer(idle)
+        self.assertEqual(capped.outcome, "over_budget")
+        self.assertEqual(capped.text, "Hôm nay đã hết hạn mức hỏi, mai hỏi lại giúp mình.")   # Q4, 24/11/2026
         self.assertEqual(idle.requests, [])
+        tomorrow = NOW + 24 * 3600                                               # sang ngày giờ VN thì hỏi lại được
+        self.assertTrue(self.budget.allows(tomorrow))
 
     def test_price_table_covers_every_allowed_model(self):
         self.assertEqual(set(budget.PRICES), set(config.MODELS))
@@ -260,7 +264,10 @@ class ConfigTests(unittest.TestCase):
                                "WEBDEBIT_ZALO_BOT_LINK_BASE": "https://web.example:8443"})
         self.assertEqual((cfg.model, cfg.effort, cfg.cap_usd, cfg.link_base), ("claude-haiku-5-5", "medium", 2, "https://web.example:8443"))
         self.assertIsNone(config.from_env({}).model)
+        self.assertEqual(config.from_env({}).cap_usd, 3)                       # Q4: mặc định và tối đa 3 USD/ngày lúc thử
+        self.assertEqual(config.from_env({"WEBDEBIT_ZALO_BOT_CAP_USD": "3"}).cap_usd, config.CAP_MAX)
         for env in ({"WEBDEBIT_ZALO_BOT_MODEL": "gpt-x"}, {"WEBDEBIT_ZALO_BOT_EFFORT": "turbo"}, {"WEBDEBIT_ZALO_BOT_CAP_USD": "0"},
+                    {"WEBDEBIT_ZALO_BOT_CAP_USD": "4"}, {"WEBDEBIT_ZALO_BOT_CAP_USD": "100"},
                     {"WEBDEBIT_ZALO_BOT_LINK_BASE": "http://web.example"}, {"WEBDEBIT_ZALO_BOT_EFFORT": "xhigh"},
                     {"WEBDEBIT_ZALO_BOT_EFFORT": "max"}):
             with self.subTest(env=env), self.assertRaises(config.ConfigError):
