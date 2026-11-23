@@ -25,7 +25,7 @@
   const fmt = value => F.full(typeof value === 'bigint' ? value : vnd(String(value)));
   const signed = value => value == null ? '—' : F.full(typeof value === 'bigint' ? value : vnd(value));
   // Audit UX 31/10/2026 (P0-6): ô, cột tổng và dòng tổng ghi số triệu đồng không kèm đơn vị (không còn "tr");
-  // "Đơn vị: triệu đồng" ghi một lần ở tiêu đề cột Khách, cho 12 cột tháng vừa màn 1280 không cuộn ngang.
+  // Đơn vị "(triệu đồng)" ghi một lần ở tiêu đề cột Khách, cùng dòng để tiêu đề một dòng (THEO-THANG-GON), cho 12 cột tháng vừa màn 1280 không cuộn ngang.
   const inMillions = value => F.millions(value);
   // Chuẩn kế toán: số âm (khách trả trước, tháng trả thừa) ghi trong ngoặc "(0,02)", không dùng dấu trừ hay chữ "dư".
   const signedMillions = value => (value < 0n ? '(' + inMillions(-value) + ')' : inMillions(value));
@@ -88,7 +88,7 @@
     put('#scope-other', other);
     $('#scope-other-label').textContent = state.year === currentYear ? 'Trong đó nợ từ trước ' + state.year : 'Trong đó nợ ngoài năm ' + state.year;
     const closed = data.customers.length - debtors.length - creditors.length;
-    $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">' + creditors.length + ' trả trước · ' + closed + ' đã tất toán</span>';
+    $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">· ' + creditors.length + ' trả trước · ' + closed + ' đã tất toán</span>';
   }
 
   // Dòng chân theo chuẩn kế toán (VAS 21/IAS 1 không bù trừ phải thu với người mua trả trước): khi có khách trả trước
@@ -105,15 +105,6 @@
     return '<tr class="sub">' + label('Phải thu', owing.length, 'Phải thu khách hàng') + sums(owing) + '</tr>'
       + '<tr class="sub">' + label('Trừ: trả trước', prepaid.length, 'Trừ: khách trả trước') + sums(prepaid) + '</tr>'
       + '<tr class="net">' + label('Còn phải thu ròng', rows.length, 'Còn phải thu ròng') + sums(rows) + '</tr>';
-  }
-
-  // Các dòng chân cùng dính đáy màn: dòng trên đặt bottom bằng chiều cao các dòng dưới nó.
-  function stackFoot() {
-    let below = 0;
-    [...document.querySelectorAll('#heat-foot tr')].reverse().forEach(row => {
-      row.querySelectorAll('td').forEach(td => { td.style.bottom = below + 'px'; });
-      below += row.getBoundingClientRect().height;
-    });
   }
 
   function paintAgePick() {
@@ -203,7 +194,7 @@
       return compareDesc(groupAll(a[1]), groupAll(b[1])) || a[0].localeCompare(b[0], 'vi');
     });
     const isCurrent = month => state.year === currentYear && month === currentMonth;
-    $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách<span class="unit">Đơn vị: triệu đồng</span></th>' +
+    $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách <span class="unit">(triệu đồng)</span></th>' +
       MONTHS.map(month => '<th class="mh' + (month % 2 ? '' : ' even') + (isCurrent(month) ? ' cur' : '') + pickClass(month).replace(' dim', '') + '" scope="col">Tháng ' + month + '</th>').join('') +
       '<th class="tot" scope="col">Năm ' + state.year + '</th><th class="tot" scope="col">Mọi năm</th>';
     const parts = [];
@@ -221,7 +212,6 @@
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
     $('#heat-foot').innerHTML = footRows(rows);
     $('#phone-list').innerHTML = phoneList(ordered, rows);
-    stackFoot();
 
     renderSummary(data);
     $('#year-cur').textContent = state.year;

@@ -59,7 +59,7 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     assert.equal(layout.months.length === 12 && layout.equal && !layout.innerScroll && !layout.pageScrollX && layout.separated, true, JSON.stringify(layout));
     assert.equal(await page.locator('#heat-head th.mh').first().innerText(), 'Tháng 1');
     // Audit UX 31/10/2026 (P0-6): ô và cột tổng ghi số triệu đồng không kèm đơn vị (không còn "tr"); đơn vị ghi một lần ở tiêu đề.
-    assert.match(await page.locator('#heat-head th.khach').innerText(), /^Khách\s+Đơn vị: triệu đồng$/);
+    assert.match(await page.locator('#heat-head th.khach').innerText(), /^Khách \(triệu đồng\)$/);
     assert.equal(await page.locator('.cell-btn[data-id="1"][data-month="1"]').innerText(), '0,1');
     assert.deepEqual(await page.locator('#heat-body tr[data-row="1"] td.tot').allInnerTexts(), ['0,08', '0,08']);
     assert.match(await page.locator('#scope-receivable').innerText(), /80\.000 đ/);
@@ -284,14 +284,23 @@ test('khách trả trước: chân bảng ba dòng như sổ kế toán, số â
     assert.match(await page.locator('#scope-credit').innerText(), /30 triệu/);
     assert.match(await page.locator('#scope-status').innerText(), /1 trả trước/);
     const foot = await page.locator('#heat-foot tr').evaluateAll(rows => rows.map(row => [row.className, row.cells[0].innerText, row.cells[row.cells.length - 1].innerText]));
-    assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng' + String.fromCharCode(10) + '32 khách', '80']]);
+    assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng 32 khách', '80']]);
     assert.equal(await page.locator('#heat-body tr[data-row="2"] td.tot.all').innerText(), '(30)');
     assert.match(await page.locator('#recon').innerText(), /Khớp/);
-    // Ba dòng dính đáy khi bảng dài hơn màn: dòng ròng sát đáy, hai dòng trên xếp liền, không chồng lên nhau.
+    // THEO-THANG-GON (23/11/2026): chỉ dòng ròng dính đáy khi bảng dài hơn màn, một dòng; Phải thu / Trừ: trả trước nằm ở
+    // cuối bảng, không dính (trước đó ba dòng dính cao 124px che khách).
     const clipped = await page.locator('#heat-foot td.khach').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).length);
     assert.equal(clipped, 0);
     const boxes = await page.locator('#heat-foot tr td.khach').evaluateAll(cells => cells.map(cell => { const r = cell.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
-    assert.equal(Math.abs(boxes[2][1] - 720) <= 1 && Math.abs(boxes[1][1] - boxes[2][0]) <= 1 && Math.abs(boxes[0][1] - boxes[1][0]) <= 1, true, JSON.stringify(boxes));
+    assert.ok(Math.abs(boxes[2][1] - 720) <= 1 && boxes[2][1] - boxes[2][0] <= 44, `dòng ròng dính đáy, một dòng: ${JSON.stringify(boxes)}`);
+    assert.ok(boxes[1][0] > 720 && boxes[0][0] > 720, `hai dòng Phải thu / trả trước không dính: ${JSON.stringify(boxes)}`);
+    // Khung thấy thật 1280×560 có thanh cuộn 15px: dải tổng một dòng, thấy ít nhất 8 khách trọn dòng.
+    await page.setViewportSize({ width: 1265, height: 560 });
+    const fit = await page.evaluate(() => ({ summary: Math.round(document.querySelector('.summary').getBoundingClientRect().height),
+      rows: [...document.querySelectorAll('#heat-body tr')].filter(tr => { const r = tr.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight - 40; }).length }));
+    assert.ok(fit.summary <= 48 && fit.rows >= 8, JSON.stringify(fit));
+    const cut = await page.locator('.heat thead th').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.innerText));
+    assert.deepEqual(cut, [], 'tiêu đề cột không cắt chữ ở 1265px');
   } finally {
     await browser.close();
     app.close();
