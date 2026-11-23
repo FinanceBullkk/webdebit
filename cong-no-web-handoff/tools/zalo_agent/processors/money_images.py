@@ -33,6 +33,7 @@ vẫn ghi: việc tại máy, idempotent).
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -155,10 +156,8 @@ class MoneyImagesProcessor:
             return read
         reads.save(self.reads, sha, fresh)
         if fresh.get("amount_vnd") != read.get("amount_vnd"):
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 (self.hidden_dir / f"{sha}.jpg").unlink()
-            except FileNotFoundError:
-                pass
             for key in ("hidden", "hide_tries", "next_hide"):
                 (self.cursor or {}).get("members", {}).get(sha, {}).pop(key, None)
         return fresh

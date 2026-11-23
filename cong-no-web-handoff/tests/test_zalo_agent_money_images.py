@@ -379,7 +379,7 @@ class AnalysisVersionTest(MoneyBase):
 
     def test_old_store_files_without_an_analysis_field_are_used_and_not_read_again(self):
         legacy = {"engine": "fake", "version": self.engine.version, "read_at": "2026-11-20T00:00:00Z", "size": [100, 200], "boxes": TRANSFER,
-                  **{key: value for key, value in ocr.analyse(TRANSFER).items()}, "amount_vnd": 7_000_000}   # như file trước A1: không có `analysis`
+                  **dict(ocr.analyse(TRANSFER).items()), "amount_vnd": 7_000_000}   # như file trước A1: không có `analysis`
         reads.save(self.root / "reads", SHA_LOCAL, legacy)
         path = reads.path(self.root / "reads", SHA_LOCAL, "fake", self.engine.version)
         before = path.read_bytes()
