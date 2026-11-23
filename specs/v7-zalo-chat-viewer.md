@@ -56,12 +56,16 @@ Trên `hao`: chép thư mục `data/` của bundle ra ngoài release (ví dụ `
 - Dữ liệu chat không vào repo: test chỉ dùng fixture bịa; `.gitignore` không thay review.
 - Truy cập qua lớp danh tính hiện có của `/api/v7/*` (Tailscale); bản chạy thử bind loopback.
 - Không khôi phục ID Zalo gốc; không hiện URL/đường dẫn media.
+- Media (`GET /api/v7/zalo/media/<sha256>`, 23/11/2026): mọi trả lời có `Accept-Ranges: bytes`. Một khoảng `Range` (`bytes=a-b`, `a-`, `-n`) trả 206 + `Content-Range`; ngoài cỡ (đầu ≥ cỡ file, `-0`, file 0 byte) trả 416 + `Content-Range: bytes */<cỡ>`; nhiều khoảng, đơn vị lạ hoặc cú pháp hỏng thì trả 200 cả file. Gửi từng khúc 64 KiB đọc từ file (không đọc cả file vào RAM), hạn socket đặt lại 15 giây cho mỗi khúc thay vì 5 giây cho cả lần gửi. Giữ nguyên: chỉ sha có trong `media.json`, không symlink, sau xác thực danh tính, `nosniff`, `Cache-Control`. Không có `HEAD` (Safari dùng `GET` kèm `Range`).
+- Thẻ media: `<video controls playsinline preload="metadata">` (iPhone phát trong khung tin); `<audio>` AAC giữ `preload="none"` để trang nhiều ghi âm không đổ yêu cầu lên máy chủ trước khi bấm. Ghi âm Zalo trong gói là `audio/aac` (AAC ADTS, Safari phát được); `audio/amr` trình duyệt không phát nên vẫn là liên kết tải về, không chuyển mã.
 
 ## Tiêu chí nghiệm thu
 
 - [x] `tests/test_v7_zalo_chat.py`: chỉ mục, nhận chủ tài khoản, danh sách + tìm không dấu, phân trang (trang 0 mới nhất, `has_older`), tìm trong hội thoại, 400/404/503, file nguồn không đổi, trang được phục vụ.
 - [x] `preview/test-zalo-chat-browser.js`: danh sách, mở hội thoại, tải tin cũ hơn, tìm, `?q=` tự mở, 503 báo rõ, màn điện thoại.
 - [x] Bước 7: xem với bản xuất thật tại máy (30/10/2026): lập chỉ mục 1,0 giây; tìm trong hội thoại 33.391 tin 0,5 giây; trang 1280×720 và 375×812 đi hết luồng.
+- [x] `tests/test_v7_zalo_chat.py::ZaloMediaRangeTest`: từng dạng Range (206, 416, vượt cỡ, đuôi, file 0 byte, cú pháp lạ → 200), chỉ file được liệt kê, không đọc cả file, hạn đặt lại mỗi khúc, client đọc chậm hơn 5 giây vẫn nhận đủ; `test-zalo-chat-browser.js`: thuộc tính thẻ video/audio.
+- [ ] Phát một video và một ghi âm trên iPhone (Safari) qua URL serve của `hao`: người dùng tự thử sau khi lên `hao`.
 - [ ] Bước 8: người dùng tự đi hết luồng trên bản thử (`python web/v7_zalo_chat.py --export-dir …`) và quyết định có chép bản xuất lên `hao`.
 
 ## Phạm vi agent

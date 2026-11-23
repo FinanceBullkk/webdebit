@@ -124,6 +124,9 @@ STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
 DISCARD_MAX_BYTES = MAX_IMAGE_BODY  # thân hợp lệ lớn nhất vẫn nhận được phản hồi
 DISCARD_SECONDS = 2.0               # hạn tổng, client nhỏ giọt cũng không giữ luồng lâu hơn
 DISCARD_CHUNK = 64 * 1024
+# Media trang Chat (23/11/2026): gửi từng khúc, hạn đặt lại cho từng khúc (~4 KB/s trở lên vẫn nhận đủ), không phải cho cả file.
+MEDIA_CHUNK = 64 * 1024
+MEDIA_CHUNK_SECONDS = 15.0
 
 
 def declared_length(value: str, limit: int) -> int | None:
@@ -657,6 +660,51 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             presence.close_stream(actor)
 
+    def send_media(self, kind: str, path: os.PathLike[str], range_header: str | None) -> None:
+        """Media của trang Chat: một khoảng Range → 206, ngoài cỡ → 416, còn lại 200; gửi từng khúc từ file.
+
+        Safari iOS chỉ phát <video>/<audio> khi máy chủ nhận `Range` (nó hỏi `bytes=0-1` trước). Hạn 5 giây của
+        _request áp cho cả lần sendall, nên video lớn trên mạng chậm bị cắt: ở đây hạn được đặt lại cho từng khúc.
+        """
+        with open(path, "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size   # cỡ của chính file đang mở, không phải của lần stat trước
+            status, first, last = 200, 0, size - 1
+            try:
+                window = v7_zalo_chat.byte_range(range_header, size)
+            except v7_zalo_chat.RangeNotSatisfiable:
+                status = 416
+            else:
+                if window is not None:
+                    status, (first, last) = 206, window
+            length = 0 if status == 416 else last - first + 1
+            fields = [("Content-Type", kind), ("Accept-Ranges", "bytes"), ("Content-Length", str(length)),
+                      ("Cache-Control", "private, max-age=86400"), ("X-Content-Type-Options", "nosniff")]
+            if status == 416:
+                fields.append(("Content-Range", f"bytes */{size}"))
+            elif status == 206:
+                fields.append(("Content-Range", f"bytes {first}-{last}/{size}"))
+            self.send_response(status)
+            for name, field in fields:
+                self.send_header(name, field)
+            self.end_headers()
+            if not length:
+                return
+            handle.seek(first)
+            remaining = length
+            try:
+                while remaining:
+                    chunk = handle.read(min(remaining, MEDIA_CHUNK))
+                    if not chunk:   # file ngắn đi giữa chừng: dừng, không treo client chờ byte không bao giờ tới
+                        self.close_connection = True
+                        return
+                    self.connection.settimeout(MEDIA_CHUNK_SECONDS)
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+            except TimeoutError:
+                self.close_connection = True   # client đứng quá hạn: đầu trả lời đã đi, không chèn JSON 408 vào thân
+            finally:
+                self.connection.settimeout(self.timeout)   # kết nối giữ sống chờ yêu cầu kế tiếp theo hạn thường
+
     def request(self) -> None:
         try:
             self._request()
@@ -707,15 +755,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET" and route.path.startswith(v7_zalo_chat.MEDIA_PREFIX):
                 # ZALO-GROUP-01: ảnh của gói chat, sau xác thực danh tính như mọi /api/v7/*.
                 try:
-                    kind, data = v7_zalo_chat.handle_media(route.path, route.query)
+                    kind, media = v7_zalo_chat.handle_media(route.path, route.query)
                 except v7_zalo_chat.ChatError as exc:
                     raise ApiError(exc.status, exc.code, exc.message) from exc
-                self.send_response(200)
-                for name, field in (("Content-Type", kind), ("Content-Length", str(len(data))),
-                                    ("Cache-Control", "private, max-age=86400"), ("X-Content-Type-Options", "nosniff")):
-                    self.send_header(name, field)
-                self.end_headers()
-                self.wfile.write(data)
+                ranges = self.headers.get_all("Range", [])
+                self.send_media(kind, media, ranges[0] if len(ranges) == 1 else None)
                 return
             if self.command == "GET" and route.path.startswith(v7_insurance_queue.CERT_PREFIX):
                 # BAO-HIEM-ZALO-01: PDF giấy bảo hiểm, sau xác thực danh tính như mọi /api/v7/*; chỉ giấy trong bản chụp hiện tại.

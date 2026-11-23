@@ -1,10 +1,13 @@
 """ZALO-CHAT-01: API đọc bản xuất chat Zalo theo trang (dữ liệu giả, không chạm bản xuất thật)."""
 
 import hashlib
+import http.client
 import json
 import os
+import socket
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -33,6 +36,11 @@ def message(cid, mid, sender, stamp, body, message_type=1, status=None, attachme
     return {"message_id": mid, "conversation_id": cid, "sender_id": sender, "timestamp": str(stamp),
             "server_time": str(stamp), "message_type": message_type, "status": status or (2 if sender == OWNER else 4),
             "body": body, "body_state": "decoded_basic_encryption", "attachment_metadata": attachment}
+
+
+def media_bytes(store, media_id):
+    mime, path = store.media_path(media_id)
+    return mime, path.read_bytes()
 
 
 def write_fixture(directory: Path) -> None:
@@ -251,7 +259,7 @@ class ZaloWebBundleStoreTest(unittest.TestCase):
         self.assertEqual(parent["reactions"], [{"emoji": "/-heart", "count": 2}, {"emoji": "/-strong", "count": 1}])
         self.assertEqual((rows["m7"]["deleted"], rows["m7"]["quote"], rows["m7"]["reactions"]), (True, None, []))
         self.assertEqual(rows["s1"]["sticker"], {"id": fixture.sha(fixture.STICKER_PNG), "mime": "image/png", "width": None, "height": None})
-        self.assertEqual(store.media_file(rows["v1"]["media"][0]["id"]), ("audio/aac", fixture.VOICE_AAC))
+        self.assertEqual(media_bytes(store, rows["v1"]["media"][0]["id"]), ("audio/aac", fixture.VOICE_AAC))
         self.assertEqual([(rows[key]["card"], rows[key]["type_label"]) for key in ("c1", "c2")], [("link", "Liên kết"), ("poll", "Bình chọn")])
         self.assertEqual((rows["q1"]["sender_avatar"], parent["sender_avatar"]), (fixture.sha(fixture.AVATAR_JPEG), None))
         self.assertEqual(store.conversations()[0]["avatar"], fixture.sha(fixture.GROUP_PNG))
@@ -272,11 +280,11 @@ class ZaloWebBundleStoreTest(unittest.TestCase):
         self.assertEqual(rows["m2"]["media"], [{"id": sha, "mime": "image/jpeg", "width": 1280, "height": 960}])
         self.assertEqual(rows["m2"]["album"], hashlib.sha256(b"77").hexdigest()[:16])
         self.assertEqual((rows["m5"]["media"], rows["m7"]["deleted"]), ([], True))
-        self.assertEqual(store.media_file(sha), ("image/jpeg", fixture.cdn_bytes(fixture.CDN_OK)))
+        self.assertEqual(media_bytes(store, sha), ("image/jpeg", fixture.cdn_bytes(fixture.CDN_OK)))
         self.assertEqual(store.summary()["media_count"], self.report["media_count"])
         for bad in ("0" * 64, "../media.json", sha.upper()):
             with self.subTest(bad=bad), self.assertRaises(chat.ChatError) as caught:
-                store.media_file(bad)
+                store.media_path(bad)
             self.assertEqual(caught.exception.status, 404)
 
     def test_focus_returns_page_holding_message(self):
@@ -416,7 +424,8 @@ class ZaloDeltaTest(unittest.TestCase):
             self.assertIs(chat.get_store(str(self.root)), store)
         row = store.messages(CONV_A, 0, 100)["messages"][-1]
         self.assertEqual((row["message_id"], row["sender_name"], row["media"]), ("m8", "Bạn mới", [{"id": sha, "mime": "image/png", "width": 2, "height": 3}]))
-        self.assertEqual(chat.handle_media(chat.MEDIA_PREFIX + sha, "", str(self.root)), ("image/png", png))
+        mime, found = chat.handle_media(chat.MEDIA_PREFIX + sha, "", str(self.root))
+        self.assertEqual((mime, found.read_bytes()), ("image/png", png))
         self.assertEqual(store.summary()["media_count"], 1)
         # Chỉ đổi media.json/users.json mà delta không đổi (báo cáo đổi) cũng được đọc lại.
         (self.data / "users.json").write_text(json.dumps({"self_user": OWNER, "users": {BAN: "Bạn đổi tên"}}), encoding="utf-8")
@@ -572,6 +581,191 @@ class ZaloDeltaTest(unittest.TestCase):
         self.write_report(delta_bytes=self.delta.stat().st_size, revision=3)
         chat.get_store(str(self.root))
         self.assertEqual(len(store.media), 0)
+
+
+class ZaloMediaRangeTest(unittest.TestCase):
+    """Media của trang Chat qua HTTP thật: Range cho Safari iOS, gửi theo khúc, hạn tính theo khúc (23/11/2026)."""
+
+    DATA = bytes(range(256)) * 4   # 1024 byte, mỗi byte nhận ra vị trí của mình
+    SHA = "a" * 64
+    EMPTY = "b" * 64
+    BIG = "c" * 64
+    VOICE = "d" * 64
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        write_fixture(self.root)
+        (self.root / "media").mkdir()
+        listed = {sha: {"mime": "video/mp4", "width": 2, "height": 2} for sha in (self.SHA, self.EMPTY, self.BIG)}
+        listed[self.VOICE] = {"mime": "audio/aac", "width": None, "height": None}
+        (self.root / "media.json").write_text(json.dumps(listed), encoding="utf-8")
+        (self.root / "media" / f"{self.SHA}.mp4").write_bytes(self.DATA)
+        (self.root / "media" / f"{self.EMPTY}.mp4").write_bytes(b"")
+        (self.root / "media" / f"{self.VOICE}.aac").write_bytes(self.DATA[:100])
+        patcher = patch.object(chat, "EXPORT_DIR", str(self.root))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        chat._STORE, chat._STORE_DIR = None, None
+        chat._RELOAD.clear()
+        chat._RELOAD["running"] = False
+        self.addCleanup(setattr, chat, "_STORE", None)
+
+        class TrialHandler(api.Handler):
+            runner = object()
+            default_actor = "media-test"
+            dev_actor_mode = True
+
+            def setup(self):
+                super().setup()
+                # Bộ đệm gửi nhỏ để máy nào cũng chặn sendall khi client không đọc (Windows nhận trọn file lớn vào đệm hạt nhân).
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+
+        self.server = api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler)
+        TrialHandler.port = self.server.server_port
+        worker = threading.Thread(target=self.server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join, 3)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def get(self, sha, range_header=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
+        try:
+            conn.request("GET", chat.MEDIA_PREFIX + sha, headers={"Range": range_header} if range_header else {})
+            response = conn.getresponse()
+            return response.status, {key.lower(): value for key, value in response.getheaders()}, response.read()
+        finally:
+            conn.close()
+
+    def test_whole_file_declares_accept_ranges_and_keeps_the_old_guards(self):
+        status, headers, body = self.get(self.SHA)
+        self.assertEqual((status, body, headers["content-type"], headers["content-length"]), (200, self.DATA, "video/mp4", "1024"))
+        self.assertEqual((headers["accept-ranges"], headers["x-content-type-options"], headers["cache-control"]),
+                         ("bytes", "nosniff", "private, max-age=86400"))
+        self.assertNotIn("content-range", headers)
+        status, headers, body = self.get(self.VOICE)
+        self.assertEqual((status, headers["content-type"], headers["accept-ranges"], len(body)), (200, "audio/aac", "bytes", 100))
+
+    def test_one_range_gets_206_with_content_range(self):
+        for header, (first, last) in (("bytes=0-1", (0, 1)), ("bytes=10-19", (10, 19)), ("bytes=1000-", (1000, 1023)),
+                                      ("bytes=-24", (1000, 1023)),
+                                      ("bytes=1000-5000", (1000, 1023)),   # cuối vượt cỡ: cắt về byte cuối
+                                      ("bytes=-5000", (0, 1023)),          # đuôi dài hơn file: cả file
+                                      ("bytes=0-", (0, 1023)), ("bytes=1023-1023", (1023, 1023)), ("Bytes= 5-6 ", (5, 6))):
+            with self.subTest(header=header):
+                status, headers, body = self.get(self.SHA, header)
+                self.assertEqual((status, body), (206, self.DATA[first:last + 1]))
+                self.assertEqual((headers["content-range"], headers["content-length"], headers["accept-ranges"]),
+                                 (f"bytes {first}-{last}/1024", str(last - first + 1), "bytes"))
+                self.assertEqual((headers["content-type"], headers["x-content-type-options"], headers["cache-control"]),
+                                 ("video/mp4", "nosniff", "private, max-age=86400"))
+
+    def test_range_outside_the_file_gets_416(self):
+        for header in ("bytes=1024-", "bytes=2000-3000", "bytes=-0", "bytes=1024-2000"):
+            with self.subTest(header=header):
+                status, headers, body = self.get(self.SHA, header)
+                self.assertEqual((status, headers["content-range"], headers["accept-ranges"], headers["x-content-type-options"]),
+                                 (416, "bytes */1024", "bytes", "nosniff"))
+                self.assertEqual(body, b"")
+
+    def test_unusable_range_falls_back_to_whole_file(self):
+        for header in ("bytes=0-1,5-9", "bytes=abc", "items=0-1", "bytes=5-2", "bytes=-", "bytes=", "0-1", "bytes=1-2-3", "bytes=²-5"):
+            with self.subTest(header=header):
+                status, headers, body = self.get(self.SHA, header)
+                self.assertEqual((status, body, headers["accept-ranges"]), (200, self.DATA, "bytes"))
+                self.assertNotIn("content-range", headers)
+
+    def test_empty_file(self):
+        status, headers, body = self.get(self.EMPTY)
+        self.assertEqual((status, body, headers["content-length"], headers["accept-ranges"]), (200, b"", "0", "bytes"))
+        for header in ("bytes=0-", "bytes=0-1", "bytes=-5"):
+            with self.subTest(header=header):
+                status, headers, body = self.get(self.EMPTY, header)
+                self.assertEqual((status, headers["content-range"], body), (416, "bytes */0", b""))
+
+    def test_only_listed_regular_files_are_served(self):
+        for sha in ("e" * 64, "../media.json", self.SHA.upper()):
+            with self.subTest(sha=sha):
+                for header in (None, "bytes=0-1"):
+                    self.assertEqual(self.get(sha, header)[0], 404)
+        target = self.root / "outside.bin"
+        target.write_bytes(b"secret")
+        try:
+            (self.root / "media" / f"{self.BIG}.mp4").symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("không tạo được symlink trên máy này")
+        for header in (None, "bytes=0-1"):
+            self.assertEqual(self.get(self.BIG, header)[0], 404)
+
+    def test_sends_in_chunks_without_reading_the_whole_file(self):
+        real = Path.read_bytes
+
+        def guarded(path):   # chỉ file trong media/ bị cấm đọc trọn; file báo cáo của gói vẫn đọc được
+            if path.parent.name == "media":
+                raise AssertionError("không được đọc cả file vào RAM")
+            return real(path)
+
+        with patch.object(Path, "read_bytes", guarded):
+            status, _, body = self.get(self.SHA, "bytes=2-3")
+            self.assertEqual((status, body), (206, self.DATA[2:4]))
+            self.assertEqual(self.get(self.SHA)[2], self.DATA)
+
+    def test_deadline_is_rearmed_for_every_chunk(self):
+        # Xác định trên mọi máy (Windows nhận trọn file lớn vào đệm hạt nhân nên không tự tái hiện được cú cắt 5 giây):
+        # mỗi khúc phải được đặt lại hạn socket, và kết nối trả về hạn thường sau khi gửi xong.
+        calls = []
+
+        class Recorder:
+            def __init__(self, sock):
+                self.sock = sock
+
+            def settimeout(self, value):
+                calls.append(value)
+                self.sock.settimeout(value)
+
+            def __getattr__(self, name):
+                return getattr(self.sock, name)
+
+        class Watched(self.server.RequestHandlerClass):
+            def setup(self):
+                super().setup()
+                self.connection = Recorder(self.connection)
+
+        self.server.RequestHandlerClass = Watched
+        chunks = 5
+        (self.root / "media" / f"{self.BIG}.mp4").write_bytes(b"\0" * (api.MEDIA_CHUNK * chunks - 7))
+        self.assertEqual(len(self.get(self.BIG)[2]), api.MEDIA_CHUNK * chunks - 7)
+        self.assertEqual(calls[0], 5)                                   # _request: hạn đọc yêu cầu
+        self.assertEqual(calls[1:-1], [api.MEDIA_CHUNK_SECONDS] * chunks)   # một lần cho mỗi khúc
+        self.assertEqual(calls[-1], api.Handler.timeout)                # rồi về hạn thường cho yêu cầu kế tiếp
+        self.assertGreaterEqual(api.MEDIA_CHUNK_SECONDS, 5)
+
+    def test_slow_reader_still_gets_the_whole_file_after_five_seconds(self):
+        # Hạn 5 giây của _request từng áp cho cả lần sendall: file lớn trên mạng chậm bị cắt. Giờ hạn tính theo từng khúc.
+        big = os.urandom(1024) * (24 * 1024)   # 24 MB, lớn hơn mọi bộ đệm socket loopback
+        (self.root / "media" / f"{self.BIG}.mp4").write_bytes(big)
+        sock = socket.create_connection(("127.0.0.1", self.server.server_port), timeout=30)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            sock.sendall(f"GET {chat.MEDIA_PREFIX}{self.BIG} HTTP/1.1\r\nHost: 127.0.0.1:{self.server.server_port}\r\n\r\n".encode())
+            time.sleep(6.5)   # không đọc một byte nào, lâu hơn hạn 5 giây cũ
+            received = b""
+            while b"\r\n\r\n" not in received:
+                received += sock.recv(65536)
+            head, _, first = received.partition(b"\r\n\r\n")
+            self.assertIn(b" 200 ", head.split(b"\r\n")[0])
+            body = bytearray(first)
+            while len(body) < len(big):
+                chunk = sock.recv(1 << 20)
+                if not chunk:
+                    break
+                body += chunk
+        finally:
+            sock.close()
+        self.assertEqual(len(body), len(big))
+        self.assertEqual(hashlib.sha256(body).digest(), hashlib.sha256(big).digest())
 
 
 if __name__ == "__main__":
