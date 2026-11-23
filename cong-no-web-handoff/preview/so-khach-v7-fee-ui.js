@@ -325,7 +325,9 @@
     const columns = ctx.feeColumnIds;
     const rows = types().map(type => {
       const id = Number(type.id), position = columns.indexOf(id), system = isSystem(type);
-      const name = renaming === id ? `<input class="fee-rename" data-id="${id}" value="${escape(type.name)}" aria-label="Tên mới" maxlength="200">` : escape(type.name);
+      // Tên đổi được là nút (bàn phím Tab tới và Enter được; trước là ô bảng chỉ bấm chuột được, audit giao diện 23/11 F4).
+      const name = renaming === id ? `<input class="fee-rename" data-id="${id}" value="${escape(type.name)}" aria-label="Tên mới" maxlength="200">`
+        : system ? escape(type.name) : `<button type="button" class="fee-name-btn" aria-label="Đổi tên ${escape(type.name)}">${escape(type.name)}</button>`;
       const column = type.system_key === 'other' ? '<span class="fee-muted">luôn là cột Khác</span>'
         : system ? '<span class="fee-muted">hiện ở cột Khác</span>'
         : `<label class="fee-colbox"><input type="checkbox" class="fee-col" data-id="${id}"${position >= 0 ? ' checked' : ''}${position < 0 && !type.active ? ' disabled' : ''} aria-label="Cột riêng ${escape(type.name)}">${position >= 0 ? `<span class="fee-pos">${position + 1}</span>` : ''}</label>`;
