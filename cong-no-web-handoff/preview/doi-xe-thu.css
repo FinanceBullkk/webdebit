@@ -75,7 +75,7 @@
 .dxt-cut{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .dxt-loai{margin-right:6px;padding:1px 6px;border-radius:4px;background:#eef1f4;color:#33465c;font-size:13px;font-weight:600}
 .dxt-chua{color:#8a5300;font-weight:700}
-.dxt-lap{display:inline-block;margin-left:4px;padding:0 5px;border-radius:4px;background:#fdecc8;color:#6b4400;font-size:12px;font-weight:700;text-decoration:none}
+.dxt-lap{display:inline-block;margin-left:4px;padding:0 5px;border-radius:4px;background:#fdecc8;color:#6b4400;font-size:13px;font-weight:700;text-decoration:none}
 .dxt-khac{color:#8a5300;font-weight:700;text-decoration:underline dotted}
 .dxt-tong{min-height:44px;background:var(--head);border-top:1px solid var(--line);font-weight:700;font-variant-numeric:tabular-nums}
 .dxt-ct{display:flex;flex-direction:column;gap:6px;padding:8px 16px 12px 78px;border-top:1px dashed #e1e6ec;font-size:14px;color:#33465c}
