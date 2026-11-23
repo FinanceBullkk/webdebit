@@ -8,6 +8,7 @@ from pg_v7_harness import (
     AUDIT_KIEN_TRUC_MIGRATION,
     AUDIT_SQL_MIGRATION,
     DIEU_CHINH_THEO_GIA_MIGRATION,
+    SO_GON_MIGRATION,
     call,
     fixture_open_month,
     new_book,
@@ -58,6 +59,7 @@ def check_audit_kien_truc(pg) -> str:
     pg.sql(migration)
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     require(pg.value(CATALOG) == fresh, "audit migration rerun changed function catalog")
 
     # A12 — hai đường vào cùng một trạng thái cuối: sửa container, sửa ngày sang tháng có dòng sổ gốc không ngày.

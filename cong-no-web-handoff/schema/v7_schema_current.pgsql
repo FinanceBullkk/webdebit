@@ -1077,7 +1077,7 @@ ALTER VIEW sokhach.v_trip_current OWNER TO sokhach_owner;
 
 
 -- ------------------------------------------------------------------------------------------------------------
--- HÀM (147), sắp theo tên + chữ ký
+-- HÀM (148), sắp theo tên + chữ ký
 -- ------------------------------------------------------------------------------------------------------------
 
 -- FUNCTION sokhach._actor()
@@ -2089,15 +2089,16 @@ AS $function$
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
         'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
-        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
+        -- Audit SQL 23/11/2026 (F4): chỉ event có khóa `receipt` mới có thể là cấn trừ; event khác bỏ qua hai câu con.
+        'counterparty_customer_id',CASE WHEN event."after" ? 'receipt' THEN (SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
+        'counterparty_name',CASE WHEN event."after" ? 'receipt' THEN (SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
             ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
                 ELSE p.source_customer_id END
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
         'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
             'price',"before"->'price' || jsonb_build_object(
                 'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
@@ -2678,6 +2679,23 @@ END $function$;
 ALTER FUNCTION sokhach._sync_trip_fee(bigint,bigint) OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach._sync_trip_fee(bigint,bigint) FROM PUBLIC;
 
+-- FUNCTION sokhach._trip_current_row(bigint,bigint)
+CREATE OR REPLACE FUNCTION sokhach._trip_current_row(p_customer bigint, p_trip bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
+AS $function$
+    SELECT jsonb_build_object('id',t.id,'event_date',t.event_date,'container',t.container,'status',t.status,'booking',t.booking,
+        'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text)
+    FROM sokhach.v_trip_current t
+    LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
+        WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
+    WHERE t.id=p_trip AND t.customer_id=p_customer AND NOT t.deleted
+$function$;
+ALTER FUNCTION sokhach._trip_current_row(bigint,bigint) OWNER TO sokhach_owner;
+REVOKE ALL ON FUNCTION sokhach._trip_current_row(bigint,bigint) FROM PUBLIC;
+
 -- FUNCTION sokhach._trip_date(text)
 CREATE OR REPLACE FUNCTION sokhach._trip_date(p_value text)
  RETURNS date
@@ -3053,13 +3071,16 @@ BEGIN
   OR (sheet_price->>'other_fee_vnd' IS NOT NULL AND sheet_price->>'other_fee_vnd' !~ '^-?[0-9]+$')
  THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
  IF target_kind='trip' THEN
-  SELECT jsonb_build_object('unit_price_vnd',t.value->>'unit_price_vnd','other_fee_vnd',t.value->>'other_fee_vnd')
-   INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
-   WHERE (t.value->>'id')::bigint=target_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+  -- audit SQL F4: một chuyến/một dòng sổ gốc, không dựng cả sổ bằng get_ledger.
+  SELECT jsonb_build_object('unit_price_vnd',r->>'unit_price_vnd','other_fee_vnd',r->>'other_fee_vnd')
+   INTO v_current FROM sokhach._trip_current_row(customer_id,target_id) r WHERE r IS NOT NULL;
  ELSE
-  SELECT jsonb_build_object('unit_price_vnd',l.value->'current'->>'unit_price_vnd','other_fee_vnd',l.value->'current'->>'other_fee_vnd')
-   INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'legacy_rows') l
-   WHERE (l.value->>'id')::bigint=target_id AND l.value->>'kind'='trip' AND NOT coalesce((l.value->'current'->>'deleted')::boolean,false);
+  SELECT jsonb_build_object('unit_price_vnd',cur->>'unit_price_vnd','other_fee_vnd',cur->>'other_fee_vnd')
+   INTO v_current FROM sokhach.legacy_row l
+   JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id) JOIN sokhach.cutover c ON c.id=cc.cutover_id
+   CROSS JOIN LATERAL sokhach._legacy_current(l.id) cur
+   WHERE l.customer_id=apply_sheet_price.customer_id AND l.id=target_id AND l.kind='trip'
+     AND cc.status='active' AND c.status='active' AND NOT coalesce((cur->>'deleted')::boolean,false);
  END IF;
  IF v_current IS NULL THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
  IF v_current IS DISTINCT FROM web_value THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
@@ -4054,9 +4075,7 @@ BEGIN
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'shipper',t.shipper,'status',t.status,'booking',t.booking,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r
             JOIN sokhach.event e ON e.id=r.created_by_event WHERE r.trip_id=t.id ORDER BY r.id DESC LIMIT 1),
-            (SELECT x->>'review_reason' FROM sokhach.trip tr JOIN sokhach.event e ON e.id=tr.created_by_event
-            CROSS JOIN LATERAL jsonb_array_elements(e."after"->'trips') x
-            WHERE tr.id=t.id AND x->>'trip_id'=t.id::text)),
+            pr.reason),
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
         'fee_lines',sokhach._fee_lines(t.id,NULL),
@@ -4081,6 +4100,13 @@ BEGIN
     LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
         WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
     LEFT JOIN sokhach.month_state ms ON (ms.customer_id,ms.month)=(t.customer_id,t.debt_month)
+    -- Audit SQL 23/11/2026 (F4): lý do lúc dán đọc một lượt: mỗi event tạo chuyến của sổ bung mảng `trips` đúng một lần
+    -- (trước: mỗi chuyến bung lại cả mảng của lô nó, bậc hai theo cỡ lô).
+    LEFT JOIN (SELECT (x->>'trip_id')::bigint AS trip_id, x->>'review_reason' AS reason
+        FROM (SELECT DISTINCT tr.created_by_event FROM sokhach.trip tr WHERE tr.customer_id=get_ledger.customer_id) ev
+        JOIN sokhach.event e ON e.id=ev.created_by_event
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e."after"->'trips')='array' THEN e."after"->'trips' ELSE '[]'::jsonb END) x
+        WHERE x ? 'review_reason') pr ON pr.trip_id=t.id
     WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'month',debt_month,
         'trip_id',trip_id,'legacy_row_id',legacy_row_id,'amount_vnd',amount_vnd::text,'note',note,'at',at)
@@ -4096,7 +4122,10 @@ BEGIN
         (SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'month',l.debt_month,
             'kind',l.kind,'amount_vnd',l.amount_vnd::text,'superseded_by_event',
             l.superseded_by_event) ORDER BY l.id),'[]'::jsonb)
-            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id)) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
+            -- Audit SQL 23/11/2026 (F4): bỏ các bản phân bổ cũ đã bị phân bổ lại thay; giữ dòng còn hiệu lực và dòng bị chính
+            -- lệnh hủy phiếu thay (tháng của phiếu đã hủy). Số dòng không còn tăng theo số lần phân bổ lại.
+            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id
+              AND (l.superseded_by_event IS NULL OR l.superseded_by_event=r.voided_by_event))) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
     INTO v_receipts FROM sokhach.receipt r WHERE r.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'month',o.debt_month,
         'amount_vnd',o.amount_vnd::text,'editable',false) ORDER BY o.debt_month),'[]'::jsonb)
@@ -5051,8 +5080,7 @@ BEGIN
   OR (task_kind='removed' AND target_kind<>'trip')
  THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
  IF target_kind='trip' THEN
-  SELECT t.value INTO v_row FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
-   WHERE (t.value->>'id')::bigint=target_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+  v_row:=sokhach._trip_current_row(customer_id,target_id);  -- audit SQL F4: một chuyến, không dựng cả sổ
  ELSE
   SELECT sokhach._legacy_current(l.id) INTO v_row FROM sokhach.legacy_row l
    JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id)
@@ -6095,7 +6123,7 @@ CREATE OR REPLACE FUNCTION sokhach.schema_level()
  LANGUAGE sql
  IMMUTABLE
  SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
-AS $function$ SELECT 2026112302 $function$;
+AS $function$ SELECT 2026112303 $function$;
 ALTER FUNCTION sokhach.schema_level() OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach.schema_level() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION sokhach.schema_level() TO sokhach_app;
@@ -6322,8 +6350,7 @@ BEGIN
    v_result:=sokhach.void_receipt(customer_id,v_version,v_undo_key,e."after"->>'pid','Hoàn tác lần ghi từ Việc cần làm');
   ELSIF e.kind='price_edit' THEN
    v_before:=e."before"->'price'; v_after:=e."after"->'price'; v_id:=(v_after->>'trip_id')::bigint;
-   SELECT t.value INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
-    WHERE (t.value->>'id')::bigint=v_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+   v_current:=sokhach._trip_current_row(customer_id,v_id);  -- audit SQL F4: một chuyến, không dựng cả sổ mỗi khóa
    IF v_current IS NULL OR v_current->>'unit_price_vnd' IS DISTINCT FROM v_after->>'unit_price_vnd'
     OR v_current->>'other_fee_vnd' IS DISTINCT FROM v_after->>'other_fee_vnd' THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
    v_result:=sokhach.edit_trip_price(customer_id,v_version,v_undo_key,v_id,

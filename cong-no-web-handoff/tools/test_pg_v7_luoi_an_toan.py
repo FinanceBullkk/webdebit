@@ -25,6 +25,7 @@ from pg_v7_harness import (
     DATABASE,
     DIEU_CHINH_THEO_GIA_MIGRATION,
     IMAGE,
+    SO_GON_MIGRATION,
     HarnessError,
     Pg,
     actor_sql,
@@ -195,6 +196,7 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     probe.expect("chạy lại migration cũ", "DB chưa trả bảng băm định nghĩa")
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     probe.quiet("sau migration")
     require(pg.value("SELECT has_function_privilege('v7_app','sokhach.get_safety_net(jsonb)','EXECUTE') AND NOT "
                      "has_function_privilege('v7_app','sokhach._safety_events(bigint,interval)','EXECUTE')") == "t",

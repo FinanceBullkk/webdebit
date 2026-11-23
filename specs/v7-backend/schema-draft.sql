@@ -1478,15 +1478,16 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
         'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
-        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
+        -- Audit SQL 23/11/2026 (F4): chỉ event có khóa `receipt` mới có thể là cấn trừ; event khác bỏ qua hai câu con.
+        'counterparty_customer_id',CASE WHEN event."after" ? 'receipt' THEN (SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
+        'counterparty_name',CASE WHEN event."after" ? 'receipt' THEN (SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
             ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
                 ELSE p.source_customer_id END
             WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')) END,
         'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
             'price',"before"->'price' || jsonb_build_object(
                 'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
@@ -1588,9 +1589,7 @@ BEGIN
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'shipper',t.shipper,'status',t.status,'booking',t.booking,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r
             JOIN sokhach.event e ON e.id=r.created_by_event WHERE r.trip_id=t.id ORDER BY r.id DESC LIMIT 1),
-            (SELECT x->>'review_reason' FROM sokhach.trip tr JOIN sokhach.event e ON e.id=tr.created_by_event
-            CROSS JOIN LATERAL jsonb_array_elements(e."after"->'trips') x
-            WHERE tr.id=t.id AND x->>'trip_id'=t.id::text)),
+            pr.reason),
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
         'fee_lines',sokhach._fee_lines(t.id,NULL),
@@ -1615,6 +1614,13 @@ BEGIN
     LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
         WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
     LEFT JOIN sokhach.month_state ms ON (ms.customer_id,ms.month)=(t.customer_id,t.debt_month)
+    -- Audit SQL 23/11/2026 (F4): lý do lúc dán đọc một lượt: mỗi event tạo chuyến của sổ bung mảng `trips` đúng một lần
+    -- (trước: mỗi chuyến bung lại cả mảng của lô nó, bậc hai theo cỡ lô).
+    LEFT JOIN (SELECT (x->>'trip_id')::bigint AS trip_id, x->>'review_reason' AS reason
+        FROM (SELECT DISTINCT tr.created_by_event FROM sokhach.trip tr WHERE tr.customer_id=get_ledger.customer_id) ev
+        JOIN sokhach.event e ON e.id=ev.created_by_event
+        CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e."after"->'trips')='array' THEN e."after"->'trips' ELSE '[]'::jsonb END) x
+        WHERE x ? 'review_reason') pr ON pr.trip_id=t.id
     WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'month',debt_month,
         'trip_id',trip_id,'legacy_row_id',legacy_row_id,'amount_vnd',amount_vnd::text,'note',note,'at',at)
@@ -1630,7 +1636,10 @@ BEGIN
         (SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'month',l.debt_month,
             'kind',l.kind,'amount_vnd',l.amount_vnd::text,'superseded_by_event',
             l.superseded_by_event) ORDER BY l.id),'[]'::jsonb)
-            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id)) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
+            -- Audit SQL 23/11/2026 (F4): bỏ các bản phân bổ cũ đã bị phân bổ lại thay; giữ dòng còn hiệu lực và dòng bị chính
+            -- lệnh hủy phiếu thay (tháng của phiếu đã hủy). Số dòng không còn tăng theo số lần phân bổ lại.
+            FROM sokhach.receipt_line l WHERE l.receipt_id=r.id
+              AND (l.superseded_by_event IS NULL OR l.superseded_by_event=r.voided_by_event))) ORDER BY r.date,r.pid COLLATE "C"),'[]'::jsonb)
     INTO v_receipts FROM sokhach.receipt r WHERE r.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',o.id,'month',o.debt_month,
         'amount_vnd',o.amount_vnd::text,'editable',false) ORDER BY o.debt_month),'[]'::jsonb)

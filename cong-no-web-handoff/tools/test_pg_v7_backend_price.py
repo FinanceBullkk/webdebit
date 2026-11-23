@@ -18,6 +18,7 @@ from pg_v7_harness import (
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
     SHEET_CONFLICT_MIGRATION,
+    SO_GON_MIGRATION,
     XEM_TRUOC_BANG_GIA_MIGRATION,
     ZALO_GROUP_MIGRATION,
     call,
@@ -361,6 +362,7 @@ def check_price_migration(pg):
     pg.sql(AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8"))  # audit 19/11: bản edit_trip_info/record_mark hiện hành
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
+    pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -402,7 +404,8 @@ def check_price_migration(pg):
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
                      "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
                      "2026-11-23-v7-audit-sql.sql",
-                     "2026-11-23-v7-dieu-chinh-theo-gia.sql"):
+                     "2026-11-23-v7-dieu-chinh-theo-gia.sql",
+                     "2026-11-23-v7-so-gon.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for name, query, expected in zip(("functions", "columns", "constraints"), (catalog, cols, constraints), fresh, strict=True):
         got = pg.sql(query, database=db).stdout.strip()
