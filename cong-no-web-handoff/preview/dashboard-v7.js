@@ -375,7 +375,7 @@
       }
       // Phần quá hạn và danh sách khách là phần thêm: lỗi thì trang vẫn đọc được số tổng.
       const [customers, debt] = await Promise.all([
-        json('/api/v7/customers').then(body => body.customers ?? []).catch(() => []),
+        CongNoNet.customers().then(body => body.customers ?? []).catch(() => []),
         json('/api/v7/dashboard/debt').catch(() => null),
       ]);
       state.data = data;

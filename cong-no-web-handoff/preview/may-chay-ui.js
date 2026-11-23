@@ -324,9 +324,7 @@
   // ----- Đọc API -----
   async function loadCustomers() {
     try {
-      const response = await fetch('/api/v7/customers', { cache: 'no-store' });
-      if (!response.ok) return;
-      const body = await response.json();
+      const body = await CongNoNet.customers();
       globalThis.AppNav?.setCustomers(body.customers ?? []);
       state.labels = F.customerLabels(body.customers ?? []);
       state.cardsKey = null; state.tasksKey = null; state.liveHtml = null; state.feedHtml = null;
