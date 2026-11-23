@@ -87,7 +87,7 @@
         const lock = (ctx.snapshot?.month_locks ?? []).find(row => monthKey(row.month) === to);
         const locked = lock ? lock.locked : to !== (monthKey(ctx.snapshot?.today_month) || liveOpenMonth);
         const what = `${kind === 'trip' ? 'chuyến' : 'dòng'} ${rowValues(kind, before).container || 'phí lẻ'}`;
-        td.closest('tr').insertAdjacentHTML('afterend', `<tr class="move-ask"><td colspan="${spanOf(td.closest('tr'))}">Ngày ${escape(dateText(value))} thuộc tháng ${monthLabel(to)}${locked ? ' (đã khóa)' : ''}. Chuyển ${escape(what)} sang tháng ${monthLabel(to)}? <button type="button" class="move-yes">Chuyển sang tháng ${monthLabel(to)}</button> <button type="button" class="move-no">Giữ ngày cũ (${escape(start)})</button></td></tr>`);
+        td.closest('tr').insertAdjacentHTML('afterend', `<tr class="move-ask"><td colspan="${spanOf(td.closest('tr'))}">Ngày ${escape(dateText(value))} thuộc tháng ${monthLabel(to)}${locked ? ' (đã khóa)' : ''}. Chuyển ${escape(what)} sang tháng ${monthLabel(to)}? <button type="button" class="move-no">Giữ ngày cũ (${escape(start)})</button> <button type="button" class="move-yes">Chuyển sang tháng ${monthLabel(to)}</button></td></tr>`);
         const row = askRow();
         row.querySelector('.move-yes').addEventListener('click', () => { row.remove(); state = 'editing'; save(true); });
         row.querySelector('.move-no').addEventListener('click', () => { restore(); td.focus(); });
@@ -166,7 +166,7 @@
       const { kind, id } = td.dataset;
       if (kind === 'adjustment') {
         const adjustment = (ctx.snapshot?.adjustments ?? []).find(row => String(row.id) === id);
-        row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="adjustment" data-id="${escape(id)}"><td colspan="${spanOf(row)}">Xóa hẳn điều chỉnh cả tháng ${escape(fmt(adjustment?.amount_vnd))}${adjustment?.note ? ` (${escape(adjustment.note)})` : ''}? Nợ tháng bỏ đúng số này; Lịch sử vẫn ghi. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+        row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="adjustment" data-id="${escape(id)}"><td colspan="${spanOf(row)}">Xóa hẳn điều chỉnh cả tháng ${escape(fmt(adjustment?.amount_vnd))}${adjustment?.note ? ` (${escape(adjustment.note)})` : ''}? Nợ tháng bỏ đúng số này; Lịch sử vẫn ghi. <button type="button" class="cancel-delete">Thôi</button> <button type="button" class="confirm-delete">Xóa hẳn</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
         row.nextElementSibling.querySelector('.cancel-delete').focus();
         return;
       }
@@ -181,7 +181,7 @@
         : `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
       const extra = paid ? ` Nợ tăng lại ${fmt(data.source_total_vnd)}; số dư đầu không đổi, phần cộng ghi ở dòng điều chỉnh sổ gốc của tháng.`
         : kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
-      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="${spanOf(row)}">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="${spanOf(row)}">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="cancel-delete">Thôi</button> <button type="button" class="confirm-delete">Xóa hẳn</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }
     async function confirmDelete(promptRow) {
