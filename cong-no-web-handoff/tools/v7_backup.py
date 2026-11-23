@@ -55,11 +55,28 @@ CONFIG_PATHS = (
     "/etc/webdebit", "/etc/webdebit-backup", "/srv/v7/customer-name-mapping.json",
     "/etc/ssh/sshd_config", "/etc/ssh/sshd_config.d", "/etc/sudoers", "/etc/sudoers.d",
     "/etc/postgresql/18/main", "/etc/ufw/user.rules", "/etc/ufw/user6.rules",
+    # Audit vận hành 23/11/2026 (O5): thiếu các file này thì dựng lại hao không chạy được máy deploy, đăng nhập web, máy đối soát
+    # (bộ CSV mốc sổ gốc ngoài Git) và hàng chờ chuyến (bản đối chiếu lúc nạp). docs/rebuild-hao.md dùng đúng danh sách này.
+    "/etc/webdebit-deploy.conf", "/var/lib/webdebit-sheet-sync/access/access.json", "/srv/v7/so-goc-20261020",
+    "/var/lib/webdebit-sheet-sync/baseline-refs.json", "/etc/fstab", "/etc/hostname", "/etc/hosts",
+    "/etc/apt/sources.list", "/etc/apt/sources.list.d", "/var/spool/cron/crontabs",
 )
 # (member, argv, OS user): stdout kept in memory. Root drops to postgres for peer auth.
 CONFIG_COMMANDS = (
     ("globals.sql", ("pg_dumpall", "--globals-only", "--no-password"), "postgres"),
     ("tailscale-serve.json", ("tailscale", "serve", "status", "--json"), None),
+)
+# Bảng kê để dựng lại máy (O5): gói, user/nhóm, đĩa/LVM, unit đang bật. Thiếu lệnh hay in rỗng (máy không có LVM) thì ghi
+# `command:<tên>` vào `missing`, không làm hỏng lượt như CONFIG_COMMANDS. Không có mật khẩu: getent đọc passwd/group, không đọc shadow.
+CONFIG_INVENTORY = (
+    ("inventory/packages.txt", ("dpkg-query", "-W", "-f=${Package}\t${Version}\n")),
+    ("inventory/apt-manual.txt", ("apt-mark", "showmanual")),
+    ("inventory/passwd.txt", ("getent", "passwd")),
+    ("inventory/group.txt", ("getent", "group")),
+    ("inventory/lsblk.json", ("lsblk", "--json", "--output", "NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS,UUID")),
+    ("inventory/lvm.txt", ("lvs", "--all", "--units", "g", "-o", "+devices")),
+    ("inventory/unit-files.txt", ("systemctl", "list-unit-files", "--state=enabled", "--no-pager", "--no-legend")),
+    ("inventory/timers.txt", ("systemctl", "list-timers", "--all", "--no-pager", "--no-legend")),
 )
 
 
@@ -598,7 +615,7 @@ def config_members(top, outputs, paths):
     return members, files, links
 
 
-def config(outbox, recipients, keep, databases=(), paths=CONFIG_PATHS, commands=CONFIG_COMMANDS):
+def config(outbox, recipients, keep, databases=(), paths=CONFIG_PATHS, commands=CONFIG_COMMANDS, inventory=CONFIG_INVENTORY):
     """Timer entry (root): PostgreSQL globals, hao config files, optional DB dumps, into age.
 
     Command output and file bytes go from memory into the age stream, so env
@@ -622,6 +639,11 @@ def config(outbox, recipients, keep, databases=(), paths=CONFIG_PATHS, commands=
                              for name in databases)]
     outputs = {member: capture(argv, user) for member, argv, user in commands}
     found, missing = collect(paths)
+    for member, argv in inventory:
+        try:
+            outputs[member] = capture(argv, None)
+        except BackupError:
+            missing.append(f"command:{member}")
     members, files, links = config_members(top, outputs, found)
     manifest = json.dumps({"format_version": 1, "kind": "config", "host": socket.gethostname(),
                            "created_at_vn": stamp.isoformat(), "files": files, "links": links,

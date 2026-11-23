@@ -89,6 +89,10 @@ class Session:
             else:  # dòng chỉ phụ phí: không container, không đơn giá, ngày có thể trống
                 payload.append({"container": "", "date": dmy(row["day"]), "note": "", "src": "FAKE",
                                 "unitPriceVnd": None, "otherFeeVnd": str(row["fee"])})
+        if self.book.locked(month) and any("unit" not in row and row["day"] is None for row in rows):
+            # Audit SQL 23/11 (F2): dòng phí lẻ không ngày vào tháng nợ của lệnh, tháng đó khóa thì cả lô bị từ chối.
+            self.command("paste_trips", [month, json.dumps(payload, ensure_ascii=False)], "MONTH_LOCKED")
+            return f"dán {len(rows)} chuyến (tháng {month}, đang khóa): {rows} → MONTH_LOCKED"
         result = self.command("paste_trips", [month, json.dumps(payload, ensure_ascii=False)], None)
         require(result["pending_review"] == [], f"paste_trips: chuyến vào CHỜ KIỂM {result['pending_review']}")
         trips = [Trip(trip_id, month_of(row["day"]) if row["day"] else month, row["day"], "unit" in row,

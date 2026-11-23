@@ -161,6 +161,42 @@ class PullTests(unittest.TestCase):
         self.assertIn(f"FAIL bad checksum file for {name}", self.log()[-1])
         self.assertEqual(self.names(), [])
 
+    def test_pass_and_fail_ping_this_pcs_check_after_the_log_line(self):
+        sent = []
+
+        def opener(request, timeout):
+            sent.append((request.full_url, request.data.decode("utf-8")))
+            return io.BytesIO()
+        url_file = self.dest / "ping-url.txt"
+        url_file.write_text("https://hc-ping.example/pc-key\n", encoding="utf-8")
+        self.seal("20200101-030000")
+        with patch.object(pull.urllib.request, "urlopen", opener):
+            self.assertEqual(self.main("--ping-url-file", str(url_file)), 0)
+            self.assertEqual(sent[-1][0], "https://hc-ping.example/pc-key")
+            self.assertTrue(sent[-1][1].startswith("PASS pulled=1 "))
+            self.assertTrue(self.log()[-1].endswith(" | pinged"))
+            self.sftp.down = True
+            self.assertEqual(self.main("--ping-url-file", str(url_file)), 2)
+        self.assertEqual(sent[-1], ("https://hc-ping.example/pc-key/fail", "FAIL"))   # sftp stderr stays on the PC
+        self.assertIn("FAIL sftp failed (255)", self.log()[-1])
+        self.assertNotIn("pc-key", "\n".join(self.log()))
+
+    def test_ping_problems_are_logged_and_never_change_the_pull_result(self):
+        self.seal("20200101-030000")
+        url_file = self.dest / "ping-url.txt"
+        url_file.write_text("http://not-https.example/x", encoding="utf-8")
+        self.assertEqual(self.main("--ping-url-file", str(url_file)), 0)
+        self.assertTrue(self.log()[-1].endswith(" | ping URL must start with https://"))
+        url_file.write_text("https://hc-ping.example/x", encoding="utf-8")
+
+        def down(request, timeout):
+            raise TimeoutError
+        with patch.object(pull.urllib.request, "urlopen", down):
+            self.assertEqual(self.main("--ping-url-file", str(url_file)), 0)
+        self.assertTrue(self.log()[-1].endswith(" | ping failed (TimeoutError)"))
+        self.assertEqual(self.main("--ping-url-file", str(self.dest / "missing.txt")), 0)
+        self.assertTrue(self.log()[-1].endswith(" | ping failed (FileNotFoundError)"))
+
     def test_cli_rejects_bad_keep_and_missing_dest(self):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
             pull.main(["--host", "h", "--user", "u", "--identity", "k", "--dest", str(self.dest), "--keep", "0"])

@@ -126,6 +126,45 @@ class ReconcileTests(Base):
         self.write(**fresh, edit_log={"status": "UNAVAILABLE", "reason": "403"})
         self.assertEqual(dog.check_reconcile(self.path, NOON), ["Máy không còn đọc được log sửa Sheet (403)."])
 
+    def test_report_mode_is_reported_and_fix_or_old_files_are_quiet(self):
+        fresh = {"checked_at": "2026-11-04T11:12:00+07:00", "customers": []}
+        for mode in ("fix", None):
+            self.write(**fresh, **({"mode": mode} if mode else {}))
+            self.assertEqual(dog.check_reconcile(self.path, NOON), [], mode)
+        self.write(**fresh, mode="report")
+        self.assertEqual(dog.check_reconcile(self.path, NOON),
+                         ["Máy đối soát đang chạy chế độ report: không tự sửa (thiếu --fix trong unit v7-reconcile-auto)."])
+
+    def log(self, *counts):
+        lines = [json.dumps({"checked_at": f"2026-11-04T{8 + index:02d}:12:00+07:00", "mode": "fix", "counts": {"LECH_TONG": count}})
+                 for index, count in enumerate(counts)]
+        (self.root / "reconcile-log.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_breaker_must_hold_two_runs_in_a_row_before_an_email(self):
+        tripped = {"checked_at": "2026-11-04T11:12:00+07:00", "mode": "fix", "customers": [], "counts": {"LECH_TONG": 52, "KHOP": 180},
+                   "details": {"skipped": "TOO_MANY_DIFFERENT"}}
+        self.write(**tripped)
+        self.assertEqual(dog.check_reconcile(self.path, NOON), [])          # chưa có sổ theo dõi: một lượt thì im
+        self.log(3, 2, 45)                                                    # lượt 10:12 cũng quá 40
+        self.assertEqual(dog.check_reconcile(self.path, NOON),
+                         ["Máy đối soát dừng ghi hai lượt liền vì 52 khách lệch (quá 40). Cần xem ngay."])
+        self.log(3, 2, 40)                                                    # lượt trước đúng 40: máy vẫn ghi
+        self.assertEqual(dog.check_reconcile(self.path, NOON), [])
+        self.log(50, 51, 2, 52)                                               # dòng của chính lượt 11:12 không tính là lượt trước
+        self.assertEqual(dog.check_reconcile(self.path, NOON), [])
+        (self.root / "reconcile-log.jsonl").write_text("{hỏng\n", encoding="utf-8")
+        self.assertEqual(dog.check_reconcile(self.path, NOON), [])
+        self.log(45)
+        self.write(**{**tripped, "details": {}})
+        self.assertEqual(dog.check_reconcile(self.path, NOON), [])
+
+    def test_breaker_reads_only_the_tail_of_a_long_log(self):
+        self.write(checked_at="2026-11-04T11:12:00+07:00", customers=[], counts={"LECH_TONG": 41}, details={"skipped": "TOO_MANY_DIFFERENT"})
+        old = json.dumps({"checked_at": "2026-10-01T08:12:00+07:00", "counts": {"LECH_TONG": 0}, "pad": "x" * 200})
+        last = json.dumps({"checked_at": "2026-11-04T10:12:00+07:00", "counts": {"LECH_TONG": 41}})
+        (self.root / "reconcile-log.jsonl").write_text("\n".join([old] * 200 + [last]) + "\n", encoding="utf-8")
+        self.assertEqual(len(dog.check_reconcile(self.path, NOON)), 1)
+
 
 class SnapshotTests(Base):
     def test_old_and_missing_files_are_named_and_a_late_tick_is_not(self):
@@ -226,6 +265,13 @@ class UnitTests(unittest.TestCase):
             return healthy_units(unit, *properties)
         self.assertEqual(dog.check_units(show, NOON.timestamp()),
                          ["Timer v7-reconcile-auto không chạy.", "Sao lưu v7-backup-daily lỗi (exit-code).", "Sao lưu v7-backup-offsite đã hơn 26 giờ chưa chạy."])
+
+    def test_money_and_backup_timers_split_for_their_own_checks(self):
+        self.assertEqual(set(dog.TIMERS), set(dog.MONEY_TIMERS) | set(dog.BACKUP_TIMERS))
+        self.assertTrue(all(name.startswith("v7-backup-") for name in dog.BACKUP_TIMERS))
+        seen = []
+        dog.check_units(lambda unit, *properties: seen.append(unit) or healthy_units(unit), NOON.timestamp(), dog.MONEY_TIMERS)
+        self.assertFalse(any("backup" in unit for unit in seen))
 
     def test_failed_run_of_a_fifteen_minute_job_is_left_to_the_snapshot_age(self):
         def show(unit, *properties):
@@ -627,13 +673,32 @@ class SendTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
 
 
+class RouteTests(unittest.TestCase):
+    def test_each_group_falls_back_to_the_main_check_and_safety_net_to_money(self):
+        self.assertEqual(dog.ping_routes({}), ("", {}))
+        main, routes = dog.ping_routes({"WEBDEBIT_ALERT_PING_URL": " https://hc/main "})
+        self.assertEqual((main, set(routes.values())), ("https://hc/main", {"https://hc/main"}))
+        self.assertEqual(set(routes), set(dog.GROUPS))
+        main, routes = dog.ping_routes({"WEBDEBIT_ALERT_PING_URL": "https://hc/main", "WEBDEBIT_ALERT_PING_URL_TIEN": "https://hc/tien"})
+        self.assertEqual(routes, {"tien": "https://hc/tien", "luoi": "https://hc/tien", "saoluu": "https://hc/main", "zalo": "https://hc/main"})
+        main, routes = dog.ping_routes({"WEBDEBIT_ALERT_PING_URL_LUOI": "https://hc/luoi", "WEBDEBIT_ALERT_PING_URL_ZALO": ""})
+        self.assertEqual((main, routes), ("", {"luoi": "https://hc/luoi"}))
+
+
+ENV_KEYS = ("WEBDEBIT_ALERT_PING_URL", "WEBDEBIT_ALERT_PING_URL_TIEN", "WEBDEBIT_ALERT_PING_URL_LUOI", "WEBDEBIT_ALERT_PING_URL_SAOLUU",
+            "WEBDEBIT_ALERT_PING_URL_ZALO")
+GROUPED = [("tien", ["Web báo lỗi (503)."]), ("tien", []), ("saoluu", []), ("luoi", ["Lưới: 1 sổ lệch."]), ("zalo", [])]
+
+
 class MainTests(Base):
-    def run_main(self, *args, url=None, sent=True):
+    def run_main(self, *args, url=None, sent=True, groups=None, **urls):
         printed = io.StringIO()
-        env = {key: value for key, value in os.environ.items() if key != "WEBDEBIT_ALERT_PING_URL"}
+        env = {key: value for key, value in os.environ.items() if key not in ENV_KEYS}
         if url:
             env["WEBDEBIT_ALERT_PING_URL"] = url
-        with patch.dict(os.environ, env, clear=True), patch.object(dog, "collect", return_value=["Web báo lỗi (503)."]), \
+        env.update({f"WEBDEBIT_ALERT_PING_URL_{name.upper()}": value for name, value in urls.items()})
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(dog, "collect_groups", return_value=[("tien", ["Web báo lỗi (503)."])] if groups is None else groups), \
                 patch.object(dog, "send", return_value=sent) as send, redirect_stdout(printed):
             code = dog.main(list(args))
         return code, send, printed.getvalue()
@@ -642,7 +707,7 @@ class MainTests(Base):
         code, send, printed = self.run_main()
         self.assertEqual(code, 0)
         send.assert_not_called()
-        self.assertEqual(json.loads(printed), {"ok": False, "problems": ["Web báo lỗi (503)."], "configured": False})
+        self.assertEqual(json.loads(printed), {"ok": False, "problems": ["Web báo lỗi (503)."], "configured": False, "checks": 0})
 
     def test_with_url_problems_go_out_and_url_is_never_printed(self):
         fake_url = "https://ping.test/bi-mat"
@@ -651,10 +716,29 @@ class MainTests(Base):
         send.assert_called_once_with(fake_url, "Web báo lỗi (503).", failed=True)
         self.assertNotIn("bi-mat", printed)
 
+    def test_only_the_main_check_gets_everything_like_before(self):
+        _code, send, _ = self.run_main(url="https://hc/main", groups=GROUPED)
+        send.assert_called_once_with("https://hc/main", "Web báo lỗi (503).\nLưới: 1 sổ lệch.", failed=True)
+
+    def test_split_checks_each_get_one_ping_and_main_becomes_the_heartbeat(self):
+        code, send, printed = self.run_main(url="https://hc/main", groups=GROUPED, tien="https://hc/tien", luoi="https://hc/luoi",
+                                            saoluu="https://hc/saoluu", zalo="https://hc/zalo")
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted((call.args[0], call.args[1], call.kwargs["failed"]) for call in send.call_args_list), [
+            ("https://hc/luoi", "Lưới: 1 sổ lệch.", True), ("https://hc/main", "Ổn.", False), ("https://hc/saoluu", "Ổn.", False),
+            ("https://hc/tien", "Web báo lỗi (503).", True), ("https://hc/zalo", "Ổn.", False)])
+        self.assertEqual(json.loads(printed)["checks"], 5)
+        self.assertNotIn("hc/", printed)
+
+    def test_a_group_without_its_own_check_still_reaches_the_main_one(self):
+        _code, send, _ = self.run_main(url="https://hc/main", groups=GROUPED, tien="https://hc/tien")
+        self.assertEqual(sorted((call.args[0], call.args[1]) for call in send.call_args_list),
+                         [("https://hc/main", "Ổn."), ("https://hc/tien", "Web báo lỗi (503).\nLưới: 1 sổ lệch.")])
+
     def test_dry_run_and_non_https_url_send_nothing(self):
         self.assertEqual(self.run_main("--dry-run", url="https://ping.test/x")[1].call_count, 0)
-        env = {key: value for key, value in os.environ.items() if key != "WEBDEBIT_ALERT_PING_URL"}
-        with patch.dict(os.environ, env, clear=True), patch.object(dog, "collect", return_value=[]) as collect, \
+        env = {key: value for key, value in os.environ.items() if key not in ENV_KEYS}
+        with patch.dict(os.environ, env, clear=True), patch.object(dog, "collect_groups", return_value=[]) as collect, \
                 redirect_stdout(io.StringIO()):
             dog.main(["--dry-run"])
             dog.main([])
@@ -663,11 +747,16 @@ class MainTests(Base):
                          [{"save_state": False}, {"save_state": True}])
         code, send, _ = self.run_main(url="http://ping.test/x")
         self.assertEqual((code, send.call_count), (2, 0))
+        code, send, _ = self.run_main(url="https://ping.test/x", zalo="http://ping.test/z")
+        self.assertEqual((code, send.call_count), (2, 0))
 
-    def test_test_fail_sends_the_test_text_without_checking(self):
+    def test_test_fail_sends_the_test_text_to_every_check_without_checking(self):
         code, send, _ = self.run_main("--test-fail", url="https://ping.test/x")
         self.assertEqual(code, 0)
         send.assert_called_once_with("https://ping.test/x", dog.TEST_BODY, failed=True)
+        code, send, _ = self.run_main("--test-fail", url="https://hc/main", tien="https://hc/tien", luoi="https://hc/tien")
+        self.assertEqual(sorted((call.args[0], call.args[1]) for call in send.call_args_list),
+                         [("https://hc/main", dog.TEST_BODY), ("https://hc/tien", dog.TEST_BODY)])
 
     def test_failed_send_exits_non_zero(self):
         self.assertEqual(self.run_main(url="https://ping.test/x", sent=False)[0], 3)
