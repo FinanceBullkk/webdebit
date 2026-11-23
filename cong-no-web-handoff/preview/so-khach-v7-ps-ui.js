@@ -202,8 +202,8 @@
   });
   // Cụm ô phụ phí của một dòng hiện theo danh sách khoản (khi xác nhận: kết quả dự kiến sau khi tách).
   function showLines(row, lines) {
-    const cells = model.feeCells(lines, ctx.feeColumnIds);
-    ctx.feeColumnIds.forEach((id, index) => {
+    const cells = model.feeCells(lines, ctx.shownFeeIds);
+    ctx.shownFeeIds.forEach((id, index) => {
       const cell = row.querySelector(`td.fee.own[data-fee-type="${CSS.escape(String(id))}"]`);
       if (cell) cell.textContent = cells.own[index] === null ? '' : model.formatVnd(cells.own[index]);
     });

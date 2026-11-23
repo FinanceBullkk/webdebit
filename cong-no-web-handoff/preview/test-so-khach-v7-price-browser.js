@@ -12,13 +12,17 @@ const missingTrip = { id: 12, month: '2026-09-01', container: 'NEWU0000012', car
   origin: 'DAK LAK', destination: 'Cảng B', unit_price_vnd: null, other_fee_vnd: null, amount_vnd: null, status: 'confirmed',
   is_missing_price: true, is_fee_only: false, editable: true, info_editable: true, deleted: false };
 
-test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khung hỏi lại; giá gõ tay khác bảng được tô', async () => withPage(async ({ page, world, shot }) => {
+test('chuyến chưa có giá: nhãn "chờ điền giá" cùng dòng, áp cả lô qua khung hỏi lại; giá gõ tay khác bảng được tô', async () => withPage(async ({ page, world, shot }) => {
   await page.waitForSelector('.price-table-apply');
   assert.equal(await page.locator('.price-table-apply').innerText(), 'Điền giá theo bảng (1 chuyến)');
   const missing = page.locator('[data-row="trip-12"] td').nth(6);
-  assert.match(await missing.innerText(), /chưa có giá\s*bảng 85\.000\.000/);
+  // SO-GON-07: mỗi chuyến một dòng — chữ ngắn ở ô, số của bảng ở chữ rê chuột.
+  assert.equal(await missing.innerText(), 'chờ điền giá');
+  assert.match(await missing.getAttribute('title'), /Bảng giá có 85\.000\.000/);
   const typed = page.locator('[data-row="trip-11"] td').nth(6);
-  assert.match(await typed.innerText(), /50\.000\.000\s*bảng 55\.000\.000/);
+  assert.match(await typed.innerText(), /^50\.000\.000\s*≠ bảng$/);
+  assert.match(await typed.getAttribute('title'), /Khác bảng giá: bảng 55\.000\.000/);
+  assert.ok((await typed.boundingBox()).height <= 40, 'ô Đơn giá một dòng');
   assert.equal(await typed.evaluate(cell => cell.classList.contains('price-differs')), true);
   await shot('bang-gia-o-don-gia');
 
@@ -37,7 +41,8 @@ test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khun
   assert.deepEqual([body.customer_id, body.expected_version, body.trip_ids], [1, 1, [12]]);
   assert.match(body.idempotency_key, /^[0-9a-f-]{36}$/);
   await page.waitForSelector('.price-table-apply', { state: 'detached' });
-  assert.match(await page.locator('[data-row="trip-12"] td').nth(6).innerText(), /85\.000\.000\s*theo bảng/);
+  assert.equal(await page.locator('[data-row="trip-12"] td').nth(6).innerText(), '85.000.000');   // theo bảng là bình thường: không in chữ
+  assert.match(await page.locator('[data-row="trip-12"] td').nth(6).getAttribute('title'), /Giá ghi theo bảng/);
 }, world => {
   world.trips.push({ ...missingTrip });
   world.priceStatus = status([
@@ -48,7 +53,7 @@ test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khun
 test('bảng giá đổi: chuyến theo giá cũ của bảng có dải "Áp lại giá mới"; lý do không tra được hiện ở ô', async () => withPage(async ({ page, world }) => {
   await page.waitForSelector('.price-reapply-open');
   assert.match(await page.locator('.price-strip').innerText(), /1\s+chuyến đang ghi theo giá cũ của bảng/);
-  assert.match(await page.locator('[data-row="trip-12"] td').nth(6).innerText(), /chưa có giá\s*ngoài bảng giá/);
+  assert.equal(await page.locator('[data-row="trip-12"] td').nth(6).innerText(), 'ngoài bảng giá');
   assert.equal(await page.locator('.price-table-apply').count(), 0);
   await page.click('.price-reapply-open');
   assert.match(await page.locator('.price-panel.confirm').innerText(), /Áp lại giá mới của bảng cho 1 chuyến/);
