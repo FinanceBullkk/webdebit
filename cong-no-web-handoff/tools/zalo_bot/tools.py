@@ -2,7 +2,10 @@
 
 Mỗi kết quả có `trang`, `link`, `du_lieu_luc` (giờ bot đọc, giờ VN) và `as_of` của máy chủ nếu có; kết quả về một khách có
 thêm `doi_soat` (khớp Sheet hay lệch, lần đối soát, có cũ không). Tiền là chuỗi số nguyên trong trường tên `*_vnd`, để bộ kiểm
-số điền và đối chiếu (verify.py). Chữ tự do (ghi chú, chữ tin chat, số tài khoản, email người thao tác) bị bỏ trước khi gửi model.
+số điền và đối chiếu (verify.py). Dữ liệu gửi model đi qua danh sách khóa giữ lại của từng công cụ (`KEEP`, spec Phần 5,
+Q5): chỉ mã, tiền, ngày, trạng thái, số đếm và tên sổ khách; số container, booking, biển số, tên tài xế, tên người thao tác,
+chữ tự do và mọi khóa API mới thêm đều không đi ra ngoài nếu không thêm vào `KEEP`. Tên trò chuyện Zalo (`lan_cuoi_noi_chuyen`)
+và tên địa điểm trong bảng giá (`bang_gia`) là hai ngoại lệ có ghi trong câu hỏi Q5.
 Công cụ admin chỉ được đưa cho người quyền admin (QUYEN-01); API còn mở `/inbox`, `/activity`, `/sheet/doi-chieu` cho mọi
 login nên bot tự giữ quyền theo trang. Mỗi kết quả tối đa khoảng 12 KB; dài hơn thì cắt danh sách và báo `da_cat`.
 """
@@ -32,14 +35,35 @@ MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 DAY = re.compile(r"\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])")
 MONTH01 = re.compile(r"\d{4}-(0[1-9]|1[0-2])-01")
 YEAR = re.compile(r"20\d{2}")
-# Trường chữ tự do hay định danh người thao tác: không gửi model (spec Phần 5).
-DROP = frozenset({
-    "note", "notes", "review_reason", "shipper", "carrier", "reference", "void_reason", "display", "actor", "before", "after",
-    "message_excerpt", "message_sender", "created_by", "cancelled_by", "cancel_reason", "text", "media", "image", "sender_name",
-    "conversation_name", "avatar", "owner", "ref", "findings", "hints", "details", "edit_log", "method", "ghi_chu", "ly_do",
-    "auto", "by_actor", "office", "book_shippers", "allocations", "items", "legacy_rows", "sheet_sync", "sheet_prices",
-    "sheet_receipts", "ps_fees", "insurance", "sheet_road", "sheet_details", "outgoing_offsets", "opening", "version",
-})
+# Khóa giữ lại khi gửi model, theo công cụ (F7): mọi khóa khác bị bỏ, kể cả khóa API thêm sau này. Khóa `*_vnd` (tiền) luôn giữ.
+# Không có trong danh sách: container, booking, origin/destination của chuyến, biển số, tên tài xế, tên người thao tác
+# (actor_name), mã tin/trò chuyện Zalo, ghi chú, lý do gõ tay.
+KEEP_COMMON = frozenset({"id", "pid", "customer_id", "month", "date", "event_date", "status", "kind", "label", "at", "count", "total"})
+KEEP = {
+    "tong_quan": frozenset({"tier", "name", "commodity", "transport_mode", "oldest_open_month", "trips", "receipts", "voids",
+                            "missing_price", "pending_review", "no_baseline", "credit"}),
+    "no_khach": frozenset(),
+    "no_theo_thang": frozenset({"counterparty_customer_id", "counterparty_name", "historical"}),
+    "so_khach_thang": frozenset({"counterparty_customer_id", "counterparty_name", "voided_on", "offset_pair_id", "trip_id",
+                                 "fee_lines", "fee_type_id", "has_typed_fee", "is_fee_only", "is_missing_price"}),
+    "lich_su_so": frozenset({"counterparty_customer_id", "counterparty_name"}),
+    "bang_gia": frozenset({"valid_from", "valid_to", "rates", "tier", "location", "destination", "any_destination", "trip_id",
+                           "from_table", "ready", "differs", "lookup", "reason"}),
+    "bang_thu": frozenset({"customers", "undated_count", "today_count", "has_sheet", "rows", "name", "book_month", "source"}),
+    "hua_tra": frozenset({"on_date", "message_at", "created_at", "created_on", "cancelled_at", "receipt_pid"}),
+    "bao_cao_thang": frozenset({"BIEN", "BO", "ALL", "booking", "sheet", "web", "thieu", "khong_booking", "lech_ngay", "khong_ngay",
+                                "chep", "ngoai", "chi_web", "web_thieu", "web_chua", "thieu_web", "issues", "name", "book_id",
+                                "commodity", "family", "reason", "machine_book"}),
+    "doi_soat": frozenset({"reason", "sheet_editing", "checked_at"}),
+    "viec_da_lam": frozenset({"customer"}),
+    "may_chay": frozenset({"state", "mode", "started_at", "finished_at", "stage", "done", "reason", "name", "every", "last", "next",
+                           "started", "ended", "silent_minutes", "selected_groups", "quiet_minutes", "push_error_minutes",
+                           "processors", "lag", "minutes", "error", "error_minutes", "pending", "done_1h", "stalled_minutes"}),
+    "doi_xe": frozenset({"vai", "xe_id", "chua_hoan", "nhom", "thue_ngoai", "tai_xe_id", "chang", "chua_phi", "the", "ung", "dot",
+                         "ngay", "luc", "so_dong", "loai", "tra", "km", "sau_khoa", "da_bo"}),
+}
+
+
 ROUTES = {
     "customers": Route("/api/v7/customers"),
     "dashboard": Route("/api/v7/dashboard"),
@@ -65,7 +89,33 @@ ROUTES = {
     "doixe_bang_ke": Route("/api/v7/doixe/bang-ke", {"thang": MONTH01}, admin=True),
     "cash_chat": Route("/api/v7/cash-chat", {"from": DAY, "to": DAY}, admin=True),
     "nhat_ky": Route("/api/v7/nhat-ky", admin=True),
+    # Dò vai trò trên web (F11): đường không có thật dưới tiền tố admin. Web kiểm vai trò trước khi tìm đường, nên login
+    # user nhận 403 còn admin nhận 404; không handler nào chạy, không đọc dữ liệu.
+    "role_probe": Route("/api/v7/admin/zalo-bot-role"),
 }
+ROLE_TTL = 60
+_roles: dict[str, tuple[float, str]] = {}
+
+
+def web_role(api: WebApi, user: User, now: float) -> str:
+    """Vai trò của người hỏi theo web (trang Người dùng, QUYEN-02), giữ 60 giây. `role` trong file bot chỉ hạ được quyền:
+    file ghi user thì luôn là user. Không hỏi được web thì coi là user (an toàn hơn), không giữ kết quả lỗi."""
+    if user.role == "user":
+        return "user"
+    hit = _roles.get(user.login)
+    if hit is not None and now - hit[0] < ROLE_TTL:
+        return hit[1]
+    try:
+        api.get(ROUTES["role_probe"], login=user.login, role="user")
+        role = "admin"
+    except ApiError as error:
+        if error.code not in ("not_found", "forbidden"):
+            return "user"
+        role = "admin" if error.code == "not_found" else "user"
+    _roles[user.login] = (now, role)
+    return role
+
+
 class _InboxCache:
     """Kết quả /inbox gần nhất, dùng chung giữa các câu hỏi trong `INBOX_TTL` giây."""
 
@@ -75,6 +125,7 @@ class _InboxCache:
 
 def reset_cache() -> None:
     _InboxCache.at, _InboxCache.data = 0, None
+    _roles.clear()
 
 
 class ToolError(ValueError):
@@ -132,14 +183,26 @@ def fold(text: str) -> str:
     return " ".join("".join(ch for ch in plain if unicodedata.category(ch) != "Mn").split())
 
 
-def compact(node: object, rows: int = MAX_ROWS) -> object:
-    """Bỏ trường chữ tự do (DROP), giữ số, ngày, mã, tiền; danh sách dài cắt ở `rows` phần tử kèm số đếm."""
-    if isinstance(node, dict):
-        return {key: compact(value, rows) for key, value in node.items() if key not in DROP}
-    if isinstance(node, list):
-        kept = [compact(item, rows) for item in node[:rows]]
-        return kept if len(node) <= rows else [*kept, {"con_lai": len(node) - rows}]
-    return node
+def compact(node: object, tool: str, rows: int = MAX_ROWS) -> object:
+    """Chỉ giữ khóa trong `KEEP_COMMON | KEEP[tool]` và khóa tiền `*_vnd`, ở mọi tầng; danh sách dài cắt ở `rows` phần tử kèm số đếm."""
+    keep = KEEP_COMMON | KEEP[tool]
+
+    def walk(value: object) -> object:
+        if isinstance(value, dict):
+            return {key: walk(child) for key, child in value.items() if key in keep or str(key).endswith("_vnd")}
+        if isinstance(value, list):
+            kept = [walk(item) for item in value[:rows]]
+            return kept if len(value) <= rows else [*kept, {"con_lai": len(value) - rows}]
+        return value
+
+    return walk(node)
+
+
+def counts(node: object) -> dict[str, int]:
+    """Bảng mã trạng thái → số đếm (khóa là mã do máy đặt): chỉ giữ giá trị số nguyên."""
+    if not isinstance(node, dict):
+        return {}
+    return {str(key): value for key, value in node.items() if isinstance(value, int) and not isinstance(value, bool)}
 
 
 def fit(result: dict, limit: int = MAX_CHARS) -> dict:
@@ -261,10 +324,10 @@ def tong_quan(ctx: Context, args: dict) -> dict:
     return {**ctx.stamp("Tổng quan", "/dashboard-v7.html", debt),
             "tong_no_vnd": (board.get("receivable") or {}).get("total_vnd"), "so_khach_no": (board.get("receivable") or {}).get("customers"),
             "qua_han_vnd": summary.get("overdue_vnd"), "qua_han_lau_vnd": summary.get("long_overdue_vnd"),
-            "so_khach_qua_han": summary.get("overdue_customers"), "theo_han": compact(debt.get("due_tiers")),
-            "khach_no_nhieu_nhat": compact(board.get("top_debtors"), 10),
+            "so_khach_qua_han": summary.get("overdue_customers"), "theo_han": compact(debt.get("due_tiers"), "tong_quan"),
+            "khach_no_nhieu_nhat": compact(board.get("top_debtors"), "tong_quan", 10),
             "thu_thang_nay_theo_thang_sheet_vnd": (debt.get("this_month") or {}).get("received_vnd"),
-            "hom_nay": compact(board.get("today")), "viec_cho": compact(board.get("todo"))}
+            "hom_nay": compact(board.get("today"), "tong_quan"), "viec_cho": compact(board.get("todo"), "tong_quan")}
 
 
 def no_khach(ctx: Context, args: dict) -> dict:
@@ -279,7 +342,7 @@ def no_khach(ctx: Context, args: dict) -> dict:
             "thang_no_cu_nhat": row.get("oldest_open_month"), "tra_lan_cuoi": row.get("last_receipt_date"),
             "tra_lan_cuoi_chinh_xac": row.get("last_receipt_exact"), "so_ngay_tu_lan_tra": row.get("pay_days"),
             "chuyen_gan_nhat": row.get("last_trip_date"), "so_ngay_tu_chuyen": row.get("trip_days"), "muc": row.get("risk"),
-            "theo_thang": compact(row.get("months"), 24)}
+            "theo_thang": compact(row.get("months"), "no_khach", 24)}
 
 
 def no_theo_thang(ctx: Context, args: dict) -> dict:
@@ -289,7 +352,8 @@ def no_theo_thang(ctx: Context, args: dict) -> dict:
         data = ctx.get("detail", customer=str(customer), month=f"{month}-01")
         return {**_book(ctx, customer, "Công nợ theo tháng", f"/so-khach-v7-live.html?customer={customer}&month={month}", data),
                 "thang": month, **compact({key: data.get(key) for key in ("outstanding_vnd", "charges_vnd", "received_vnd",
-                                                                            "allocated_vnd", "credit_applied_vnd", "receipts", "trips")})}
+                                                                            "allocated_vnd", "credit_applied_vnd")}, "no_theo_thang"),
+                "phieu_thu": compact(data.get("receipts"), "no_theo_thang"), "chuyen": compact(data.get("trips"), "no_theo_thang")}
     year = str(_vn_today(ctx).year)
     data = ctx.get("matrix", year=year)
     row = next((r for r in data.get("customers", []) if isinstance(r, dict) and r.get("customer_id") == customer), None)
@@ -312,8 +376,9 @@ def so_khach_thang(ctx: Context, args: dict) -> dict:
 
     summary = next((row for row in data.get("months", []) if isinstance(row, dict) and str(row.get("month", "")).startswith(month)), None)
     return {**_book(ctx, customer, "Sổ khách", f"/so-khach-v7-live.html?customer={customer}&month={month}", data), "thang": month,
-            "tong_no_vnd": data.get("total_outstanding_vnd"), "thang_nay": compact(summary), "chuyen": compact(pick("trips")),
-            "phieu_thu": compact(pick("receipts")), "dieu_chinh": compact(pick("adjustments"))}
+            "tong_no_vnd": data.get("total_outstanding_vnd"), "thang_nay": compact(summary, "so_khach_thang"),
+            "chuyen": compact(pick("trips"), "so_khach_thang"), "phieu_thu": compact(pick("receipts"), "so_khach_thang"),
+            "dieu_chinh": compact(pick("adjustments"), "so_khach_thang")}
 
 
 def lich_su_so(ctx: Context, args: dict) -> dict:
@@ -325,7 +390,7 @@ def lich_su_so(ctx: Context, args: dict) -> dict:
     rows = [row for row in data.get("events", []) if isinstance(row, dict) and start <= str(row.get("at", ""))[:10] <= end]
     rows.sort(key=lambda row: str(row.get("at", "")), reverse=True)
     return {**_book(ctx, customer, "Sổ khách: Lịch sử", f"/so-khach-v7-live.html?customer={customer}", data), "tu_ngay": start,
-            "den_ngay": end, "so_thao_tac": len(rows), "thao_tac": compact(rows, 50)}
+            "den_ngay": end, "so_thao_tac": len(rows), "thao_tac": compact(rows, "lich_su_so", 50)}
 
 
 def bang_gia(ctx: Context, args: dict) -> dict:
@@ -333,8 +398,8 @@ def bang_gia(ctx: Context, args: dict) -> dict:
     table, status = ctx.get("price_table", customer=str(customer)), ctx.get("price_status", customer=str(customer))
     differs = [row for row in status.get("trips", []) if isinstance(row, dict) and row.get("differs")]
     return {**_book(ctx, customer, "Sổ khách: Bảng giá", f"/so-khach-v7-live.html?customer={customer}", status),
-            "co_bang_gia": status.get("has_table"), "bang_gia": compact((table.get("price_table") or {}).get("periods")),
-            "chuyen_khac_bang_gia": compact(differs), "so_chuyen_san_sang": status.get("ready_count"),
+            "co_bang_gia": status.get("has_table"), "bang_gia": compact((table.get("price_table") or {}).get("periods"), "bang_gia"),
+            "chuyen_khac_bang_gia": compact(differs, "bang_gia"), "so_chuyen_san_sang": status.get("ready_count"),
             "tien_san_sang_vnd": status.get("ready_total_vnd"), "so_chuyen_can_ap_lai": status.get("reapply_count")}
 
 
@@ -347,13 +412,14 @@ def bang_thu(ctx: Context, args: dict) -> dict:
     data = ctx.get("receipt_book", month=f"{month}-01")
     days = [row for row in data.get("days", []) if isinstance(row, dict)]
     out = {**ctx.stamp("Bảng thu", f"/bang-thu.html?month={month}" + (f"&ngay={day}" if day else ""), data), "thang": month,
-           "tong_thang": compact(data.get("summary")), "ghi_chu_bot": "Bảng thu tính theo ngày tiền về, không theo tháng của Sheet"}
+           "tong_thang": compact(data.get("summary"), "bang_thu"), "ghi_chu_bot": "Bảng thu tính theo ngày tiền về, không theo tháng của Sheet"}
     if day:
         hit = next((row for row in days if row.get("date") == day), {"date": day, "rows": []})
-        out["ngay"] = compact(hit)
+        out["ngay"] = compact(hit, "bang_thu")
     elif customer is not None:
         out["khach_id"] = customer
-        out["phieu_cua_khach"] = compact([row for d in days for row in d.get("rows", []) if isinstance(row, dict) and row.get("customer_id") == customer])
+        out["phieu_cua_khach"] = compact([row for d in days for row in d.get("rows", []) if isinstance(row, dict) and row.get("customer_id") == customer],
+                                         "bang_thu")
     else:
         out["theo_ngay"] = [{"date": d.get("date"), "total_vnd": d.get("total_vnd"), "so_phieu": len(d.get("rows", []))} for d in days]
     return out
@@ -363,7 +429,7 @@ def hua_tra(ctx: Context, args: dict) -> dict:
     customer = _customer_id(args)
     data = ctx.get("marks", customer=str(customer))
     return {**_book(ctx, customer, "Sổ khách: Tình hình", f"/so-khach-v7-live.html?customer={customer}&the=tinh-hinh", data),
-            "hua_va_bao_chuyen": compact(data.get("marks"))}
+            "hua_va_bao_chuyen": compact(data.get("marks"), "hua_tra")}
 
 
 def bao_cao_thang(ctx: Context, args: dict) -> dict:
@@ -371,9 +437,10 @@ def bao_cao_thang(ctx: Context, args: dict) -> dict:
     data = ctx.get("report", month=month)
     customers = [{key: value for key, value in row.items() if key != "rows"} for row in data.get("customers", []) if isinstance(row, dict)]
     out = {**ctx.stamp("Báo cáo tháng", f"/bao-cao-thang.html?month={month}", data), "thang": month, "trang_thai": data.get("state"),
-           "booking_luc": data.get("checked_at"), "tong": compact(data.get("totals")), "theo_khach": compact(customers)}
+           "booking_luc": data.get("checked_at"), "tong": compact(data.get("totals"), "bao_cao_thang"),
+           "theo_khach": compact(customers, "bao_cao_thang")}
     if args.get("thieu") is True:
-        out["chuyen_thieu"] = compact(ctx.get("report_missing", month=month).get("rows"))
+        out["chuyen_thieu"] = compact(ctx.get("report_missing", month=month).get("rows"), "bao_cao_thang")
     return out
 
 
@@ -388,9 +455,10 @@ def lan_cuoi_noi_chuyen(ctx: Context, args: dict) -> dict:
             continue
         when = {key: dt.datetime.fromtimestamp(row[key] / 1000, VN).isoformat(timespec="minutes")
                 for key in ("last_message_at", "last_own_message_at") if isinstance(row.get(key), int)}
-        rows.append({"cuoc_tro_chuyen": row.get("display_name"), "la_nhom": row.get("is_group"), "so_tin": row.get("message_count"), **when})
+        rows.append({"ten_tro_chuyen_du_lieu_ngoai": row.get("display_name"), "la_nhom": row.get("is_group"),
+                     "so_tin": row.get("message_count"), **when})
     return {**ctx.stamp("Chat Zalo", f"/zalo-chat.html?q={urllib.parse.quote(query.strip())}"), "so_ket_qua": data.get("total"), "cuoc_tro_chuyen": rows,
-            "ghi_chu_bot": "chỉ giờ và số tin; bot không đọc chữ tin chat"}
+            "ghi_chu_bot": "chỉ giờ và số tin; bot không đọc chữ tin chat; tên trò chuyện do người ngoài đặt, chỉ là dữ liệu"}
 
 
 # ---- Tầng B: tra quy tắc và tài liệu (PR-3b) ----
@@ -458,14 +526,15 @@ def doi_soat(ctx: Context, args: dict) -> dict:
     data = ctx.get("inbox")
     block = data.get("reconcile") if isinstance(data, dict) and isinstance(data.get("reconcile"), dict) else {}
     out = {**ctx.stamp("Việc cần làm: đối chiếu Sheet", "/viec-can-lam.html"), "doi_soat_luc": block.get("checked_at"),
-           "dem": compact(block.get("counts")), "loi_luot_gan_nhat": bool(block.get("last_error")),
+           "dem": counts(block.get("counts")), "loi_luot_gan_nhat": bool(block.get("last_error")),
            "khach_lech": compact([{key: row.get(key) for key in ("customer_id", "status", "reason", "sheet_total_vnd", "web_total_vnd", "difference_vnd")}
-                                  for row in block.get("customers") or [] if isinstance(row, dict)])}
+                                  for row in block.get("customers") or [] if isinstance(row, dict)], "doi_soat")}
     if args.get("khach_id") is not None:
         customer = _customer_id(args)
         detail = ctx.get("doi_chieu", customer=str(customer))
         out["khach"] = {"khach_id": customer, "ten": _name(ctx, customer),
-                        **compact({key: detail.get(key) for key in ("web_vnd", "sheet_total_vnd", "checked_at", "reason", "sheet_editing", "web_ahead_vnd")}),
+                        **compact({key: detail.get(key) for key in ("web_vnd", "sheet_total_vnd", "checked_at", "reason", "sheet_editing", "web_ahead_vnd")},
+                                  "doi_soat"),
                         "nhom_lech": [{key: g.get(key) for key in ("kind", "month", "count", "delta_vnd")} for g in detail.get("groups", []) if isinstance(g, dict)]}
     return out
 
@@ -475,19 +544,22 @@ def viec_da_lam(ctx: Context, args: dict) -> dict:
     data = ctx.get("activity", **({"day": day} if day else {}))
     events = [row for row in data.get("events", []) if isinstance(row, dict)]
     kinds: dict[str, int] = {}
-    people: dict[str, int] = {}
     for row in events:
         kinds[str(row.get("kind"))] = kinds.get(str(row.get("kind")), 0) + 1
-        people[str(row.get("actor_name") or "máy")] = people.get(str(row.get("actor_name") or "máy"), 0) + 1
-    return {**ctx.stamp("Đã làm", None), "ngay": data.get("day"), "tong": data.get("total"), "theo_loai": kinds, "theo_nguoi": people,
-            "thao_tac": compact([{key: row.get(key) for key in ("customer_id", "customer", "kind", "actor_name", "at")} for row in events])}
+    by_person = sum(1 for row in events if row.get("actor_name"))
+    return {**ctx.stamp("Đã làm", None), "ngay": data.get("day"), "tong": data.get("total"), "theo_loai": kinds,
+            "so_viec_nguoi_lam": by_person, "so_viec_may_lam": len(events) - by_person,
+            "thao_tac": compact([{key: row.get(key) for key in ("customer_id", "customer", "kind", "at")} for row in events], "viec_da_lam")}
 
 
 def may_chay(ctx: Context, args: dict) -> dict:
     now, booking = ctx.get("machine"), ctx.get("booking")
-    return {**ctx.stamp("Máy chạy", "/may-chay.html"), "luot_doi_soat": compact(now.get("run")), "viec": compact(now.get("jobs")),
-            "may_zalo": compact(now.get("zalo")),
-            "kiem_booking": {key: booking.get(key) for key in ("state", "checked_at", "counts")}}
+    run = now.get("run") if isinstance(now.get("run"), dict) else {}
+    return {**ctx.stamp("Máy chạy", "/may-chay.html"),
+            "luot_doi_soat": {**compact({key: value for key, value in run.items() if key != "customers"}, "may_chay"),
+                              "dem": counts(run.get("counts"))},
+            "viec": compact(now.get("jobs"), "may_chay"), "may_zalo": compact(now.get("zalo"), "may_chay"),
+            "kiem_booking": {"state": booking.get("state"), "checked_at": booking.get("checked_at"), "dem": counts(booking.get("counts"))}}
 
 
 def doi_xe(ctx: Context, args: dict) -> dict:
@@ -499,9 +571,10 @@ def doi_xe(ctx: Context, args: dict) -> dict:
         if not isinstance(ident, int) or isinstance(ident, bool) or not 0 < ident < 10**9:
             raise ToolError("id_sai")
         data = ctx.get("doixe_so", loai=kind, id=str(ident), thang=f"{month}-01")
-        return {**ctx.stamp("Đội xe", f"{path}&{kind}={ident}"), "thang": month, **compact({k: data.get(k) for k in ("the", "ung", "dot", "chang")})}
+        return {**ctx.stamp("Đội xe", f"{path}&{kind}={ident}"), "thang": month,
+                **compact({k: data.get(k) for k in ("the", "ung", "dot", "chang")}, "doi_xe")}
     data, bang_ke = ctx.get("doixe", thang=f"{month}-01"), ctx.get("doixe_bang_ke", thang=f"{month}-01")
-    return {**ctx.stamp("Đội xe", path), "thang": month, "tai_xe": compact(data.get("nguoi")), "xe": compact(data.get("xe")),
+    return {**ctx.stamp("Đội xe", path), "thang": month, "tai_xe": compact(data.get("nguoi"), "doi_xe"), "xe": compact(data.get("xe"), "doi_xe"),
             "cong_no_bang_ke_vnd": bang_ke.get("cong_no_vnd")}
 
 
@@ -510,11 +583,20 @@ def thu_chi(ctx: Context, args: dict) -> dict:
     data = ctx.get("cash_chat", **{k: v for k, v in (("from", start), ("to", end)) if v})
     totals = data.get("totals") or {}
     items = [{"huong": row.get("direction"), "so_tien_vnd": str(row["amount_vnd"]) if isinstance(row.get("amount_vnd"), int) else None,
-              "trang_thai": row.get("status"), "doi_tuong": (row.get("target") or {}).get("label"), "ngay": row.get("day")}
+              "trang_thai": row.get("status"), "doi_tuong": _target(row.get("target")), "ngay": row.get("day")}
              for row in data.get("items", []) if isinstance(row, dict)]
     return {**ctx.stamp("Thu chi", "/thu-chi.html"), "tu_ngay": data.get("from"), "den_ngay": data.get("to"),
             "tong": {key: str(value) for key, value in totals.items() if isinstance(value, int) and not isinstance(value, bool)},
-            "dem": compact(data.get("counts")), "khoan": compact(items), "ghi_chu_bot": "không có chữ gốc tin chat hay ảnh"}
+            "dem": counts(data.get("counts")), "khoan": items[:MAX_ROWS], "ghi_chu_bot": "không có chữ gốc tin chat hay ảnh"}
+
+
+def _target(target: object) -> dict | None:
+    if not isinstance(target, dict):
+        return None
+    out = {"loai": target.get("kind"), "id": target.get("id")}
+    if target.get("kind") == "customer":
+        out["ten"] = target.get("label")
+    return out
 
 
 def nhat_ky_web(ctx: Context, args: dict) -> dict:
@@ -522,7 +604,8 @@ def nhat_ky_web(ctx: Context, args: dict) -> dict:
     days = data.get("days") if isinstance(data.get("days"), dict) else {}
     recent = sorted(days.items(), reverse=True)[:7]
     return {**ctx.stamp("Nhật ký công việc", "/nhat-ky-cong-viec.html"),
-            "ngay": [{"ngay": day, "so_thay_doi": (info or {}).get("changes"), "tom_tat": (info or {}).get("headline")} for day, info in recent]}
+            "ngay": [{"ngay": day, "so_thay_doi": len((info or {}).get("changes") or []) if isinstance((info or {}).get("changes"), list) else None,
+                     "tom_tat": (info or {}).get("headline")} for day, info in recent]}
 
 
 ID_PARAM = {"khach_id": {"type": "integer", "description": "mã sổ khách (lấy bằng tim_khach)"}}

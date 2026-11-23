@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 import json
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,6 +20,7 @@ from .core import Memory
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 SCHEMA = 1
+_SEQ = itertools.count()
 LOG_KEEP_DAYS = 90
 
 
@@ -28,7 +31,8 @@ def now_iso(now: float) -> str:
 def write_atomic(path: Path, data: bytes, mode: int) -> None:
     """Ghi file tạm cùng thư mục với đúng quyền ngay từ lúc tạo, rồi thay file cũ một lần."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    # Tên tạm riêng theo tiến trình, luồng và lần ghi: hai luồng ghi cùng file không giẫm lên file tạm của nhau (F9).
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{threading.get_ident()}-{next(_SEQ)}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
         view = memoryview(data)
