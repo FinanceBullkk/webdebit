@@ -247,19 +247,21 @@ class MoneyImagesProcessor:
         """`{"schema": 1, "reads": {sha256: {by, amount_vnd, txn_time, bank, reads: [{engine, version, amount_vnd, confidence}]}}}` cho ảnh
         có dấu hiệu tiền, đã có kết luận và đã quyết xong chuyện ảnh đã che (có file hoặc không che được: để `hao` không gửi chữ trước rồi mới có
         ảnh). Không chữ OCR, không số tài khoản, không tên, không ô chữ; `human` thì số tiền để trống (số OCR đoán nằm trong `reads` kèm độ tin
-        cậy). Không có giờ tạo file nên không đổi dữ liệu thì không đổi byte."""
+        cậy). Không có giờ tạo file nên không đổi dữ liệu thì không đổi byte. Từ luật `a3` mỗi mục thêm `direction` (`in`/`out`/null) và `txn_ref`
+        (mã giao dịch), chỉ có khi `by` = `ocr` (Gemini chưa trả hai trường này): **`hao` chưa dùng chúng để đếm, gộp hay đổi chiều thu/chi**
+        (đổi luật đếm phải hỏi người dùng, `specs/zalo-thu-chi-real-time.md` CÒN MỞ)."""
         items = {}
         for sha, member in sorted(members.items()):
             by = member.get("by")
             if by is None or member.get("hidden") is None:
                 continue
             done = [ocr.refresh(read) for read in reads.for_image(self.reads, sha) if not read.get("error")]
-            item = {"by": by, "amount_vnd": None, "txn_time": None, "bank": None,
+            item = {"by": by, "amount_vnd": None, "txn_time": None, "bank": None, "direction": None, "txn_ref": None,
                     "reads": [{"engine": read["engine"], "version": read["version"], "amount_vnd": read.get("amount_vnd"),
                                "confidence": read.get("confidence")} for read in done]}
             if by == "ocr":
                 primary = self.primary_read(done)
-                item.update({key: (primary or {}).get(key) for key in ("amount_vnd", "txn_time", "bank")})
+                item.update({key: (primary or {}).get(key) for key in ("amount_vnd", "txn_time", "bank", "direction", "txn_ref")})
             elif by == "gemini-2":
                 found = {read["engine"]: read for read in done if read["engine"] in gemini_module.ROUTES}
                 first, second = (found.get(name, {}) for name in gemini_module.ROUTES)

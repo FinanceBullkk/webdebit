@@ -32,7 +32,7 @@ from zalo_web_bundle import fold
 CHILD = Path(__file__).with_name("ocr_child.py")
 PREPARE = "a2"         # phiên bản tiền xử lý ảnh trước OCR (MAX_SIDE, xoay EXIF), nằm trong tên file kho: đổi thì OCR lại mọi ảnh.
                        # Giữ "a2" (tên cũ của chuỗi gộp) để kho `easyocr@1.7.2+a2.json` đã có dùng tiếp.
-ANALYSIS = "a2"        # phiên bản luật phân tích (`analyse`): đổi thì phân tích lại từ ô chữ đã lưu, không OCR lại
+ANALYSIS = "a3"        # phiên bản luật phân tích (`analyse`): đổi thì phân tích lại từ ô chữ đã lưu, không OCR lại
 LEGACY_ANALYSIS = "a2" # file kho chưa có trường `analysis` (trước A1) được phân tích bằng luật này
 ENGINE_FIELDS = ("engine", "version", "read_at", "size", "boxes")   # phần của engine trong một lượt đọc; còn lại là kết quả `analyse`
 MAX_SIDE = 1600        # cạnh dài tối đa khi đọc VÀ khi gửi ra ngoài (Phần 4): tọa độ ô chữ dùng chung cho cả che ảnh
@@ -49,6 +49,30 @@ KEYWORD_RE = re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(k) for k in sorte
 AMOUNT_RE = re.compile(r"(?<![\d.,])[+-]?\s?(?:(\d{1,3}(?:[.,]\d{3})+)(?:\s?(vnd|vnđ|đ|d))?|(\d{4,10})\s?(vnd|vnđ|đ))(?!\d)", re.IGNORECASE)
 DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})(?!\d)")
 TIME_RE = re.compile(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?!\d)")
+# Giờ ngay sau ngày trên cùng dòng; sau ngày thì nhận cả `12.30` (MB in giờ bằng dấu chấm) và `10:.35` (OCR đọc dư dấu).
+DATE_TIME_RE = re.compile(r"(?<!\d)(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})\s*(?:luc|-|,)?\s*([01]?\d|2[0-3])\s?[:.]{1,2}\s?([0-5]\d)(?!\d)")
+# Luật `a3` (A3, 23/11/2026), rút từ 42 ảnh có dấu hiệu tiền trên máy có Zalo. Dấu hiệu giao dịch ĐÃ XONG: thiếu thì không "chắc" (bảng kê
+# hóa đơn, đề nghị thanh toán, mã QR, màn nhập người hưởng có số tiền và tên ngân hàng mà tiền chưa đi). Ba cụm cuối có trên ảnh thật;
+# ba cụm "... thành công" đầu đã có trong từ khóa ngân hàng từ P0.
+DONE = ("giao dich thanh cong", "chuyen khoan thanh cong", "chuyen tien thanh cong", "thanh toan thanh cong", "transaction successful",
+        "transfer successful", "transaction confirmed", "da phe duyet")
+IN_WORDS = ("nhan tien", "tien vao", "da nhan", "ghi co", "received", "credited")
+OUT_WORDS = ("chuyen tien", "chuyen khoan", "money transfer", "nguoi thu huong", "nguoi huong", "beneficiary", "ghi no", "debited")
+# Nhãn giờ giao dịch theo thứ tự ưu tiên: màn duyệt của ngân hàng doanh nghiệp có "Ngày yêu cầu" và "Ngày phê duyệt", tiền đi lúc duyệt.
+TIME_LABELS = ("thoi gian giao dich", "ngay giao dich", "transaction time", "transaction date", "ngay phe duyet", "thoi gian", "ngay gio")
+REF_LABELS = ("ma giao dich", "so giao dich", "so tham chieu", "ma tham chieu", "reference number", "reference no", "transaction id",
+              "transfer code", "ma gd", "so gd")
+
+
+def words(phrases) -> re.Pattern:
+    return re.compile(r"(?<![a-z0-9])(" + "|".join(re.escape(k) for k in sorted(phrases, key=len, reverse=True)) + r")(?![a-z0-9])")
+
+
+DONE_RE, IN_RE, OUT_RE, REF_LABEL_RE = words(DONE), words(IN_WORDS), words(OUT_WORDS), words(REF_LABELS)
+REF_RE = re.compile(r"(?<![A-Za-z0-9])(?=[A-Za-z0-9]{0,29}\d)[A-Za-z0-9]{6,30}(?![A-Za-z0-9])")   # 6-30 chữ-số, có ít nhất một chữ số
+# Ký hiệu tiền khác VND trong ô số hoặc ô sát bên cùng hàng: số đó không bao giờ là `amount_vnd` (ảnh WeChat có ô "USD 67,435.89").
+FOREIGN = {"USD": re.compile(r"(?<![a-z])usd(?![a-z])|us\$|\$"), "CNY": re.compile(r"(?<![a-z])(?:cny|rmb)(?![a-z])|¥|￥|人民币|元"),
+           "EUR": re.compile(r"(?<![a-z])eur(?![a-z])|€")}
 
 
 class OcrUnavailable(Exception):
@@ -188,18 +212,80 @@ class EasyOcr:
 ENGINES = {EasyOcr.name: EasyOcr}
 
 
-def when(text: str) -> str | None:
-    """Giờ giao dịch dạng ISO 8601 +07:00 (chỉ có ngày thì `YYYY-MM-DD`), hoặc None. Chỉ nhận ngày giờ hợp lệ."""
-    found, clock = DATE_RE.search(text), TIME_RE.search(text)
-    if not found:
-        return None
+def lines(boxes: list[dict]) -> list[str]:
+    """Các dòng chữ đã bỏ dấu theo thứ tự đọc (trên xuống, trái sang): ô có tâm dọc nằm trong chiều cao của ô đầu dòng thì cùng dòng. OCR hay
+    tách một nhãn thành vài ô lệch thứ tự (`Đã`, `duyệt`, `phê`): ghép theo dòng thì đọc lại đúng."""
+    rows: list[list[dict]] = []
+    for box in sorted(boxes, key=lambda item: (item["b"][1] + item["b"][3], item["b"][0])):
+        middle = (box["b"][1] + box["b"][3]) / 2
+        row = next((row for row in rows if row[0]["b"][1] <= middle <= row[0]["b"][3]), None)
+        if row is None:
+            rows.append([box])
+        else:
+            row.append(box)
+    return [" ".join(fold(box["t"]).strip() for box in sorted(row, key=lambda item: item["b"][0])) for row in rows]
+
+
+def stamp(day: int, month: int, year: int, hour: int | None = None, minute: int | None = None) -> str | None:
+    """ISO 8601 +07:00 (chỉ có ngày thì `YYYY-MM-DD`), hoặc None khi ngày không hợp lệ."""
     try:
-        day = datetime(int(found[3]), int(found[2]), int(found[1]))
+        moment = datetime(year, month, day)
     except ValueError:
         return None
-    if not clock:
-        return day.date().isoformat()
-    return day.replace(hour=int(clock[1]), minute=int(clock[2])).isoformat() + "+07:00"
+    return moment.date().isoformat() if hour is None else moment.replace(hour=hour, minute=minute).isoformat() + "+07:00"
+
+
+def pair(line: str) -> str | None:
+    """Ngày kèm giờ trên CÙNG một dòng: giờ ngay sau ngày (`19/11/2026 15:02`, `05/11/2026 12.30`) hoặc giờ có dấu `:` ở chỗ khác của dòng."""
+    found = DATE_TIME_RE.search(line)
+    if found:
+        return stamp(int(found[1]), int(found[2]), int(found[3]), int(found[4]), int(found[5]))
+    day, clock = DATE_RE.search(line), TIME_RE.search(line)
+    return stamp(int(day[1]), int(day[2]), int(day[3]), int(clock[1]), int(clock[2])) if day and clock else None
+
+
+def when(rows: list[str] | str) -> str | None:
+    """Giờ giao dịch (ISO +07:00, hoặc `YYYY-MM-DD` khi chỉ có ngày), hoặc None. Ưu tiên dòng có nhãn thời gian giao dịch (thứ tự
+    `TIME_LABELS`), rồi dòng đầu tiên có cả ngày lẫn giờ, rồi ngày đầu tiên. Không ghép ngày của dòng này với giờ của dòng khác (đồng hồ thanh
+    trạng thái, giờ yêu cầu khác giờ duyệt). Chỉ nhận ngày giờ hợp lệ."""
+    rows = [rows] if isinstance(rows, str) else rows
+    for label in TIME_LABELS:
+        for row in rows:
+            if label in row and (found := pair(row)):
+                return found
+    for row in rows:
+        if found := pair(row):
+            return found
+    for row in rows:
+        day = DATE_RE.search(row)
+        if day and (found := stamp(int(day[1]), int(day[2]), int(day[3]))):
+            return found
+    return None
+
+
+def reference(rows: list[str]) -> str | None:
+    """Mã giao dịch (chữ in hoa): chuỗi chữ-số 6-30 ký tự có chữ số, đứng sau nhãn mã giao dịch trên cùng dòng; nhãn theo thứ tự `REF_LABELS`.
+    Dòng nhắc tới tài khoản thì bỏ, để không lấy nhầm số tài khoản."""
+    for label in REF_LABELS:
+        for row in rows:
+            found = REF_LABEL_RE.search(row)
+            if found and found[1] == label and not re.search(r"tai khoan|account", row) and (value := REF_RE.search(row[found.end():])):
+                return value[0].upper()
+    return None
+
+
+def direction(boxes: list[dict], rows: list[str], amount: int | None) -> str | None:
+    """`in` (tiền vào), `out` (tiền ra) hoặc None, theo góc nhìn người chụp ảnh. Dấu +/− dính ô số tiền đứng đầu thắng; không có dấu thì theo
+    từ ngữ, có cả hai phía hoặc không phía nào thì None. Chỉ là thông tin: `hao` chưa dùng để đếm hay đổi chiều thu/chi."""
+    if amount is not None:
+        for box in boxes:
+            for match in AMOUNT_RE.finditer(box["t"]):
+                sign = match[0].lstrip()[:1]
+                if sign in ("+", "-") and int(re.sub(r"\D", "", match[1] or match[3])) == amount:
+                    return "in" if sign == "+" else "out"
+    text = " ".join(rows)
+    incoming, outgoing = bool(IN_RE.search(text)), bool(OUT_RE.search(text))
+    return "in" if incoming and not outgoing else "out" if outgoing and not incoming else None
 
 
 def beside_unit(boxes: list[dict], index: int, folded: list[str]) -> bool:
@@ -209,9 +295,19 @@ def beside_unit(boxes: list[dict], index: int, folded: list[str]) -> bool:
                for j in range(len(boxes)) if j != index)
 
 
+def foreign(boxes: list[dict], index: int, folded: list[str]) -> str | None:
+    """Mã tiền khác VND (`USD`, `CNY`, `EUR`) ghi trong ô số hoặc ô cùng hàng sát bên trái/phải (cách không quá một chiều cao ô), hoặc None."""
+    x0, y0, x1, y1 = boxes[index]["b"]
+    near = [index] + [j for j in range(len(boxes)) if j != index and abs((boxes[j]["b"][1] + boxes[j]["b"][3]) - (y0 + y1)) <= (y1 - y0)
+                      and (0 <= boxes[j]["b"][0] - x1 <= y1 - y0 or 0 <= x0 - boxes[j]["b"][2] <= y1 - y0)]
+    return next((code for j in near for code, pattern in FOREIGN.items() if pattern.search(folded[j])), None)
+
+
 def analyse(boxes: list[dict]) -> dict:
     """Từ các ô chữ: có dấu hiệu tiền không, số tiền ứng viên đứng đầu (ô to nhất, ưu tiên có VND/đ), độ tin cậy ô đó, số từ khóa,
-    có đúng một ứng viên đứng đầu không, giờ và ngân hàng (nếu thấy). Không quyết "chắc hay không": xem `is_confident`."""
+    có đúng một ứng viên đứng đầu không, giờ và ngân hàng (nếu thấy); từ luật `a3` thêm `done` (có dấu hiệu giao dịch đã xong), `direction`,
+    `txn_ref` (mã giao dịch) và `currency` (đơn vị của số đứng đầu: `VND`, `USD`, `CNY`, `EUR` hoặc None khi không ghi). Số đứng đầu mang đơn vị
+    khác VND thì `amount_vnd` là None. Không có số ứng viên nào thì không phải ảnh tiền (`is_money` sai). Không quyết "chắc hay không": xem `is_confident`."""
     folded = [fold(box["t"]).strip() for box in boxes]
     text = " ".join(folded)
     found = KEYWORD_RE.findall(text)
@@ -228,11 +324,19 @@ def analyse(boxes: list[dict]) -> dict:
             with_unit = with_unit or unit
             height = box["b"][3] - box["b"][1]
             weight = 1.5 if unit or "vnd" in folded[index] or "so tien" in folded[index] else 1.0
-            candidates.append({"value": value, "score": height * weight, "confidence": box["c"]})
+            other = None if unit else foreign(boxes, index, folded)
+            candidates.append({"value": value, "score": height * weight, "confidence": box["c"], "currency": other or ("VND" if unit else None)})
     best = max(candidates, key=lambda item: item["score"], default=None)
     rivals = [item for item in candidates if best and item["value"] != best["value"] and item["score"] >= RIVAL * best["score"]]
-    return {"is_money": len(hits) >= 2 or with_unit, "amount_vnd": best and best["value"], "confidence": best and best["confidence"],
-            "hits": len(hits), "unique": not rivals, "txn_time": when(text), "bank": bank}
+    rows = lines(boxes)
+    vnd = best is not None and best["currency"] in ("VND", None)
+    amount = best["value"] if vnd else None
+    # Dấu hiệu tiền cần một số ứng viên (A3): màn "Thông tin người hưởng" có từ khóa mà không có số nào thì không phải ảnh tiền chờ xem.
+    signal = len(hits) >= 2 or with_unit or any(item["currency"] not in ("VND", None) for item in candidates)
+    return {"is_money": bool(candidates) and signal, "amount_vnd": amount, "confidence": best["confidence"] if vnd else None,
+            "currency": best and best["currency"],
+            "hits": len(hits), "unique": not rivals, "txn_time": when(rows), "bank": bank,
+            "done": bool(DONE_RE.search(" ".join(rows))), "direction": direction(boxes, rows, amount), "txn_ref": reference(rows)}
 
 
 def stamped(boxes: list[dict]) -> dict:
@@ -249,11 +353,11 @@ def refresh(read: dict | None) -> dict | None:
 
 
 def is_confident(read: dict, limit: Decimal | float | None = None) -> bool:
-    """"OCR chắc" (ANH-GEMINI-01): ô số tiền đủ tin cậy, >= 2 từ khóa ngân hàng, một ứng viên đứng đầu. Tính từ trường đã lưu
-    nên đổi T không cần đọc lại ảnh."""
+    """"OCR chắc" (ANH-GEMINI-01): ô số tiền đủ tin cậy, >= 2 từ khóa ngân hàng, một ứng viên đứng đầu, và (luật `a3`) có dấu hiệu giao
+    dịch đã xong (`done`). Tính từ trường đã lưu nên đổi T không cần đọc lại ảnh; lượt đọc theo luật cũ chưa có `done` thì phải qua `refresh`."""
     limit = threshold() if limit is None else limit
     return bool(read.get("is_money") and read.get("amount_vnd") and (read.get("confidence") or 0) >= limit
-                and read.get("hits", 0) >= 2 and read.get("unique"))
+                and read.get("hits", 0) >= 2 and read.get("unique") and read.get("done"))
 
 
 def verdict(read: dict | None) -> str:

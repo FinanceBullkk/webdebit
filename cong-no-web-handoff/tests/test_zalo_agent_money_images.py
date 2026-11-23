@@ -202,6 +202,82 @@ class AnalyseTest(unittest.TestCase):
         self.assertEqual(ocr.when("05/11/2026"), "2026-11-05")
 
 
+class FinishedTransactionTest(unittest.TestCase):
+    """A3: luật phân tích `a3` rút từ 42 ảnh có dấu hiệu tiền trên máy có Zalo (23/11/2026). Chữ trong ca dưới là bịa theo bố cục, không chép ảnh thật."""
+
+    def test_payment_request_and_qr_code_without_a_finished_transaction_are_not_confident(self):
+        invoices = [box(0, 40, 120, 60, "Tên cty"), box(130, 40, 250, 60, "Số hóa đơn"), box(260, 40, 360, 60, "Ngày HĐ"),
+                    box(370, 40, 470, 60, "Số tiền"), box(0, 80, 250, 100, "CONG TY TNHH MAU"), box(260, 80, 360, 100, "15/06/2026"),
+                    box(370, 80, 600, 130, "1.500.000 VND"), box(0, 140, 300, 160, "Vietcombank")]
+        qr = [box(0, 0, 400, 40, "Quét mã QR để thanh toán"), box(0, 60, 400, 120, "Số tiền 1.500.000 VND"), box(0, 140, 300, 170, "Vietcombank")]
+        for boxes in (invoices, qr):
+            found = ocr.analyse(boxes)
+            self.assertTrue(found["is_money"] and found["unique"] and found["hits"] >= 2)
+            self.assertFalse(found["done"])
+            self.assertEqual(ocr.verdict(found), "unsure")   # có dấu hiệu tiền nhưng giao dịch chưa xong: không thành khoản thu chắc
+
+    def test_finished_transaction_markers_seen_on_real_receipts(self):
+        english = [box(40, 100, 500, 140, "Transaction successful"), box(40, 300, 600, 380, "1.500.000 VND"), box(40, 420, 300, 450, "MBBank"),
+                   box(40, 460, 300, 490, "Account name")]
+        approved = [box(100, 20, 300, 60, "Chuyển tiền"), box(320, 20, 360, 60, "Đã"), box(420, 22, 520, 58, "duyệt"), box(365, 21, 415, 59, "phê"),
+                    box(100, 300, 600, 360, "Số tiền 1.500.000 VND"), box(100, 400, 400, 440, "Vietcombank")]
+        for boxes in (TRANSFER, english, approved):   # nhãn "Đã phê duyệt" bị OCR tách ba ô lệch thứ tự: ghép theo dòng
+            self.assertTrue(ocr.analyse(boxes)["done"])
+            self.assertEqual(ocr.verdict(ocr.analyse(boxes)), "ocr")
+
+    def test_a_stored_read_from_the_old_rule_has_no_done_field_and_is_not_confident(self):
+        old = {key: value for key, value in ocr.analyse(TRANSFER).items() if key not in ("done", "direction", "txn_ref")}
+        self.assertFalse(ocr.is_confident(old))   # chỉ đúng khi đã qua `refresh` theo luật mới
+
+    def test_time_comes_from_one_line_dot_times_count_and_the_status_bar_clock_does_not(self):
+        rows = [box(10, 5, 80, 25, "09:41"), box(40, 100, 500, 140, "Chuyển khoản thành công"),
+                box(40, 300, 600, 380, "1.500.000 VND"), box(40, 500, 300, 530, "Vietcombank"),
+                box(40, 560, 250, 590, "Thời gian"), box(300, 560, 600, 590, "19/11/2026 15.02")]
+        self.assertEqual(ocr.analyse(rows)["txn_time"], "2026-11-19T15:02:00+07:00")
+        no_clock = [box(10, 5, 80, 25, "09:41"), box(40, 560, 300, 590, "19/11/2026")]
+        self.assertEqual(ocr.analyse(no_clock)["txn_time"], "2026-11-19")   # không ghép ngày với giờ của dòng khác
+        self.assertEqual(ocr.analyse([box(0, 0, 300, 30, "31/02/2026 10:00")])["txn_time"], None)
+
+    def test_approval_screen_takes_the_approval_time_not_the_request_time(self):
+        rows = [box(100, 600, 350, 640, "Ngày yêu cầu"), box(720, 600, 1000, 640, "19/11/2026 10.32"),
+                box(100, 680, 390, 720, "Ngày phê duyệt"), box(720, 680, 1000, 720, "19/11/2026 12:15")]
+        self.assertEqual(ocr.analyse(rows)["txn_time"], "2026-11-19T12:15:00+07:00")
+
+    def test_reference_number_is_taken_from_its_labelled_line_never_an_account_number(self):
+        rows = [box(30, 600, 230, 630, "Reference number"), box(400, 600, 650, 630, "123456789012345678"),
+                box(30, 650, 180, 680, "Transfer code"), box(400, 650, 650, 680, "FT12345678901234")]
+        self.assertEqual(ocr.analyse(rows)["txn_ref"], "123456789012345678")
+        self.assertEqual(ocr.analyse([box(0, 0, 200, 30, "Mã giao dịch: ft2632312345")])["txn_ref"], "FT2632312345")
+        self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Số tài khoản"), box(250, 0, 450, 30, "0123456789")])["txn_ref"])
+        self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Mã giao dịch"), box(250, 0, 450, 30, "Xem chi tiết")])["txn_ref"])
+
+    def test_direction_from_the_sign_of_the_amount_then_from_words(self):
+        self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "+1.500.000 VND"), box(0, 80, 300, 110, "Vietcombank")])["direction"], "in")
+        self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "-1.500.000 VND"), box(0, 80, 300, 110, "Vietcombank")])["direction"], "out")
+        self.assertEqual(ocr.analyse(TRANSFER)["direction"], "out")   # biên lai chuyển khoản: tiền ra của người chụp
+        self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "1.500.000 VND"), box(0, 80, 300, 110, "Nhận tiền")])["direction"], "in")
+        self.assertIsNone(ocr.analyse([box(0, 0, 400, 60, "1.500.000 VND")])["direction"])
+
+    def test_beneficiary_details_without_any_amount_are_not_a_money_image(self):
+        # 12/16 ảnh "cần người xem" trên máy thật là ảnh cắt phần người hưởng: có từ khóa, không có số tiền nào.
+        found = ocr.analyse([box(0, 0, 300, 30, "Thông tin người hưởng"), box(0, 40, 400, 70, "Chuyển tiền nhanh liên ngân hàng 24/7"),
+                             box(0, 80, 300, 110, "Tài khoản người hưởng"), box(320, 80, 520, 110, "0123456789"),
+                             box(0, 120, 300, 150, "Tên ngân hàng hưởng"), box(320, 120, 600, 150, "Ngân hàng TMCP Á Châu")])
+        self.assertGreaterEqual(found["hits"], 2)
+        self.assertEqual((found["is_money"], found["amount_vnd"], ocr.verdict(found)), (False, None, "none"))
+
+    def test_amounts_in_another_currency_never_become_amount_vnd(self):
+        for boxes, code in (([box(0, 0, 400, 60, "USD 67,435.89"), box(0, 80, 300, 110, "Chuyển tiền"), box(0, 120, 300, 150, "Tài khoản")], "USD"),
+                            ([box(0, 0, 60, 60, "¥"), box(70, 0, 400, 60, "1,500"), box(0, 80, 300, 110, "Transaction successful")], "CNY"),
+                            ([box(0, 0, 300, 60, "1,500.00 元"), box(0, 80, 300, 110, "转账成功")], "CNY")):
+            found = ocr.analyse(boxes)
+            self.assertTrue(found["is_money"])   # vẫn là ảnh tiền chờ người xem, không bị bỏ qua
+            self.assertEqual((found["amount_vnd"], found["confidence"], found["currency"]), (None, None, code))
+            self.assertEqual(ocr.verdict(found), "unsure")
+        self.assertEqual(ocr.analyse(TRANSFER)["currency"], "VND")
+        self.assertIsNone(ocr.analyse([box(0, 0, 400, 60, "1.500.000"), box(0, 80, 300, 110, "Vietcombank"), box(0, 120, 300, 150, "Số tiền")])["currency"])
+
+
 class ProcessorTest(MoneyBase):
     def test_reads_images_of_selected_groups_only_and_stores_the_result_per_engine_and_version(self):
         self.feed.add_image(OTHER, b"\xff\xd8\xff\xe0other-group")   # nhóm chưa chọn: không được đọc
@@ -383,11 +459,12 @@ class AnalysisVersionTest(MoneyBase):
         reads.save(self.root / "reads", SHA_LOCAL, legacy)
         path = reads.path(self.root / "reads", SHA_LOCAL, "fake", self.engine.version)
         before = path.read_bytes()
-        processor = self.make()
-        self.drain(processor)
-        self.assertEqual(self.engine.calls, [JXL_AS_JPEG])   # chỉ ảnh chưa có trong kho được OCR
-        self.assertEqual(path.read_bytes(), before)   # cùng luật (`LEGACY_ANALYSIS`): dùng nguyên, không ghi lại
-        self.assertEqual(processor.primary_read(reads.for_image(self.root / "reads", SHA_LOCAL))["amount_vnd"], 7_000_000)
+        with patch.object(ocr, "ANALYSIS", ocr.LEGACY_ANALYSIS):   # agent chạy đúng luật đã sinh file cũ
+            processor = self.make()
+            self.drain(processor)
+            self.assertEqual(self.engine.calls, [JXL_AS_JPEG])   # chỉ ảnh chưa có trong kho được OCR
+            self.assertEqual(path.read_bytes(), before)   # cùng luật: dùng nguyên, không ghi lại
+            self.assertEqual(processor.primary_read(reads.for_image(self.root / "reads", SHA_LOCAL))["amount_vnd"], 7_000_000)
         with patch.object(ocr, "ANALYSIS", "a9"):
             newer = self.make()
             self.drain(newer)
