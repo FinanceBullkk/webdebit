@@ -34,6 +34,8 @@ HISTORY_SECONDS = 7200
 RESET_WORDS = frozenset({"moi", "moi nhe", "cau moi", "hoi moi", "xoa ngu canh"})
 RESET_REPLY = "Đã xóa ngữ cảnh. Bạn hỏi câu mới nhé."
 TOOL_CHECK_AT = (6, 30)   # giờ VN tự kiểm công cụ đọc API mỗi ngày, không gọi model
+MAX_PENDING = 3           # mỗi người tối đa 3 câu chờ tra (kể cả câu đang tra); hơn nữa thì nhờ đợi, không xếp hàng (F9)
+BUSY_REPLY = "Mình đang tra câu trước của bạn, đợi chút rồi hỏi tiếp nhé."
 
 
 class Service:
@@ -54,6 +56,7 @@ class Service:
         self._pruned_at = 0.0
         self._tasks: set[asyncio.Task] = set()
         self._locks: dict[str, asyncio.Lock] = {}
+        self._pending: dict[str, int] = {}
         self._history: dict[str, list[tuple[float, str, str]]] = {}
         self.api = WebApi(cfg.api_base)
         self.tool_check: dict | None = None
@@ -95,7 +98,14 @@ class Service:
         if outcome.counter != "duplicate":
             self.save_memory()
         if outcome.ask is not None:
-            self._spawn(self.answer(outcome.ask, event))
+            user = outcome.ask
+            if self._pending.get(user.zalo_id, 0) >= MAX_PENDING:
+                busy, _complete = self.brain.reply(event, BUSY_REPLY, now)
+                self.counters.add("busy", now)
+                self.write_log({"login": user.login, "msg_id": event.msg_id, "kind": event.kind, "outcome": "busy"}, now)
+                return [command for command in outcome.commands if b'"typing"' not in command] + busy
+            self._pending[user.zalo_id] = self._pending.get(user.zalo_id, 0) + 1
+            self._spawn(self.answer(user, event))
         return outcome.commands
 
     def write_log(self, record: dict, now: float) -> None:
@@ -120,36 +130,49 @@ class Service:
     async def answer(self, user: config.User, msg: protocol.Message) -> None:
         """Tra một câu hỏi bằng model ở luồng riêng (mỗi người một câu một lúc), báo đang gõ mỗi 8 giây, rồi gửi và ghi nhật ký."""
         lock = self._locks.setdefault(user.zalo_id, asyncio.Lock())
-        async with lock:
-            started = self.clock()
-            question = msg.text or ""
-            if tools.fold(question).strip(" .!?") in RESET_WORDS:
-                self._history.pop(user.zalo_id, None)
-                commands, _complete = self.brain.reply(msg, RESET_REPLY, started)
-                await self.send(commands)
-                self.counters.add("reset", started)
-                self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": "reset"}, started)
-                return
-            history = self.recent(user.zalo_id, started)
-            job = asyncio.ensure_future(asyncio.to_thread(self.answerer.answer, user, question, history))
-            while not job.done():
-                await asyncio.wait({job}, timeout=TYPING_EVERY)
-                if not job.done():
-                    await self.send([protocol.typing(msg.thread_id)])
-            try:
-                result = job.result()
-            except Exception:  # noqa: BLE001 (lỗi bất ngờ trong vòng model: trả câu cố định, bộ não vẫn chạy)
-                result = model.Answer(model.FAILED, "error", problems=["unexpected"])
-            now = self.clock()
-            commands, complete = self.brain.reply(msg, result.text, now)
+        try:
+            async with lock:
+                await self._answer(user, msg)
+        finally:
+            self._pending[user.zalo_id] = max(self._pending.get(user.zalo_id, 1) - 1, 0)
+
+    async def _answer(self, user: config.User, msg: protocol.Message) -> None:
+        started = self.clock()
+        question = msg.text or ""
+        if started - msg.ts_ms / 1000 > core.STALE_SECONDS:
+            # Câu chờ sau câu khác quá 10 phút: không trả lời số cũ, nhờ hỏi lại (F9).
+            commands, _complete = self.brain.reply(msg, core.LATE, started)
             await self.send(commands)
-            self.counters.add(result.outcome, now)
-            if result.outcome == "answered" and result.body:
-                self._history.setdefault(user.zalo_id, []).append((now, question, result.body))
-            self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": result.outcome, "question": msg.text,
-                            "truncated": msg.truncated, "tools": result.tools, "problems": result.problems, "model": self.cfg.model,
-                            "cost_nano_usd": result.cost_nano_usd, "steps": result.steps, "latency_ms": int((now - started) * 1000),
-                            "context_turns": len(history), "replies": len(commands), **({} if complete else {"rate_limited": True})}, now)
+            self.counters.add("late_queued", started)
+            self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": "late_queued"}, started)
+            return
+        if tools.fold(question).strip(" .!?") in RESET_WORDS:
+            self._history.pop(user.zalo_id, None)
+            commands, _complete = self.brain.reply(msg, RESET_REPLY, started)
+            await self.send(commands)
+            self.counters.add("reset", started)
+            self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": "reset"}, started)
+            return
+        history = self.recent(user.zalo_id, started)
+        job = asyncio.ensure_future(asyncio.to_thread(self.answerer.answer, user, question, history))
+        while not job.done():
+            await asyncio.wait({job}, timeout=TYPING_EVERY)
+            if not job.done():
+                await self.send([protocol.typing(msg.thread_id)])
+        try:
+            result = job.result()
+        except Exception:  # noqa: BLE001 (lỗi bất ngờ trong vòng model: trả câu cố định, bộ não vẫn chạy)
+            result = model.Answer(model.FAILED, "error", problems=["unexpected"])
+        now = self.clock()
+        commands, complete = self.brain.reply(msg, result.text, now)
+        await self.send(commands)
+        self.counters.add(result.outcome, now)
+        if result.outcome == "answered" and result.body:
+            self._history.setdefault(user.zalo_id, []).append((now, question, result.body))
+        self.write_log({"login": user.login, "msg_id": msg.msg_id, "kind": msg.kind, "outcome": result.outcome, "question": msg.text,
+                        "truncated": msg.truncated, "tools": result.tools, "problems": result.problems, "model": self.cfg.model,
+                        "cost_nano_usd": result.cost_nano_usd, "steps": result.steps, "latency_ms": int((now - started) * 1000),
+                        "context_turns": len(history), "replies": len(commands), **({} if complete else {"rate_limited": True})}, now)
 
     def _admin(self) -> config.User | None:
         return next((user for user in self.users.values() if user.role == "admin"), None)

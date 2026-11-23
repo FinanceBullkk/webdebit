@@ -429,6 +429,13 @@ test('Đánh dấu (G4): group chưa gắn sổ thì gắn ngay trong hộp, ghi
     // Thiếu số tiền thì báo, không gửi.
     await page.locator('#mark-save').click();
     assert.match(await page.locator('#mark-error').innerText(), /Số tiền phải là số nguyên dương/);
+    // Số lẻ hay nhóm sai bị từ chối, không đọc thành số khác ("1,5" không phải 15 đ).
+    for (const bad of ['1,5', '45.000.000,50']) {
+      await page.locator('#mark-amount').fill(bad);
+      await page.locator('#mark-save').click();
+      assert.match(await page.locator('#mark-error').innerText(), /Số tiền phải là số nguyên dương/, bad);
+    }
+    assert.equal(world.posts.some(post => post.path === '/api/v7/marks'), false, 'chưa gửi gì');
     await page.locator('#mark-amount').fill('50.000.000');
     await page.locator('#mark-date').fill(todayVn(3));
     await page.locator('#mark-note').fill('mai chuyển');
@@ -876,4 +883,16 @@ test('Chat Zalo: có dòng cảnh báo thì khung chat vẫn vừa màn (1280×7
       assert.ok(fit.scroll <= 1, `trang không cuộn thêm: ${fit.scroll} (${viewport.width})`);
     }, { viewport });
   }
+});
+
+test('Bỏ dấu: hộp lý do hiện chữ thật của ghi chú, không hiện &amp; &lt; &quot;', async () => {
+  const world = ledgerWorld();
+  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Kim Mẫu · Sầu riêng' });
+  world.marks.push({ id: 2, customer_id: 7, kind: 'note', note: 'Tom & "Jerry" <b>', conversation_id: GROUP, message_id: 'g119', status: 'pending', idempotency_key: 'k2' });
+  await withPage({ bundled: true, world }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g119"] .mark').waitFor();
+    await page.locator('.msg[data-id="g119"] [data-unmark]').click();
+    assert.equal(await page.locator('#reason-what').innerText(), 'Ghi chú: Tom & "Jerry" <b> · đang chờ');
+  });
 });

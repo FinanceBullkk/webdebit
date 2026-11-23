@@ -85,6 +85,32 @@ class AiTests(unittest.TestCase):
         self.assertEqual(network.call_count, 1)
         self.assertEqual(network.call_args.args[0].full_url, "https://api.anthropic.com/v1/messages")
         self.assertEqual(self.runner.calls, [])
+        sent = json.loads(network.call_args.args[0].data)
+        self.assertEqual((sent["model"], sent["max_tokens"], sent["output_config"]), ("claude-haiku-5-5", 2000, {"effort": "low"}))
+        self.assertTrue({"temperature", "top_p", "top_k", "thinking"}.isdisjoint(sent))
+
+    def test_model_override_is_checked_against_the_list_before_network(self):
+        fingerprint = ai.preview(7, self.runner, "actor")["fingerprint"]
+        request = json.dumps({"customer_id": 7, "fingerprint": fingerprint, "consent": True}).encode()
+        with patch.dict(ai.os.environ, {"ANTHROPIC_MODEL": "claude-haiku-4-5-20251001"}), patch.object(ai, "urlopen") as network:
+            with self.assertRaises(ApiError) as caught:
+                ai.explain(request, self.runner, "actor")
+            network.assert_not_called()
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "AI_MODEL_INVALID"))
+        answer = io.BytesIO(json.dumps({"content": [{"type": "text", "text": "ok"}], "usage": {}}).encode())
+        with patch.dict(ai.os.environ, {"ANTHROPIC_MODEL": "claude-sonnet-5-5"}), patch.object(ai, "urlopen", return_value=answer) as network:
+            ai.explain(request, self.runner, "other-actor")
+        self.assertEqual(json.loads(network.call_args.args[0].data)["model"], "claude-sonnet-5-5")
+
+    def test_refusal_and_thinking_only_answers_are_errors(self):
+        fingerprint = ai.preview(7, self.runner, "actor")["fingerprint"]
+        request = json.dumps({"customer_id": 7, "fingerprint": fingerprint, "consent": True}).encode()
+        for actor, reply, code in (("a1", {"stop_reason": "refusal", "content": [], "usage": {}}, "AI_REFUSED"),
+                                   ("a2", {"stop_reason": "max_tokens", "content": [{"type": "thinking", "thinking": ""}], "usage": {}},
+                                    "AI_EMPTY_RESPONSE")):
+            with patch.object(ai, "urlopen", return_value=io.BytesIO(json.dumps(reply).encode())), self.assertRaises(ApiError) as caught:
+                ai.explain(request, self.runner, actor)
+            self.assertEqual(caught.exception.code, code)
 
     def test_rate_limit(self):
         ai._calls["actor"] = [ai.time.monotonic()]
