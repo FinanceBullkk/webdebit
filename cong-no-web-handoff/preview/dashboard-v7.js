@@ -13,8 +13,9 @@
   const pageHref = id => `${ledgerHref(id)}&the=tinh-hinh`;
   // Sang Công nợ theo tháng: chỉ khách còn nợ, xếp nợ nhiều nhất trước.
   const matrixHref = () => '/cong-no-theo-thang.html?con-no=1&xep=con-no';
-  // Số rút gọn trên dải đầu và chip ("2,48 tỷ", "350 tr"); bảng ghi triệu không đơn vị (F.millions).
-  const short = value => F.short(value, 'tr');
+  // Một đơn vị cho mọi số tiền của Tổng quan (audit giao diện 23/11/2026; mục 4.4 audit UX 31/10: không dùng "tr"): rút gọn
+  // "2,48 tỷ" / "350 triệu" / dưới 1 triệu đủ số, ở dải đầu, chip và cả bảng khách. Số đồng đầy đủ ở chữ rê chuột.
+  const short = value => F.short(value);
   const positive = value => String(value).replace(/^-/, '');
   const admin = globalThis.AppNav?.isAdmin() ?? true;
   const tipAttr = lines => ` data-tip="${esc(lines.filter(Boolean).join('\n'))}"`;
@@ -171,12 +172,12 @@
     });
   }
 
-  // 3. Bảng khách: hàng chip mức rủi ro, bảng triệu, ô ngày là viên màu theo ngưỡng.
+  // 3. Bảng khách: hàng chip mức rủi ro, tiền rút gọn như dải đầu, ô ngày là viên màu theo ngưỡng.
   function listPart() {
     const rule = state.debt?.rule;
-    const th = (sort, label, unit, icon, tip) => `<th scope="col" class="r"${sort ? ` data-col="${sort}"` : ''}><button type="button" data-sort="${sort}"${tipAttr(tip)}>${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span> <small>${unit}</small></button></th>`;
+    const th = (sort, label, unit, icon, tip) => `<th scope="col" class="r"${sort ? ` data-col="${sort}"` : ''}><button type="button" data-sort="${sort}"${tipAttr(tip)}>${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span> ${unit ? `<small>${unit}</small>` : ''}</button></th>`;
     const head = rule ? `<thead><tr><th scope="col">Khách</th><th scope="col" class="bar-h">Theo hạn trả</th>
-        ${th('overdue', 'Quá hạn', 'tr', null, ['Triệu đồng', 'Bấm để xếp'])}${th('total', 'Còn nợ', 'tr', null, ['Triệu đồng', 'Bấm để xếp'])}
+        ${th('overdue', 'Quá hạn', '', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', '', null, ['Bấm để xếp'])}
         ${th('pay', 'Trả', 'ngày', ICON.cash, ['Số ngày từ lần khách trả gần nhất', `Đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
         ${th('trip', 'Đi hàng', 'ngày', ICON.truck, ['Số ngày từ chuyến gần nhất', `Đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
         <th scope="col" class="go"><span class="sr-only">Mở</span></th></tr></thead>` : '';
@@ -251,8 +252,8 @@
         row.fresh ? `Mới: ${row.fresh.text}` : '', `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
         <td class="who"><a href="${pageHref(row.id)}"><i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span><span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
         <td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>
-        <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first === 0n ? '–' : esc(F.millions(first))}</td>
-        <td class="num tot">${esc(F.millions(row.total))}</td>
+        <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first === 0n ? '–' : esc(short(first))}</td>
+        <td class="num tot">${esc(short(row.total))}</td>
         <td class="d">${day(row.payDays, rule.no_pay_days)}</td><td class="d">${day(row.tripDays, rule.no_trip_days)}</td>
         <td class="go" aria-hidden="true">${ICON.next}</td></tr>`).join('');
     empty.hidden = shown.length > 0;
