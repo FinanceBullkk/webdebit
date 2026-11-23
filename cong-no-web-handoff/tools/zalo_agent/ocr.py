@@ -30,6 +30,7 @@ from pathlib import Path
 from zalo_web_bundle import fold
 
 CHILD = Path(__file__).with_name("ocr_child.py")
+CHILD_RAPID = Path(__file__).with_name("ocr_child_rapid.py")
 PREPARE = "a2"         # phiên bản tiền xử lý ảnh trước OCR (MAX_SIDE, xoay EXIF), nằm trong tên file kho: đổi thì OCR lại mọi ảnh.
                        # Giữ "a2" (tên cũ của chuỗi gộp) để kho `easyocr@1.7.2+a2.json` đã có dùng tiếp.
 ANALYSIS = "a3"        # phiên bản luật phân tích (`analyse`): đổi thì phân tích lại từ ô chữ đã lưu, không OCR lại
@@ -118,6 +119,8 @@ class EasyOcr:
     thì bị giết, lần đọc sau tạo lại. Thiếu thư viện hay model (`~/.EasyOCR`, không tự tải) là `OcrUnavailable`; con chết giữa chừng là
     `OcrFailure`. Chỉ một luồng gọi `read` mỗi lúc (bộ xử lý chạy một việc một lần)."""
     name = "easyocr"
+    package = "easyocr"   # tên bản phân phối pip: `version` đọc từ đây, không import thư viện
+    child_script = CHILD
 
     def __init__(self, threads: int = THREADS, command: list[str] | None = None, timeout: float = 300, work: str | None = None):
         self.threads, self.timeout, self.work, self.cached = threads, timeout, work, None
@@ -127,7 +130,7 @@ class EasyOcr:
             for leftover in Path(work).glob("ocr-*.png"):
                 with contextlib.suppress(OSError):
                     leftover.unlink()
-        self.command = command or [self.interpreter(), "-X", "utf8", "-I", str(CHILD), str(threads)]
+        self.command = command or [self.interpreter(), "-X", "utf8", "-I", str(self.child_script), str(threads)]
         self.child = None
 
     @staticmethod
@@ -140,9 +143,9 @@ class EasyOcr:
     def version(self) -> str:
         if self.cached is None:
             try:
-                self.cached = f"{metadata.version('easyocr')}+{PREPARE}"   # không import easyocr chỉ để biết phiên bản; nhớ vì step() hỏi mỗi giây
+                self.cached = f"{metadata.version(self.package)}+{PREPARE}"   # không import easyocr chỉ để biết phiên bản; nhớ vì step() hỏi mỗi giây
             except metadata.PackageNotFoundError as exc:
-                raise OcrUnavailable("easyocr") from exc
+                raise OcrUnavailable(self.package) from exc
         return self.cached
 
     def close(self) -> None:
@@ -213,7 +216,33 @@ class EasyOcr:
         return clean
 
 
-ENGINES = {EasyOcr.name: EasyOcr}
+class RapidOcr(EasyOcr):
+    """`rapidocr-onnxruntime` ở tiến trình con riêng (`ocr_child_rapid.py`), cùng giao thức, cùng cách giữ con sống, cùng lỗi. Dùng làm lần đọc thứ hai
+    cạnh easyocr (số đo 23/11/2026: 23/23 ô số tiền khớp easyocr ở ảnh easyocr đã chắc, 0 ảnh lệch, nhanh hơn khoảng 5 lần); mất dấu tiếng Việt nên
+    KHÔNG thay easyocr làm lần đọc chính. Model nằm trong wheel, không tự tải."""
+    name = "rapidocr"
+    package = "rapidocr-onnxruntime"
+    child_script = CHILD_RAPID
+    PYTHON_ENV = "ZALO_AGENT_OCR2_PYTHON"   # python của venv riêng (ghim ở `requirements-rapidocr.txt`); không đặt thì dùng python của agent
+
+    @staticmethod
+    def interpreter() -> str:
+        return os.environ.get(RapidOcr.PYTHON_ENV) or EasyOcr.interpreter()
+
+    @property
+    def version(self) -> str:
+        python = os.environ.get(self.PYTHON_ENV)
+        if self.cached is None and python:   # thư viện nằm ở venv khác: hỏi chính python đó (không import trong agent), nhớ kết quả
+            try:
+                done = subprocess.run([python, "-I", "-c", f"from importlib.metadata import version; print(version({self.package!r}))"],
+                                      capture_output=True, text=True, timeout=30, check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise OcrUnavailable(self.package) from exc
+            self.cached = f"{done.stdout.strip()}+{PREPARE}"
+        return self.cached or super().version
+
+
+ENGINES = {EasyOcr.name: EasyOcr, RapidOcr.name: RapidOcr}
 
 
 def lines(boxes: list[dict]) -> list[str]:
@@ -367,11 +396,20 @@ def refresh(read: dict | None) -> dict | None:
     return {**{key: read[key] for key in ENGINE_FIELDS if key in read}, **stamped(read["boxes"])}
 
 
+def corroborates(read: dict | None, second: dict | None, limit: Decimal | float | None = None) -> bool:
+    """Lần đọc thứ hai (engine khác, `second` = engine/version/amount_vnd/confidence/unique) ra đúng số của lần đọc chính, một ứng viên đứng đầu,
+    độ tin cậy >= T: thay cho điều kiện "độ tin cậy của lần đọc chính >= T" trong `is_confident` (số đo 23/11/2026: 2/2 biên lai easyocr đọc đúng
+    mà tin cậy 0,46-0,55 được cứu, 0 ảnh sai). Các điều kiện khác của lần đọc chính (từ khóa, đã xong, một ứng viên) vẫn phải đủ."""
+    limit = threshold() if limit is None else limit
+    return bool(read and second and read.get("amount_vnd") and second.get("amount_vnd") == read["amount_vnd"] and second.get("unique")
+                and (second.get("confidence") or 0) >= limit)
+
+
 def is_confident(read: dict, limit: Decimal | float | None = None) -> bool:
     """"OCR chắc" (ANH-GEMINI-01): ô số tiền đủ tin cậy, >= 2 từ khóa ngân hàng, một ứng viên đứng đầu, và (luật `a3`) có dấu hiệu giao
-    dịch đã xong (`done`). Tính từ trường đã lưu nên đổi T không cần đọc lại ảnh; lượt đọc theo luật cũ chưa có `done` thì phải qua `refresh`."""
+    dịch đã xong (`done`). Từ lần đọc thứ hai (`second`, gắn trong bộ nhớ, không lưu cạnh ô chữ) độ tin cậy được thay bằng `corroborates`. Tính từ trường đã lưu nên đổi T không cần đọc lại ảnh; lượt đọc theo luật cũ chưa có `done` thì phải qua `refresh`."""
     limit = threshold() if limit is None else limit
-    return bool(read.get("is_money") and read.get("amount_vnd") and (read.get("confidence") or 0) >= limit
+    return bool(read.get("is_money") and read.get("amount_vnd") and ((read.get("confidence") or 0) >= limit or corroborates(read, read.get("second"), limit))
                 and read.get("hits", 0) >= 2 and read.get("unique") and read.get("done"))
 
 

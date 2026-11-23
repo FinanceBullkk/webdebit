@@ -100,11 +100,12 @@ class MoneyImagesProcessor:
 
     def __init__(self, live: LiveSync, state: Path, reads_dir: Path, *, engine=None, executor=None, prepare=ocr.prepare_image,
                  dry_run: bool = False, clock=time.time, max_age_days: int | None = 30, gemini=None, reads_target: str = "",
-                 run=pusher.ssh_run, bundle_dir: Path | None = None, wechat_ids=None, export_wechat: bool = False):
+                 run=pusher.ssh_run, bundle_dir: Path | None = None, wechat_ids=None, export_wechat: bool = False, second=None):
         self.live, self.dir, self.reads = live, Path(state), Path(reads_dir)
         self.bundle = Path(bundle_dir) if bundle_dir is not None else Path(state).parent / "bundle"
         self.wechat_ids, self.export_wechat = wechat_ids, export_wechat
         self.engine = engine or ocr.EasyOcr(work=str(Path(state).parent / "tmp"))
+        self.second = second   # engine đọc lần hai (RapidOcr) cho ảnh có số mà lần đọc chính không chắc; None = tắt (mặc định)
         self.gemini = gemini if gemini is not None else gemini_module.Gemini()
         self.executor, self.prepare = executor, prepare
         self.dry_run, self.clock, self.max_age_days = dry_run, clock, max_age_days
@@ -138,7 +139,7 @@ class MoneyImagesProcessor:
                 if member.get("hidden") is True and not (self.hidden_dir / f"{sha}.jpg").is_file():
                     for key in ("hidden", "hide_tries", "next_hide"):
                         member.pop(key, None)
-            if self.cursor.get("analysis") != ocr.ANALYSIS:   # chỉ một lần mỗi lần nạp con trỏ
+            if self.cursor.get("analysis") != ocr.ANALYSIS or self.second is not None:   # một lần mỗi lần nạp con trỏ; có lần đọc hai thì kết luận lại cả ảnh đã đọc hai sau `reread`
                 self.reanalyse()
         return self.cursor
 
@@ -157,7 +158,7 @@ class MoneyImagesProcessor:
             read = self.current(sha, stored)
             if read is None:
                 continue
-            if read is stored and ocr.refresh(stored) is not stored:   # `current` không xóa được ảnh che: ảnh này giữ luật cũ
+            if ocr.refresh(read) is not read:   # `current` không xóa được ảnh che: ảnh này giữ luật cũ
                 held = True
             kind = ocr.verdict(read)
             if kind == member.get("verdict"):
@@ -178,8 +179,32 @@ class MoneyImagesProcessor:
             cursor["analysis"] = ocr.ANALYSIS
         self.export_dirty = True
 
+    def with_second(self, sha: str, read: dict | None) -> dict | None:
+        """Lượt đọc chính kèm `second` (tóm tắt lần đọc hai của engine thứ hai: không chữ, không ô chữ) khi kho có lần đọc đó. Chỉ trong bộ nhớ:
+        không ghi kho. Không có lần đọc hai thì trả nguyên đối tượng."""
+        if self.second is None or not read or not isinstance(read.get("boxes"), list):
+            return read
+        mine = [item for item in reads.for_image(self.reads, sha) if item.get("engine") == self.second.name and not item.get("error")]
+        found = ocr.refresh(max(mine, key=lambda item: item.get("read_at", ""), default=None))
+        if not found:
+            return read
+        return {**read, "second": {key: found.get(key) for key in ("engine", "version", "amount_vnd", "confidence", "unique")}}
+
+    def read_second(self, sha: str, data: bytes) -> None:
+        """(Luồng nền) đọc lần hai rồi ghi kho riêng của engine thứ hai. Lỗi của engine này không làm hỏng lần đọc chính: ảnh vẫn theo luật cũ."""
+        try:
+            version = self.second.version
+            if reads.load(self.reads, sha, self.second.name, version):
+                return
+            image, size = self.prepare(data)
+            boxes = self.second.read(image)
+            reads.save(self.reads, sha, {"engine": self.second.name, "version": version, "read_at": cursors.now_iso(self.clock()), "size": list(size),
+                                         "boxes": boxes, **ocr.stamped(boxes)})
+        except Exception:  # noqa: BLE001  (OcrUnavailable, OcrFailure, ảnh lạ: lần đọc hai chỉ là phần thêm)
+            return
+
     def current(self, sha: str, read: dict | None) -> dict | None:
-        """(Chỉ luồng chính) lượt đọc OCR theo luật phân tích hiện tại. Lệch luật thì ghi lại file kho (cùng tên, ô chữ giữ nguyên).
+        """(Chỉ luồng chính) lượt đọc OCR theo luật phân tích hiện tại, kèm lần đọc hai nếu có (`with_second`). Lệch luật thì ghi lại file kho (cùng tên, ô chữ giữ nguyên).
 
         Số tiền OCR đổi: ảnh chưa vào `members` hoặc đang kết luận `ocr` (số xuất ra là số OCR) thì xóa ảnh đã che **trước** khi ghi kho, để luồng
         nền dựng lại theo số mới; xóa không được thì giữ nguyên luật cũ cho ảnh này (lần nạp sau thử lại). Ảnh `gemini-2`/`human` giữ ảnh che và số
@@ -187,15 +212,15 @@ class MoneyImagesProcessor:
         nhớ, không ghi kho, không xóa gì (con trỏ không được lưu nên mọi thay đổi trên đĩa sẽ lệch với nó)."""
         fresh = ocr.refresh(read)
         if fresh is read or self.dry_run:
-            return fresh
+            return self.with_second(sha, fresh)
         member = (self.cursor or {}).get("members", {}).get(sha)
         if fresh.get("amount_vnd") != read.get("amount_vnd") and (member is None or member.get("by") in (None, "ocr")):
             try:
                 self.drop_hidden(sha)
             except OSError:
-                return read
+                return self.with_second(sha, read)
         reads.save(self.reads, sha, fresh)
-        return fresh
+        return self.with_second(sha, fresh)
 
     def drop_hidden(self, sha: str) -> None:
         """Xóa ảnh đã che của một ảnh (thử lại khi Windows giữ file) và quyết định che trong `members`. Ném OSError khi không xóa được."""
@@ -482,7 +507,9 @@ class MoneyImagesProcessor:
                 reads.save(self.reads, sha, found)
             else:   # đã có ô chữ của phiên bản này: luật phân tích mới chạy lại trong bộ nhớ, luồng chính ghi lại file (`current`)
                 found = ocr.refresh(found)
-            return {"raw": raw, "status": "ok", "sha": sha, "verdict": ocr.verdict(found)}
+            if self.second is not None and engine is self.engine and ocr.verdict(found) == "unsure" and found.get("amount_vnd"):
+                self.read_second(sha, data)   # có số mà lần đọc chính không chắc: engine thứ hai đọc cho chắc
+            return {"raw": raw, "status": "ok", "sha": sha, "verdict": ocr.verdict(self.with_second(sha, found))}
         except ocr.OcrUnavailable:
             return {"raw": raw, "status": "unavailable"}
         except ocr.OcrFailure:   # tiến trình OCR chết hoặc quá giờ: lỗi của engine, chưa chắc của ảnh
@@ -611,9 +638,8 @@ class MoneyImagesProcessor:
         if outcome["status"] == "ok":
             sha = outcome["sha"]
             entry = {key: item[key] for key in ("raw", "file", "ts", "wechat") if key in item}
-            cursor["members"][sha] = {**entry, "verdict": outcome["verdict"],
-                                      "by": self.decide(sha, self.current(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version)),
-                                                        item.get("wechat", False))}
+            found = self.current(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version))
+            cursor["members"][sha] = {**entry, "verdict": ocr.verdict(found) if found else outcome["verdict"], "by": self.decide(sha, found, item.get("wechat", False))}
             cursor["todo"].remove(item)
             self.drained(now)
         else:

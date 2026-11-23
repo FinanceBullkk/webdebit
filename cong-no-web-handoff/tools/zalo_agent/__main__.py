@@ -245,6 +245,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--reads-target", default=os.environ.get("ZALO_AGENT_READS_TARGET", ""),
                      help="đích file kết quả đọc ảnh cho hao, ví dụ hao:/srv/v7/zalo-reads; MẶC ĐỊNH RỖNG = không đẩy (cần thư mục do bước bật tạo)")
     run.add_argument("--money-max-age-days", type=int, default=30, help="chỉ đọc ảnh gửi trong chừng này ngày khi dựng lại từ đầu")
+    run.add_argument("--money-second", choices=("off", *sorted(name for name in ocr.ENGINES if name != "easyocr")), default=os.environ.get("ZALO_AGENT_MONEY_SECOND", "off"),
+                     help="engine đọc lần hai cho ảnh có số mà easyocr không chắc (hai engine cùng một số mới tính là chắc); MẶC ĐỊNH off. "
+                          "Cần venv riêng và ZALO_AGENT_OCR2_PYTHON (xem requirements-rapidocr.txt)")
     run.add_argument("--money-wechat-export", choices=("on", "off"), default=os.environ.get("ZALO_AGENT_MONEY_WECHAT_EXPORT", "off"),
                      help="xuất kết quả đọc ảnh WeChat vào money-reads.json (vào tổng Thu chi); MẶC ĐỊNH off: người dùng chốt "
                           "\"Đọc, chưa cộng\" 23/11/2026, bật là quyết định mới")
@@ -275,7 +278,8 @@ def main(argv: list[str] | None = None) -> int:
                   insurance_target=args.insurance_target, insurance_snapshot=Path(args.insurance_snapshot) if args.insurance_snapshot else None,
                   insurance_store=Path(args.insurance_store) if args.insurance_store else None,
                   money_images=args.money_images == "on", money_args={"max_age_days": args.money_max_age_days, "reads_target": args.reads_target,
-                                          "export_wechat": args.money_wechat_export == "on"},
+                                          "export_wechat": args.money_wechat_export == "on",
+                                          "second": ocr.ENGINES[args.money_second](work=str(root / "tmp")) if args.money_second != "off" else None},
                   wechat={"python": args.wechat_python, "pilot": args.wechat_pilot, "groups": args.wechat_groups,
                           "interval": args.wechat_interval, "images": args.wechat_images} if args.wechat else None,
                   max_fetch=args.max_fetch, max_age_days=args.max_age_days)
