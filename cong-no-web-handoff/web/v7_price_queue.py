@@ -31,6 +31,9 @@ DATE_WINDOW_DAYS = 3
 REVIEW = ("MONTH_LOCKED", "CONFLICT", "AMBIGUOUS", "MANUAL")
 SOURCE_CLOSABLE = ("AMBIGUOUS", "MANUAL")   # K3: máy không tự ghi được và không có số web để giữ: người chỉ "Đã xem, hết báo" theo dấu vân dòng Sheet
 XLSX_DROPPED = str.maketrans("", "", "/\\?*[]:'")
+# Bản chụp Sheet cũ hơn chừng này (theo `runner.created_at`) thì máy và nút ghi giá/phiếu không ghi theo nó (audit 23/11/2026, O7):
+# runner chạy 15 phút một lần, cùng ngưỡng máy canh báo bản chụp cũ (`tools/v7_watchdog.py`, SNAPSHOT_MAX_MINUTES).
+SNAPSHOT_MAX_AGE_SECONDS = 60 * 60
 
 
 @lru_cache(maxsize=4096)
@@ -79,6 +82,43 @@ def owners(customers: list[dict]) -> dict[str, tuple[Any, str]]:
                 extra.setdefault(name_key(alias), set()).add(customer["key"])
     return {key: (next(iter(keys)), basis) for basis, found in (("name", primary), ("alias", extra))
             for key, keys in found.items() if len(keys) == 1}
+
+
+def customer_tabs(snapshot: dict, ledger: dict, customers: list[dict]) -> list[tuple[str, dict]]:
+    """[(tên tab, health của tab)] của các tab thuộc sổ này trong bản chụp (KIEM-TAB-01), theo tên tab."""
+    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
+    return [(tab, health) for tab, health in sorted((snapshot.get("tabs") or {}).items())
+            if owned.get(name_key(tab), (None,))[0] == ledger.get("customer_id")]
+
+
+def customer_health(snapshot: dict, ledger: dict, customers: list[dict]) -> dict:
+    """Kết luận sức khỏe các tab của một sổ (KIEM-TAB-01, specs/v7-kiem-tab-truoc-khi-ghi.md): `broken` khi một tab của sổ có phát hiện.
+
+    Đọc `tabs` trong chính bản chụp mà nhóm ghi được tính ra, nên kết luận và dữ liệu nó bảo vệ cùng một lượt quét. Bản chụp cũ chưa có
+    `tabs` thì chưa có kết luận (coi như ổn): máy chạy lượt kế tiếp sẽ ghi lại. Mọi đường ghi giá/phiếu theo Sheet đọc hàm này.
+    """
+    findings = [{"tab": tab, **finding} for tab, health in customer_tabs(snapshot, ledger, customers)
+                if health.get("status") == "broken"
+                for finding in health.get("findings") or [] if finding.get("level") != "note"]   # `note`: bố cục đã duyệt, không chặn
+    return {"status": "broken" if findings else "ok", "findings": findings}
+
+
+def snapshot_stale(created_at: Any, now: dt.datetime | None = None) -> bool:
+    """Bản chụp có `runner.created_at` cũ hơn SNAPSHOT_MAX_AGE_SECONDS (hoặc không đọc được giờ) thì cũ (O7).
+
+    Bản chụp không ghi `runner.created_at` (bản dựng trong test, bản cũ trước runner hiện nay) thì không xét: runner trên `hao` luôn ghi
+    trường này mỗi lượt (đo 23/11/2026: trùng giờ sửa file của cả năm bản chụp).
+    """
+    if created_at is None:
+        return False
+    try:
+        made = dt.datetime.fromisoformat(str(created_at))
+    except ValueError:
+        return True
+    if made.tzinfo is None:
+        return True
+    now = now or dt.datetime.now(dt.UTC)
+    return (now - made).total_seconds() > SNAPSHOT_MAX_AGE_SECONDS
 
 
 def targets(ledger: dict) -> list[dict]:
@@ -231,6 +271,10 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, inclu
     """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem"."""
     pool = targets(ledger)
     rows = merge_two_row_pairs(book_rows(snapshot, ledger.get("customer_id"), customers), snapshot, pool)
+    # KIEM-TAB-01 ở nơi dòng sinh ra (audit 23/11/2026, O1): tab của sổ hỏng thì không có dòng READY, không dòng nào ghi theo lô; máy
+    # (`v7_inbox.auto_prices`) cũng không ghi dòng chỉ vướng tháng khóa. Các nút ghi đọc `tab_health` và trả 409 TAB_BROKEN.
+    health = customer_health(snapshot, ledger, customers)
+    broken = health["status"] == "broken"
     by_target = {(target["kind"], target["id"]): target for target in pool}
     results = mark_shared([classify(row, pool) for row in rows])
     keep = ("customer_tab", "source_row", "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd",
@@ -244,7 +288,7 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, inclu
         changed = target is not None and (price != target["price"] or (fee or 0) != (target["fee"] or 0))
         sheet_total = result.get("sheet_total_vnd")
         total_matches = price is not None and (sheet_total is None or sheet_total == price + (fee or 0))
-        batchable = (result["status"] == "CONFLICT" and target is not None and not target["locked"] and changed
+        batchable = (not broken and result["status"] == "CONFLICT" and target is not None and not target["locked"] and changed
                      and total_matches and (target["kind"] == "trip" or (target["total"] is not None
                          and sheet_total is not None)))
         row = {k: batchable if k == "batchable" else
@@ -253,7 +297,7 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, inclu
         row["month_locked"] = target["locked"] if target else True
         row["month"] = target["month"] if target else ""   # yyyy-mm của chuyến đích: máy mở đúng tháng đó (MAY-GIA-01)
         return row
-    ready = [public(r) for r in results if r["status"] == "READY"]
+    ready = [] if broken else [public(r) for r in results if r["status"] == "READY"]
     review = [{**public(r), "closable": r["status"] in SOURCE_CLOSABLE} for r in results if r["status"] in REVIEW]
     # Dòng Sheet có tiền mà máy không ghi được (kể cả dòng không khớp chuyến nào, như "… 取消"): người đóng được theo dấu vân dòng.
     closable = sorted({price_identity(r) for r in results if r["status"] in (*SOURCE_CLOSABLE, "NOT_FOUND") and sheet_money(r)})
@@ -262,4 +306,5 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, inclu
             ledger, "price", r["target_kind"], r["target_id"], r["source_fingerprint"],
             {"unit_price_vnd": r["web_unit_price_vnd"], "other_fee_vnd": r["web_other_fee_vnd"]})]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
-            "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review), "closable_sources": closable}
+            "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review), "closable_sources": closable,
+            "tab_health": health}

@@ -67,12 +67,31 @@ class ConfigTests(unittest.TestCase):
         script.write_text(FAKE_AGE, encoding="utf-8")
         self.enterContext(patch.object(backup, "AGE", [sys.executable, "-I", str(script)]))
 
-    def config(self, keep=14, databases=(), commands=None):
+    def config(self, keep=14, databases=(), commands=None, inventory=()):
         output = io.StringIO()
         with redirect_stdout(output):
             archive = backup.config(self.outbox, self.recipients, keep, databases, self.paths,
-                                    self.commands if commands is None else commands)
+                                    self.commands if commands is None else commands, inventory)
         return archive, json.loads(output.getvalue().splitlines()[-1])
+
+    def test_inventory_is_sealed_and_a_missing_tool_is_listed_not_fatal(self):
+        inventory = (("inventory/packages.txt", echo("postgresql-18 18.6\n")),
+                     ("inventory/lvm.txt", (sys.executable, "-I", "-c", "import sys; sys.exit(5)")),
+                     ("inventory/empty.txt", echo("")))
+        archive, summary = self.config(inventory=inventory)
+        manifest = backup.verify_config(self.plain(archive))
+        self.assertIn("inventory/packages.txt", manifest["files"])
+        self.assertNotIn("inventory/lvm.txt", manifest["files"])
+        self.assertEqual(summary["missing"][-2:], ["command:inventory/lvm.txt", "command:inventory/empty.txt"])
+
+    def test_rebuild_paths_from_the_ops_audit_are_in_the_pack(self):
+        for path in ("/etc/webdebit-deploy.conf", "/var/lib/webdebit-sheet-sync/access/access.json", "/srv/v7/so-goc-20261020",
+                     "/var/lib/webdebit-sheet-sync/baseline-refs.json"):
+            self.assertIn(path, backup.CONFIG_PATHS)
+        members = [member for member, _ in backup.CONFIG_INVENTORY]
+        self.assertTrue(all(member.startswith("inventory/") for member in members))
+        self.assertEqual(len(members), len(set(members)))
+        self.assertFalse(any("shadow" in " ".join(argv) for _, argv in backup.CONFIG_INVENTORY))
 
     def plain(self, archive):
         """Fake age output is the header then the tar stream."""

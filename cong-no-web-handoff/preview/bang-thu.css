@@ -1,7 +1,7 @@
 /* BANG-THU-01, BANG-THU-02: Bảng thu theo ngôn ngữ Tổng quan bản ít chữ (màu, cỡ, khoảng cách lấy theo canvas). Khung thấy thật 1280×560:
    thanh đầu một hàng, khối tiền về rồi tới bảng. Số lớn rút gọn, số đúng ở chú thích; bảng ghi đồng đầy đủ để đối chiếu. */
 html:has(body.bt){background:#f3f5f8}
-body.bt{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;--amber:#8a5300;--teal:#0f766e;--bar:#2f9e8a;
+body.bt{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#64625c;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;--amber:#8a5300;--teal:#0f766e;--bar:#2f9e8a;
   background:#f3f5f8;color:var(--ink-1);font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 .bt [hidden]{display:none!important}
 .bt svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
@@ -136,7 +136,7 @@ button.row-link{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;
 .row-link::after{content:"";position:absolute;inset:0}
 .row-link:focus-visible{outline:none}
 .row-link:focus-visible::after{outline:2px solid var(--accent);outline-offset:-2px}
-.note,.debt,.when{color:var(--ink-m);font-size:13.5px}
+.note,.debt,.when{color:var(--ink-m);font-size:14px}
 .pay .go{padding:0 6px 0 0;color:var(--ink-l)}
 .nm.none{font-weight:400;color:var(--ink-l)}
 .share{min-width:2px;height:12px;border-radius:3px;background:var(--bar)}

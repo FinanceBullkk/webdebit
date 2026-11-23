@@ -49,5 +49,6 @@ Cấu hình trên healthchecks.io: một check, chu kỳ 15 phút, thời gian c
 - [x] Bổ sung 18/11/2026 (bản sao ngoài máy): `tests/test_v7_offsite_watch.py` (một PC kéo là đủ, khóa quản trị cùng PC không tính, thiếu nhóm journal nói rõ thay vì báo nhầm, không lộ IP hay khóa, đọc journal bỏ dòng hỏng). Chạy module trong sandbox của unit trên `hao` trước khi merge: ngưỡng 48 giờ im, ngưỡng 0 giờ báo đúng giờ kéo cuối.
 - [ ] Chạy trên `hao` dưới `v7app`, trong sandbox của unit: mọi phép kiểm đọc được, kết quả "ổn" khớp thực tế.
 - [x] Chủ sổ tạo check và đặt link ping lên `hao` (máy canh báo `configured`, 18/11/2026).
+- [x] Bổ sung 23/11/2026 (audit vận hành O2, O4, O8): `tests/test_v7_watchdog.py` (nhóm về check riêng hay check chính, lưới an toàn chưa có check riêng thì theo tiền, check chính luôn có ping, mỗi check một ping mỗi lượt, `--test-fail` tới mọi check, link sai khuôn không gửi gì; chế độ `report`, cầu dao 40 khách phải giữ hai lượt, đọc đuôi sổ theo dõi), `tests/test_v7_offsite_pull.py` (PC ping sau `PASS`, `/fail` chỉ chữ `FAIL`, lỗi ping không đổi kết quả kéo, link không vào `pull.log`).
 - [ ] `--test-fail`: email tới hộp thư chủ sổ; lượt kế có email hết lỗi.
 - [ ] Dừng thử: ngừng timer máy canh quá thời gian chờ thì có email, bật lại thì có email hết lỗi.

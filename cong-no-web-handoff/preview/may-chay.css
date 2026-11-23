@@ -78,7 +78,7 @@
 .mc .slot{border:1px solid var(--line);background:var(--surface);border-radius:5px;font:inherit;font-size:13px;line-height:1;padding:0;width:46px;height:25px;color:var(--ink-2);cursor:pointer;font-variant-numeric:tabular-nums}
 .mc .slot:hover{border-color:var(--accent)}
 .mc .slot[aria-current="true"]{outline:2px solid var(--ink);outline-offset:1px}
-.mc .slot.wrote{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.mc .slot.wrote{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff;font-weight:600}
 .mc .slot.left{background:var(--warning-soft);border-color:var(--warning);color:var(--warning);font-weight:600}
 .mc .slot.bad{background:var(--critical-soft);border-color:var(--critical);color:var(--critical);font-weight:600}
 .mc .slot.offs{border-style:dashed}

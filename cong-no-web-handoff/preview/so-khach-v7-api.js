@@ -102,9 +102,12 @@
     const list = document.querySelector('#customer-list');
     if (!search || !list) { customersDone(); return; }
     try {
-      const response = await fetcher('/api/v7/customers', { cache: 'no-store' });
-      if (!response.ok) throw Error();
-      const data = await response.json();
+      // Một lần đọc chung cả trang (menu, presence, sổ); test truyền fetcher riêng thì đọc thẳng như trước.
+      const data = fetcher === fetch && globalThis.CongNoNet ? await CongNoNet.customers() : await (async () => {
+        const response = await fetcher('/api/v7/customers', { cache: 'no-store' });
+        if (!response.ok) throw Error();
+        return response.json();
+      })();
       const customers = data.customers ?? [];
       // Show the real-copy/demo banner already on the picker page, before any ledger opens.
       const banner = document.querySelector('#demo-banner');

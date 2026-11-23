@@ -5,14 +5,18 @@
 | ĐÃ CHỐT | Người dùng chọn cách 2 (GitHub Action đẩy qua Tailscale), 23/10/2026 |
 | ĐÃ TRIỂN KHAI | `hao`, 23/10/2026: user deploy, script root-owned, sudoers, khóa SSH một lệnh, unit trỏ symlink release, Tailscale tag `tag:ci`, Environment `hao` có người duyệt. **28/10/2026:** người dùng bỏ *Required reviewers* (dự án chỉ một người làm), Environment chỉ còn luật nhánh `main`; kiểm bằng GitHub API cùng ngày |
 | ĐÃ KIỂM CHỨNG | Lượt `Deploy hao` xanh trên GitHub cho commit `3608c9d` (từ đầu tới cuối: Tailscale, SSH, đẩy gói, restart, kiểm sống). Script thử trong Docker với `systemctl`/`curl` giả: deploy, tự quay lại khi kiểm sống lỗi, bỏ qua cùng SHA, từ chối SHA sai |
-| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống (từ 31/10/2026 là `/healthz`) chứng minh tiến trình sống và đường psql tới DB chạy, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; mọi action đã ghim SHA (31/10/2026, Dependabot nâng), nhưng setting repo *require SHA pinning* chưa bật |
+| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống (từ 31/10/2026 là `/healthz`) chứng minh tiến trình sống và đường psql tới DB chạy, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; mọi action đã ghim SHA (31/10/2026, Dependabot nâng); setting repo *require SHA pinning*, Dependabot alerts và CodeQL default setup bật 23/11/2026 (người dùng cho phép, audit vận hành O10) |
 
 Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` tự chạy (Environment `hao`, không người duyệt từ 28/10/2026)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
 trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm sống, lỗi thì tự quay lại bản trước.
-Gói mã gồm `cong-no-web-handoff/{tools,web,preview}`, `specs/v7-backend/schema-draft.sql`, và từ 22/11/2026 thêm
-`docs/business-rules.md`, `docs/decisions.md`, `docs/decisions/`, `specs/*.md` để công cụ tra tài liệu của bot Zalo đọc
-(ZALO-BOT-01 tầng B; chỉ đọc, không chạy). Lượt chỉ đổi tài liệu không tự deploy: tài liệu trên `hao` theo lần deploy mã kế tiếp.
+Gói mã theo danh sách cho phép [`scripts/deploy/release-paths.txt`](../scripts/deploy/release-paths.txt) (từ 23/11/2026,
+audit vận hành O9): `web`, `preview` trừ test trình duyệt, các máy trong `tools` và module chúng nạp, `tools/zalo_bot`, cùng
+`docs/business-rules.md`, `docs/decisions.md`, `docs/decisions/`, `specs/*.md` cho công cụ tra tài liệu của bot Zalo (chỉ đọc).
+Không còn migration, file `.sql` (kể cả `schema-draft.sql`), harness và test PostgreSQL không ai nạp lúc chạy, công cụ PC.
+CÒN MỞ: máy giá và máy đối soát còn nạp harness qua `v7_load_real_copy`, nên vài file `test_pg_v7_backend*` vẫn phải đi theo.
+Release tay dùng cùng danh sách: `git archive <sha> $(grep -v -e '^#' -e '^$' scripts/deploy/release-paths.txt)`.
+Lượt chỉ đổi tài liệu không tự deploy: tài liệu trên `hao` theo lần deploy mã kế tiếp.
 Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run workflow, nhập SHA đầy đủ.
 Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sau, commit trong đợt); đây là nhật ký triển khai app, không cần PR tài liệu riêng.
 

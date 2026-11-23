@@ -56,3 +56,18 @@ test('messageOf: chữ trình duyệt đổi thành câu tiếng Việt, câu đ
   assert.equal(messageOf(null, 'Không lưu được.'), 'Không lưu được.');
   assert.equal(messageOf(new Error(''), 'Không lưu được.'), 'Không lưu được.');
 });
+
+test('customers: các phần cùng trang dùng chung một lần đọc; lỗi không giữ lại; fresh đọc lại', async () => {
+  const { customers } = require('./cong-no-net.js');
+  let calls = 0, fail = true;
+  const fetcher = async () => { calls += 1; if (fail) throw new TypeError('Failed to fetch'); return respond(200, { customers: [{ id: 1 }] }); };
+  await assert.rejects(customers({ fetcher, fresh: true }), { code: 'NETWORK' });
+  fail = false;
+  const [a, b] = await Promise.all([customers({ fetcher }), customers({ fetcher })]);
+  assert.equal(calls, 2, 'lần lỗi không giữ lại; hai phần gọi cùng lúc chỉ một lần đọc');
+  assert.equal(a, b);
+  await customers({ fetcher });
+  assert.equal(calls, 2, 'chưa quá 60 giây: dùng lại');
+  await customers({ fetcher, fresh: true });
+  assert.equal(calls, 3);
+});

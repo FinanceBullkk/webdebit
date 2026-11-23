@@ -1,15 +1,18 @@
-# PLAN — hiện tại (5/11/2026)
+# PLAN — hiện tại (cập nhật 23/11/2026)
 
 Mục tiêu gần nhất: **web tự chạy theo Sheet, không cần người nhập thao tác trên web** ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md), người dùng chốt 4/11/2026), và giữ đối soát khớp liền một tháng theo [`SONG-SONG-01`](docs/decisions/song-song-01.md). Tháng song song đầu tiên là tháng 11/2026, lần xét đầu là đối soát cuối tháng 11 (F2, ĐÃ CHỐT 5/11).
 
-So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ trên `hao`, và tự sửa khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet tới từng đồng; kết quả ở đầu tab Việc cần làm ([nhật ký](docs/deploys/2026-11-04-may-doi-soat.md)). Việc còn lại chủ yếu là **vận hành và quyết định của chủ sổ**.
+So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ trên `hao`, và tự sửa khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet tới từng đồng; kết quả ở đầu tab Việc cần làm ([nhật ký](docs/deploys/2026-11-04-may-doi-soat.md)). Việc còn lại chủ yếu là **vận hành và quyết định của chủ sổ**. Cái gì chạy ở đâu, ai biết khi nó dừng: [van-hanh.md](docs/van-hanh.md).
+
+Mỗi dòng bảng ghi trạng thái kèm ngày của chính nó; dòng nào ngày cũ thì kiểm lại trước khi dựa vào.
 
 ## Việc còn lại trước khi coi là chạy được không cần người
 
 | # | Việc | Ai | Trạng thái 4/11 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
 | A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | Lượt 14:45: 238/238 khớp, gồm 2 sổ mới máy vừa tạo ([`MAY-TAO-SO-01`](docs/decisions/may-tao-so-01.md), [nhật ký](docs/deploys/2026-11-04-may-tao-so.md)) | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
-| Cảnh báo | Máy lỗi hoặc dừng thì có email ([`CANH-BAO-01`](docs/decisions/canh-bao-01.md)) | Chủ sổ tạo tài khoản và đặt link, Claude cài | Người dùng chọn email 4/11. Máy canh đã có; chờ link ping | Một lần thử cảnh báo tới được hộp thư |
+| Cảnh báo | Máy lỗi hoặc dừng thì có email ([`CANH-BAO-01`](docs/decisions/canh-bao-01.md)) | Chủ sổ tạo check, Claude cài | 18/11: link ping đã có trên `hao`. 23/11: tách nhiều check (tiền, lưới an toàn, sao lưu, Zalo, nhịp sống; mỗi PC kéo một check), chờ chủ sổ tạo check mới | Một lần `--test-fail` tới hộp thư (E3 của [checklist chuyển hẳn](docs/chuyen-han-checklist.md)) |
+| Dựng lại máy | `hao` chết thì dựng lại được, biết mất bao nhiêu và bao lâu | Claude, cần một PC/VM trống | 23/11: có [checklist](docs/rebuild-hao.md), gói cấu hình thêm file và bảng kê còn thiếu; chưa diễn tập trên máy khác | Nhật ký diễn tập có số phút (E1) |
 | E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
 | F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐÃ CHỐT 5/11: tính cả tháng 11, từ 1/11/2026 | [`SONG-SONG-02`](docs/decisions/song-song-02.md) |
 | F4 | Cách chuyển hẳn khi Sheet vẫn là nơi nhập | Chủ nghiệp vụ | Chưa chuyển, giữ Sheet; xét lại sau đối soát cuối tháng 11. Lượt audit chỉ đọc 11/11: web khớp Sheet tới từng dòng, tab TONG để trống 14 khách còn số dư, 6 việc chủ sổ phải quyết | [`CHUYEN-HAN-01`](docs/decisions/chuyen-han-01.md); [checklist chuyển hẳn](docs/chuyen-han-checklist.md); quyết định chuyển hẳn sau lần xét |

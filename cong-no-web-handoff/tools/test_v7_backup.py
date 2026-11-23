@@ -287,16 +287,18 @@ class BackupUnitTests(unittest.TestCase):
 class DockerEndToEndTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # CI (job postgres-v7-grants-direct) đặt WEBDEBIT_BACKUP_E2E_REQUIRED=1: thiếu Docker là đỏ, không lặng lẽ bỏ qua.
+        unavailable = AssertionError if os.getenv("WEBDEBIT_BACKUP_E2E_REQUIRED") else unittest.SkipTest
         if not shutil.which("docker"):
-            raise unittest.SkipTest("Docker CLI unavailable; PostgreSQL 18 end-to-end not run")
+            raise unavailable("Docker CLI unavailable; PostgreSQL 18 end-to-end not run")
         try:
             result = subprocess.run(["docker", "info", "--format", "{{.ServerVersion}}"],
                                     capture_output=True, timeout=20, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise unittest.SkipTest(f"Docker unavailable: {exc}; PostgreSQL 18 end-to-end not run") from exc
+            raise unavailable(f"Docker unavailable: {exc}; PostgreSQL 18 end-to-end not run") from exc
         if result.returncode:
             reason = result.stderr.decode("utf-8", errors="replace").strip()[-500:]
-            raise unittest.SkipTest(f"Docker unavailable: {reason}; PostgreSQL 18 end-to-end not run")
+            raise unavailable(f"Docker unavailable: {reason}; PostgreSQL 18 end-to-end not run")
 
     def test_backup_restore_and_new_manifest_detects_changed_source(self):
         run_id = uuid.uuid4().hex
