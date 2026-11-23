@@ -556,8 +556,18 @@ Review: sonnet medium cho PR-0, PR-2, PR-5; opus cho PR-1, PR-3, PR-4 (con trỏ
   - phía `hao`: `test_extras_reach_the_api_and_bad_values_are_dropped`.
 - [ ] Người dùng tự đi Luồng 1–2 (tắt Zalo 20 phút trong giờ làm, nhận email, mở lại, nhận email "đã ổn") và Luồng 3 trên trang Thu chi.
 
+## Triển khai agent từ bản ghim (23/11/2026)
+
+Task `ZaloAgent` không chạy thẳng từ checkout dev mà từ `D:\zalo-agent\releases\<sha12>`: một git repo riêng, bất biến, ở đúng SHA của `main`. Lý do: kéo `main` hay đổi nhánh ở checkout dev làm agent đang chạy nạp lười mã mới lẫn mã cũ (import muộn, `ocr_child.py` và tiến trình WeChat sinh lại), và lượt chạy kế tiếp chạy nhầm nhánh.
+
+- Một lệnh: `cong-no-web-handoff/tools/zalo_agent_release.ps1` (`Deploy`, `Rollback`, `Status`, `Prune`). Không sửa mã agent: `agent_version` vẫn lấy từ `git rev-parse` ở gốc repo của bản ghim (`REPO = parents[3]`).
+- Khởi động lại phải chờ tiến trình cũ chết rồi mới `Start` (khóa `agent.lock`), kiểm `agent_version` ở `status.json` máy và `hao`, tự lùi khi máy lỗi.
+- Quy tắc cho mọi PR agent từ nay: merge vào `main` xong thì triển khai bằng `Deploy`, không `git pull` ở checkout dev để agent chạy mã mới.
+- Chi tiết, kết quả thử và cách lùi: [nhật ký 23/11/2026](../docs/deploys/2026-11-23-zalo-agent-ban-ghim.md).
+
 ## Hoàn tác
 
+- **Bản ghim:** `zalo_agent_release.ps1 Rollback` về bản trước (bản đầu tiên là checkout dev).
 - **Chuyển:** tắt task `zalo-agent`, bật lại `WebdebitZaloSync` (đã tắt chứ không xóa). Gói trên `hao` vẫn đọc được vì thiếu phần thêm thì chỉ đọc gói gốc.
 - **PR-3:** bật lại `ZaloInsurancePush` từ worktree cũ; giữ worktree tới khi PR-3 chạy ổn hai tuần.
 - **PR-4:** `ZALO_AGENT_EXTERNAL=off`, hoặc tắt bộ xử lý `money_images`. Trang Thu chi chỉ thiếu số đọc từ ảnh.
