@@ -26,6 +26,10 @@ from v7_api_tables import (
     TRIP_FIELDS,
 )
 
+# Audit 23/11/2026 (F5): ký tự điều khiển C0 (trừ tab, xuống dòng) và DEL trong chữ tự do bị từ chối 422. Một ký tự như vậy
+# trong lý do hủy (lịch sử không sửa được) từng làm hỏng vĩnh viễn "Tải cả sổ"; NUL còn làm jsonb báo lỗi thành 503.
+CONTROL_CHARS = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
 
 class ApiError(Exception):
     def __init__(self, status: int, code: str, message: str, extra: dict | None = None):
@@ -232,7 +236,8 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if function == "void_offset" and (not isinstance(body.get("reason"), str) or not body["reason"].strip() or len(body["reason"]) > 500):
         bad("VOID_REASON_REQUIRED", "Cần ghi lý do hủy cấn trừ.")
     for name in ("method", "pid", "reason", "note", "reference"):
-        if name in fields and name in body and body[name] is not None and (not isinstance(body[name], str) or len(body[name]) > 500):
+        if name in fields and name in body and body[name] is not None and (not isinstance(body[name], str) or len(body[name]) > 500
+                                                                           or CONTROL_CHARS.search(body[name])):
             bad()
     if function == "record_receipt" and (not isinstance(body.get("method"), str) or not body["method"] or body["amount_vnd"] == "0"):
         bad()

@@ -6,6 +6,7 @@ import http.client
 import io
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -23,6 +24,14 @@ sys.path.insert(0, str(ROOT / "web"))
 import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_psql  # noqa: E402
+
+
+def setUpModule():
+    # Audit 23/11/2026 (F4): header danh tính chỉ được tin khi socket client thuộc tailscaled (uid 0, tra /proc/net/tcp trên
+    # Linux). Test chạy cả trên Windows: ở module này mọi peer loopback coi như tailscaled; F4 kiểm riêng ở test_v7_peer_trust.py.
+    peer = patch.object(api.v7_identity, "loopback_peer_uid", return_value=0)
+    peer.start()
+    unittest.addModuleCleanup(peer.stop)
 
 
 class FeeApiTest(unittest.TestCase):
@@ -1115,6 +1124,7 @@ class LedgerApiTest(unittest.TestCase):
             self.assertNotIn("server-actor", sql)
             self.assertEqual(args[args.index("docker") + 1], "exec")
             self.assertIn("a" * 64, args)
+            self.assertFalse(any(arg.startswith("payload=") for arg in args))   # F12: payload qua stdin, không là đối số
         with patch.object(api.subprocess, "run", return_value=inspect):
             self.assertEqual(api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app").user, "v7_app")
         # LUOI-AN-TOAN-01: read_only mở giao dịch REPEATABLE READ READ ONLY, được chạy tới 60 giây (lệnh người dùng 15 giây);
@@ -1126,7 +1136,7 @@ class LedgerApiTest(unittest.TestCase):
             sql = command.call_args.kwargs["input"]
             self.assertTrue(sql.startswith("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;\nSET LOCAL statement_timeout = '60s';\n"
                                            "SET LOCAL sokhach.actor = :'actor';\n"))
-            self.assertIn("SELECT sokhach.get_safety_net(:'payload'::jsonb);", sql)
+            self.assertRegex(sql, r'SELECT sokhach\.get_safety_net\(\$(v7_[0-9a-f]{16})\$\{"event_upto":null\}\$\1\$::jsonb\);')
             self.assertEqual(command.call_args.kwargs["timeout"], 90)
         with patch.object(api.subprocess, "run", side_effect=[inspect, subprocess.TimeoutExpired([], 90)]):
             runner = api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app")
@@ -1249,10 +1259,13 @@ class LedgerApiTest(unittest.TestCase):
         for _, (function, body) in self.offset_samples().items():
             with patch.object(api.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{}', '')) as command:
                 runner.run(function, body, "server-actor")
-                self.assertIn(api.SQL[function], command.call_args.kwargs["input"])
+                sql = command.call_args.kwargs["input"]
+                # F12 (audit 23/11/2026): payload là hằng dollar-quote trong SQL gửi qua stdin, không là đối số -v.
+                literal = re.search(r"\$(v7_[0-9a-f]{16})\$(.*?)\$\1\$", sql)
+                self.assertEqual(json.loads(literal.group(2)), body)
+                self.assertIn(api.SQL[function].replace(":'payload'", literal.group(0)), sql)
                 args = command.call_args.args[0]
-                payload = next(arg[len("payload="):] for arg in args if arg.startswith("payload="))
-                self.assertEqual(json.loads(payload), body)
+                self.assertFalse(any(arg.startswith("payload=") for arg in args))
                 self.assertIn("actor=server-actor", args)
                 self.assertNotIn("server-actor", command.call_args.kwargs["input"])
         for detail, expected in ((None, {}), ('{"available_credit_vnd":"123"}', {"available_credit_vnd": "123"}),
@@ -1333,17 +1346,43 @@ class LedgerHttpTest(unittest.TestCase):
                 api.ThreadingHTTPServer((host, 0), ServeHandler)
 
     def test_cli_identity_environment(self):
+        # main() đặt thuộc tính lớp Handler (Serve, danh sách login, runner): trả lại sau test, không rò sang test khác.
+        saved = {name: value for name, value in vars(api.Handler).items() if not name.startswith("__")}
+        self.addCleanup(lambda: [setattr(api.Handler, name, value) for name, value in saved.items()])
+        self.addCleanup(setattr, api.v7_access, "STORE", api.v7_access.STORE)
+        # Audit 23/11/2026 (F8): V7_API_INSECURE_DEV_ACTOR không còn bật dev actor; Serve vẫn bắt buộc danh sách login.
         with patch.dict(os.environ, {"V7_API_BEHIND_TAILSCALE_SERVE": "1",
+                                    "V7_API_INSECURE_DEV_ACTOR": "env-demo"}), \
+             patch.object(sys, "argv", ["api", "--container", "fake"]), patch.object(api, "Psql") as runner, \
+             patch.object(api, "ThreadingHTTPServer"), self.assertRaises(SystemExit):
+            api.main()
+        runner.assert_not_called()
+        with patch.dict(os.environ, {"V7_API_BEHIND_TAILSCALE_SERVE": "1", "WEBDEBIT_ALLOWED_LOGINS": "ops@example.test",
                                     "V7_API_INSECURE_DEV_ACTOR": "env-demo"}), \
              patch.object(sys, "argv", ["api", "--container", "fake"]), patch.object(api, "Psql"), \
              patch.object(api, "ThreadingHTTPServer"), patch.object(api.Handler, "default_actor"), \
              patch.object(api.Handler, "dev_actor_mode"), patch.object(api.Handler, "behind_tailscale_serve"), \
-             patch.object(api.Handler, "allowed_logins"):
+             patch.object(api.Handler, "allowed_logins"), patch.object(api.INBOX, "start"), \
+             patch.object(api.INBOX, "keep_fresh"), patch.object(api.v7_nhat_ky, "journal"), \
+             patch.object(api.v7_telegram, "start"), patch.object(api.v7_zalo_chat, "warm"):
             api.main()
             self.assertTrue(api.Handler.behind_tailscale_serve)
-            self.assertTrue(api.Handler.dev_actor_mode)
-            self.assertIsNone(api.Handler.allowed_logins)  # dev actor bypasses identity, allowlist not required
-            self.assertEqual(api.Handler.default_actor, "env-demo")
+            self.assertFalse(api.Handler.dev_actor_mode)
+            self.assertIsNone(api.Handler.default_actor)
+        for flags in (["--insecure-dev-actor", "demo", "--behind-tailscale-serve", "--allowed-login", "ops@example.test"],
+                      ["--insecure-dev-actor", "demo", "--read-only-peer-uid", "1001"]):
+            with self.subTest(flags=flags), patch.dict(os.environ, {}, clear=True), \
+                 patch.object(sys, "argv", ["api", "--container", "fake", *flags]), \
+                 patch.object(api, "Psql") as runner, self.assertRaises(SystemExit):
+                api.main()
+            runner.assert_not_called()
+
+        class Both(api.Handler):
+            behind_tailscale_serve = True
+            default_actor = "demo"
+            dev_actor_mode = True
+        with self.assertRaises(ValueError):
+            api.ThreadingHTTPServer(("127.0.0.1", 0), Both)
 
     def test_cli_identity_modes(self):
         for flags, actor, serve in (([], None, False), (["--insecure-dev-actor", "demo"], "demo", False),
