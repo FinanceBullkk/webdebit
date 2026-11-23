@@ -299,11 +299,12 @@ test('khách trả trước: chân bảng ba dòng như sổ kế toán, số â
     const boxes = await page.locator('#heat-foot tr td.khach').evaluateAll(cells => cells.map(cell => { const r = cell.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
     assert.ok(Math.abs(boxes[2][1] - 720) <= 1 && boxes[2][1] - boxes[2][0] <= 44, `dòng ròng dính đáy, một dòng: ${JSON.stringify(boxes)}`);
     assert.ok(boxes[1][0] > 720 && boxes[0][0] > 720, `hai dòng Phải thu / trả trước không dính: ${JSON.stringify(boxes)}`);
-    // Khung thấy thật 1280×560 có thanh cuộn 15px: dải tổng một dòng, thấy ít nhất 8 khách trọn dòng.
+    // Khung thấy thật 1280×560 có thanh cuộn 15px: dải tổng một dòng, thấy ít nhất 7 dòng trọn (Segoe UI 9, DejaVu của CI Ubuntu 7;
+    // trước THEO-THANG-GON-01 là 5).
     await page.setViewportSize({ width: 1265, height: 560 });
     const fit = await page.evaluate(() => ({ summary: Math.round(document.querySelector('.summary').getBoundingClientRect().height),
       rows: [...document.querySelectorAll('#heat-body tr')].filter(tr => { const r = tr.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight - 40; }).length }));
-    assert.ok(fit.summary <= 48 && fit.rows >= 8, JSON.stringify(fit));
+    assert.ok(fit.summary <= 48 && fit.rows >= 7, JSON.stringify(fit));
     const cut = await page.locator('.heat thead th').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.innerText));
     assert.deepEqual(cut, [], 'tiêu đề cột không cắt chữ ở 1265px');
   } finally {
