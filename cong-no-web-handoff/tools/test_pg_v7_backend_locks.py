@@ -230,7 +230,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql", "2026-11-13-v7-dau-doc.sql", "2026-11-16-v7-bao-cao-thang.sql", "2026-11-16-v7-chuan-hoa-chu.sql", "2026-11-16-v7-nguon-het-bao.sql", "2026-11-18-v7-luoi-an-toan.sql", "2026-11-18-v7-mo-so-tat-jit.sql", "2026-11-18-v7-tong-quan-tat-jit.sql", "2026-11-19-v7-khach-moi.sql",
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
-                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql"):
+                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
+                     "2026-11-23-v7-audit-sql.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
@@ -412,7 +413,9 @@ def check_locks(pg: Pg) -> str:
     require(definition.index("_begin_command") < definition.index("clock_timestamp()") < definition.index("_month_open"),
             "price edit must read wall clock after customer lock")
     paste = pg.value("SELECT pg_get_functiondef(oid) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='paste_trips'")
-    require("_month_open" not in paste, "paste still blocks locked months")
+    # NHAP-SHEET-01 (7): chuyến có ngày nhập bù vào tháng khóa; audit SQL 23/11 (F2): chỉ dòng phí lẻ không ngày theo khóa tháng.
+    require(paste.count("_month_open") == 1 and "IF v_date IS NULL THEN" in paste.split("_month_open")[0][-400:],
+            "paste must check the month lock only for undated fee rows")
     pg.value(f"SELECT sokhach._month_open({c},'2026-10-01','2026-10-31 16:59:59+00')")
     pg.rejects(f"SELECT sokhach._month_open({c},'2026-10-01','2026-10-31 17:00:00+00')", message="MONTH_LOCKED")
     pg.value(f"SELECT sokhach._month_open({c},'2026-11-01','2026-10-31 17:00:00+00')")

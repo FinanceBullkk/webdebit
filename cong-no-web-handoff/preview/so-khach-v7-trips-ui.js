@@ -31,8 +31,8 @@
   // PHU-PHI-01: cụm cột phụ phí = cột riêng của sổ (0–3, theo fee_columns) + Khác. Số lấy từ fee_lines của server,
   // model cộng để hiện (ARCH-03). Ô cột riêng: bấm gõ số; ô Khác: mở khung chi tiết (so-khach-v7-fee-ui.js).
   const feeCells = (target, what, lines, editable) => {
-    const cells = model.feeCells(lines ?? [], ctx.feeColumnIds);
-    const own = ctx.feeColumnIds.map((id, index) => `<td class="num fee own${editable ? ' fee-edit' : ''}" data-fee-target="${target}" `
+    const cells = model.feeCells(lines ?? [], ctx.shownFeeIds);
+    const own = ctx.shownFeeIds.map((id, index) => `<td class="num fee own${editable ? ' fee-edit' : ''}" data-fee-target="${target}" `
       + `data-fee-type="${id}"${editable ? ` tabindex="0" role="button" aria-label="Sửa ${escape(feeTypeName(id))} ${escape(what)}"` : ''}>`
       + `${cells.own[index] === null ? '' : model.formatVnd(cells.own[index])}</td>`).join('');
     // SO-GON-04 (P0-4): ô Khác trống ghi "–"; "+ thêm" chỉ hiện khi rê chuột, đứng ở dòng hoặc tick chọn dòng (CSS).
@@ -43,7 +43,7 @@
     return `${own}<td class="num fee fee-other" data-field="other_fee_vnd" data-fee-target="${target}" tabindex="0" role="button" `
       + `${count ? `title="Phụ phí khác${count}" ` : ''}aria-label="Chi tiết phụ phí ${escape(what)}${count}">${other}</td>`;
   };
-  const feeEmpty = () => ctx.feeColumnIds.map(() => empty('num fee')).join('') + empty('num fee');
+  const feeEmpty = () => ctx.shownFeeIds.map(() => empty('num fee')).join('') + empty('num fee');
   const feePick = (target, what, editable) => editable
     ? `<input type="checkbox" class="fee-pick" data-fee-target="${target}" aria-label="Chọn ${escape(what)} để thêm phụ phí">` : '';
 

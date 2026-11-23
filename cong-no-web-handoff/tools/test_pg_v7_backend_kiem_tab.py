@@ -6,6 +6,7 @@ import json
 
 from pg_v7_harness import (
     AUDIT_KIEN_TRUC_MIGRATION,
+    AUDIT_SQL_MIGRATION,
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
     call,
@@ -31,11 +32,13 @@ def check_kiem_tab(pg) -> str:
     pg.sql(migration)
     pg.sql(migration)
     pg.sql(audit)
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     require(pg.value(CATALOG) == fresh, "kiem-tab migration rerun changed function catalog")
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     require(pg.value(CATALOG) != fresh, "khoa-chu bodies must differ from the canonical ones (otherwise this check proves nothing)")
     pg.sql(migration)
     pg.sql(audit)
+    pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     require(pg.value(CATALOG) == fresh, "kiem-tab migration did not restore the canonical bodies")
 
     c = new_book(pg, ("2026-01-01", 100))

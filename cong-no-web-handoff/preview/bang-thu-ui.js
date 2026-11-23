@@ -414,7 +414,7 @@
     try {
       const [book, customers, inbox] = await Promise.all([
         json(`/api/v7/receipt-book${state.month ? `?month=${state.month}-01` : ''}`),
-        state.labels ? null : json('/api/v7/customers').then(body => body.customers ?? []).catch(() => null),
+        state.labels ? null : CongNoNet.customers().then(body => body.customers ?? []).catch(() => null),
         json('/api/v7/inbox').catch(() => null),
       ]);
       if (mine !== turn) return;   // người dùng vừa đổi tháng: lượt mới hơn sẽ vẽ

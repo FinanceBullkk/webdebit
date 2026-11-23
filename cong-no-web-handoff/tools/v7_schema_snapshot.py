@@ -7,7 +7,11 @@ thích, quyền), view, hàm (`pg_get_functiondef`, sắp theo tên + chữ ký,
 định nghĩa hàm/view/cột/ràng buộc: `test_pg_v7_backend.py --migration-test` đã so catalog hai đường.
 
 File sinh ra (`OUTPUT`) chỉ để đọc; đuôi `.pgsql` và chỗ đặt ngoài gói release nên không rơi vào cổng SQL của Deploy hao
-và luật nghiệp vụ, runbook không nạp nó. Cần Docker:
+và luật nghiệp vụ, runbook không nạp nó.
+
+Audit SQL 23/11/2026 (F1): cùng lượt sinh `MANIFEST` (`tools/v7_catalog_manifest.json`, nằm trong gói release): kết quả
+`sokhach._catalog_manifest()` của bản cài mới, gồm mức lược đồ và md5 từng hàm/view/trigger (kèm bật/tắt)/index/ràng buộc.
+`v7_post_deploy_check.sql` và lưới an toàn (`v7_safety_net.py`) so DB thật với file này. Cần Docker:
 
     python cong-no-web-handoff/tools/v7_schema_snapshot.py           # sinh lại file
     python cong-no-web-handoff/tools/v7_schema_snapshot.py --check   # so với file trong repo, lệch thì exit 1
@@ -24,6 +28,7 @@ from pathlib import Path
 from pg_v7_harness import IMAGE, ROOT, HarnessError, Pg, disposable_database
 
 OUTPUT = ROOT / "cong-no-web-handoff" / "schema" / "v7_schema_current.pgsql"
+MANIFEST = ROOT / "cong-no-web-handoff" / "tools" / "v7_catalog_manifest.json"
 REGENERATE = "python cong-no-web-handoff/tools/v7_schema_snapshot.py"
 SCHEMA_NAME = "sokhach"
 
@@ -266,6 +271,32 @@ def render(pg: Pg) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def render_manifest(pg: Pg) -> str:
+    """Bảng băm định nghĩa, JSON sắp khóa, một mục một dòng để diff dễ đọc."""
+    manifest = json.loads(pg.value("SELECT sokhach._catalog_manifest()"))
+    return json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
+
+
+def compare(path: Path, text: str) -> bool:
+    shown = path.resolve().relative_to(ROOT).as_posix() if path.resolve().is_relative_to(ROOT) else str(path)
+    current = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else ""
+    if current == text:
+        print(f"KHỚP: {shown} đúng trạng thái hiện hành.")
+        return True
+    diff = list(difflib.unified_diff(current.splitlines(), text.splitlines(), "trong repo", "sinh lại", lineterm="", n=2))
+    print("\n".join(diff[:200]))
+    if len(diff) > 200:
+        print(f"... còn {len(diff) - 200} dòng diff")
+    print(f"\nLỆCH: {shown} không khớp SQL hiện hành. Sinh lại rồi commit:\n    {REGENERATE}", file=sys.stderr)
+    return False
+
+
+def write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):  # Windows chuyển hướng ra file thì mặc định cp1252
         reconfigure = getattr(stream, "reconfigure", None)
@@ -274,11 +305,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="không ghi; so với file trong repo, lệch thì exit 1")
     ap.add_argument("--output", type=Path, default=OUTPUT, help="file đích (mặc định %(default)s)")
+    ap.add_argument("--manifest", type=Path, default=MANIFEST, help="file bảng băm (mặc định %(default)s)")
     args = ap.parse_args()
     report: dict = {}
     try:
         with disposable_database(report) as pg:
             text = render(pg)
+            manifest = render_manifest(pg)
     except (HarnessError, OSError, ValueError, KeyError) as exc:
         print(f"LỖI: {type(exc).__name__}: {str(exc)[-3000:]}", file=sys.stderr)
         print(json.dumps(report, ensure_ascii=False), file=sys.stderr)
@@ -286,23 +319,13 @@ def main() -> int:
     if report.get("cleanup") != "verified_and_removed":
         print(f"LỖI dọn container: {report.get('cleanup')}", file=sys.stderr)
         return 2
-    shown = args.output.resolve().relative_to(ROOT).as_posix() if args.output.resolve().is_relative_to(ROOT) else args.output
     if args.check:
-        current = args.output.read_text(encoding="utf-8").replace("\r\n", "\n") if args.output.exists() else ""
-        if current == text:
-            print(f"KHỚP: {shown} đúng trạng thái hiện hành.")
-            return 0
-        diff = list(difflib.unified_diff(current.splitlines(), text.splitlines(), "trong repo", "sinh lại", lineterm="", n=2))
-        print("\n".join(diff[:200]))
-        if len(diff) > 200:
-            print(f"... còn {len(diff) - 200} dòng diff")
-        print(f"\nLỆCH: {args.output.relative_to(ROOT).as_posix()} không khớp SQL hiện hành. Sinh lại rồi commit:\n"
-              f"    {REGENERATE}", file=sys.stderr)
-        return 1
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-    print(f"ĐÃ GHI {args.output} ({text.count(chr(10))} dòng, {text.count('-- FUNCTION ')} hàm)")
+        ok = compare(args.output, text)
+        ok = compare(args.manifest, manifest) and ok
+        return 0 if ok else 1
+    write(args.output, text)
+    write(args.manifest, manifest)
+    print(f"ĐÃ GHI {args.output} ({text.count(chr(10))} dòng, {text.count('-- FUNCTION ')} hàm) và {args.manifest}")
     return 0
 
 

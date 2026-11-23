@@ -143,7 +143,7 @@ div.dx-row{cursor:default}
 .dx-sel{flex:0 1 auto;width:100%;min-width:0;height:40px;padding:0 4px;border:0;background:transparent;font-size:14px;cursor:pointer}
 .dx-c:has(.dx-noi) .dx-sel,.dx-c:has(.dx-sk) .dx-sel{width:auto}
 .dx-noi.ok{color:var(--credit);font-weight:700;font-size:15px}
-.dx-noi.chua,.dx-sk{flex:none;padding:1px 6px;border-radius:10px;font-size:12px;font-weight:600}
+.dx-noi.chua,.dx-sk{flex:none;padding:1px 6px;border-radius:10px;font-size:13px;font-weight:600}
 .dx-noi.chua{background:var(--warning-soft);color:#7a4700}
 .dx-sk{background:#e9ecf0;color:#3d3c39}
 .dx-tag{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

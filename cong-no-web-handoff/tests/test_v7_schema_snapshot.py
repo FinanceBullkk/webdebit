@@ -49,11 +49,12 @@ class SnapshotPlacementTests(unittest.TestCase):
         self.assertNotEqual(snap.OUTPUT.suffix, ".sql")
 
     def test_output_is_outside_release_archive(self):
-        archive = re.search(r'git archive "\$SHA" ([^|\\]+)', DEPLOY)
-        self.assertIsNotNone(archive, "không tìm thấy git archive trong deploy-hao.yml")
-        paths = archive.group(1).split()
-        self.assertIn("cong-no-web-handoff/tools", paths)
+        # Gói release theo danh sách cho phép (O9); tests/test_release_paths.py kiểm danh sách bằng git ls-files.
+        lines = (REPO / "scripts" / "deploy" / "release-paths.txt").read_text(encoding="utf-8").splitlines()
+        paths = [line.strip() for line in lines if line.strip() and not line.startswith("#") and not line.startswith(":")]
+        self.assertIn("cong-no-web-handoff/web", paths)
         self.assertFalse(any(self.rel == p or self.rel.startswith(p.rstrip("/") + "/") for p in paths), paths)
+        self.assertFalse(self.rel.startswith("cong-no-web-handoff/tools/"), self.rel)
 
     def test_committed_file_is_marked_generated(self):
         head = snap.OUTPUT.read_text(encoding="utf-8").splitlines()[:8]
@@ -63,6 +64,26 @@ class SnapshotPlacementTests(unittest.TestCase):
     def test_ci_harness_job_runs_the_check(self):
         job = CI.split("\n  postgres-v7-backend:", 1)[1].split("\n  postgres-v7-p0:", 1)[0]
         self.assertIn("cong-no-web-handoff/tools/v7_schema_snapshot.py --check", job)
+
+
+
+class ManifestPlacementTests(unittest.TestCase):
+    """Audit SQL 23/11/2026 (F1): bảng băm phải đi theo release (lưới an toàn trên hao đọc nó) và không kích cổng SQL."""
+    rel = snap.MANIFEST.relative_to(REPO).as_posix()
+
+    def test_manifest_ships_in_release_archive(self):
+        # Gói release theo danh sách cho phép (O9): file phải có tên riêng trong scripts/deploy/release-paths.txt.
+        lines = (REPO / "scripts" / "deploy" / "release-paths.txt").read_text(encoding="utf-8").splitlines()
+        self.assertIn(self.rel, [line.strip() for line in lines])
+
+    def test_manifest_is_not_caught_by_deploy_sql_gate(self):
+        gate = re.search(r"if grep -E '([^']+)' <<< \"\$changed\"", DEPLOY)
+        self.assertIsNotNone(gate, "không tìm thấy cổng SQL trong deploy-hao.yml")
+        self.assertIsNone(re.search(gate.group(1), self.rel), self.rel)
+
+    def test_manifest_sits_next_to_the_safety_net(self):
+        import v7_safety_net
+        self.assertEqual(v7_safety_net.MANIFEST, snap.MANIFEST)
 
 
 if __name__ == "__main__":

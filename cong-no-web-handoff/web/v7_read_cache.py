@@ -39,8 +39,11 @@ def _consistent(method, function: str, payload: dict, actor: str):
 
     Dưới READ COMMITTED mỗi câu trong get_ledger thấy dữ liệu đã commit lúc câu đó chạy, nên một phiếu thu commit giữa chừng
     làm tổng nợ (trước phiếu) và danh sách phiếu (sau phiếu) lệch nhau trong cùng một trả lời. Dấu trước/sau chỉ ngăn giữ bản
-    đó vào bộ nhớ, không sửa được trả lời đã ghép. Chỉ dùng ở GET: lệnh ghi gọi get_ledger phải thấy chính phần nó ghi."""
-    if function in CACHED and _takes_consistent(method):
+    đó vào bộ nhớ, không sửa được trả lời đã ghép. Chỉ dùng ở GET: lệnh ghi gọi get_ledger phải thấy chính phần nó ghi.
+
+    Audit SQL 23/11/2026 (F3): áp cho MỌI hàm đọc của GET, không chỉ bốn hàm có bộ nhớ: get_receivables_detail (gọi get_ledger
+    rồi đọc thêm hai view), get_price_status và get_price_table (đọc version trước dữ liệu) cũng ghép nhiều câu."""
+    if _takes_consistent(method):
         return method(function, payload, actor, consistent=True)
     return method(function, payload, actor)
 
@@ -84,7 +87,7 @@ class ReadCache:
 
     def run(self, runner, function: str, payload: dict, actor: str) -> Any:
         if function not in CACHED:
-            return runner.run(function, payload, actor)
+            return _consistent(runner.run, function, payload, actor)
         stamp = self.current_stamp(runner, actor)
         if stamp is None:
             return _consistent(runner.run, function, payload, actor)

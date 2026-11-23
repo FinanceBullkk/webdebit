@@ -1,0 +1,32 @@
+# Gói release lên hao: chỉ file chạy thật (audit vận hành 23/11/2026, O9). Mỗi dòng một pathspec của git; dòng trống và dòng # bỏ qua.
+# Dùng chung cho `Deploy hao` (.github/workflows/deploy-hao.yml) và release tay:
+#   git archive <sha> $(grep -v -e '^#' -e '^$' scripts/deploy/release-paths.txt)
+# Không mang: migration và file .sql (áp tay theo runbook, chép riêng bằng `git show` + SHA-256), test trình duyệt, harness và test
+# PostgreSQL không ai nạp lúc chạy, công cụ chạy ở PC (zalo_agent, zalo_web_bundle.py, debit-note-v4-pdf.js).
+# Test cong-no-web-handoff/tests/test_release_paths.py kiểm: mọi module mà unit trên hao nạp (đọc từ runbook) đều có trong gói,
+# và gói không có migration, .sql hay test trình duyệt. Thêm unit mới chạy từ release thì ghi ExecStart vào runbook như các unit khác.
+
+# API và giao diện
+cong-no-web-handoff/web
+cong-no-web-handoff/preview
+:(exclude,glob)cong-no-web-handoff/preview/test-*
+
+# Máy chạy từ release (timer, máy canh, bot Zalo) và module chúng nạp
+:(glob)cong-no-web-handoff/tools/v7_*.py
+cong-no-web-handoff/tools/sheet_sync_runner.py
+cong-no-web-handoff/tools/webdebit_export_connector.py
+cong-no-web-handoff/tools/zalo_bot
+# Bảng băm định nghĩa DB (audit SQL 23/11/2026, F1): lưới an toàn của máy canh so DB thật với file này mỗi lượt.
+cong-no-web-handoff/tools/v7_catalog_manifest.json
+# CÒN MỞ: máy giá và máy đối soát nạp harness qua v7_load_real_copy → test_pg_v7_backend → pg_v7_harness. Tách các hàm dùng chung
+# ra module chạy thật rồi mới bỏ được mấy dòng dưới (đổi loader thì Deploy hao dừng ở cổng, phải release tay).
+cong-no-web-handoff/tools/pg_v7_harness.py
+cong-no-web-handoff/tools/docker_exec_channel.py
+:(glob)cong-no-web-handoff/tools/test_pg_v7_backend*.py
+cong-no-web-handoff/tools/test_pg_v7_grants.py
+
+# Tài liệu cho công cụ tra tài liệu của bot Zalo (ZALO-BOT-01 tầng B): chỉ đọc, không chạy
+docs/business-rules.md
+docs/decisions.md
+docs/decisions
+:(glob)specs/*.md
