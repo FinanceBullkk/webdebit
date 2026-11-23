@@ -347,5 +347,124 @@ class BackoffTest(MoneyBase):
         self.assertEqual(processor.counts()["failed"], 0)
 
 
+RAPID_STUBS = {
+    "numpy.py": ("class _Array:\n    def __getitem__(self, key):\n        return self\ndef asarray(value):\n    return _Array()\n"
+                 "def ascontiguousarray(value):\n    return value\n"),
+    "PIL/__init__.py": STUBS["PIL/__init__.py"],
+    "onnxruntime.py": "class SessionOptions:\n    intra_op_num_threads = 0\n    inter_op_num_threads = 0\n",
+    "rapidocr_onnxruntime.py": ("import os\nfrom onnxruntime import SessionOptions\nclass RapidOCR:\n    def __init__(self):\n"
+                                "        self.options = SessionOptions()\n        os.write(1, b'RAC native' + bytes([10]))\n        print('rac python')\n"
+                                "    def __call__(self, image):\n        os.write(1, b'RAC native 2' + bytes([10]))\n"
+                                "        return [[[[1.4, 2.6], [30.2, 2.0], [30.0, 20.0], [1.0, 20.6]], 'Giao dich', '0.7295'],\n"
+                                "                [[[5, 5], [9, 5], [9, 9], [5, 9]], 'x', 1.7]], [0.1, 0.2, 0.3]\n"),
+    "rapidocr_onnxruntime_missing_model.py": "class RapidOCR:\n    def __init__(self):\n        raise FileNotFoundError('ch_PP-OCRv3_det_infer.onnx')\n",
+    "rapidocr_onnxruntime_empty.py": "class RapidOCR:\n    def __call__(self, image):\n        return None, None\n",
+}
+
+
+class RapidChildTest(unittest.TestCase):
+    """`ocr_child_rapid.py` thật chạy với thư viện **giả** (không cần onnxruntime/rapidocr/Pillow): cùng giao thức với easyocr, số luồng, model thiếu."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.stubs = self.dir / "stubs"
+        for name, text in RAPID_STUBS.items():
+            (self.stubs / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.stubs / name).write_text(text, encoding="utf-8")
+
+    def engine(self, library="rapidocr_onnxruntime.py"):
+        if library != "rapidocr_onnxruntime.py":
+            (self.stubs / "rapidocr_onnxruntime.py").write_text((self.stubs / library).read_text(encoding="utf-8"), encoding="utf-8")
+        env = unittest.mock.patch.dict("os.environ", {"PYTHONPATH": str(self.stubs)})
+        env.start()
+        self.addCleanup(env.stop)
+        engine = ocr.RapidOcr(command=[sys.executable, "-X", "utf8", str(ocr.CHILD_RAPID), "2"], timeout=30, work=str(self.dir / "tmp"))
+        self.addCleanup(engine.close)
+        return engine
+
+    def test_it_is_a_second_registered_engine_with_its_own_child_and_package(self):
+        self.assertIs(ocr.ENGINES["rapidocr"], ocr.RapidOcr)
+        self.assertIs(ocr.ENGINES["easyocr"], ocr.EasyOcr)
+        self.assertEqual((ocr.RapidOcr.name, ocr.RapidOcr.package, ocr.RapidOcr.child_script), ("rapidocr", "rapidocr-onnxruntime", ocr.CHILD_RAPID))
+        self.assertEqual((ocr.EasyOcr.name, ocr.EasyOcr.package, ocr.EasyOcr.child_script), ("easyocr", "easyocr", ocr.CHILD))
+        self.assertTrue(ocr.CHILD_RAPID.is_file())
+        default = ocr.RapidOcr(work=str(self.dir / "tmp"))
+        self.assertEqual(default.command[-2:], [str(ocr.CHILD_RAPID), str(ocr.THREADS)])
+
+    def test_version_comes_from_the_rapidocr_package_and_a_missing_package_is_unavailable(self):
+        engine = ocr.RapidOcr(work=str(self.dir / "tmp"))
+        with unittest.mock.patch.object(ocr.metadata, "version", return_value="1.2.3") as version:
+            self.assertEqual(engine.version, f"1.2.3+{ocr.PREPARE}")
+        version.assert_called_once_with("rapidocr-onnxruntime")
+        with (unittest.mock.patch.object(ocr.metadata, "version", side_effect=ocr.metadata.PackageNotFoundError),
+              self.assertRaises(ocr.OcrUnavailable) as caught):
+            ocr.RapidOcr(work=str(self.dir / "tmp")).version  # noqa: B018
+        self.assertEqual(str(caught.exception), "rapidocr-onnxruntime")
+
+    def test_a_separate_venv_python_runs_the_child_and_is_asked_for_the_version_once(self):
+        python = str(self.dir / "venv" / "python.exe")
+        with unittest.mock.patch.dict("os.environ", {"ZALO_AGENT_OCR2_PYTHON": python}):
+            engine = ocr.RapidOcr(work=str(self.dir / "tmp"))
+            self.assertEqual(engine.command, [python, "-X", "utf8", "-I", str(ocr.CHILD_RAPID), str(ocr.THREADS)])
+            fake = unittest.mock.Mock(stdout="1.2.3\n")
+            with unittest.mock.patch.object(ocr.subprocess, "run", return_value=fake) as run:
+                self.assertEqual(engine.version, f"1.2.3+{ocr.PREPARE}")
+                self.assertEqual(engine.version, f"1.2.3+{ocr.PREPARE}")   # nhớ: step() hỏi mỗi giây
+            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_args.args[0][0], python)
+            with unittest.mock.patch.object(ocr.subprocess, "run", side_effect=FileNotFoundError), self.assertRaises(ocr.OcrUnavailable):
+                ocr.RapidOcr(work=str(self.dir / "tmp")).version  # noqa: B018
+
+    def test_boxes_have_plain_int_coordinates_and_scores_clamped_to_0_1_and_stdout_noise_never_breaks_the_protocol(self):
+        engine = self.engine()
+        for _ in range(2):   # tiếng ồn ở stdout (kể cả ghi thẳng fd 1) xảy ra ở cả hai lượt
+            boxes = engine.read(Picture())
+            self.assertEqual(boxes, [{"b": [1, 2, 30, 21], "t": "Giao dich", "c": 0.73, "p": [[1, 3], [30, 2], [30, 20], [1, 21]]},
+                                     {"b": [5, 5, 9, 9], "t": "x", "c": 1.0, "p": [[5, 5], [9, 5], [9, 9], [5, 9]]}])
+        self.assertTrue(all(type(value) is int for box in boxes for value in box["b"]))
+
+    def test_the_thread_count_is_applied_to_onnxruntime_session_options(self):
+        env = unittest.mock.patch.dict("os.environ", {"PYTHONPATH": str(self.stubs)})
+        env.start()
+        self.addCleanup(env.stop)
+        (self.stubs / "rapidocr_onnxruntime.py").write_text(
+            "from onnxruntime import SessionOptions\nclass RapidOCR:\n    def __init__(self):\n        self.o = SessionOptions()\n"
+            "    def __call__(self, image):\n        return [[[[0, 0], [4, 0], [4, 4], [0, 4]], 'n=%d/%d' % (self.o.intra_op_num_threads, self.o.inter_op_num_threads), 0.9]], []\n",
+            encoding="utf-8")
+        engine = ocr.RapidOcr(command=[sys.executable, "-X", "utf8", str(ocr.CHILD_RAPID), "3"], timeout=30, work=str(self.dir / "tmp"))
+        self.addCleanup(engine.close)
+        self.assertEqual(engine.read(Picture())[0]["t"], "n=3/1")
+
+    def test_no_result_is_an_empty_list_not_a_failure(self):
+        self.assertEqual(self.engine("rapidocr_onnxruntime_empty.py").read(Picture()), [])
+
+    def test_missing_model_is_reported_not_downloaded(self):
+        with self.assertRaises(ocr.OcrUnavailable):
+            self.engine("rapidocr_onnxruntime_missing_model.py").read(Picture())
+
+    def test_missing_library_is_unavailable(self):
+        engine = self.engine()
+        (self.stubs / "rapidocr_onnxruntime.py").unlink()
+        with self.assertRaises(ocr.OcrUnavailable):
+            engine.read(Picture())
+
+    def test_malformed_request_line_gets_bad_request_and_the_child_keeps_serving(self):
+        engine = self.engine()
+        child = engine.spawn()
+        child.stdin.write(b"khong phai json\n")
+        child.stdin.flush()
+        self.assertEqual(json.loads(child.stdout.readline()), {"error": "bad_request"})
+        self.assertEqual(engine.read(Picture())[0]["t"], "Giao dich")
+
+    def test_the_agent_process_never_imports_onnxruntime_or_rapidocr(self):
+        import subprocess
+        code = (f"import sys; sys.path.insert(0, {str(ROOT / 'tools')!r}); import zalo_agent.__main__, zalo_agent.processors.money_images; "
+                "print('onnxruntime' in sys.modules or 'rapidocr_onnxruntime' in sys.modules or 'cv2' in sys.modules)")
+        done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, check=True)
+        self.assertEqual(done.stdout.decode().strip(), "False")
+
+
 if __name__ == "__main__":
     unittest.main()
