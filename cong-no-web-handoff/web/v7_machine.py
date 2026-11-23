@@ -75,6 +75,7 @@ ZALO_IDENTITY = ("attached", "waiting_for_zalo", "reprobing", "unknown")
 WECHAT_APP = ("logged_in", "login", "closed", "update", "unknown")   # app WeChat trên máy Zalo (zalo_agent/wechat_app.py)
 WECHAT_IMAGES = ("ok", "no_key")                                     # tiến trình con có suy được khóa ảnh không
 ZALO_CODE = re.compile(r"^[a-z_]{1,40}$")
+ZALO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Độ trễ từng chặng (giây, p50/p95 theo cửa sổ 60 phút và 24 giờ), khuôn ở tools/zalo_agent/latency.py: chỉ nhận đúng các tên này.
 ZALO_STAGES = ("zalo", "agent", "build", "push", "total")
 ZALO_WINDOWS = ("hour", "day")
@@ -273,6 +274,20 @@ def _drain(item: dict[str, Any], now: float) -> dict[str, Any]:
     return {"pending": pending, "done_1h": _count(drain.get("done_1h")), "stalled_minutes": stalled}
 
 
+def _days(value: Any) -> dict[str, int]:
+    """Số tin theo ngày máy Zalo báo cho WeChat (`daily`): tối đa 7 ngày, khóa đúng khuôn ngày, giá trị số nguyên không âm."""
+    if not isinstance(value, dict):
+        return {}
+    return {day: count for day, count in sorted(value.items())[-7:] if isinstance(day, str) and ZALO_DAY.match(day)
+            and isinstance(count, int) and not isinstance(count, bool) and count >= 0}
+
+
+def _read_age(item: dict[str, Any], now: float) -> int | None:
+    """Số phút kể từ lượt đọc thành công gần nhất, hoặc từ lúc agent (chạy lại / dậy) nếu muộn hơn; None khi không biết (agent cũ)."""
+    read, begun = _minutes_since(item.get("read_ok_at"), now), _minutes_since(item.get("started_at"), now)
+    return read if begun is None else begun if read is None else min(read, begun)
+
+
 def _minutes_since(text: Any, now: float) -> int | None:
     at = _aware(text)
     return None if at is None else max(int((now - at.timestamp()) // 60), 0)
@@ -324,12 +339,24 @@ def zalo(now: float | None = None) -> dict[str, Any]:
         if key == "wechat":   # WECHAT-01: không theo revision của live-sync (lag luôn null): chỉ ổn hay lỗi, kèm số tin đã nhập kho
             app = item.get("app") if item.get("app") in WECHAT_APP else None              # bản agent cũ chưa ghi: không rõ
             images = item.get("images") if item.get("images") in WECHAT_IMAGES else None  # không bật ảnh: không có
+            # Lượt đọc THÀNH CÔNG gần nhất (không phải nhịp tim: `last_ok_at` sáng lên cả khi không đọc được gì) và tin mới nhất. Chưa chọn
+            # nhóm WeChat nào (`groups` 0) thì không có lượt đọc nào để chờ; bản agent cũ chưa ghi: None, không báo nhầm.
+            groups = _count(item.get("groups")) if isinstance(item.get("groups"), int) and not isinstance(item.get("groups"), bool) else None
+            every = item.get("read_every") if isinstance(item.get("read_every"), int) and not isinstance(item.get("read_every"), bool) and 0 < item["read_every"] <= 3600 else None
+            newest = _aware(item.get("newest_at"))
             rows.append({"id": key, "state": "error" if error else "ok", "lag": None, "minutes": None, "error": error,
                          "error_minutes": _error_minutes(item, error, now),
                          "messages": item["messages"] if isinstance(item.get("messages"), int) and not isinstance(item["messages"], bool) and item["messages"] >= 0 else None,   # lạ: không rõ, không phải 0
                          # App WeChat đang chạy/đăng nhập không, khóa ảnh còn không: mỗi cái kèm số phút đã giữ trạng thái đó.
                          "app": app, "app_minutes": _minutes_since(item.get("app_since"), now) if app else None,
-                         "images": images, "images_minutes": _minutes_since(item.get("images_since"), now) if images else None})
+                         "images": images, "images_minutes": _minutes_since(item.get("images_since"), now) if images else None,
+                         # Vừa khởi động lại hay msi vừa dậy (`started_at`): lượt đọc đầu chưa xong thì tuổi lượt đọc tính từ lúc đó, không từ giờ cũ nạp lại.
+                         "groups": groups, "read_minutes": None if groups == 0 else _read_age(item, now),
+                         # Quá ngưỡng này mà chưa đọc được lượt nào là "im": 3 nhịp đọc nhưng không dưới 15 phút (lỗi lùi dần tới 15 phút
+                         # cũng không làm báo nhầm; lỗi đã có mã riêng).
+                         "read_limit_minutes": max(ZALO_LATE, 3 * (every or 0)) // 60,
+                         "newest_at": newest.astimezone(VN).isoformat(timespec="seconds") if newest else None,
+                         "newest_minutes": _minutes_since(item.get("newest_at"), now), "daily": _days(item.get("daily"))})
             continue
         state = "error" if error else "ok" if lag == 0 else "slow" if late is None or late * 60 >= ZALO_SLOW_SHOW else "catching_up"
         rows.append({"id": key, "state": state, "lag": lag, "minutes": late if lag else None, "error": error, "error_minutes": _error_minutes(item, error, now),
