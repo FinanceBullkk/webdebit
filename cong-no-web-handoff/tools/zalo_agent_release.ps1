@@ -14,7 +14,7 @@
   Lệnh:
     Deploy   [-Sha <sha|ref>]  dựng bản ghim (mặc định `origin/main`), trỏ task sang, khởi động lại, kiểm. Chỉ nhận SHA nằm
                                trong `origin/main` trừ khi có -AllowNonMain.
-    Rollback [-Sha <sha>]      về bản trước (theo history.jsonl) hoặc bản -Sha đã dựng; cùng các bước khởi động lại và kiểm.
+    Rollback [-Sha <sha>]      về bản trước (theo history.jsonl; gọi liên tiếp thì đi qua lại giữa hai bản) hoặc bản -Sha (tiền tố >= 7 ký tự) đã dựng; cùng các bước khởi động lại và kiểm.
     Status                     task đang chạy bản nào, tiến trình, status.json, danh sách bản ghim. Không đổi gì.
     Prune                      xóa bản cũ, giữ -Keep bản gần nhất (+ bản đang chạy + bản để lùi).
 
@@ -41,7 +41,9 @@ param(
     [string]$HaoStatus = 'hao:/srv/v7/zalo-agent/status.json',
     [switch]$SkipHao,
     [switch]$AllowNonMain,
-    [int]$TimeoutSec = 240
+    [int]$TimeoutSec = 240,
+    [int]$MaxWaitSec = 1200,
+    [switch]$AllowElevated
 )
 
 $ErrorActionPreference = 'Stop'
@@ -210,6 +212,7 @@ function Set-TaskRelease($Info, [string]$Release) {
     $backup = Join-Path $ReleasesDir ("task-{0}-{1}.xml" -f $TaskName, (Get-Date -Format 'yyyyMMdd-HHmmss'))
     New-Item -ItemType Directory -Force -Path $ReleasesDir | Out-Null
     Set-Content -LiteralPath $backup -Value $beforeXml -Encoding Unicode
+    if (-not $script:OperationBackup) { $script:OperationBackup = $backup }
     $action = New-ScheduledTaskAction -Execute $Info.Execute -Argument $newArgs -WorkingDirectory $Release
     Set-ScheduledTask -TaskName $TaskName -Action $action | Out-Null
     $afterRest = Get-ActionlessXml $TaskName
@@ -234,25 +237,60 @@ function Restart-Agent([string]$Root, [string]$OldRepoPath) {
     if (-not $gone) { throw "Còn tiến trình agent của $Root sau khi giết; không Start (sẽ gặp 'đang có một agent khác chạy')." }
     $idle = Wait-Until { (Get-ScheduledTask -TaskName $TaskName).State -ne 'Running' } 30
     if (-not $idle) { throw "Task $TaskName vẫn ở trạng thái Running dù không còn tiến trình." }
-    $orphans = Get-OrphanChild $OldRepoPath
-    if ($orphans.Count -gt 0) { Log "Còn $($orphans.Count) tiến trình con mồ côi (ocr_child/wechat_export); không giết, bản cũ chưa dọn được tới khi chúng thoát." }
+    # Tiến trình con của bản cũ (ocr_child/wechat_export) có thể còn chạy dù agent đã chết: chờ có thời hạn để khỏi chồng hai OCR.
+    [void](Wait-Until { @(Get-OrphanChild $OldRepoPath).Count -eq 0 } 30)
+    $orphans = @(Get-OrphanChild $OldRepoPath)
+    if ($orphans.Count -gt 0) { Log "Còn $($orphans.Count) tiến trình con của bản cũ (ocr_child/wechat_export) sau 30 giây; không giết, vẫn Start (bản cũ chưa xóa được tới khi chúng thoát)." }
     $started = Get-Date
     Start-ScheduledTask -TaskName $TaskName
     Log "Đã Start $TaskName."
     return $started
 }
 
+function Get-RootActivity([string]$Root) {
+    # Giờ ghi gần nhất trong logs, state, bundle, tmp (một cấp): dấu hiệu agent đang làm việc (dựng/đẩy gói) dù status.json
+    # chỉ được ghi sau khi xong cả lượt `cycle` đầu.
+    $latest = [datetime]::MinValue
+    foreach ($name in @('logs', 'state', 'bundle', 'tmp')) {
+        $dir = Join-Path $Root $name
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        $items = @(Get-Item -LiteralPath $dir -Force) + @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)
+        foreach ($i in $items) { if ($i.LastWriteTime -gt $latest) { $latest = $i.LastWriteTime } }
+    }
+    return $latest
+}
+
 function Confirm-Running([string]$Release, [string]$Root, [datetime]$Started, [string]$Full) {
-    # Kiểm ở máy: tiến trình chạy từ bản ghim, status.json đúng SHA và mới. Trả về $true/$false.
+    # Kiểm ở máy: tiến trình chạy từ bản ghim, status.json đúng SHA và mới. Lượt đầu có thể dựng lại đầy đủ và đẩy cả gói nên
+    # status.json tới muộn: hết -TimeoutSec mà tiến trình còn sống và vẫn ghi file trong 60 giây gần nhất thì chờ tiếp, tối đa
+    # -MaxWaitSec; tiến trình thoát hoặc im lặng thì hỏng ngay. Trả về $true/$false.
     $short = $Full.Substring(0, 12)
     $needle = $Release + $PackageTail
-    $up = Wait-Until { @(Get-AgentProcess $Root | Where-Object { $_.CommandLine.Contains($needle) }).Count -ge 1 } 30
-    if (-not $up) { Log "KHÔNG thấy tiến trình agent chạy từ $needle."; return $false }
-    $fresh = Wait-Until { Test-StatusFresh (Read-AgentStatus $Root) $short $Started } $TimeoutSec 3
-    $status = Read-AgentStatus $Root
-    if (-not $fresh) { Log "status.json ở máy chưa có agent_version=$short mới sau $TimeoutSec giây (đang: $($status.agent_version), at $($status.at))."; return $false }
-    Log "Máy: agent_version=$short, status.json lúc $($status.at), identity=$($status.identity)."
-    return $true
+    $alive = { @(Get-AgentProcess $Root | Where-Object { $_.CommandLine.Contains($needle) }).Count -ge 1 }
+    if (-not (Wait-Until $alive 30)) { Log "KHÔNG thấy tiến trình agent chạy từ $needle."; return $false }
+    $hard = $Started.AddSeconds($MaxWaitSec)
+    $window = $Started.AddSeconds($TimeoutSec)
+    while ($true) {
+        $status = Read-AgentStatus $Root
+        if (Test-StatusFresh $status $short $Started) {
+            Log "Máy: agent_version=$short, status.json lúc $($status.at), identity=$($status.identity)."
+            return $true
+        }
+        if (-not (& $alive)) { Log "Tiến trình agent thoát trước khi ghi status.json mới (xem $Root\logs\agent.log)."; return $false }
+        $now = Get-Date
+        if ($now -ge $hard) { Log "status.json ở máy vẫn chưa có agent_version=$short mới sau $MaxWaitSec giây (đang: $($status.agent_version), at $($status.at))."; return $false }
+        if ($now -ge $window) {
+            $activity = Get-RootActivity $Root
+            if ($activity -gt $now.AddSeconds(-60)) {
+                $window = $now.AddSeconds(60)
+                Log "Chưa có status.json mới sau $TimeoutSec giây nhưng agent còn ghi file (lúc $($activity.ToString('HH:mm:ss'))): chờ tiếp (tối đa $MaxWaitSec giây)."
+            } else {
+                Log "status.json chưa mới và agent không ghi file nào trong 60 giây gần nhất (đang: $($status.agent_version), at $($status.at))."
+                return $false
+            }
+        }
+        Start-Sleep -Seconds 3
+    }
 }
 
 function Write-History([hashtable]$Entry) {
@@ -291,35 +329,73 @@ function Invoke-Prune([string]$CurrentPath, [string]$PreviousPath) {
         ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+function Restore-Task([string]$GoodPath) {
+    # Đưa task về trạng thái chạy được sau lỗi: trỏ về $GoodPath (nếu có) và Start nếu không còn agent. Không ném lỗi.
+    try {
+        $info = Get-TaskInfo
+        if ($GoodPath -and ($info.RepoPath -ine $GoodPath) -and (Test-Path -LiteralPath $GoodPath)) { Set-TaskRelease $info $GoodPath }
+        $info = Get-TaskInfo
+        if (@(Get-AgentProcess $info.Root).Count -eq 0) {
+            if ((Get-ScheduledTask -TaskName $TaskName).State -eq 'Running') {
+                Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+                [void](Wait-Until { (Get-ScheduledTask -TaskName $TaskName).State -ne 'Running' } 30)
+            }
+            Start-ScheduledTask -TaskName $TaskName
+            Log "Đã Start lại $TaskName để có agent chạy (Action đang trỏ $($info.RepoPath))."
+        }
+        return $true
+    } catch {
+        Log "LÙI CŨNG HỎNG: $($_.Exception.Message)"
+        $xml = if ($script:OperationBackup) { $script:OperationBackup } else { "$ReleasesDir\task-$TaskName-<giờ>.xml" }
+        Log "CỨU TAY (task có thể đang không có agent): Register-ScheduledTask -TaskName $TaskName -Xml (Get-Content -Raw '$xml') -Force; Start-ScheduledTask -TaskName $TaskName; rồi chạy Status."
+        return $false
+    }
+}
+
 function Switch-Release([string]$Release, [string]$Action) {
-    # Trỏ task sang $Release, khởi động lại, kiểm máy rồi hao. Máy lỗi thì lùi (trừ khi đang lùi). Trả về mã thoát.
+    # Trỏ task sang $Release, khởi động lại, kiểm máy rồi hao. Máy lỗi (hoặc ngoại lệ sau khi đã đổi task) thì lùi, trừ khi đang
+    # lùi; lùi hỏng thì cố đưa task về trạng thái có agent chạy. Trả về mã thoát.
     $info = Get-TaskInfo
-    $full = Get-RepoHead $Release
-    if (-not $full) { throw "$Release không phải git repo hoặc không có HEAD" }
-    $short = $full.Substring(0, 12)
     $fromPath = $info.RepoPath
-    if ($fromPath -ieq $Release) { Log "Task $TaskName đã trỏ vào $Release; khởi động lại để chắc chắn." }
-    Test-ReleaseImports $Release $info.Execute
-    # Dấu "mới dùng" cho Prune; không bắt buộc (thư mục đang là cwd của tiến trình thì Windows từ chối đổi giờ).
-    try { (Get-Item -LiteralPath $Release).LastWriteTime = Get-Date } catch { Log "Không cập nhật giờ của $Release (đang được dùng); bỏ qua." }
-    Set-TaskRelease $info $Release
-    Write-History @{ action = $Action; from_path = $fromPath; to_path = $Release; to_sha = $full }
-    $info2 = Get-TaskInfo
-    $started = Restart-Agent $info2.Root $fromPath
-    $local = Confirm-Running $Release $info2.Root $started $full
-    if (-not $local) {
-        if ($Action -ne 'rollback' -and $fromPath -and (Test-Path -LiteralPath $fromPath) -and ($fromPath -ine $Release)) {
-            Log "Kiểm ở máy hỏng: lùi về $fromPath."
-            [void](Switch-Release $fromPath 'rollback')
+    $changed = $false
+    try {
+        $full = Get-RepoHead $Release
+        if (-not $full) { throw "$Release không phải git repo hoặc không có HEAD" }
+        $short = $full.Substring(0, 12)
+        if ($fromPath -ieq $Release) { Log "Task $TaskName đã trỏ vào $Release; khởi động lại để chắc chắn." }
+        Test-ReleaseImports $Release $info.Execute
+        # Dấu "mới dùng" cho Prune; không bắt buộc (thư mục đang là cwd của tiến trình thì Windows từ chối đổi giờ).
+        try { (Get-Item -LiteralPath $Release).LastWriteTime = Get-Date } catch { Log "Không cập nhật giờ của $Release (đang được dùng); bỏ qua." }
+        Set-TaskRelease $info $Release
+        $changed = $true
+        Write-History @{ action = $Action; from_path = $fromPath; to_path = $Release; to_sha = $full }
+        $info2 = Get-TaskInfo
+        $started = Restart-Agent $info2.Root $fromPath
+        $local = Confirm-Running $Release $info2.Root $started $full
+        if (-not $local) {
+            if ($Action -ne 'rollback' -and $fromPath -and (Test-Path -LiteralPath $fromPath) -and ($fromPath -ine $Release)) {
+                Log "Kiểm ở máy hỏng: lùi về $fromPath."
+                [void](Switch-Release $fromPath 'rollback')
+            } else {
+                [void](Restore-Task $null)
+            }
+            return 1
+        }
+        if ($SkipHao) { Log 'Bỏ qua kiểm hao (-SkipHao).'; return 0 }
+        $haoOk = Wait-Until { Test-StatusFresh (Read-HaoStatus) $short $started } $TimeoutSec 5
+        $hao = Read-HaoStatus
+        if (-not $haoOk) { Log "hao CHƯA thấy agent_version=$short mới (đang: $($hao.agent_version), at $($hao.at)); máy đã chạy bản mới, kiểm mạng/ssh rồi chạy Status."; return 3 }
+        Log "hao: agent_version=$short, status.json lúc $($hao.at)."
+        return 0
+    } catch {
+        Log "LỖI khi chuyển sang ${Release}: $($_.Exception.Message)"
+        if ($changed) {
+            $good = $null
+            if ($Action -ne 'rollback' -and $fromPath -ine $Release) { $good = $fromPath }
+            [void](Restore-Task $good)
         }
         return 1
     }
-    if ($SkipHao) { Log 'Bỏ qua kiểm hao (-SkipHao).'; return 0 }
-    $haoOk = Wait-Until { Test-StatusFresh (Read-HaoStatus) $short $started } $TimeoutSec 5
-    $hao = Read-HaoStatus
-    if (-not $haoOk) { Log "hao CHƯA thấy agent_version=$short mới (đang: $($hao.agent_version), at $($hao.at)); máy đã chạy bản mới, kiểm mạng/ssh rồi chạy Status."; return 3 }
-    Log "hao: agent_version=$short, status.json lúc $($hao.at)."
-    return 0
 }
 
 function Show-Status {
@@ -347,6 +423,24 @@ function Show-Status {
     }
 }
 
+function Assert-NotElevated {
+    # Thư mục dựng trong phiên nâng quyền thuộc nhóm Administrators; agent chạy không nâng quyền thì git báo "dubious ownership"
+    # và agent_version thành "unknown". Chạy script trong PowerShell thường.
+    $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -and -not $AllowElevated) {
+        throw 'Đang chạy trong PowerShell NÂNG QUYỀN: bản ghim thuộc Administrators, agent (không nâng quyền) sẽ báo agent_version "unknown". Mở PowerShell thường (hoặc thêm -AllowElevated nếu chủ ý).'
+    }
+}
+
+function Resolve-ReleaseDir([string]$Prefix) {
+    $p = $Prefix.ToLower()
+    if ($p -notmatch '^[0-9a-f]{7,40}$') { throw "-Sha phải là tiền tố 7-40 ký tự hex của bản đã dựng: $Prefix" }
+    if ($p.Length -gt 12) { $p = $p.Substring(0, 12) }
+    $hits = @(Get-ChildItem -LiteralPath $ReleasesDir -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[0-9a-f]{12}$' -and $_.Name.StartsWith($p) })
+    if ($hits.Count -ne 1) { throw "Tiền tố $Prefix khớp $($hits.Count) bản trong $ReleasesDir (cần đúng 1)." }
+    return $hits[0].FullName
+}
+
 # ---- chạy ----
 switch ($Command) {
     'Status' { Show-Status; exit 0 }
@@ -356,6 +450,7 @@ switch ($Command) {
         exit 0
     }
     'Deploy' {
+        Assert-NotElevated
         $repo = Resolve-DevRepo
         $ref = if ($Sha) { $Sha } else { 'origin/main' }
         if (-not $Sha -or $Sha -notmatch '^[0-9a-f]{40}$') {
@@ -380,9 +475,10 @@ switch ($Command) {
         exit $code
     }
     'Rollback' {
+        Assert-NotElevated
         $info = Get-TaskInfo
         if ($Sha) {
-            $target = Join-Path $ReleasesDir $Sha.Substring(0, [Math]::Min(12, $Sha.Length))
+            $target = Resolve-ReleaseDir $Sha
         } else {
             $target = Get-PreviousRelease $info.RepoPath
             if (-not $target) { throw 'Không có bản trước trong history.jsonl để lùi; dùng -Sha <sha> của bản đã dựng.' }
