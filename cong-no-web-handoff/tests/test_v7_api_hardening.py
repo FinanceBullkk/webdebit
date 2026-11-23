@@ -326,13 +326,25 @@ class ErrorPathTest(ServerCase):
 
     def test_request_log_for_posts_and_errors_only(self):   # F11
         errors = self.quiet()
-        server = self.plain(handler_class())
+        finished = threading.Semaphore(0)
+
+        class Watched(handler_class()):
+            def finish(self):
+                try:
+                    super().finish()
+                finally:
+                    finished.release()
+        server = self.plain(Watched)
         origin = {"Origin": f"http://127.0.0.1:{server.server_port}", "Content-Type": "application/json"}
         body = json.dumps({"customer_id": 1, "expected_version": 0, "idempotency_key": "log", "month": "2026-10-01",
                            "locked": True})
-        self.assertEqual(self.get(server, "/api/v7/customers")[0], 200)
-        self.assertEqual(self.get(server, "/api/v7/months/lock", origin, method="POST", body=body)[0], 200)
-        self.assertEqual(self.get(server, "/api/v7/khong-co?customer_id=9")[0], 404)
+        # Dòng log ghi sau khi trả lời đã gửi (log_outcome có thời gian và kết cục thật của lượt), nên client nhận xong
+        # trả lời có thể trước khi luồng máy chủ ghi log: chờ luồng xử lý kết thúc rồi mới gửi lượt kế và đọc stderr.
+        for path, extra, method, status in (("/api/v7/customers", None, "GET", 200),
+                                            ("/api/v7/months/lock", origin, "POST", 200),
+                                            ("/api/v7/khong-co?customer_id=9", None, "GET", 404)):
+            self.assertEqual(self.get(server, path, extra, method=method, body=body if method == "POST" else None)[0], status)
+            self.assertTrue(finished.acquire(timeout=10), path)
         lines = [line for line in errors.getvalue().splitlines() if line.startswith("V7 API: ")]
         self.assertEqual(len(lines), 2, lines)
         self.assertRegex(lines[0], r"^V7 API: POST /api/v7/months/lock -> 200 dev:x \d+ ms$")
