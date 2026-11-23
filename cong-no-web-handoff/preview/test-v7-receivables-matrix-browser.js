@@ -305,8 +305,12 @@ test('khách trả trước: chân bảng ba dòng như sổ kế toán, số â
     const fit = await page.evaluate(() => ({ summary: Math.round(document.querySelector('.summary').getBoundingClientRect().height),
       rows: [...document.querySelectorAll('#heat-body tr')].filter(tr => { const r = tr.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight - 40; }).length }));
     assert.ok(fit.summary <= 48 && fit.rows >= 7, JSON.stringify(fit));
-    const cut = await page.locator('.heat thead th').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.innerText));
-    assert.deepEqual(cut, [], 'tiêu đề cột không cắt chữ ở 1265px');
+    // Tiêu đề tháng không bị cắt ở 1265px; font rộng (CI Ubuntu) thì xuống dòng "Tháng / 10" thay vì cắt.
+    for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+      if (font) await page.addStyleTag({ content: `.heat thead th { font-family: ${font} !important; }` });
+      const cut = await page.locator('.heat thead th').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).map(cell => cell.innerText));
+      assert.deepEqual(cut, [], `tiêu đề cột không cắt chữ ở 1265px, font ${font ?? 'mặc định'}`);
+    }
   } finally {
     await browser.close();
     app.close();
