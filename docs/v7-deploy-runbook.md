@@ -348,10 +348,16 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+LimitNOFILE=8192
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+`LimitNOFILE=8192` (audit API 23/11/2026, F3): mặc định mềm 1024 file descriptor dùng chung cho cả hai cổng và ống của `psql`;
+trên `hao` đặt bằng drop-in `limits.conf`. Không dùng `ProcSubset=pid` cho unit này: API đọc `/proc/net/tcp*` để
+biết kết nối loopback có phải của `tailscaled` không ([ACCESS-01](decisions/access-01.md)); ẩn `/proc/net` thì mọi
+yêu cầu qua Serve nhận 403 `UNTRUSTED_LOCAL_PEER`.
 
 `<serve_fqdn>` lấy từ cấu hình Serve được admin kiểm; giá trị chữ thường,
 khớp chính xác Host công khai gồm cổng HTTPS (bỏ `:443` nếu URL dùng cổng mặc định).
@@ -2219,7 +2225,9 @@ Rollback: xóa bốn dòng, mọi nhóm về lại check chính.
 
 Spec: [`specs/zalo-bot.md`](../specs/zalo-bot.md). PR-1 chỉ trả câu cố định; trả lời số từ PR-2. Cài lần đầu theo [`TU-LAM-01`](decisions/tu-lam-01.md), ghi nhật ký trong `docs/deploys/`.
 
-**Vì sao hai user và chặn mạng:** API tin header `Tailscale-User-Login` từ loopback, và header đó mở được cả đường ghi. Kênh chạy zca-js (mã bên thứ ba), nên unit chặn kênh tới `127.0.0.1:8780` và dải tailnet; bộ não không nạp zca-js. Nhóm `v7zalosock` chỉ để hai tiến trình dùng chung socket. Kênh không ở nhóm `v7zalobot`, nên không đọc được danh sách người hỏi, nhật ký hay khóa API.
+**Bộ não gọi API thế nào (từ 23/11/2026, audit API F4):** API chỉ tin header `Tailscale-User-Login` từ socket loopback của `tailscaled` (uid 0). Bộ não vẫn gửi header qua `127.0.0.1:8780`, nhưng phải khai uid của `v7zalobot` cho API là peer chỉ đọc: drop-in `/etc/systemd/system/v7-ledger-api.service.d/zalo-bot-peer.conf` với `[Service]` `Environment=WEBDEBIT_READ_ONLY_PEER_UIDS=<id -u v7zalobot>`, rồi `daemon-reload` và restart API. uid này chỉ được GET (POST nhận 403 `READ_ONLY_PEER`), login vẫn qua danh sách ACCESS-01 và vai trò QUYEN-01. Thiếu drop-in thì mọi lượt gọi của bot nhận 403 `UNTRUSTED_LOCAL_PEER` (journal API ghi uid). Không bao giờ khai uid 0 hay uid của kênh `v7zalokenh`.
+
+**Vì sao hai user và chặn mạng:** trước 23/11/2026 API tin header `Tailscale-User-Login` từ mọi tiến trình loopback, và header đó mở được cả đường ghi. Kênh chạy zca-js (mã bên thứ ba), nên unit chặn kênh tới `127.0.0.1:8780` và dải tailnet; bộ não không nạp zca-js. Nhóm `v7zalosock` chỉ để hai tiến trình dùng chung socket. Kênh không ở nhóm `v7zalobot`, nên không đọc được danh sách người hỏi, nhật ký hay khóa API.
 
 Provision một lần (root):
 

@@ -441,7 +441,7 @@
     $('link-options').innerHTML = '<p class="hint">Đang tải danh sách sổ…</p>';
     linkDialog.showModal();
     if (!customers) {
-      try { customers = (await json('/api/v7/customers')).customers ?? []; } catch {
+      try { customers = (await CongNoNet.customers()).customers ?? []; } catch {
         $('link-options').innerHTML = `<p class="form-error">${esc(loadError('danh sách sổ'))}</p>`;
         return;
       }
