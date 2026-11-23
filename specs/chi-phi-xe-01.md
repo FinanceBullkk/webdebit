@@ -187,7 +187,7 @@ Chạy song song với Sheet một tháng để so số, rồi bỏ Sheet: ĐỀ
 **Khóa tháng:** chung cả đội xe, mặc định chỉ tháng hiện tại (giờ VN) mở. Ai cũng mở hoặc khóa được; mỗi lần ghi Lịch sử.
 
 - Tháng khóa hoặc dòng đã hoàn: sửa số tiền không ghi đè mà thêm dòng điều chỉnh ngay dưới dòng gốc (dòng mới, chờ hoàn); xóa chặng thì chặng gạch ngang và thêm dòng trừ lại. Riêng VETC không vào phần hoàn nên ở dòng đã hoàn (tháng mở) vẫn sửa thẳng.
-- Thêm chặng vào tháng khóa được, gắn nhãn "sau khóa".
+- Thêm chặng vào tháng khóa được, gắn nhãn "sau khóa". Ứng, đợt hoàn và hủy chúng cũng vậy ([`DOI-XE-SAU-KHOA-01`](../docs/decisions/doi-xe-sau-khoa-01.md)).
 - Sửa chữ (ngày, container, loại, xe, nơi, kho, ghi chú) ghi đè, có Lịch sử. Không chuyển chặng vào hay ra tháng khóa. Không đổi người trả khi tháng khóa hoặc dòng đã hoàn.
 - Tháng mở, dòng chưa hoàn: sửa thẳng, có Lịch sử; xóa chặng thì chặng biến khỏi bảng, Lịch sử giữ bản trước.
 

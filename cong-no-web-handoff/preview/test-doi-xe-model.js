@@ -147,6 +147,10 @@ test('Lịch sử viết thành câu: trước → sau, lý do, khóa tháng', (
   assert.deepEqual(t, { viec: 'Hủy lần ứng', chi: '08/11 · 3.000.000', truoc: 'Tài xế giả đang giữ 500', sau: 'Công ty còn nợ 2.500', lyDo: 'ghi trùng' });
   const d = M.moTaSuKien({ viec: 'dieu_chinh', nguoi_id: 11, truoc: { cot: 'phi:neo', gia_tri: null, ngay: '2026-10-05', container: 'MAUU1' }, sau: { gia_tri: '100000', chenh_vnd: '100000', ly_do_dc: 'thang_khoa' } }, dm, PHI);
   assert.deepEqual([d.viec, d.chi, d.truoc, d.sau], ['Điều chỉnh', 'Tháng đã khóa · Neo · 05/10 · MAUU1', '—', '100.000 (thêm dòng +100.000)']);
+  // DX-05: ứng, đợt hoàn và hủy khi tháng đã khóa có nhãn trong Lịch sử; khoản cũ (không có cờ) như trước.
+  assert.match(M.moTaSuKien({ viec: 'ghi_ung', nguoi_id: 11, truoc: { so_du_vnd: '0' }, sau: { ngay: '2026-10-20', so_tien_vnd: '200000', so_du_vnd: '-200000', sau_khoa: true } }, dm, PHI).chi, / · sau khóa \(tháng đã khóa\)$/);
+  assert.match(M.moTaSuKien({ viec: 'huy_hoan', nguoi_id: 11, truoc: { ngay: '2026-10-20', so_tien_vnd: '1' }, sau: { dong_tro_lai: 2, sau_khoa: true } }, dm, PHI).chi, /Chưa hoàn · sau khóa/);
+  assert.doesNotMatch(M.moTaSuKien({ viec: 'ghi_hoan', nguoi_id: 11, truoc: {}, sau: { so_dong: 1, tong_dong_vnd: '1', so_tien_vnd: '1', ngay: '2026-11-01' } }, dm, PHI).chi, /sau khóa/);
   assert.equal(M.moTaSuKien({ viec: 'khoa_thang', truoc: { thang: '2026-10-01', khoa: false }, sau: { thang: '2026-10-01', khoa: true } }, dm, PHI).viec, 'Khóa tháng 10/2026');
   assert.equal(M.moTaSuKien({ viec: 'sua_chang', nguoi_id: 11, truoc: { cot: 'xe_id', gia_tri: '1', ngay: '2026-11-01', container: 'C' }, sau: { gia_tri: '9' } }, dm, PHI).truoc, '99Z-900.01');
 });
