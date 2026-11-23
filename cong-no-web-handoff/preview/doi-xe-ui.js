@@ -781,7 +781,8 @@
 
   async function suaLuu(id, col, text) {
     const c = S.data.chang.find(y => y.id === id);
-    if (!c) return;
+    // Lệnh trong hàng chờ tới lượt mà màn đã sang tháng/người khác (hoặc chặng vừa bị xóa): báo rõ, không bỏ lặng (review DX-02).
+    if (!c) { bao(`Chưa lưu ô vừa sửa (${text || 'trống'}): chặng không còn trên màn đang xem. Mở lại đúng tháng rồi sửa lại.`, 'warn'); return; }
     let truoc, giaTri;
     if (col.startsWith('phi:')) {
       const ma = col.slice(4), r = M.docTien(text);
@@ -956,14 +957,14 @@
   });
   // Lưu một ô của chặng đã lưu qua hàng chờ (audit DX-02): lệnh trước chưa xong thì chờ tới lượt, không bị bỏ; ô giữ chữ vừa nhập
   // tới khi lệnh của nó xong rồi hiện số của sổ.
-  const dangLuu = new Map();   // data-f → số lệnh lưu ô đó còn trong hàng chờ
+  const dangLuu = new Map();   // data-f → { n: số lệnh lưu ô đó còn trong hàng chờ, v: giá trị của lệnh xếp sau cùng }
   function luuO(f, v) {
     const [, id, ...rest] = f.split(':');
     S.go[f] = v;
-    dangLuu.set(f, (dangLuu.get(f) ?? 0) + 1);
+    dangLuu.set(f, { n: (dangLuu.get(f)?.n ?? 0) + 1, v });
     xep(() => suaLuu(Number(id), rest.join(':'), v)).finally(() => {
-      const n = dangLuu.get(f) - 1;
-      if (n) dangLuu.set(f, n); else dangLuu.delete(f);
+      const x = dangLuu.get(f);
+      if (x.n > 1) x.n -= 1; else dangLuu.delete(f);
       if (S.go[f] === v) { delete S.go[f]; draw(); }
     });
   }
@@ -990,8 +991,9 @@
     if (e.key === 'Escape') {
       if (S.hop) { onAct('dong', t); e.preventDefault(); return; }
       if (f.startsWith('luu:')) {
-        // Esc ở ô của chặng đã lưu: bỏ chữ đang gõ, về số của sổ, không lưu (rời ô không sinh lệnh sửa).
-        delete S.go[f];
+        // Esc ở ô của chặng đã lưu: bỏ chữ đang gõ, không lưu (rời ô không sinh lệnh sửa). Ô còn lệnh lưu trong hàng chờ thì về
+        // số đang chờ lưu (lệnh đó vẫn chạy), không giả vờ về số cũ của sổ.
+        if (dangLuu.has(f)) S.go[f] = dangLuu.get(f).v; else delete S.go[f];
         S.huyGo = f;
         t.blur();
         S.huyGo = null;

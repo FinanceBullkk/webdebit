@@ -548,6 +548,15 @@ test('Sửa ô liền tay (audit DX-02): lệnh thứ hai chờ lệnh đầu xo
   await a.press('Escape');
   assert.equal(await page.locator('[data-f="luu:103:phi:nang"]').inputValue(), '600.000');
   assert.equal(posts(w, '/api/v7/doixe/chang/sua').length, 2, 'Esc không lưu');
+  // Esc ở ô còn lệnh lưu đang chờ: ô về số đang chờ lưu (lệnh vẫn chạy), không giả vờ về số cũ.
+  await a.fill('700000');
+  await b.click();
+  await a.click();
+  await a.fill('5');
+  await a.press('Escape');
+  assert.equal(await page.locator('[data-f="luu:103:phi:nang"]').inputValue(), '700000');
+  await page.waitForFunction(() => document.querySelector('[data-f="luu:103:phi:nang"]')?.value === '700.000');
+  assert.deepEqual(posts(w, '/api/v7/doixe/chang/sua').slice(2).map(p => p.body.gia_tri), ['700000'], 'chỉ lệnh đã xếp được gửi, chữ bị Esc thì không');
 }, { query: '?nguoi=1' }));
 
 test('Ghi ứng (audit DX-03): gửi kèm số dư đang thấy; khoản trùng ngày + số thì báo, nút thành "Vẫn ghi thêm"; màn cũ thì máy chủ chặn, tải lại', () => withPage(async (page, w) => {
