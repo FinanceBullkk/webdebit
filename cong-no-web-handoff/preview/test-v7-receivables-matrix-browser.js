@@ -299,12 +299,12 @@ test('khách trả trước: chân bảng ba dòng như sổ kế toán, số â
     const boxes = await page.locator('#heat-foot tr td.khach').evaluateAll(cells => cells.map(cell => { const r = cell.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
     assert.ok(Math.abs(boxes[2][1] - 720) <= 1 && boxes[2][1] - boxes[2][0] <= 44, `dòng ròng dính đáy, một dòng: ${JSON.stringify(boxes)}`);
     assert.ok(boxes[1][0] > 720 && boxes[0][0] > 720, `hai dòng Phải thu / trả trước không dính: ${JSON.stringify(boxes)}`);
-    // Khung thấy thật 1280×560 có thanh cuộn 15px: dải tổng một dòng, thấy ít nhất 7 dòng trọn (Segoe UI 9, DejaVu của CI Ubuntu 7;
-    // trước THEO-THANG-GON-01 là 5).
+    // Khung thấy thật 1280×560 có thanh cuộn 15px: dải tổng một dòng, thấy ít nhất 6 dòng trọn (Segoe UI trên máy người dùng 9;
+    // DejaVu của CI Ubuntu rộng hơn nên tiêu đề tháng xuống dòng, còn 6; trước THEO-THANG-GON-01 là 5 với Segoe UI).
     await page.setViewportSize({ width: 1265, height: 560 });
     const fit = await page.evaluate(() => ({ summary: Math.round(document.querySelector('.summary').getBoundingClientRect().height),
       rows: [...document.querySelectorAll('#heat-body tr')].filter(tr => { const r = tr.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight - 40; }).length }));
-    assert.ok(fit.summary <= 48 && fit.rows >= 7, JSON.stringify(fit));
+    assert.ok(fit.summary <= 48 && fit.rows >= 6, JSON.stringify(fit));
     // Tiêu đề tháng không bị cắt ở 1265px; font rộng (CI Ubuntu) thì xuống dòng "Tháng / 10" thay vì cắt.
     for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
       if (font) await page.addStyleTag({ content: `.heat thead th { font-family: ${font} !important; }` });
