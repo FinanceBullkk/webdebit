@@ -217,7 +217,9 @@ test('cài đặt phụ phí: bật cột riêng không giới hạn, đổi tê
   // Bỏ cột Ghép: số không mất, chỉ đổi cách hiện.
   await panel.locator('.fee-col[data-id="3"]').uncheck();
   await page.waitForFunction(() => document.querySelectorAll('.ledger-head th.fee-h').length === 3);
-  await panel.locator('td.fee-name[data-id="4"]').click();
+  // Tên loại là nút: Tab tới và Enter được (audit giao diện 23/11 F4).
+  await panel.locator('td.fee-name[data-id="4"] .fee-name-btn').focus();
+  await page.keyboard.press('Enter');
   await panel.locator('.fee-rename').fill('Bảo hiểm hàng');
   await panel.locator('.fee-rename').press('Enter');
   await page.waitForFunction(() => document.querySelector('.fee-settings')?.textContent.includes('Bảo hiểm hàng'));

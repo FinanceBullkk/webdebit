@@ -9,7 +9,7 @@
   root.DoiXeThuModel = api;
 }(typeof globalThis !== 'undefined' ? globalThis : this, M => {
   'use strict';
-  const { so, fmt, fmtDau, ddmm, ddmmyyyy, docTien, docNgayGo } = M;
+  const { so, fmt, fmtDau, ddmm, ddmmyyyy, docTien, docNgayGo, docNgayApGia, khoanTrung } = M;
 
   const LOAI_PHU = { chuyen_cang: 'Chuyển cảng', tra_rong: 'Trả rỗng', rut_mooc: 'Rút mooc', tha_mooc: 'Thả mooc', khac: 'Khác' };
   const thangSo = iso => Number(String(iso).slice(5, 7));
@@ -56,6 +56,7 @@
     ['chuadoc', 'Phát sinh chưa tính', d => (d.chua_doc ?? 0) > 0],
     ['khoanla', 'Khoản lạ', d => (d.khoan_la ?? 0) > 0],
     ['trung', 'Trùng dòng đã gửi', d => Boolean(d.trung_gui)],
+    ['contlap', 'Container lặp', d => Array.isArray(d.cont_lap) && d.cont_lap.length > 0],
     ['bo', 'Chặng đã bỏ', d => d.chang_con === false],
     ['dc', 'Có điều chỉnh', d => d.dc_vnd !== null && d.dc_vnd !== undefined],
     ['phu', 'Chặng phụ', d => d.loai !== 'hang'],
@@ -75,6 +76,7 @@
       ['chuadoc', `${n('chuadoc')} chặng có khoản phát sinh chưa tính được`],
       ['khoanla', `${n('khoanla')} chặng có khoản phát sinh chưa có trong danh mục`],
       ['trung', `${n('trung')} chặng trùng dòng đã gửi (cùng ngày, container)`],
+      ['contlap', `${n('contlap')} chặng có container đã có chặng hàng khác trong 10 ngày`],
     ].filter(([k]) => n(k) > 0).map(([loc, text]) => ({ loc, text }));
   }
   // Tháng sau tháng này: chỉ có chặng ghi sau lúc gửi bảng kê tháng này, chưa gửi được.
@@ -117,6 +119,7 @@
     }
     for (const a of d.dieu_chinh ?? []) out.push({ text: `Điều chỉnh ${fmtDau(so(a.so_tien_vnd))} · ${a.ly_do} · ${a.actor_name ?? a.actor} ${a.luc}`, tone: 'dc' });
     if (d.chang_con === false) out.push({ text: 'Chặng này đã xóa hoặc bỏ ở sổ tài xế sau khi gửi: cần thì ghi điều chỉnh.', tone: 'canh' });
+    if (Array.isArray(d.cont_lap) && d.cont_lap.length) out.push({ text: `Container này còn chặng hàng ngày ${d.cont_lap.map(ddmm).join(', ')} (lệch tới 10 ngày). Nếu là một chuyến bị dán hai lần (Sheet sửa ngày rồi dán lại): xóa chặng thừa ở sổ tài xế, tránh đòi HTH hai lần.`, tone: 'canh' });
     if (d.trung_gui) out.push({ text: `Cùng ngày, container với một dòng đã gửi ở bảng kê tháng ${tenThang(d.trung_gui)}. Nếu là chặng đã gửi bị nhập lại: xóa chặng thừa ở sổ tài xế, hoặc gửi rồi ghi điều chỉnh bớt dòng này.`, tone: 'canh' });
     return out;
   }
@@ -153,7 +156,10 @@
       xem = `Còn phải thu: ${fmt(con)} → ${fmt(Math.max(con - t.v, 0))}`;
       if (t.v < con) canh = `Trả thiếu ${fmt(con - t.v)}: tháng ${m} vẫn chờ phần còn lại.`;
     }
-    return { ngay: ng.v ?? null, v: t.v ?? null, loi, canh, xem };
+    // Đã có lần tiền về cùng ngày, cùng số (audit DX-03): hỏi lại trước khi ghi, tránh hai người ghi cùng một lần chuyển khoản.
+    const tr = ng.v && t.v ? khoanTrung(data.tien_ve, ng.v, t.v) : null;
+    const trung = tr ? `Đã có lần tiền về ${ddmm(tr.ngay)} đúng ${fmt(t.v)} (${tr.actor_name ?? tr.actor} ghi ${tr.luc}). Ghi thêm lần nữa chỉ khi HTH chuyển hai lần.` : '';
+    return { ngay: ng.v ?? null, v: t.v ?? null, loi, canh, xem, trung };
   }
   const huyXem = (con, tienVe) => `Còn phải thu: ${fmt(con)} → ${fmt(con + so(tienVe.so_tien_vnd))}`;
 
@@ -166,6 +172,7 @@
     if (t.khac_gia) canh.push(`${t.khac_gia} chặng giá khác bảng giá: gửi theo giá đang dùng.`);
     if (t.chua_doc) canh.push(`${t.chua_doc} chặng có khoản phát sinh chưa tính được (ghi chú chưa đọc được hoặc chưa có mức): khoản đó chưa tính.`);
     if (t.khoan_la) canh.push(`${t.khoan_la} chặng có khoản phát sinh chưa có trong danh mục: vẫn tính, không phải chi hộ.`);
+    if (t.cont_lap) canh.push(`${t.cont_lap} chặng có container đã có chặng hàng khác trong 10 ngày: xem có phải một chuyến bị dán hai lần không.`);
     if (t.trung) canh.push(`${t.trung} chặng cùng ngày, container với dòng đã gửi: xem có phải chặng đã gửi bị nhập lại không, tránh đòi HTH hai lần.`);
     if (data.thang === `${data.hom_nay.slice(0, 7)}-01`) canh.push(`Tháng ${thangSo(data.thang)} chưa hết: chặng ghi sau lúc gửi vào bảng kê tháng sau.`);
     return { tom, canh };
@@ -189,6 +196,16 @@
     if (!tu) return 0;
     const sau = (t.gia ?? []).map(g => g.tu_ngay).filter(x => x > tu).sort()[0] ?? null;
     return (t.cho_doi ?? []).filter(d => d >= tu && (sau === null || d < sau)).length;
+  }
+  // Ô đổi giá (audit DX-01): ngày áp dụng đọc kiểu Bảng giá, câu xem trước in đủ ngày/tháng/năm. `cu`: trước tháng này (áp ngược,
+  // phải xác nhận).
+  function giaXem(t, tuText, homNay) {
+    const ng = docNgayApGia(tuText, homNay);
+    if (!ng.v) return { v: null, cu: false, note: 'Ghi ngày áp dụng kiểu 01/12/2026.' };
+    const n = soChangDoi(t, ng.v);
+    const note = `Áp dụng từ ${ddmmyyyy(ng.v)}. Tháng đã gửi HTH giữ giá cũ; chặng đang gom từ ${ddmmyyyy(ng.v)} đổi theo giá mới: ${n} chặng.`
+      + (ng.cu ? ` Ngày này trước tháng ${tenThang(homNay)}: giá áp ngược.` : '');
+    return { v: ng.v, cu: Boolean(ng.cu), n, note };
   }
   function cachTinh(p) {
     const muc = p.muc_vnd === null || p.muc_vnd === undefined ? null : so(p.muc_vnd);
@@ -234,5 +251,5 @@
 
   return { LOAI_PHU, thangSo, tenThang, trangThai, CHIP, NUT, nhanTrangThai, cacThang, tien, tongDong, dcDong, khacGia, LOC, locFn,
     locChips, viecTruocGui, thangToi, tuyenHop, nhoDuoc, coCau, tenTuyen, chiTiet, dcXem, tvXem, huyXem, guiXem, doiChieuCanh,
-    giaHienTai, soChangDoi, cachTinh, mucText, tenGoc, psGui, moTa };
+    giaHienTai, soChangDoi, giaXem, cachTinh, mucText, tenGoc, psGui, moTa };
 }));

@@ -355,15 +355,14 @@
     dialog.hidden = false;
     render();
     try {
-      const response = await fetch(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok || !data?.price_table) throw Error(data?.message || 'Không đọc được bảng giá.');
+      const data = await CongNoNet.fetchJson(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { what: 'bảng giá' });
+      if (!data?.price_table) throw Error('Không đọc được bảng giá.');
       form = fromServer(data.price_table);
       original = data.price_table;
       bookShippers = Array.isArray(data.book_shippers) ? data.book_shippers : [];
       savedShape = shapeOf(form);
       bar = null;
-    } catch (error) { bar = { kind: 'bad', text: error.message || 'Không đọc được bảng giá.' }; loading = false; failed = true; render(); return; }
+    } catch (error) { bar = { kind: 'bad', text: CongNoNet.messageOf(error, 'Không đọc được bảng giá.') }; loading = false; failed = true; render(); return; }
     loading = false;
     render();
     $('.price-grid-title')?.focus();

@@ -172,7 +172,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .dn4-done-actions .dn4-copy{border-color:#173d65;background:#173d65;color:#fff;font-weight:600}
 .fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:14px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
-.fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
+.fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-name-btn{min-height:36px;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;text-decoration:underline dotted #8193a6;text-underline-offset:3px;cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
 .fee-types select{height:32px;font:inherit}.fee-types button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;white-space:nowrap;cursor:pointer}
 .fee-types button:disabled,.fee-types input:disabled{opacity:.5;cursor:not-allowed}
 .fee-types td:nth-child(5){white-space:nowrap}
@@ -232,8 +232,8 @@ div.lock-ask button,li.lock-ask button{margin-left:0}
 .void-head{font-size:14px}.void-note{margin:0;color:#5d4a36;font-size:14px;line-height:1.4}
 .void-label{display:flex;flex-direction:column;gap:2px;font-size:14px;font-weight:600;color:#3e5871}
 .void-prompt .void-label input{width:100%;min-width:0;height:34px;padding:0 8px;border:1px solid #c98a55;border-radius:4px;background:#fff;font-size:15px;font-weight:400}
-.void-actions{display:flex;justify-content:flex-end;gap:8px}
-.void-prompt .void-actions button{min-height:34px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:14px}
+.void-actions{display:flex;justify-content:flex-end;gap:12px}
+.void-prompt .void-actions button{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:14px}
 .void-prompt .void-actions .confirm-void{border-color:#a01616;background:#a01616;color:#fff;font-weight:700}
 .void-summary td,.pay-list .void-trace td{height:30px;background:#f6f7f9;color:#475d73;font-size:14px}
 .pay-list .void-trace s{color:#5d6f82}
@@ -246,7 +246,7 @@ div.lock-ask button,li.lock-ask button{margin-left:0}
 .receipt-date,.receipt-amount,.receipt-method{width:100%;min-height:28px;min-width:0;font:inherit;color:#162d48}.receipt-amount{text-align:right}.receipt-date::placeholder{color:#425b73}
 .ledger .receipt:not(.voided):not(.voided-method){cursor:pointer}.ledger .receipt:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .ledger .voided{text-decoration:line-through;color:#475d73}.ledger .voided-method{font-weight:700;color:#8b2020}
-.void-prompt td,.void-trace td{background:#fff1e5;font-size:14px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
+.void-prompt td,.void-trace td{background:#fff1e5;font-size:14px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:40px;padding:0 16px;font:inherit;cursor:pointer}
 .receipt-status td{background:#e2f5e8;color:#145b32;font-size:14px;font-weight:700;min-height:38px}
 .adjustment td{background:#fff2f2}
 /* SO-GON-04 (L5): mũi tên lên/xuống đứng được cả ô chỉ đọc (tabindex -1); ô được cuộn tới không nằm dưới phần dính đầu trang. */
@@ -254,7 +254,8 @@ div.lock-ask button,li.lock-ask button{margin-left:0}
 .trip-list td[tabindex="-1"]:focus{outline:2px dashed #6584a5;outline-offset:-2px}
 .ledger .info-edit{cursor:text}.ledger .info-edit:hover,.ledger .info-edit:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .info-input{width:100%;min-width:0;font:inherit}.ledger .row-delete{cursor:pointer}.ledger .row-delete:hover,.ledger .row-delete:focus-visible{outline:2px solid #a01616;outline-offset:-2px;color:#a01616}
-.delete-prompt td{font-size:16px}.delete-prompt button{min-height:32px;font:inherit;cursor:pointer}.delete-prompt .confirm-delete{color:#fff;background:#a01616;border:1px solid #a01616;font-weight:700}
+.delete-prompt td{font-size:16px}.delete-prompt button{min-height:40px;padding:0 16px;font:inherit;cursor:pointer}.delete-prompt button+button,.void-prompt button+button{margin-left:12px}.void-actions button+button{margin-left:0}
+.delete-prompt .confirm-delete{color:#fff;background:#a01616;border:1px solid #a01616;font-weight:700}
 .adjustment-note{min-width:250px;min-height:28px;font:inherit}
 .ledger .subtotal td{height:44px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
 .ledger .subtotal td.pay{background:#e2efff}
@@ -317,8 +318,8 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .sheet-detail-web{display:block;margin-top:4px;color:#425b73}
 .sheet-choice-hint{display:block;margin-top:4px;color:#5a3a3a;font-size:14px;line-height:1.3}
 .sheet-detail-field strong{display:block;margin-top:2px;overflow-wrap:anywhere}
-.sheet-choice-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
-.sheet-choice-actions button{min-height:28px;padding:2px 7px;border:1px solid #b47c7c;border-radius:4px;background:#fff;color:#732020;font:inherit;font-size:14px;cursor:pointer}
+.sheet-choice-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
+.sheet-choice-actions button{min-height:40px;padding:2px 14px;border:1px solid #b47c7c;border-radius:4px;background:#fff;color:#732020;font:inherit;font-size:14px;cursor:pointer}
 .sheet-choice-actions button[data-sheet-decision="use_sheet"]{background:#732020;color:#fff}
 .sheet-detail-status{margin:8px 0 0;padding:6px 8px;background:#fff3d6;font-weight:600}
 .sheet-choice-actions button:disabled{opacity:.55;cursor:wait}
@@ -466,7 +467,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .moved-tag{color:#6b4a00;font-size:14px;font-weight:700}.ledger tr.moved-note td{height:24px;padding:2px 8px;background:#fff3c4}
 .ghost td{height:32px;background:#f6f7f9;color:#475d73;font-style:italic}
 .move-ask td{padding:8px 10px;background:#fff3c4;color:#452600;font-weight:700}
-.ghost button,.move-ask button{min-height:30px;margin-left:8px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-style:normal;cursor:pointer}
+.ghost button,.move-ask button{min-height:40px;margin-left:12px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-style:normal;cursor:pointer}
 .move-ask .move-yes{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
 /* Cấn trừ hai sổ (CT-2SO) */
 .offset-source-row td{height:auto;background:#eaf4ff}

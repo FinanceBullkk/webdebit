@@ -169,6 +169,49 @@ class WriteTest(Base):
             self.assertIsNone(api.write(self.body(items=items), Runner(), ACTOR)[1]["undo"])
 
 
+class FailOnSecond(Runner):
+    """Lệnh giá thứ hai lỗi (người khác vừa sửa sổ) sau khi lệnh đầu đã lưu."""
+
+    def run(self, function, payload, actor):
+        if function == "edit_legacy_trip" and sum(1 for name, *_ in self.calls if name == "edit_legacy_trip") == 1:
+            self.calls.append((function, payload, actor))
+            raise ApiError(409, "STALE_LEDGER", "Sổ vừa đổi.")
+        return super().run(function, payload, actor)
+
+
+class PartialWriteTest(Base):
+    """Audit 23/11/2026 (O3): dừng giữa lô giá thì vẫn trả phần đã ghi và khóa hoàn tác, không 409 mất "Hoàn tác"."""
+
+    def test_stop_half_way_returns_written_and_undo(self):
+        runner = FailOnSecond()
+        status, result = api.write(self.body(), runner, ACTOR)
+        self.assertEqual((status, result["complete"], result["error"]), (200, False, "STALE_LEDGER"))
+        self.assertEqual(result["written"]["prices"], 1)
+        saved = [payload["idempotency_key"] for function, payload, _ in runner.calls if function == "edit_legacy_trip"][:1]
+        self.assertEqual(result["undo"], {"command_keys": saved, "months": ["2026-10"]})
+        self.assertEqual(runner.locks["2026-10-01"], True)   # tháng vẫn khóa lại
+        self.assertEqual((result["before_vnd"], result["after_vnd"]), ("5210000000", "5260000000"))
+
+
+class StaleSnapshotTest(Base):
+    """Audit 23/11/2026 (O7): runner đọc Sheet dừng thì nút ghi đối chiếu không ghi theo bản chụp cũ."""
+
+    def setUp(self):
+        super().setUp()
+        old = {"runner": {"created_at": "2026-11-20T00:00:00+00:00"}}
+        snapshots = {api.load_price_snapshot: {"sha256": SHA_P, **old}, api.load_receipt_snapshot: {"sha256": SHA_R, **old}}
+        patcher = patch.object(api, "cached_load", lambda loader, _path: snapshots[loader])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_write_is_409_sheet_stale_and_writes_nothing(self):
+        runner = Runner()
+        with self.assertRaises(ApiError) as caught:
+            api.write(self.body(), runner, ACTOR)
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "SHEET_STALE"))
+        self.assertEqual(runner.writes(), [])
+
+
 SHIFT = {"kind": "row_shift", "month": "2026-10", "rows": [3, 4], "cells": ["B3", "F4"], "message": "Tiền lệch một dòng.", "fix": "Đưa tiền lên."}
 
 

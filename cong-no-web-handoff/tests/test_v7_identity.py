@@ -13,6 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 import v7_identity as identity
 
 
+def setUpModule():
+    # Audit 23/11/2026 (F4): header danh tính chỉ được tin khi socket client thuộc tailscaled (uid 0, tra /proc/net/tcp trên
+    # Linux). Test chạy cả trên Windows: ở module này mọi peer loopback coi như tailscaled; F4 kiểm riêng ở test_v7_peer_trust.py.
+    peer = patch.object(identity, "loopback_peer_uid", return_value=0)
+    peer.start()
+    unittest.addModuleCleanup(peer.stop)
+
+
 class FakeLocalAPI:
     def __init__(self, result=None, error=None):
         self.result = result

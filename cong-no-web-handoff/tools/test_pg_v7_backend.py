@@ -437,7 +437,8 @@ def check_migration(pg: Pg) -> None:
                      "2026-11-18-v7-doi-xe-thu-doc-ghi-chu.sql", "2026-11-19-v7-doi-xe-dieu-do.sql", "2026-11-19-v7-khach-moi.sql",
                      "2026-11-19-v7-doi-xe-tai-chinh-chang.sql",
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
-                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql"):
+                     "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
+                     "2026-11-23-v7-doi-xe-sua-audit.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
