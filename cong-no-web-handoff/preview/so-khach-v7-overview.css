@@ -26,7 +26,7 @@
 .ov-num{font-size:15px;font-weight:700;fill:#162d48;paint-order:stroke;stroke:#fff;stroke-width:4px}
 .ov-months{display:grid}
 .ov-month{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;min-height:40px;padding:0;border:0;background:none;color:#174b82;font:inherit;font-size:15px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
-.ov-month small{display:block;color:#6f6d67;font-size:12px;font-weight:400;text-decoration:none}
+.ov-month small{display:block;color:#6f6d67;font-size:13px;font-weight:400;text-decoration:none}
 .ov-month.off{color:#6b7280;font-weight:400;text-decoration:none;cursor:default}
 .ov-legend{display:flex;gap:18px;margin:6px 0 0;color:#3e5871;font-size:15px}
 .ov-sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px}
@@ -40,7 +40,7 @@
 .ov-link{min-height:40px;padding:0;border:0;background:none;color:#174b82;font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .ov-go:focus-visible,.ov-month:focus-visible,.ov-link:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 /* Điện thoại (DIEN-THOAI-SEP-01): 12 cột tháng chừng 25px, nhãn chỉ ghi tháng (T12, không /2025, không "đến ngày") để không đè nhau; số đủ khi chạm tháng. */
-@media (max-width:760px){.ov-name{font-size:12px;letter-spacing:-.3px;white-space:nowrap}.ov-name .ov-year,.ov-name small{display:none}}
+@media (max-width:760px){.ov-name{font-size:13px;letter-spacing:-.3px;white-space:nowrap}.ov-name .ov-year,.ov-name small{display:none}}
 /* KHACH-MOI-01: dữ kiện khách mới ở đầu phải hàng Còn nợ chưa tính; xanh dương như nhãn Mới ở Tổng quan, đậm khi cần để ý. */
 .ov-new-line{margin-left:auto;font-size:14px;line-height:20px;color:#52514e}
 .ov-new-line:only-child{margin-left:0}

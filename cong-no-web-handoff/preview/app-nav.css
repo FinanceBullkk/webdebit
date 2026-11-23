@@ -9,19 +9,19 @@
 /* Chín mục phải lọt khung thấy thật 1280×560 (BANG-THU-01, THONG-TIN-CTY-01, BAO-CAO-THANG-01, CHI-PHI-XE-01 thêm Đội xe) kể cả
    khi nhãn dài xuống hai dòng (CI Ubuntu không có Segoe UI, chữ rộng hơn): mục cao tối thiểu 44px (vẫn đủ vùng bấm; 48px như trước
    thì mục thứ chín tràn), nhãn dòng cao 1.05, đệm dọc 1px, biểu tượng 20px, nhãn hai dòng khoảng 52px, ô Tìm khách 48px, nút ☰ 40px. */
-.app-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:44px;margin:1px 6px;padding:1px 2px;border-radius:8px;font-size:11.5px;line-height:1.05;font-weight:600;text-align:center;color:#c3d1e0;text-decoration:none}
+.app-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:44px;margin:1px 6px;padding:1px 2px;border-radius:8px;font-size:13px;line-height:1.05;font-weight:600;text-align:center;color:#c3d1e0;text-decoration:none}
 .app-nav nav a:hover{background:#21405f;color:#fff}
 .app-nav nav a.active{background:#2a5179;color:#fff}
 .app-nav nav a:focus-visible,.app-nav>button:focus-visible{outline:2px solid #6da7ec;outline-offset:2px}
 .app-nav:not(.menu-open) nav a svg{width:20px;height:20px}
-.app-nav .badge{position:absolute;top:4px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.app-nav .badge{position:absolute;top:4px;right:8px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#e8a33d;color:#1a1a19;font-size:13px;font-weight:700;line-height:20px;text-align:center}
 .app-nav .badge[hidden]{display:none}
 .app-nav .search{position:relative;margin:2px 6px;padding:4px 2px;width:64px;min-width:0;height:48px;border:0;border-radius:8px;background:transparent;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:text;color:#c3d1e0}
 .app-nav .search:hover{background:#21405f}
 .page.app-page > .page-head.topbar .asof{margin-left:auto}
 .page.app-page > .page-head.topbar .asof + .live-controls{margin-left:0}
-.app-nav .search-label{font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}
-.app-nav .search input{position:absolute;inset:0;width:100%;border:0;outline:0;opacity:0;padding:0;background:transparent;font:inherit;font-size:11.5px;font-weight:600;color:#c3d1e0}
+.app-nav .search-label{font-size:13px;font-weight:600;line-height:1.2;text-align:center}
+.app-nav .search input{position:absolute;inset:0;width:100%;border:0;outline:0;opacity:0;padding:0;background:transparent;font:inherit;font-size:13px;font-weight:600;color:#c3d1e0}
 .app-nav .search input::-webkit-search-cancel-button{display:none}
 .app-nav .search:focus-within{width:280px;padding:8px 12px;flex-direction:row;background:#16324f;box-shadow:6px 0 20px #16324f33}
 .app-nav .search:focus-within .search-label{display:none}
@@ -40,7 +40,7 @@
 .admin-tabs a:hover{background:#f3f5f8;color:#1a1a19}
 .admin-tabs a.active{border-bottom-color:#2a78d6;background:#eaf2fc;color:#1c5cab}
 .admin-tabs a:focus-visible{outline:2px solid #6da7ec;outline-offset:-2px}
-.admin-tabs .tab-badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.admin-tabs .tab-badge{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#e8a33d;color:#1a1a19;font-size:13px;font-weight:700;line-height:20px;text-align:center}
 .admin-tabs .tab-badge[hidden]{display:none}
 
 /* Trang dùng .page của cong-no-theme.css: thêm .app-page để lùi khỏi dải menu; dải dữ liệu thử cũng lùi theo.
