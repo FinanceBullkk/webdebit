@@ -13,7 +13,7 @@ Trạng thái: ĐỀ XUẤT / đã làm trên nhánh `codex/ai-exception-explain
 | Mở đối chiếu | `preview/viec-can-lam.js`, `v7_api_doi_chieu.statement` | Test bảng đối chiếu hiện có |
 | Xem trước AI | `GET /api/v7/ai/preview` → `v7_ai_explain.preview` | Một customer ID; bỏ ghi chú, giới hạn nhóm/dòng; không gọi Claude |
 | Đồng ý gửi | `POST /api/v7/ai/explain` → `v7_ai_explain.explain` | Same-origin, actor Tailscale, `consent: true`, fingerprint khớp gói được dựng lại, 5 lượt/giờ và cách nhau 60 giây mỗi actor |
-| Trả lời | Anthropic Messages API trực tiếp trên server | API key chỉ ở server; 512 output tokens; lỗi trả mã an toàn; không lưu nội dung câu hỏi/trả lời |
+| Trả lời | Anthropic Messages API trực tiếp trên server, model `claude-haiku-5-5` (`ANTHROPIC_MODEL` chỉ được chọn Haiku/Sonnet/Opus 5.5) | API key chỉ ở server; tối đa 2000 output tokens (gồm suy nghĩ), `effort: low`; lỗi trả mã an toàn; không lưu nội dung câu hỏi/trả lời |
 
 Không đổi máy đối soát, thuật toán ghi, DB, Sheet, quyền hiện có hoặc quy tắc tài chính. Thay đổi ở Webdebit UI chỉ dùng khi có API key server. Key có thể đọc từ file do `WEBDEBIT_ANTHROPIC_KEY_FILE` trỏ tới (trên Linux phải là mode 600); không đưa key vào repo, browser hoặc URL. Mỗi lần POST kiểm lại dữ liệu; nếu phiên bản sổ hoặc snapshot thay, trả 409 để xem trước lại. Prompt đánh dấu dữ liệu Sheet là dữ liệu, không phải chỉ dẫn. Chứng cứ bị cắt có `partial: true`.
 

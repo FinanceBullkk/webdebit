@@ -178,7 +178,7 @@ globalThis.InboxTable = (() => {
       // Chuyến trong một tuyến: tuyến đã ở hàng trên, dòng chỉ còn gợi ý của bảng giá (nếu có).
       const desc = group ? hint : `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''} · ${hint}`;
       return item(r.container, r.event_date, desc, null,
-        r.editable === true ? `<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho ${esc(r.container)}" data-manual-price="${r.id}"${group ? ` data-price-route="${esc(group.key)}"` : ''} data-suggested-price="${suggested}" placeholder="giá, tr">${btn('Ghi giá', `data-command="price" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `price:${r.id}`, group ? { cls: 'price-child' } : {});
+        r.editable === true ? `<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho ${esc(r.container)}" data-manual-price="${r.id}"${group ? ` data-price-route="${esc(group.key)}"` : ''} data-suggested-price="${suggested}" placeholder="giá, tr"><span class="price-unit">triệu</span>${btn('Ghi giá', `data-command="price" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `price:${r.id}`, group ? { cls: 'price-child' } : {});
     };
     // Tuyến có từ hai chuyến: một hàng tuyến gõ giá một lần, điền xuống các chuyến bên dưới (GIA-TUYEN-01).
     const groupItem = g => {
@@ -188,7 +188,7 @@ globalThis.InboxTable = (() => {
       // Giá gần nhất là nút điền (người bấm mới vào ô), đặt ở vùng thao tác để tên tuyến không bị cắt.
       const last = g.last ? `<button type="button" class="use-last" data-use-last="${esc(g.key)}" data-last-price="${millionInput(g.last.price)}" title="Điền giá của chuyến gần nhất cùng tuyến đã có giá (${esc(F.dateText(g.last.date))})"${opts.busy ? ' disabled' : ''}>Giá gần nhất ${millionInput(g.last.price)} tr · ${esc(day(g.last.date))}</button>` : '';
       return item(`${g.trips.length} chuyến`, null, `${g.label} · ${range}`, null,
-        `${last}<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho cả tuyến ${esc(g.label)}" data-group-price="${esc(g.key)}" data-suggested-price="${common}" placeholder="giá, tr">${btn('Ghi giá', `data-price-group="${esc(g.key)}"`, 'primary group-write')}`,
+        `${last}<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho cả tuyến ${esc(g.label)}" data-group-price="${esc(g.key)}" data-suggested-price="${common}" placeholder="giá, tr"><span class="price-unit">triệu</span>${btn('Ghi giá', `data-price-group="${esc(g.key)}"`, 'primary group-write')}`,
         `price-group:${g.key}`, { cls: 'price-group', dateText: '' });
     };
     const missingTrips = (ledger.trips ?? []).filter(isMissing);

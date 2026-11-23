@@ -834,3 +834,20 @@ test('NHAP-NHANH-01: patchLedger vá đúng dòng, không đổi bản gốc; ch
   assert.equal(model.patchLedger(null, 'price', { trip_id: 11 }), null);
   assert.deepEqual(ledger, before, 'bản gốc không đổi');
 });
+
+test('F1 audit 23/11: đơn giá dưới 1.000.000 đ hay trên 1 tỷ đ bị hỏi lại, trong khoảng thì không; parseVnd vẫn một luật với bộ đọc chung', () => {
+  assert.equal(model.priceDoubt('45'), 'small');
+  assert.equal(model.priceDoubt(0n), 'small');
+  assert.equal(model.priceDoubt('999999'), 'small');
+  assert.equal(model.priceDoubt('1000000'), null);
+  assert.equal(model.priceDoubt('45000000'), null);
+  assert.equal(model.priceDoubt(1000000000n), null);
+  assert.equal(model.priceDoubt('1000000001'), 'large');
+  assert.equal(model.priceDoubt('45000000000000'), 'large');
+  assert.match(model.priceDoubtText('45'), /^45 đ là dưới 1\.000\.000 đ.*45\.000\.000/);
+  assert.match(model.priceDoubtText('45000000000000'), /^45\.000\.000\.000\.000 đ là trên 1 tỷ đ/);
+  assert.equal(model.priceDoubtText('45000000'), '');
+  assert.throws(() => model.priceDoubt('4,5'), /Invalid VND/);
+  for (const bad of ['1,5', '45.000.000,50', '1.234.56', '4 500 000', '-5']) assert.throws(() => model.parseVnd(bad), /Invalid VND/, bad);
+  assert.equal(model.parseVnd('45.000.000'), 45000000n);
+});

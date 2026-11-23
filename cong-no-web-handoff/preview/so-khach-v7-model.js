@@ -7,14 +7,33 @@ const SoKhachV7Model = (() => {
     return BigInt(value);
   }
 
+  // Luật đọc số tiền là của bộ đọc chung CongNoFormat.readVnd (cùng luật với Thu chi, Chat Zalo); hậu tố đơn vị do trang tự cắt.
+  const Fmt = typeof CongNoFormat !== "undefined" ? CongNoFormat : require("./cong-no-format.js");
   function parseVnd(text) {
     if (typeof text !== "string") throw new Error("Invalid VND amount");
-    const value = text.trim();
-    if (/^\d+$/.test(value)) return vnd(value);
-    if (!/^[1-9]\d{0,2}([,.]\d{3})+$/.test(value) || (value.includes(",") && value.includes("."))) {
-      throw new Error("Invalid VND amount");
-    }
-    return vnd(value.replace(/[,.]/g, ""));
+    const digits = Fmt.readVnd(text);
+    if (digits === null) throw new Error("Invalid VND amount");
+    return vnd(digits);
+  }
+
+  // Đơn giá chuyến hợp lý nằm trong [1.000.000 đ, 1 tỷ đ]. Ngoài khoảng đó thường là nhầm đơn vị (gõ "45" ở ô đồng thay vì triệu,
+  // hay "45000000" ở ô triệu): mọi đường nhập giá hỏi lại tại chỗ trước khi gửi. Chỉ là câu hỏi; máy chủ không đổi luật tiền.
+  const PRICE_LOW = 1000000n;
+  const PRICE_HIGH = 1000000000n;
+  /** "small" | "large" | null cho một đơn giá (BigInt hoặc chuỗi chữ số). */
+  function priceDoubt(value) {
+    const amount = typeof value === "bigint" ? value : vnd(String(value));
+    if (amount < PRICE_LOW) return "small";
+    return amount > PRICE_HIGH ? "large" : null;
+  }
+  /** Câu hỏi hiện tại ô: nêu số đã đọc ra đồng và gợi ý đơn vị đúng. */
+  function priceDoubtText(value) {
+    const kind = priceDoubt(value);
+    if (!kind) return "";
+    const shown = formatVnd(typeof value === "bigint" ? value : vnd(String(value)));
+    return kind === "small"
+      ? `${shown} đ là dưới 1.000.000 đ: có thể gõ thiếu đơn vị (ô này tính bằng đồng, 45 triệu gõ 45.000.000).`
+      : `${shown} đ là trên 1 tỷ đ một chuyến: có thể gõ thừa số 0.`;
   }
 
   function formatVnd(amount) {
@@ -1051,7 +1070,7 @@ const SoKhachV7Model = (() => {
       const oldAmountVnd = oldPriceVnd === null ? 0n : vnd(row.amount_vnd ?? "0", true);
       const newAmountVnd = vnd(pasted.priceVnd) + fee;
       return { ...info, status: "write", tripId: row.id, oldPriceVnd, otherFeeVnd: row.other_fee_vnd ?? null, deltaVnd: newAmountVnd - oldAmountVnd,
-        small: vnd(pasted.priceVnd) < 1000000n, overwrite: oldPriceVnd !== null };
+        doubt: priceDoubt(pasted.priceVnd), small: priceDoubt(pasted.priceVnd) === "small", overwrite: oldPriceVnd !== null };
     });
     // Hai dòng dán cùng một chuyến (ghép container), kể cả một dòng trùng giá đang có: nguồn có hai giá, không đoán dòng nào đúng, bỏ cả hai.
     const matched = items.filter(item => item.status === "write" || item.status === "same");
@@ -1112,7 +1131,7 @@ const SoKhachV7Model = (() => {
     return done ? copy : null;
   }
 
-  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,

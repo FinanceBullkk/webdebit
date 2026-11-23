@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -63,6 +64,7 @@ class Budget:
         self.cap = cap_usd * NANO
         self.day: str | None = None
         self.spent = 0
+        self._lock = threading.Lock()     # nhiều người hỏi cùng lúc: mỗi câu chạy ở một luồng (F9)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict) and isinstance(data.get("spent_nano_usd"), int) and isinstance(data.get("day"), str):
@@ -76,12 +78,14 @@ class Budget:
             self.day, self.spent = day, 0
 
     def allows(self, now: float) -> bool:
-        self._today(now)
-        return self.spent < self.cap
+        with self._lock:
+            self._today(now)
+            return self.spent < self.cap
 
     def add(self, model: str, usage: dict, now: float) -> int:
-        self._today(now)
         amount = cost(model, usage)
-        self.spent += amount
-        write_atomic(self.path, json.dumps({"day": self.day, "spent_nano_usd": self.spent}).encode("utf-8"), 0o600)
+        with self._lock:
+            self._today(now)
+            self.spent += amount
+            write_atomic(self.path, json.dumps({"day": self.day, "spent_nano_usd": self.spent}).encode("utf-8"), 0o600)
         return amount

@@ -244,7 +244,19 @@ const CongNoFormat = (() => {
     return { label, stale, warn };
   }
 
-  return { toBig, full, short, billions, millions, percent, barWidth, sum, heatStep,
+  /** Đọc số tiền VND người gõ, một luật chung cho mọi ô nhập: chỉ chữ số, hoặc nhóm ngăn nghìn đều (dấu chấm hay phẩy, một loại
+      duy nhất, mỗi nhóm đúng 3 chữ số). Không đoán số lẻ ("1,5", "45.000.000,50"), "tr", "k" hay dấu âm: gặp thì trả null để
+      trang hỏi lại, không đọc thành số khác 10–100 lần. `space: true` nhận thêm khoảng trắng làm dấu ngăn nghìn; `unit: true`
+      nhận thêm hậu tố đ/₫/vnđ/vnd. Trả chuỗi chữ số (người gọi tự chặn số 0 nếu cần) hoặc null. */
+  function readVnd(text, { space = false, unit = false } = {}) {
+    let value = String(text ?? '').trim();
+    if (unit) value = value.replace(/\s*(?:đ|₫|vnđ|vnd)$/iu, '');
+    if (/^[0-9]+$/.test(value)) return value;
+    const grouped = (space ? /^[1-9][0-9]{0,2}([.,\s])[0-9]{3}(?:\1[0-9]{3})*$/ : /^[1-9][0-9]{0,2}([.,])[0-9]{3}(?:\1[0-9]{3})*$/).exec(value);
+    return grouped ? value.replace(/[.,\s]/g, '') : null;
+  }
+
+  return { toBig, readVnd, full, short, billions, millions, percent, barWidth, sum, heatStep,
     UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
     dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText, newCustomer, zaloFreshness };
 })();
