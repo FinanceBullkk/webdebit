@@ -85,5 +85,5 @@ class ManifestPlacementTests(unittest.TestCase):
         self.assertIsNone(re.search(gate.group(1), self.rel), self.rel)
 
     def test_manifest_sits_next_to_the_safety_net(self):
-        import v7_safety_net  # noqa: PLC0415 - tools are flat modules
+        import v7_safety_net
         self.assertEqual(v7_safety_net.MANIFEST, snap.MANIFEST)

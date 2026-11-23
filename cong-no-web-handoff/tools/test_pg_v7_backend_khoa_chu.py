@@ -4,8 +4,8 @@ Run only through disposable test_pg_v7_backend.py harness."""
 import json
 
 from pg_v7_harness import (
-    AUDIT_SQL_MIGRATION,
     AUDIT_KIEN_TRUC_MIGRATION,
+    AUDIT_SQL_MIGRATION,
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
     actor_sql,

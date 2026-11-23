@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import sys
 import tempfile
 import time
@@ -105,8 +106,14 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     pg.sql("CREATE ROLE v7_reader LOGIN IN ROLE sokhach_reader")
     pg.rejects("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL sokhach.actor='x'; "
                "SELECT sokhach.get_safety_net('{}'); COMMIT", user="v7_reader", message="permission denied")
-    raw = json.dumps(probe.db.run("get_safety_net", {"ledger_slices": 1}, net.ACTOR, read_only=True), ensure_ascii=False)
+    result = probe.db.run("get_safety_net", {"ledger_slices": 1}, net.ACTOR, read_only=True)
+    # Khối catalog (kiểm 5) là tên hàm/bảng/ràng buộc của lược đồ (vd. adjustment_amount_vnd_check) và md5, không phải dữ liệu sổ.
+    catalog = result.pop("catalog")
+    raw = json.dumps(result, ensure_ascii=False)
     require("FAKE" not in raw and "_vnd" not in raw, "kết quả hàm lộ tên sổ hoặc khóa số tiền")
+    require("FAKE" not in json.dumps(catalog, ensure_ascii=False)
+            and all(re.fullmatch(r"[0-9a-f]{32}(:[OADR])?", value) for part, values in catalog.items() if part != "level"
+                    for value in values.values()), "khối catalog chỉ được có tên đối tượng và md5")
     cases.append("chỉ đọc, một ảnh dữ liệu, chỉ app, không tên/số tiền")
 
     # Sạch: lượt đầu lấy mốc; lệnh ghi thật trên nhiều sổ không gây báo.

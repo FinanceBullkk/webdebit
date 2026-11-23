@@ -3,8 +3,8 @@ import json
 import re
 
 from pg_v7_harness import (
-    AUDIT_SQL_MIGRATION,
     AUDIT_KIEN_TRUC_MIGRATION,
+    AUDIT_SQL_MIGRATION,
     BANG_GIA_NOI_DEN_MIGRATION,
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
