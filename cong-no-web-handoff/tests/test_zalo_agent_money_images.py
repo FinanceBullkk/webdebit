@@ -93,6 +93,13 @@ class Stuck:
         return Future()
 
 
+SKIPPED = {"wechat": 0, "skipped_no_media": 0, "skipped_not_image": 0, "skipped_no_file": 0, "skipped_too_old": 0}
+
+
+def offline(url):
+    raise wb.BundleError("offline")
+
+
 def prepare(data):
     return data, (100, 200)   # `read` của engine giả nhận lại đúng byte ảnh
 
@@ -134,15 +141,24 @@ class MoneyBase(unittest.TestCase):
         self.base, self.now = base, NOW
         self.live, self.feed = LiveSync(self.src), Live(self.src)
         self.engine = FakeEngine(script={JPEG_LOCAL: TRANSFER})
+        self.fetch = offline   # CDN: mặc định không tải được gì, chỉ ảnh có ở máy vào gói (ca CDN tự đặt `self.fetch`)
+        self.build()
+
+    def build(self):
+        """Dựng gói chat như bộ xử lý `bundle` (A2: nguồn ảnh của `money_images`), từ live-sync bịa."""
+        self.builds = getattr(self, "builds", 0) + 1   # mỗi lần dựng một thư mục `data-<giờ>` mới, như bộ xử lý thật
+        return wb.build(wb.Source(self.src), self.root / "bundle", fetch=self.fetch, transcode=lambda data: JXL_AS_JPEG,
+                        now=self.now + self.builds, max_age_days=None)
 
     def make(self, **kwargs):
         args = {"engine": self.engine, "executor": Inline(), "gemini": gemini.Gemini({}),   # gửi ra ngoài tắt, không đọc môi trường thật
-                "prepare": prepare, "transcode": lambda data: JXL_AS_JPEG,
-                "clock": lambda: self.now, "max_age_days": None, **kwargs}
+                "prepare": prepare, "clock": lambda: self.now, "max_age_days": None, **kwargs}
         return MoneyImagesProcessor(self.live, self.root / "state", self.root / "reads", **args)
 
-    def drain(self, processor, limit=20):
-        """Chạy step tới khi hàng chờ hết (mỗi step thu một ảnh rồi nộp ảnh kế)."""
+    def drain(self, processor, limit=20, build=True):
+        """Dựng lại gói rồi chạy step tới khi hàng chờ hết (mỗi step thu một ảnh rồi nộp ảnh kế)."""
+        if build:
+            self.build()
         processor.step()
         for _ in range(limit):
             if not processor.counts()["pending"] and processor.future is None:
@@ -315,7 +331,8 @@ class ProcessorTest(MoneyBase):
         self.assertEqual((saved["engine"], saved["version"], saved["amount_vnd"], saved["bank"], saved["is_money"]), ("fake", "1.0+t", 1_500_000, "VIETCOMBANK", True))
         self.assertEqual(saved["size"], [100, 200])
         self.assertTrue(saved["boxes"])   # chữ OCR và ô chữ có trong kho (chỉ ở máy)
-        self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0})
+        # 3 tin ảnh của nhóm chỉ có trên CDN (không tải được ở đây) không vào hàng đọc và được đếm (A2)
+        self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0, **SKIPPED, "skipped_no_media": 3})
         self.assertEqual((result["action"], result["error"], result["revision"]), ("idle", None, self.feed.revision()))
         self.assertEqual(sorted(path.name for path in (self.root / "reads").iterdir()), sorted([SHA_LOCAL, SHA_JXL]))
 
@@ -361,6 +378,8 @@ class ProcessorTest(MoneyBase):
         self.drain(processor)
         calls = len(self.engine.calls)
         self.feed.add_image(GROUP, b"\xff\xd8\xff\xe0new-photo")
+        self.assertFalse(processor.wants_work())   # gói chưa dựng lại: chưa có gì mới cho bộ xử lý này
+        self.build()   # bộ xử lý `bundle` chạy trước trong cùng vòng lặp
         self.assertTrue(processor.wants_work())
         self.drain(processor)
         self.assertEqual(len(self.engine.calls), calls + 1)
@@ -379,6 +398,7 @@ class ProcessorTest(MoneyBase):
     def test_newest_image_goes_first(self):
         newer = self.feed.add_image(GROUP, b"\xff\xd8\xff\xe0newest", stamp=1_800_000_000_000)
         self.assertTrue(newer)
+        self.build()
         processor = self.make()
         processor.step()
         processor.step()
@@ -392,6 +412,8 @@ class ProcessorTest(MoneyBase):
         other_sha = hashlib.sha256(b"\xff\xd8\xff\xe0other-group").hexdigest()
         self.assertIn(other_sha, processor.state()["members"])
         wb.Source(self.src).save_selection([GROUP])
+        processor.step()   # gói chưa dựng lại: vẫn còn ảnh của nhóm vừa bỏ (export chờ, xem test_zalo_agent_money_external)
+        self.build()
         processor.step()
         self.assertNotIn(other_sha, processor.state()["members"])
         self.assertEqual(set(processor.state()["members"]), {SHA_LOCAL, SHA_JXL})
@@ -399,9 +421,10 @@ class ProcessorTest(MoneyBase):
     def test_unreadable_images_are_dropped_after_three_tries_and_never_fail_the_processor(self):
         data = b"\xff\xd8\xff\xe0bad-photo"
         self.feed.add_image(GROUP, data)
-        (self.src / "media-store" / hashlib.sha256(b"id1").hexdigest()).with_suffix(".jpg").write_bytes(b"\xff\xd8\xff\xe0changed")   # sai băm chỉ mục
+        self.build()
+        (self.root / "bundle" / "media" / (hashlib.sha256(data).hexdigest() + ".jpg")).write_bytes(b"\xff\xd8\xff\xe0changed")   # file sai băm
         processor = self.make()
-        result = self.drain(processor, 40)
+        result = self.drain(processor, 40, build=False)
         self.assertEqual((result["error"], result["counts"]["failed"], result["counts"]["pending"], result["counts"]["read"]), (None, 1, 0, 2))
         self.assertTrue(processor.wants_work() is False)
 
@@ -428,7 +451,7 @@ class ProcessorTest(MoneyBase):
         (self.src / "web-groups.json").write_text(json.dumps({"conversations": []}), encoding="utf-8")
         processor = self.make()
         self.assertFalse(processor.wants_work())
-        self.assertEqual(processor.step()["counts"], {"read": 0, "pending": 0, "failed": 0, "review": 0, "asking": 0})
+        self.assertEqual(processor.step()["counts"], {"read": 0, "pending": 0, "failed": 0, "review": 0, "asking": 0, **SKIPPED})
         self.assertEqual(self.engine.calls, [])
 
     def test_unsure_money_image_counts_as_review(self):
@@ -534,7 +557,7 @@ class AgentTest(MoneyBase):
         (self.src / "poller-identity.json").write_text(json.dumps({"status": "attached"}), encoding="utf-8")
 
     def agent(self, executor=None, **kwargs):
-        money = {"engine": self.engine, "executor": executor or Inline(), "prepare": prepare, "transcode": lambda data: JXL_AS_JPEG, "max_age_days": None}
+        money = {"engine": self.engine, "executor": executor or Inline(), "prepare": prepare, "max_age_days": None}
         agent = agent_main.Agent(self.live, self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote, clock=lambda: self.now,
                                  fetch=FakeCdn(), transcode=no_jxl, max_age_days=None, money_images=True, money_args=money, **kwargs)
         self.addCleanup(agent.release)
@@ -550,7 +573,7 @@ class AgentTest(MoneyBase):
         for _ in range(4):   # mỗi lượt thu một ảnh rồi nộp ảnh kế
             status = agent.cycle(force_status=True)
         entry = status["processors"]["money_images"]
-        self.assertEqual(entry["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0})
+        self.assertEqual(entry["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0, **SKIPPED, "skipped_no_media": 3})
         self.assertEqual((entry["error"], entry["revision"]), (None, 87))
         remote = json.loads((self.remote.dirs[STATUS_REMOTE] / "status.json").read_text(encoding="utf-8"))
         self.assertEqual(remote["processors"]["money_images"]["counts"]["read"], 2)

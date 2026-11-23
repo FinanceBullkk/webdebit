@@ -61,7 +61,10 @@ class Agent:
             self.processors.append(InsuranceProcessor(live, self.state, self.root / "insurance", insurance_target,
                                                       snapshot=insurance_snapshot, store=insurance_store, run=run, dry_run=dry_run, clock=clock))
         if money_images:   # mặc định tắt: agent chạy code từ checkout `main`, bật sẵn thì merge là bắt đầu OCR trên máy thật
-            self.processors.append(MoneyImagesProcessor(live, self.state, self.root / "reads", dry_run=dry_run, clock=clock, run=run, **(money_args or {})))
+            # A2: ảnh lấy từ gói chat của `bundle` (cùng vòng lặp, chạy trước); hội thoại WeChat theo danh sách của `wechat` để không xuất
+            self.processors.append(MoneyImagesProcessor(live, self.state, self.root / "reads", dry_run=dry_run, clock=clock, run=run,
+                                                        bundle_dir=self.root / "bundle", wechat_ids=overlay.conversation_ids if overlay else None,
+                                                        **(money_args or {})))
         self.last = {}
         self.last_status_at = 0.0
         # Lùi dần RIÊNG từng bộ xử lý: lỗi của bộ này không bao giờ làm bộ khác chạy chậm đi.
@@ -242,6 +245,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--reads-target", default=os.environ.get("ZALO_AGENT_READS_TARGET", ""),
                      help="đích file kết quả đọc ảnh cho hao, ví dụ hao:/srv/v7/zalo-reads; MẶC ĐỊNH RỖNG = không đẩy (cần thư mục do bước bật tạo)")
     run.add_argument("--money-max-age-days", type=int, default=30, help="chỉ đọc ảnh gửi trong chừng này ngày khi dựng lại từ đầu")
+    run.add_argument("--money-wechat-export", choices=("on", "off"), default=os.environ.get("ZALO_AGENT_MONEY_WECHAT_EXPORT", "off"),
+                     help="xuất kết quả đọc ảnh WeChat vào money-reads.json (vào tổng Thu chi); MẶC ĐỊNH off: người dùng chốt "
+                          "\"Đọc, chưa cộng\" 23/11/2026, bật là quyết định mới")
     wechat_source.add_arguments(run)
     run.add_argument("--wechat", action="store_true", default=os.environ.get("ZALO_AGENT_WECHAT") == "1",
                      help="WECHAT-01: bật nguồn WeChat (nhóm trong wechat-groups.json); MẶC ĐỊNH TẮT")
@@ -268,7 +274,8 @@ def main(argv: list[str] | None = None) -> int:
     agent = Agent(LiveSync(Path(args.live_sync)), root, args.target, args.status_target, dry_run=args.dry_run,
                   insurance_target=args.insurance_target, insurance_snapshot=Path(args.insurance_snapshot) if args.insurance_snapshot else None,
                   insurance_store=Path(args.insurance_store) if args.insurance_store else None,
-                  money_images=args.money_images == "on", money_args={"max_age_days": args.money_max_age_days, "reads_target": args.reads_target},
+                  money_images=args.money_images == "on", money_args={"max_age_days": args.money_max_age_days, "reads_target": args.reads_target,
+                                          "export_wechat": args.money_wechat_export == "on"},
                   wechat={"python": args.wechat_python, "pilot": args.wechat_pilot, "groups": args.wechat_groups,
                           "interval": args.wechat_interval, "images": args.wechat_images} if args.wechat else None,
                   max_fetch=args.max_fetch, max_age_days=args.max_age_days)

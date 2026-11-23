@@ -30,6 +30,8 @@ Người dùng chốt ngày 20/11/2026 ("Làm nguồn WeChat ngay", sau khi ch�
 
 Vẫn phải hỏi người dùng trước khi thêm nhóm WeChat nào khác vào danh sách chọn.
 
+**Ảnh tiền WeChat: "Đọc, chưa cộng" — ĐÃ CHỐT** (người chốt: người dùng, nguyên văn "Đọc, chưa cộng", trả lời câu hỏi của phiên điều phối; thời điểm: 23/11/2026; phạm vi: ảnh tiền của nhóm WeChat đang chọn). Máy có Zalo đọc OCR ảnh WeChat và lưu kết quả tại máy như ảnh Zalo, nhưng không xuất vào `money-reads.json`: ảnh WeChat không vào trang Thu chi, tổng thu không đổi; không hỏi Gemini và không dựng ảnh che cho ảnh WeChat. Lý do: nhóm đang chọn là nhóm nội bộ có cả thu lẫn chi, còn `hao` coi ảnh người khác gửi là thu. Cờ `--money-wechat-export` (mặc định tắt) để bật sau; **bật cộng là quyết định mới, phải hỏi lại người dùng**. Cách làm: [spec](../../specs/zalo-agent.md) mục bộ xử lý `money_images` (nguồn ảnh A2).
+
 **Ảnh WeChat (22/11/2026):** đọc bằng khóa suy ngoại tuyến từ tên file `kvcomm` của WeChat và wxid, kiểm trên file `.dat` thật của máy; không quét bộ nhớ (các lượt quét bộ nhớ Weixin.exe trước đó không tìm ra khóa ảnh). Khóa vẫn chỉ ở máy, chỉ trong bộ nhớ của tiến trình đọc, không ghi vào file, log, repo, `status.json` hay `hao`. Tin ảnh còn thiếu ảnh được thử lại mỗi lượt cửa sổ; ảnh thu nhỏ được thay bằng bản lớn hơn khi WeChat có (không bao giờ lùi); lượt đầu sau khi agent chạy thử lại ảnh của 7 ngày. Ảnh chỉ được giải khi chắc đúng tin (số `local_id` lặp giữa các mảnh DB). Chi tiết: spec, mục nguồn WeChat. Việc đọc bộ nhớ để lấy khóa DB của upstream không đổi (`extract_master_key()` khi `cfg_dword is None`, `extract_keys()` khi có mảnh DB chưa có khóa; `db.py` khoảng dòng 715–728), nên bộ đọc vẫn giữ một tiến trình sống lâu để đọc một lần.
 
 CÒN MỞ:

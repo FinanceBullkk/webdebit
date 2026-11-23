@@ -252,6 +252,8 @@ Luật:
 
 Review độc lập ngày 21/11/2026 (FinanceBullkk/webdebit#562) tìm ra 8 chỗ đếm hai lần, ẩn nhầm hoặc ghi sai lý do ở bản đầu. Luật trên là bản đã sửa; mỗi chỗ có một test trong `ImageReadTests`.
 
+ĐÃ CHỐT (người dùng, 23/11/2026): ảnh tiền của nhóm WeChat đang chọn **đọc, chưa cộng**, không có trong `money-reads.json` (xem mục Ngoài phạm vi, `WECHAT-01`).
+
 CÒN MỞ:
 
 - Ảnh chuyển khoản do người không phải tài khoản Zalo của mình gửi vẫn tính là thu, kể cả nhân viên khác trong nhóm khách. Từ luật `a3` (23/11/2026) máy xuất thêm `direction` (`in`/`out`/null, góc nhìn người chụp) cho ảnh `ocr`; số đo 23/11: cả 24 ảnh `ocr` đều là biên lai tiền **đi** (`out`) của người chụp, tức người gửi ảnh đã trả: vẫn khớp với "ảnh người khác gửi là thu", nhưng ảnh người khác gửi mà là tiền vào của họ thì sẽ bị tính nhầm. `hao` chưa dùng `direction`; dùng nó để bỏ hay đổi chiều khoản là đổi luật đếm, phải hỏi người dùng.
@@ -407,7 +409,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 ## Ngoài phạm vi
 
 - **Bot trả lời trong nhóm** (ví dụ @bot "thu chi hôm nay"). Xét khi Zalo Bot chính thức mở hẳn phần nhóm; đọc vẫn qua đường này, bot chỉ để trả lời.
-- **WeChat.** Tạm thời chuyển tiếp ảnh sang nhóm Zalo. Nếu đối tác Trung Quốc nhiều thì xét WeChat Work riêng.
+- **WeChat.** Tin chữ của nhóm WeChat đã chọn đọc qua [`WECHAT-01`](../docs/decisions/wechat-01.md). **Ảnh tiền WeChat ĐÃ CHỐT "Đọc, chưa cộng"** (người dùng, 23/11/2026): máy có Zalo đọc và lưu kết quả tại máy nhưng không xuất vào `money-reads.json`, nên không vào trang Thu chi và tổng thu không đổi; cờ `--money-wechat-export` mặc định tắt, bật cộng là quyết định mới, phải hỏi lại người dùng. Nếu đối tác Trung Quốc nhiều thì xét WeChat Work riêng.
 - **Sao kê hoặc biến động ngân hàng** ([Q7](#câu-hỏi-đã-chốt)).
 - **Sổ chi văn phòng, lương:** web chưa có sổ này. Phần B chỉ liệt kê các khoản đó (`NO_LEDGER`).
 
