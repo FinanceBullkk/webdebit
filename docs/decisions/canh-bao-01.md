@@ -73,6 +73,12 @@ Audit vận hành chỉ đọc 23/11/2026 (mục O2, O4, O8) kết luận: mọi
 - **Lưới an toàn tách riêng** vì nó đỏ tới khi có người chấp nhận ([`LUOI-AN-TOAN-01`](luoi-an-toan-01.md)); chung check với tiền thì lượt máy đối soát ghi sai sau đó không có email.
 - **Máy đối soát chạy mà không ghi** (O4): báo khi `reconcile.json` ghi `mode` khác `fix` (unit thiếu `--fix`), và khi cầu dao hơn 40 khách lệch giữ hai lượt liền (đọc lượt trước trong `reconcile-log.jsonl`). Một lượt quá 40 thì chưa báo: thường là Sheet đang sửa dở.
 - **Máy kéo bản sao tự báo** (O8): PC kéo xong (`PASS`) thì ping check riêng của PC đó, lỗi thì ping `/fail`; link nằm trong một file trên PC (`--ping-url-file`), không trong lệnh hay Git. Phép kiểm đăng nhập SSH của máy canh giữ nguyên.
-- `--test-fail` gửi thử tới mọi check đang cấu hình, mỗi check một email.
+- `--test-fail` gửi thử tới mọi check đang cấu hình, mỗi check một email. Thử thật 23/11/2026: đủ 5 email tới hộp thư (E3 của
+  [checklist chuyển hẳn](../chuyen-han-checklist.md) đạt).
+- **Máy 15 phút trong API** (O4, sau khi phiên sửa máy giá merge): `/healthz` phần `inbox` thêm số lỗi của máy ở lượt nền
+  vừa xong và số lượt liền có lỗi, cờ đang bật (`WEBDEBIT_AUTO_SHEET`) và lần ghi cuối. Nhóm tiền báo khi lỗi lặp hai lượt
+  liền, hay khi thiếu một cờ trong `WEBDEBIT_ALERT_AUTO_FLAGS` (mặc định đủ sáu cờ như `hao` đang bật). Cố ý tắt cờ thì sửa
+  biến này trong `alert.env` cùng lúc; không sửa thì email là đúng ý (drop-in sửa tay làm rơi cờ là chuyến, giá ngừng vào web
+  mà web vẫn 200).
 
-Phần hộp việc của máy giá 15 phút (lỗi ghi lặp, thiếu cờ máy) làm sau khi phiên sửa máy giá merge. Cách cài: [runbook](../v7-deploy-runbook.md#máy-canh-báo-email-canh-bao-01--timer-v7-watchdog), tổng quan vận hành: [van-hanh.md](../van-hanh.md).
+Cách cài: [runbook](../v7-deploy-runbook.md#máy-canh-báo-email-canh-bao-01--timer-v7-watchdog), tổng quan vận hành: [van-hanh.md](../van-hanh.md).

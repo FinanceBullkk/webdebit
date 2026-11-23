@@ -63,6 +63,8 @@ function makeServer(state) {
     if (route === '/api/v7/inbox') return out({ state: 'ready', books: [{ customer_id: 7, receipts: { ready: 2, review: 0, amount_vnd: '10' } }] });
     if (route === '/api/v7/dashboard') return out({ todo: { missing_price: [], pending_review: [], no_baseline: [], credit: [] } });
     if (route === '/api/v7/dashboard/debt') return out({ customers: [] });
+    if (route === '/api/v7/todo-badge') return out({ inbox: { state: 'ready', books: [{ customer_id: 7, receipts: { ready: 2, review: 0, amount_vnd: '10' } }] },
+      dashboard: { todo: { missing_price: [], pending_review: [], no_baseline: [], credit: [] } }, debt: { customers: [] } });
     if (route.startsWith('/api/v7/presence')) return out({ people: [] });
     if (route.startsWith('/api/')) return out({}, 404);
     const file = path.join(__dirname, route.replace(/^\//, ''));
