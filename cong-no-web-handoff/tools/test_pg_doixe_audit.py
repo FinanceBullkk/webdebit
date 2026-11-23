@@ -67,7 +67,7 @@ def scenario(pg: Pg, cases: list[str]) -> None:
     other_funcs = ("SELECT count(*) || ':' || md5(string_agg(p.oid::regprocedure::text || md5(pg_get_functiondef(p.oid)), ',' "
                    f"ORDER BY p.oid::regprocedure::text)) FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace AND p.proname NOT IN ({names})")
     acl = ("SELECT md5(string_agg(p.oid::regprocedure::text || coalesce(p.proacl::text, ''), ',' ORDER BY p.oid::regprocedure::text)) "
-           f"FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace AND p.proname <> '_cont_lap'")
+           "FROM pg_proc p WHERE p.pronamespace = 'doixe'::regnamespace AND p.proname <> '_cont_lap'")
     before = (pg.value(cols_sql), pg.value(other_funcs), pg.value(acl))
     luu_chang_def = pg.value("SELECT md5(pg_get_functiondef('doixe.luu_chang(jsonb)'::regprocedure))")
     pg.rejects(source.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'AUDIT_FAULT'; END $$; COMMIT;"), message="AUDIT_FAULT")
