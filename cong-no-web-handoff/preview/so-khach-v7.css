@@ -172,7 +172,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .dn4-done-actions .dn4-copy{border-color:#173d65;background:#173d65;color:#fff;font-weight:600}
 .fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:14px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
-.fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
+.fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-name-btn{min-height:36px;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;text-align:left;text-decoration:underline dotted #8193a6;text-underline-offset:3px;cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
 .fee-types select{height:32px;font:inherit}.fee-types button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;white-space:nowrap;cursor:pointer}
 .fee-types button:disabled,.fee-types input:disabled{opacity:.5;cursor:not-allowed}
 .fee-types td:nth-child(5){white-space:nowrap}
