@@ -383,10 +383,13 @@ ZALO_BOT_TEXT = {"login_required": "nick phụ cần quét QR đăng nhập lạ
                  "sandbox_missing": "kênh không chạy vì unit thiếu chặn mạng tới API", "unknown": "kênh báo trạng thái lạ"}
 
 
+# Bộ đếm trong ngày của bot (F8): hết hạn mức là báo ngay; "chưa chắc" và lỗi model vượt ngưỡng ngày thì báo.
+ZALO_BOT_DAILY = {"not_sure": 5, "error": 3}
+
+
 def check_zalo_bot(now: dt.datetime) -> list[str]:
-    """Bot Zalo hỏi đáp còn chạy và còn nhận tin (ZALO-BOT-01 Phần 6). Dùng chung bộ đọc với tab Máy chạy, import muộn như `check_zalo`."""
-    if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
-        return []
+    """Bot Zalo hỏi đáp còn chạy và còn nhận tin (ZALO-BOT-01 Phần 6). Dùng chung bộ đọc với tab Máy chạy, import muộn như `check_zalo`.
+    Bộ đếm hạn mức, "chưa chắc" và lỗi được xét cả ngoài giờ làm việc: bộ đếm về 0 lúc nửa đêm, đợi sáng thì mất."""
     web = str(Path(__file__).resolve().parents[1] / "web")
     if web not in sys.path:
         sys.path.insert(0, web)
@@ -394,11 +397,20 @@ def check_zalo_bot(now: dt.datetime) -> list[str]:
     view = v7_machine.zalo_bot(now.timestamp())
     if view["state"] == "missing":
         return []
+    counts = view.get("counts") or {}
+    usage = []
+    if counts.get("over_budget", 0) > 0:
+        usage.append(f"Bot Zalo: đã hết hạn mức chi phí hôm nay ({counts['over_budget']} câu bị từ chối vì hạn mức).")
+    for name, label in (("not_sure", "câu trả lời \"chưa chắc\" (bộ kiểm số chặn)"), ("error", "lần gọi model lỗi")):
+        if counts.get(name, 0) >= ZALO_BOT_DAILY[name]:
+            usage.append(f"Bot Zalo: hôm nay {counts[name]} {label}, ngưỡng {ZALO_BOT_DAILY[name]}.")
+    if not ZALO_HOURS[0] <= now.hour < ZALO_HOURS[1]:
+        return usage
     limit = v7_machine.ZALO_LATE // 60
     if view["state"] == "silent":
         since = f" từ {dt.datetime.fromisoformat(view['at']):%H:%M ngày %d/%m}" if view["at"] else ""
         return [f"Bot Zalo im lặng{since}: bộ não không ghi nhịp tim quá {limit} phút."]
-    found = []
+    found = usage
     minutes = view["kenh_minutes"]
     if view["enabled"] and view["kenh"] != "online" and (minutes is None or minutes > limit):
         how = "" if minutes is None else f", {minutes} phút"
