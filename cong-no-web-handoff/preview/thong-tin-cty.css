@@ -32,9 +32,9 @@ body.ttc{background:#f3f5f8;font-size:14px}
 .ttc-customer>.ttc-block:nth-child(3){grid-area:ship}
 .ttc-customer>.ttc-block:nth-child(4){grid-area:bank}
 .ttc-who p{margin:2px 0 0;color:var(--ink-2);font-size:13px;overflow-wrap:anywhere}
-.ttc-who small{display:block;margin-top:4px;color:var(--ink-3);font-size:12px}
+.ttc-who small{display:block;margin-top:4px;color:var(--ink-3);font-size:13px}
 .ttc-block p{margin:2px 0 0;white-space:pre-line;overflow-wrap:anywhere;line-height:1.45}
-.ttc-k{display:block;color:var(--ink-3);font-size:12px;font-weight:600}
+.ttc-k{display:block;color:var(--ink-3);font-size:13px;font-weight:600}
 .ttc-copy{margin-top:6px;height:32px;padding:0 12px;border:1px solid #c9d0d8;border-radius:6px;background:#fff;color:var(--accent-ink);font-size:13px;font-weight:600;cursor:pointer}
 .ttc-copy:hover{background:var(--accent-soft)}
 /* Nút Chép của khối hóa đơn nằm trên dòng nhãn, không thêm một hàng. */
@@ -49,12 +49,12 @@ body.ttc{background:#f3f5f8;font-size:14px}
 .ttc-account[open] summary{border-bottom:1px solid var(--line-soft)}
 .ttc-acc-head{grid-area:head;min-width:0;display:flex;flex-direction:column}
 .ttc-acc-head b{color:var(--accent-ink);font-size:14px}
-.ttc-acc-head span{color:var(--ink-2);font-size:12.5px;overflow-wrap:anywhere}
+.ttc-acc-head span{color:var(--ink-2);font-size:13px;overflow-wrap:anywhere}
 .ttc-acc-no{grid-area:no;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .ttc-account summary .ttc-copy{grid-area:copy;margin:0;height:30px}
 .ttc-account dl{padding:8px 12px 12px}
 .ttc-account dl{margin:0;display:flex;flex-direction:column;gap:6px}
-.ttc-account dt{color:var(--ink-3);font-size:12px;font-weight:600}
+.ttc-account dt{color:var(--ink-3);font-size:13px;font-weight:600}
 .ttc-account dd{margin:0;white-space:pre-line;overflow-wrap:anywhere}
 .ttc-foot{max-width:1148px;margin:16px 0 0;color:var(--ink-3);font-size:13px}
 
