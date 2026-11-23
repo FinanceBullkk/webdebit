@@ -82,7 +82,7 @@ globalThis.AppNav = (() => {
     };
     const ready = () => {
       if (customers || loadingCustomers) return loadingCustomers;
-      loadingCustomers = fetch('/api/v7/customers', { cache: 'no-store' }).then(r => (r.ok ? r.json() : Promise.reject(Error('customers'))))
+      loadingCustomers = CongNoNet.customers()
         .then(body => { customers ??= body.customers ?? []; draw(); }).catch(() => { loadingCustomers = null; });
       return loadingCustomers;
     };
@@ -152,7 +152,7 @@ globalThis.AppNav = (() => {
     setTodoCount(globalThis.InboxTable.books(inbox, dashboard, unsorted).length);
     // Sẵn ba nguồn rồi thì giữ lại: lần đầu bấm sang Việc cần làm cũng khỏi đợi.
     if (inbox && dashboard && debt) {
-      customers ??= await json('/api/v7/customers').then(body => body?.customers ?? null);
+      customers ??= await CongNoNet.customers().then(body => body?.customers ?? null, () => null);
       saveTodoSnapshot({ inbox, dashboard, unsorted, customers });
     }
   }

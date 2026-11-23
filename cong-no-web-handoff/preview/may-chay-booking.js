@@ -118,9 +118,7 @@
 
   async function loadIds() {
     try {
-      const response = await fetch('/api/v7/customers', { cache: 'no-store' });
-      if (!response.ok) return;
-      const body = await response.json();
+      const body = await CongNoNet.customers();
       const seen = new Map();
       for (const row of body.customers ?? []) { const key = nameKey(row.name); seen.set(key, seen.has(key) ? null : row.id); }   // hai sổ cùng tên thì không đoán
       state.ids = new Map([...seen].filter(([, id]) => id !== null));
