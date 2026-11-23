@@ -2,7 +2,10 @@
 
 Pass the actual socket peer IP/port, never a forwarded header. Serve mode must
 only be enabled with a loopback-only listener behind tailscale serve, which
-must strip/replace identity headers. Local processes then share that trust.
+must strip/replace identity headers. Since audit 23/11/2026 (F4) the header is
+trusted only when the loopback client socket is owned by uid 0 (tailscaled),
+looked up in /proc/net/tcp*; other local processes no longer share that trust,
+except uids configured as read-only peers (GET only, e.g. the Zalo bot).
 This module authenticates identity only; it does not grant roles or DB access.
 """
 
@@ -15,6 +18,7 @@ import json
 import math
 import os
 import socket
+import sys
 import time
 import unicodedata
 from collections.abc import Mapping
@@ -25,6 +29,9 @@ from urllib.parse import urlencode
 MAX_RESPONSE = 64 * 1024
 UNIX_SOCKET = "/var/run/tailscale/tailscaled.sock"
 WINDOWS_PIPE = r"\\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled"
+TAILSCALED_UID = 0                    # tailscaled chạy bằng root; Serve nối tới API từ chính tiến trình đó
+PROC_NET = ("/proc/net/tcp", "/proc/net/tcp6")
+TCP_ESTABLISHED = "01"
 
 
 class IdentityError(Exception):
@@ -206,20 +213,85 @@ def _allowed(login: str, allowed_logins: frozenset[str] | None) -> str:
     return login
 
 
+def _proc_endpoint(value: str) -> tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]:
+    """`0100007F:A0F0` của /proc/net/tcp* thành (ip, cổng): kernel in địa chỉ theo từng từ 32 bit, thứ tự byte của máy."""
+    host, port = value.split(":")
+    raw = bytes.fromhex(host)
+    if len(raw) not in (4, 16):
+        raise ValueError(value)
+    if sys.byteorder == "little":
+        raw = b"".join(raw[index:index + 4][::-1] for index in range(0, len(raw), 4))
+    return ipaddress.ip_address(raw), int(port, 16)
+
+
+def loopback_peer_uid(peer_ip: str, peer_port: int, local_port: int) -> int | None:
+    """uid sở hữu socket phía client của một kết nối loopback tới cổng `local_port` (audit 23/11/2026, F4).
+
+    Đọc /proc/net/tcp và tcp6 (Linux, thư viện chuẩn, không cần quyền). Chỉ nhận dòng ESTABLISHED có inode khác 0:
+    client gửi xong rồi đóng socket thì socket mồ côi hiện uid 0, không được coi là tailscaled. Không tìm thấy, không phải
+    Linux hoặc không đọc được thì None: header danh tính bị từ chối (đóng an toàn).
+    """
+    try:
+        want = (ipaddress.ip_address(peer_ip), peer_port)
+    except ValueError:
+        return None
+    for path in PROC_NET:
+        try:
+            with open(path, encoding="ascii") as table:
+                lines = table.read().splitlines()[1:]
+        except (OSError, UnicodeError):
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10:
+                continue
+            try:
+                local, remote = _proc_endpoint(fields[1]), _proc_endpoint(fields[2])
+            except ValueError:
+                continue
+            if local == want and remote[1] == local_port and remote[0].is_loopback:
+                if fields[3] != TCP_ESTABLISHED or fields[9] == "0" or not fields[7].isdecimal():
+                    return None
+                return int(fields[7])
+    return None
+
+
+def parse_peer_uids(value: object) -> frozenset[int]:
+    """uid được dùng header danh tính chỉ để đọc (WEBDEBIT_READ_ONLY_PEER_UIDS / --read-only-peer-uid), phân cách phẩy/khoảng trắng."""
+    if value is None:
+        return frozenset()
+    if not isinstance(value, str):
+        raise IdentityError("INVALID_CONFIG")
+    items = value.replace(",", " ").split()
+    if not all(item.isascii() and item.isdecimal() for item in items):
+        raise IdentityError("INVALID_CONFIG")
+    uids = frozenset(int(item) for item in items)
+    if TAILSCALED_UID in uids:
+        raise IdentityError("INVALID_CONFIG")   # uid 0 đã là tailscaled, đọc-ghi đủ quyền; ghi vào đây là nhầm
+    return uids
+
+
 def resolve_actor(source_ip: str, headers: Mapping[str, str], localapi: LocalAPI | None = None,
                   *, source_port: int = 0, behind_tailscale_serve: bool = False,
-                  allowed_logins: frozenset[str] | None = None) -> str:
+                  allowed_logins: frozenset[str] | None = None, local_port: int = 0,
+                  read_only_uids: frozenset[int] = frozenset(), write: bool = False) -> str:
     """Resolve one request; no default actor, forwarded IP, or cached fallback.
 
     source_port=0 supports IP-only callers; pass the socket peer port when known.
     The LocalAPI daemon, not an IP range guess, decides tailnet membership.
-    Explicit Serve mode trusts only exact 127.0.0.1/::1 socket peers.
+    Explicit Serve mode trusts the identity header only from exact 127.0.0.1/::1
+    socket peers whose client socket belongs to tailscaled (uid 0, F4), or to a
+    uid in read_only_uids when the request does not write; any other local
+    process sending the header gets UNTRUSTED_LOCAL_PEER (uid only in `detail`).
+    local_port is the listener port the peer connected to.
     allowed_logins (ACCESS-01): a verified login outside the set fails closed
     with LOGIN_NOT_ALLOWED (the login only in `detail`); None skips the check.
     """
-    if type(behind_tailscale_serve) is not bool:
+    if type(behind_tailscale_serve) is not bool or type(write) is not bool:
         raise IdentityError("INVALID_CONFIG")
     if allowed_logins is not None and not isinstance(allowed_logins, frozenset):
+        raise IdentityError("INVALID_CONFIG")
+    if not isinstance(read_only_uids, frozenset):
         raise IdentityError("INVALID_CONFIG")
     try:
         if not isinstance(source_ip, str) or "%" in source_ip:
@@ -234,7 +306,14 @@ def resolve_actor(source_ip: str, headers: Mapping[str, str], localapi: LocalAPI
         if len(values) > 1:
             raise IdentityError("AMBIGUOUS_LOGIN")
         if values:
-            return _allowed(_login(values[0]), allowed_logins)
+            uid = loopback_peer_uid(str(ip), source_port, local_port)
+            if uid == TAILSCALED_UID:
+                return _allowed(_login(values[0]), allowed_logins)
+            if uid is not None and uid in read_only_uids:
+                if write:
+                    raise IdentityError("READ_ONLY_PEER", f"uid {uid}")
+                return _allowed(_login(values[0]), allowed_logins)
+            raise IdentityError("UNTRUSTED_LOCAL_PEER", f"uid {uid}")
     addr = f"[{ip}]:{source_port}" if ip.version == 6 else f"{ip}:{source_port}"
     try:
         result = (TailscaleLocalAPI() if localapi is None else localapi).whois(addr)

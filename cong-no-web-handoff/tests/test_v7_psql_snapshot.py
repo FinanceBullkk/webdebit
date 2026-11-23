@@ -4,6 +4,7 @@ Harness PostgreSQL thật ở tools/test_pg_v7_xuat_so.py."""
 
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -17,7 +18,7 @@ import v7_psql  # noqa: E402
 from v7_api_validate import ApiError  # noqa: E402
 
 FAKE_PSQL = r'''
-import json, os, sys, time
+import json, os, re, sys, time
 args, values = sys.argv[1:], {}
 for index, arg in enumerate(args):
     if arg == "-v":
@@ -27,16 +28,21 @@ sql = sys.stdin.read()
 with open(os.environ["FAKE_PSQL_OUT"], "w", encoding="utf-8") as out:
     json.dump({"sql": sql, "values": values}, out)
 mode = os.environ.get("FAKE_PSQL_MODE", "ok")
-calls = sorted((key for key in values if key[:1] == "p" and key[1:].isdigit()), key=lambda key: int(key[1:]))
+# Audit 23/11/2026 (F12): payload nằm trong SQL dạng dollar-quote (stdin), không còn là đối số -v; mỗi hàm một dòng SELECT.
+calls = []
+for line in sql.splitlines():
+    if line.startswith("SELECT "):
+        found = re.search(r"[$](v7_[0-9a-f]+)[$](.*?)[$]\1[$]", line)
+        calls.append(found.group(2) if found else "{}")
 if mode == "slow":
     time.sleep(30)
 if mode == "bad":
     print("không phải JSON")
     sys.exit(0)
-for number, key in enumerate(calls):
+for number, payload in enumerate(calls):
     if mode == "short" and number == len(calls) - 1:
         sys.exit(0)
-    print(json.dumps({"n": number, "payload": json.loads(values[key])}, ensure_ascii=False), flush=True)
+    print(json.dumps({"n": number, "payload": json.loads(payload)}, ensure_ascii=False), flush=True)
     if mode == "fail":
         sys.exit(3)
 '''
@@ -78,15 +84,17 @@ class SnapshotTest(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(got, [{"n": 0, "payload": {}}, {"n": 1, "payload": {}}, {"n": 2, "payload": {"customer_id": 5}}])
         seen = self.seen()
+        tag = re.search(r"[$]v7_[0-9a-f]{16}[$]", seen["sql"]).group(0)
         self.assertEqual(seen["sql"].splitlines(), [
             "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY;",
             "SET LOCAL statement_timeout = '60s';",
             "SET LOCAL sokhach.actor = :'actor';",
             "SELECT sokhach.get_dashboard();",
             "SELECT sokhach.list_customers();",
-            "SELECT sokhach.get_ledger((:'p2'::jsonb->>'customer_id')::bigint) - 'events';",
+            "SELECT sokhach.get_ledger((" + tag + '{"customer_id":5}' + tag + "::jsonb->>'customer_id')::bigint) - 'events';",
             "COMMIT;"])
-        self.assertEqual(seen["values"], {"p0": "{}", "p1": "{}", "p2": '{"customer_id":5}', "actor": "nguoi-xuat"})
+        # actor vẫn là biến -v (ngắn, psql tự trích dẫn); payload không còn là đối số dòng lệnh.
+        self.assertEqual(seen["values"], {"actor": "nguoi-xuat"})
 
     def test_failure_after_some_results_raises_at_the_end(self):
         for mode, count in (("fail", 1), ("short", 2), ("bad", 0)):

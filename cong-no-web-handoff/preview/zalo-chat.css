@@ -112,7 +112,7 @@
 .form-error { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--critical-soft); color: var(--critical); font-size: 14px; }
 .sheet .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .sheet .btn { height: 40px; font-size: 15px; }
-.sheet .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sheet .btn.primary { background: var(--accent-ink); border-color: var(--accent-ink); color: #fff; }
 .sheet .btn.danger { background: var(--critical); border-color: var(--critical); color: #fff; }
 .sheet .btn:disabled { opacity: .6; cursor: progress; }
 .options { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }

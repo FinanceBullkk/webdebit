@@ -15,7 +15,7 @@ body.nd{background:#eef1f5;font-size:15px;line-height:1.45}
   background:#fff;color:var(--ink);font:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
 .nd-btn:hover{background:#f3f5f8}
 .nd-btn:disabled{opacity:.45;cursor:default}
-.nd-btn.primary{border-color:var(--accent);background:var(--accent);color:#fff}
+.nd-btn.primary{border-color:var(--accent-ink);background:var(--accent-ink);color:#fff}
 .nd-btn.primary:hover{background:var(--accent-ink)}
 .nd-btn.danger{border-color:var(--critical);background:var(--critical);color:#fff}
 .nd-btn svg{width:16px;height:16px;stroke-width:2.6}

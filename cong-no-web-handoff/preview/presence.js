@@ -60,8 +60,7 @@
       if (namesAsked) return;
       namesAsked = true;
       try {
-        const response = await fetch('/api/v7/customers');
-        const data = response.ok ? await response.json() : null;
+        const data = await CongNoNet.customers();
         for (const row of data?.customers ?? []) names.set(row.id, row.name);
         render();
       } catch { /* thiếu tên thì hiện mã sổ */ }

@@ -104,7 +104,7 @@ def _fees(lines, names: dict[int, str]) -> str | None:
 
 
 def _void(voided: bool, reason) -> str | None:
-    return ("Đã hủy: " + reason if reason else "Đã hủy") if voided else None
+    return ("Đã hủy: " + text(reason) if text(reason) else "Đã hủy") if voided else None
 
 
 def _legacy(ledger: dict, kind: str) -> list[dict]:
