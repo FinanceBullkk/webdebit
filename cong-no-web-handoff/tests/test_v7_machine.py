@@ -246,6 +246,32 @@ class MachineTests(unittest.TestCase):
         self.status(processors={"wechat": wechat})   # bản agent cũ chưa ghi
         self.assertEqual(machine.zalo()["processors"][-1]["app"], None)
 
+    def test_zalo_wechat_row_reports_the_last_successful_read_and_the_newest_message(self):
+        wechat = {"lag_revisions": None, "last_ok_at": ago(1), "error": None, "messages": 53, "app": "logged_in", "app_since": ago(60),
+                  "groups": 2, "read_every": 10, "read_ok_at": ago(7), "newest_at": ago(300), "daily": {"2026-11-23": 5}}
+        self.status(processors={"wechat": wechat})
+        row = machine.zalo()["processors"][-1]
+        self.assertEqual((row["read_minutes"], row["read_limit_minutes"], row["newest_minutes"], row["groups"], row["daily"]),
+                         (7, 15, 300, 2, {"2026-11-23": 5}))   # nhịp 10 giây: ngưỡng tối thiểu 15 phút
+        self.assertRegex(row["newest_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+07:00$")
+        self.status(processors={"wechat": {**wechat, "read_every": 600}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_limit_minutes"], 30)   # 3 nhịp
+        self.status(processors={"wechat": {**wechat, "read_ok_at": ago(600), "started_at": ago(3)}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_minutes"], 3)   # vừa chạy lại: giờ đọc cũ nạp từ `<state>` chưa tính
+        self.status(processors={"wechat": {**wechat, "read_ok_at": ago(2), "started_at": ago(600)}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_minutes"], 2)
+        self.status(processors={"wechat": {**wechat, "read_ok_at": None, "started_at": ago(40)}})
+        self.assertEqual(machine.zalo()["processors"][-1]["read_minutes"], 40)  # chưa đọc được lần nào từ lúc chạy lại: tính từ lúc chạy
+        self.status(processors={"wechat": {**wechat, "groups": 0}})
+        self.assertIsNone(machine.zalo()["processors"][-1]["read_minutes"])   # chưa chọn nhóm WeChat nào: không có lượt đọc để chờ
+        self.status(processors={"wechat": {**wechat, "daily": {"2026-11-23": 5, "hôm nay": 1, "2026-11-22": -2, "2026-11-21": True}, "groups": True,
+                                           "read_every": "x", "read_ok_at": "hôm qua", "newest_at": 5}})
+        row = machine.zalo()["processors"][-1]
+        self.assertEqual((row["daily"], row["groups"], row["read_minutes"], row["read_limit_minutes"], row["newest_at"]), ({"2026-11-23": 5}, None, None, 15, None))
+        self.status(processors={"wechat": {k: v for k, v in wechat.items() if k not in ("groups", "read_every", "read_ok_at", "newest_at", "daily")}})
+        row = machine.zalo()["processors"][-1]   # bản agent cũ chưa ghi: không rõ, không phải 0
+        self.assertEqual((row["read_minutes"], row["newest_minutes"], row["groups"], row["daily"]), (None, None, None, {}))
+
     def test_zalo_latency_and_ocr_drain_are_numbers_only(self):
         money = lambda **drain: {"lag_revisions": 0, "last_ok_at": ago(1), "error": None, "counts": {"pending": 4}, "drain": drain}  # noqa: E731
         self.status(processors={"bundle": {"lag_revisions": 0, "last_ok_at": ago(1), "error": None},

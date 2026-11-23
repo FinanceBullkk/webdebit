@@ -406,6 +406,113 @@ class ZaloTests(Base):
         self.report(ten, processors=wechat(error="child_timeout", error_since=stamp(5)))
         self.assertEqual(dog.check_zalo(ten), [])   # lỗi mới 5 phút: chưa báo
 
+    def wechat_status(self, now, *, read=2, **item):
+        stamp = lambda minutes: (now - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        base = {"lag_revisions": None, "last_ok_at": stamp(0), "error": None, "messages": 53, "app": "logged_in", "app_since": stamp(900),
+                "groups": 1, "read_every": 10, **({} if read is None else {"read_ok_at": stamp(read)}), **item}
+        self.report(now, processors={"wechat": base})
+
+    def test_wechat_silent_alerts_when_no_read_succeeds_for_too_long(self):
+        # 23/11/2026 (rà kỹ thuật): `last_ok_at` chỉ là nhịp tim, WeChat ngừng đọc mà máy canh vẫn thấy ổn. Ngưỡng 15 phút (3 nhịp, tối thiểu 15).
+        ten = dt.datetime(2026, 11, 23, 10, 0, tzinfo=VN)
+        stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        for read in (0, 2, 15):
+            self.wechat_status(ten, read=read)
+            self.assertEqual(dog.check_zalo(ten), [], read)   # đúng ngưỡng chưa quá
+        self.wechat_status(ten, read=16)
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: WeChat im 16 phút: chưa đọc được lượt nào, tin WeChat mới không về."])
+        self.wechat_status(ten, read=18 * 60 + 5)   # đợt 20/11 17:07 → 23/11 00:19 kiểu này: nhiều giờ mà status vẫn xanh
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: WeChat im 18 giờ 5 phút: chưa đọc được lượt nào, tin WeChat mới không về."])
+        self.wechat_status(ten, read=31, read_every=600)   # nhịp đọc 10 phút: ngưỡng giãn ra 3 nhịp = 30 phút
+        self.assertEqual(len(dog.check_zalo(ten)), 1)
+        self.wechat_status(ten, read=20, read_every=600)
+        self.assertEqual(dog.check_zalo(ten), [])
+        self.wechat_status(ten, read=600, newest_at=stamp(14 * 60))
+        self.assertEqual(len(dog.check_zalo(ten)), 1)
+        self.wechat_status(ten, read=2, newest_at=stamp(14 * 60))
+        self.assertEqual(dog.check_zalo(ten), [])   # tin mới nhất cũ (nhóm im cả đêm) chỉ để xem, không báo
+
+    def test_wechat_silent_does_not_stack_on_other_wechat_alerts_or_fire_without_a_reason(self):
+        ten = dt.datetime(2026, 11, 23, 10, 0, tzinfo=VN)
+        stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
+        self.wechat_status(ten, read=600, app="closed", app_since=stamp(140))
+        self.assertEqual(dog.check_zalo(ten), ["WeChat chưa mở trên máy Zalo: 140 phút, tin WeChat mới không về."])   # chỉ câu về app
+        self.wechat_status(ten, read=600, app="login", app_since=stamp(30))
+        self.assertEqual(len(dog.check_zalo(ten)), 1)
+        # Câu về app chỉ nhường khi đã THẬT SỰ được báo (quá 15 phút): app vừa đóng 3 phút, hay `unknown` kéo dài, thì vẫn báo "im". Nếu không,
+        # người dùng tắt/mở lại WeChat để sửa là cảnh báo biến mất, email "đã ổn" đi, rồi lỗi lại.
+        self.wechat_status(ten, read=600, app="closed", app_since=stamp(3))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: WeChat im 10 giờ 0 phút: chưa đọc được lượt nào, tin WeChat mới không về."])
+        self.wechat_status(ten, read=600, app="unknown", app_since=stamp(900))
+        self.assertEqual(len(dog.check_zalo(ten)), 1)
+        self.wechat_status(ten, read=600, error="child_failed", error_since=stamp(20))
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: WeChat lỗi child_failed, 20 phút."])   # lỗi đã có mã riêng: không báo thêm "im"
+        self.wechat_status(ten, read=600, error="child_failed", error_since=stamp(5))
+        self.assertEqual(len(dog.check_zalo(ten)), 1)   # lỗi mới 5 phút chưa báo: "im" là cảnh báo duy nhất
+        self.wechat_status(ten, read=600, groups=0)
+        self.assertEqual(dog.check_zalo(ten), [])       # chưa chọn nhóm WeChat nào: không có lượt đọc nào để chờ
+        self.wechat_status(ten, read=None)
+        self.assertEqual(dog.check_zalo(ten), [])       # agent cũ chưa báo tuổi lượt đọc: không báo nhầm
+        night = dt.datetime(2026, 11, 23, 22, 0, tzinfo=VN)
+        self.wechat_status(night, read=600)
+        self.assertEqual(dog.check_zalo(night), [])     # ngoài giờ làm việc
+
+    def bundle(self, wechat, zalo=0, delta=(), delta_bytes=None, data_dir="data-1"):
+        """Gói giả trên hao: `wechat` là danh sách (mã tin, ngày) của nhóm WeChat trong messages.jsonl; `delta` như vậy cho phần thêm."""
+        folder = self.root / "bundle"
+        base = folder / data_dir
+        base.mkdir(parents=True, exist_ok=True)
+        wid, zid = "a" * 64, "b" * 64
+        (base / "conversations.json").write_text(json.dumps([{"conversation_id": wid, "display_name": "WeChat · Nhóm thử"},
+                                                              {"conversation_id": zid, "display_name": "Nhóm Zalo"}]), encoding="utf-8")
+        line = lambda cid, mid, day: json.dumps({"message_id": mid, "conversation_id": cid, "body": "bịa", "timestamp": str(int(  # noqa: E731
+            dt.datetime.fromisoformat(day + "T09:00:00+07:00").timestamp() * 1000))}) + "\n"
+        (base / "messages.jsonl").write_text("".join(line(wid, *item) for item in wechat) + "".join(line(zid, f"z{n}", "2026-11-23") for n in range(zalo)), encoding="utf-8")
+        delta_text = "".join(line(wid, *item) for item in delta)
+        (base / "messages-delta.jsonl").write_text(delta_text, encoding="utf-8")
+        size = len(delta_text.encode("utf-8")) if delta_bytes is None else delta_bytes
+        (folder / "export-report.json").write_text(json.dumps({"data_dir": data_dir, **({"delta_bytes": size} if size else {})}), encoding="utf-8")
+        patcher = patch.dict(os.environ, {"WEBDEBIT_ZALO_EXPORT_DIR": str(folder)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_wechat_messages_missing_from_the_bundle_alert_by_day_counts(self):
+        ten = dt.datetime(2026, 11, 23, 10, 0, tzinfo=VN)
+        today, yesterday = "2026-11-23", "2026-11-22"
+        self.wechat_status(ten, daily={today: 3, yesterday: 2})
+        self.bundle([("m1", today), ("m2", today), ("m3", today), ("m4", yesterday), ("m5", yesterday)], zalo=50)
+        self.assertEqual(dog.check_zalo(ten), [])   # đủ: tin Zalo trong gói không bù cho tin WeChat thiếu
+        self.bundle([("m1", today), ("m2", today), ("m4", yesterday), ("m5", yesterday)], zalo=50)
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: tin WeChat có ở máy Zalo mà chưa có trong gói trên máy chủ (23/11: gói 2/3 tin), đã quá 30 phút."])
+        self.bundle([("m1", today), ("m2", today), ("m4", yesterday)], delta=[("m3", today), ("m5", yesterday), ("m1", today)])
+        self.assertEqual(dog.check_zalo(ten), [])   # phần thêm tính; mã trùng giữa gói gốc và phần thêm chỉ đếm một lần
+        self.bundle([("m1", today), ("m2", today), ("m4", yesterday)], delta=[("m3", today), ("m5", yesterday)], delta_bytes=1)
+        self.assertEqual(len(dog.check_zalo(ten)), 1)   # chỉ đọc phần thêm tới `delta_bytes` của báo cáo, như trang chat
+        self.bundle([("m1", today), ("m2", today), ("m3", today)])
+        self.assertEqual(dog.check_zalo(ten), ["Máy Zalo: tin WeChat có ở máy Zalo mà chưa có trong gói trên máy chủ (22/11: gói 0/2 tin), đã quá 30 phút."])
+        self.bundle([("m1", today), ("m2", today), ("m3", today), ("m4", yesterday), ("m5", yesterday), ("m6", today)])
+        self.assertEqual(dog.check_zalo(ten), [])   # gói nhiều hơn máy Zalo (tin mới chưa tính) không phải lệch
+
+    def test_bundle_gap_is_silent_when_the_bundle_cannot_be_read_or_the_agent_reports_no_counts(self):
+        ten = dt.datetime(2026, 11, 23, 10, 0, tzinfo=VN)
+        self.wechat_status(ten, daily={"2026-11-23": 3})
+        patcher = patch.dict(os.environ, {"WEBDEBIT_ZALO_EXPORT_DIR": str(self.root / "khong-co")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.assertEqual(dog.check_zalo(ten), [   # chưa đọc được gói: không kết luận được lệch, nhưng phải báo (đường sai / thiếu quyền mà im thì phép này chết)
+            "Máy canh không đối chiếu được số tin WeChat với gói trên máy chủ (thiếu thư mục hoặc file của gói): xem WEBDEBIT_ZALO_EXPORT_DIR và quyền đọc."])
+        (self.root / "denied").mkdir()
+        with patch("pathlib.Path.read_text", side_effect=PermissionError("khong co quyen")):
+            self.assertEqual(dog.wechat_bundle_counts(self.root / "denied", {"2026-11-23"}), (None, "không có quyền đọc thư mục gói"))
+        self.bundle([], data_dir="data-1")
+        self.wechat_status(ten)                      # không có `daily` (agent cũ / chưa có tin đã lắng)
+        self.assertEqual(dog.check_zalo(ten), [])
+        self.wechat_status(ten, daily={"2026-11-23": 3})
+        (self.root / "bundle" / "export-report.json").write_text(json.dumps({"data_dir": "../../etc"}), encoding="utf-8")
+        self.assertEqual(len(dog.check_zalo(ten)), 1)   # thư mục dữ liệu sai khuôn: không đọc, báo
+        self.assertEqual(dog.wechat_bundle_counts(self.root / "bundle", {"2026-11-23"}), (None, "báo cáo gói sai khuôn"))
+
+
     def test_wechat_closed_updating_or_waiting_for_login_alerts_after_fifteen_minutes(self):
         ten = dt.datetime(2026, 11, 22, 10, 0, tzinfo=VN)
         stamp = lambda minutes: (ten - dt.timedelta(minutes=minutes)).isoformat(timespec="seconds")  # noqa: E731
