@@ -16,6 +16,8 @@ cong-no-web-handoff/preview
 cong-no-web-handoff/tools/sheet_sync_runner.py
 cong-no-web-handoff/tools/webdebit_export_connector.py
 cong-no-web-handoff/tools/zalo_bot
+# Bảng băm định nghĩa DB (audit SQL 23/11/2026, F1): lưới an toàn của máy canh so DB thật với file này mỗi lượt.
+cong-no-web-handoff/tools/v7_catalog_manifest.json
 # CÒN MỞ: máy giá và máy đối soát nạp harness qua v7_load_real_copy → test_pg_v7_backend → pg_v7_harness. Tách các hàm dùng chung
 # ra module chạy thật rồi mới bỏ được mấy dòng dưới (đổi loader thì Deploy hao dừng ở cổng, phải release tay).
 cong-no-web-handoff/tools/pg_v7_harness.py

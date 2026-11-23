@@ -47,6 +47,8 @@ LUOI_AN_TOAN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18
 CHUAN_HOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql"
 # Audit kiến trúc 19/11/2026 (A12, A08): edit_trip_info và record_mark bằng migration này thay bản KIEM-TAB-01 / ZALO-GROUP-01.
 AUDIT_KIEN_TRUC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-audit-kien-truc.sql"
+# Audit SQL 23/11/2026: paste_trips, edit_trip_info, _change_legacy (8 tham số), get_safety_net bằng migration này thay các bản trước.
+AUDIT_SQL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-audit-sql.sql"
 # Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
 LATER_TABLE_CHANGES = {
     "fee_type": [("UNIQUE(name_key));", "UNIQUE(name_key),\n default_position integer UNIQUE CHECK(default_position>0));")],
@@ -115,7 +117,11 @@ class FeeSqlSync(unittest.TestCase):
         with self.subTest(name="get_trip_month"):
             self.assertEqual(definition(report, "FUNCTION", "get_trip_month"), definition(canonical, "FUNCTION", "get_trip_month"))
         safety = LUOI_AN_TOAN_MIGRATION.read_text(encoding="utf-8")
-        for name in ("_safety_fingerprints", "_safety_events", "get_safety_net"):
+        audit_sql = AUDIT_SQL_MIGRATION.read_text(encoding="utf-8")
+        for name in ("paste_trips", "edit_trip_info", "get_safety_net", "_trip_dup_reason", "_catalog_manifest", "schema_level"):
+            with self.subTest(name=name, latest="audit-sql"):
+                self.assertEqual(definition(audit_sql, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        for name in ("_safety_fingerprints", "_safety_events"):
             with self.subTest(name=name):
                 self.assertEqual(definition(safety, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         optional = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
@@ -123,9 +129,9 @@ class FeeSqlSync(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(definition(optional, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         chan_trung = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
-        for name in ("_legacy_undated_match", "paste_trips"):
-            with self.subTest(name=name):
-                self.assertEqual(definition(chan_trung, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        with self.subTest(name="_legacy_undated_match"):
+            self.assertEqual(definition(chan_trung, "FUNCTION", "_legacy_undated_match"),
+                             definition(canonical, "FUNCTION", "_legacy_undated_match"))
         container_index = CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8").replace("\r\n", "\n")
         self.assertEqual(definition(container_index, "FUNCTION", "list_legacy_trip_refs"),
                          definition(canonical, "FUNCTION", "list_legacy_trip_refs"))
@@ -138,14 +144,16 @@ class FeeSqlSync(unittest.TestCase):
         audit = AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8")
         for name in ("edit_trip_info", "resolve_sheet_conflict"):
             with self.subTest(name=name):
-                latest = audit if name == "edit_trip_info" else chuan_hoa
+                latest = audit_sql if name == "edit_trip_info" else chuan_hoa
                 self.assertEqual(definition(latest, "FUNCTION", name), definition(canonical, "FUNCTION", name))
                 self.assertNotEqual(definition(khoa_chu, "FUNCTION", name), definition(canonical, "FUNCTION", name))   # bản KHOA-CHU-01 đã bị thay
         self.assertNotEqual(definition(chuan_hoa, "FUNCTION", "edit_trip_info"),
                             definition(canonical, "FUNCTION", "edit_trip_info"))   # bản KIEM-TAB-01 đã bị audit A12 thay
+        self.assertNotEqual(definition(audit, "FUNCTION", "edit_trip_info"),
+                            definition(canonical, "FUNCTION", "edit_trip_info"))   # bản A12 đã bị audit SQL (F8) thay
         self.assertEqual(definition(audit, "FUNCTION", "record_mark"), definition(canonical, "FUNCTION", "record_mark"))
         overload = r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\._change_legacy\([^)]*p_fee_event bigint\).*?\$\$;"
-        self.assertEqual(re.search(overload, khoa_chu).group().replace("\r\n", "\n"),
+        self.assertEqual(re.search(overload, audit_sql).group().replace("\r\n", "\n"),
                          re.search(overload, canonical).group().replace("\r\n", "\n"))
         can_du = CAN_DU_MIGRATION.read_text(encoding="utf-8")
         for kind, name in (("FUNCTION", "record_receipt"), ("FUNCTION", "get_receivables_detail"),
@@ -210,8 +218,8 @@ class FeeSqlSync(unittest.TestCase):
         later = LEDGER_MIGRATION.read_text(encoding="utf-8")
         replaced = {m.group(1) for m in re.finditer(pattern, later)}
         self.assertEqual(replaced, {"_change_trip_fees", "get_ledger"})
-        # KHOA-CHU-01 (1/11/2026) thay _change_legacy bản 8 tham số; bản của nó phải có ở cả file chuẩn lẫn schema-draft.
-        khoa_chu = [m.group() for m in re.finditer(pattern, KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
+        # Audit SQL 23/11/2026 (sau KHOA-CHU-01) thay _change_legacy bản 8 tham số; bản của nó phải có ở cả file chuẩn lẫn schema-draft.
+        khoa_chu = [m.group() for m in re.finditer(pattern, AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))
                     if m.group(1) == "_change_legacy"]
         self.assertEqual(len(khoa_chu), 1)
         blocks = [m.group() for m in re.finditer(pattern, PR_B_MIGRATION.read_text(encoding="utf-8"))

@@ -140,19 +140,21 @@ globalThis.AppNav = (() => {
     } catch { return null; }
   }
 
-  // Trang không tự đếm: đọc ba nguồn như trang Việc cần làm; nguồn nào lỗi thì giữ số cũ, không báo lỗi trên menu.
+  // Trang không tự đếm: một lần đọc /api/v7/todo-badge (audit giao diện 23/11, F7) gộp ba nguồn của Việc cần làm (danh sách
+  // nợ đã cắt chỉ còn mặt hàng), rồi đếm bằng chính InboxTable.books để số trên menu bằng số trên trang. Trước đây ba lượt gọi
+  // (~87 KB mỗi lượt, mỗi 2 phút). Lỗi thì giữ số cũ, không báo lỗi trên menu.
   async function loadTodoCount() {
     if (!globalThis.InboxTable) return;
-    const json = url => fetch(url, { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
-    const [inbox, dashboard, debt] = await Promise.all([json('/api/v7/inbox'), json('/api/v7/dashboard'), json('/api/v7/dashboard/debt')]);
-    if (!inbox && !dashboard) return;
+    const body = await fetch('/api/v7/todo-badge', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+    if (!body) return;
+    const { inbox, dashboard, debt } = body;
     const key = typeof DashboardModel === 'undefined' ? null : DashboardModel.commodityKey;
     const unsorted = (debt?.customers ?? []).filter(row => (key ? key(row.commodity, row.transport_mode) === F.UNSORTED : !row.commodity))
       .map(row => ({ customer_id: row.customer_id, name: row.name, commodity: row.commodity }));
     setTodoCount(globalThis.InboxTable.books(inbox, dashboard, unsorted).length);
-    // Sẵn ba nguồn rồi thì giữ lại: lần đầu bấm sang Việc cần làm cũng khỏi đợi.
+    // Sẵn ba nguồn rồi thì giữ lại: lần đầu bấm sang Việc cần làm cũng khỏi đợi (#342).
     if (inbox && dashboard && debt) {
-      customers ??= await CongNoNet.customers().then(body => body?.customers ?? null, () => null);
+      customers ??= await CongNoNet.customers().then(data => data?.customers ?? null, () => null);
       saveTodoSnapshot({ inbox, dashboard, unsorted, customers });
     }
   }
