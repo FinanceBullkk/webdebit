@@ -7,6 +7,11 @@ and `v7_backup.py config`. Copies `v7-YYYYMMDD-HHMMSS.tar.age` and
 file only after its SHA-256 matches, prunes each family beyond `--keep` when
 the run had no error, appends one line to `pull.log`. Never decrypts. Host,
 user and key come from arguments, never from the repo.
+
+`--ping-url-file` (audit vận hành 23/11/2026, O8): a file holding this PC's own
+healthchecks.io URL. After the log line the run pings it (PASS) or `<url>/fail`
+(FAIL), so a pull that logs in but keeps nothing (disk full, hash mismatch)
+mails like a missed one. The body carries counts and file names only.
 """
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -123,6 +129,19 @@ def pull(args):
     return "PASS " + " ".join(summary)
 
 
+def ping(url_file, line, failed, opener=None):
+    """POST to this PC's check; errors are returned, never raised (the pull result stands)."""
+    try:
+        url = Path(url_file).read_text(encoding="utf-8").strip()
+        if not url.startswith("https://"):
+            return "ping URL must start with https://"
+        body = ("FAIL" if failed else line).encode("utf-8")   # FAIL detail (sftp stderr) stays in pull.log
+        with (opener or urllib.request.urlopen)(urllib.request.Request(url + ("/fail" if failed else ""), data=body, method="POST"), timeout=20):
+            return None
+    except (OSError, ValueError) as exc:
+        return f"ping failed ({type(exc).__name__})"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", required=True)
@@ -131,6 +150,7 @@ def main(argv=None):
     parser.add_argument("--dest", required=True, type=Path)
     parser.add_argument("--keep", type=int, default=30)
     parser.add_argument("--sftp", default="sftp")
+    parser.add_argument("--ping-url-file", type=Path, help="file with this PC's healthchecks.io URL (O8)")
     args = parser.parse_args(argv)
     if args.keep < 1:
         parser.error("--keep must be >= 1")
@@ -140,6 +160,9 @@ def main(argv=None):
     except (PullError, OSError) as exc:
         line, code = f"FAIL {exc}", 2
     stamp = datetime.now(VN).isoformat(timespec="seconds")
+    if args.ping_url_file:
+        problem = ping(args.ping_url_file, line, failed=bool(code))
+        line += f" | {problem}" if problem else " | pinged"
     try:
         with (args.dest / LOG).open("a", encoding="utf-8") as stream:
             stream.write(f"{stamp} {line}\n")

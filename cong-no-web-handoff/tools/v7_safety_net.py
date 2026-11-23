@@ -8,6 +8,8 @@ READ ONLY) trả kết quả bốn phép kiểm trên cùng một ảnh dữ li�
 2. Số tổng khớp: con số Tổng quan so với tổng các sổ; mỗi lượt so thêm tổng `get_ledger` của 1/8 số sổ.
 3. Sổ không tự đổi: dữ liệu tiền một sổ khác lượt trước mà `version` không tăng (đổi ngoài đường lệnh).
 4. Lịch sử chỉ thêm: dòng `sokhach.event` đã thấy ở lượt trước không bị sửa, xóa hay chen thêm.
+5. Định nghĩa khớp repo (audit SQL 23/11/2026, F1): bảng băm hàm/view/trigger/index/ràng buộc và mức lược đồ của DB bằng
+   `v7_catalog_manifest.json` của release; lệch là chạy lại migration cũ, tắt trigger hay sửa hàm tay.
 
 Kiểm 3, 4 và phần giữ kết quả `get_ledger` cần mốc của lượt trước: file `luoi-an-toan.json` trong `$STATE_DIRECTORY` (drop-in
 `StateDirectory=v7-watchdog` của máy canh). Chưa có thư mục đó thì các phần này nghỉ. Kiểm 3, 4 báo mãi tới khi có người chấp nhận.
@@ -62,6 +64,9 @@ TOTALS = {"RECEIVABLE_TOTAL": "tổng Còn phải thu", "RECEIVABLE_COUNT": "s�
           "CREDIT_COUNT": "số khách trả thừa", "COMMODITY_TOTAL": "bảng theo mặt hàng", "DEBT_TOTAL": "tổng ở dải hạn trả",
           "DEBT_TIERS": "năm nhóm hạn trả", "DEBT_LIST": "danh sách khách nợ"}
 ACCEPT_HINT = "Cần xem rồi chấp nhận."
+# Kiểm 5 (audit SQL 23/11/2026, F1): bảng băm định nghĩa của bản cài mới, nằm cạnh file này trong release.
+MANIFEST = Path(__file__).resolve().with_name("v7_catalog_manifest.json")
+CATALOG = {"functions": "hàm", "views": "view", "triggers": "trigger", "indexes": "index", "constraints": "ràng buộc"}
 
 
 def now_vn() -> dt.datetime:
@@ -265,8 +270,40 @@ def save(folder: Path, state: dict) -> None:
     os.replace(temp, folder / STATE_FILE)
 
 
+def load_manifest(path: Path) -> dict | None:
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def catalog_lines(found: dict | None, expected: dict | None) -> list[str]:
+    """Kiểm 5: thân hàm, view, trigger (kèm bật/tắt), index, ràng buộc trong DB khớp bảng băm của release.
+
+    Báo mãi tới khi DB khớp lại (nâng đúng migration, bật lại trigger), không cần chấp nhận: lệch là trạng thái, không phải sự kiện.
+    Câu báo chỉ có tên hàm/bảng của lược đồ, không dữ liệu sổ."""
+    if expected is None:
+        return ["Thiếu hoặc hỏng tools/v7_catalog_manifest.json trong release: chưa so được định nghĩa DB với repo."]
+    if found is None:
+        return ["DB chưa trả bảng băm định nghĩa (get_safety_net bản cũ): có thể một migration cũ vừa chạy lại; chạy lại migration mới nhất."]
+    lines = []
+    if found.get("level") != expected.get("level"):
+        lines.append(f"Mức lược đồ DB {found.get('level')} khác mức của mã đang chạy {expected.get('level')}: "
+                     "DB chưa nâng hoặc bị kéo về bản cũ.")
+    parts = []
+    for key, name in CATALOG.items():
+        have, want = found.get(key) or {}, expected.get(key) or {}
+        differ = sorted(k for k in have.keys() | want.keys() if have.get(k) != want.get(k))
+        if differ:
+            parts.append(f"{len(differ)} {name} ({', '.join(differ[:SHOW])}{'…' if len(differ) > SHOW else ''})")
+    if parts:
+        lines.append("Định nghĩa trong DB khác repo: " + "; ".join(parts) + ". Chạy lại migration mới nhất hoặc xem ai vừa sửa tay.")
+    return lines
+
+
 def run(now: dt.datetime, *, db=None, state_dir: Path | str | None = None, save_state: bool = True,
-        accept: bool = False, full: bool = False, slices: int = SLICES) -> dict[str, Any]:
+        accept: bool = False, full: bool = False, slices: int = SLICES, manifest: Path | None = None) -> dict[str, Any]:
     folder = Path(state_dir) if state_dir else None
     with locked(folder):
         state, reset = load(folder)
@@ -287,7 +324,8 @@ def run(now: dt.datetime, *, db=None, state_dir: Path | str | None = None, save_
             new_state["pending"] = []
         if new_state is not None and save_state:
             save(folder, new_state)
-    problems = problems + pending_lines(pending)
+    catalog = catalog_lines(result.get("catalog"), load_manifest(manifest or MANIFEST))
+    problems = problems + catalog + pending_lines(pending)
     if folder is None:
         baseline = "không giữ mốc"
     elif state is None:
@@ -295,7 +333,8 @@ def run(now: dt.datetime, *, db=None, state_dir: Path | str | None = None, save_
     else:
         baseline = f"so với lượt {when(state['checked_at'])}"
     summary = {"books": result["books"], "ledger": f"phần {current}/{slices}: {(result['ledger'] or {}).get('checked', 0)} sổ",
-               "events_upto": result["events"]["settled"], "baseline": baseline, "pending": len(pending)}
+               "events_upto": result["events"]["settled"], "baseline": baseline, "pending": len(pending),
+               "catalog": "lệch" if catalog else "khớp"}
     return {"ok": not problems, "problems": problems, "accepted": accepted, "summary": summary}
 
 

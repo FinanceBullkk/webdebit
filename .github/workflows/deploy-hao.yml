@@ -84,9 +84,10 @@ jobs:
         id: deploy
         if: steps.diff.outputs.skip != '1'
         run: |
-          # docs và specs/*.md: công cụ tra tài liệu của bot Zalo (ZALO-BOT-01 tầng B) đọc tại bản phát hành; chỉ đọc, không chạy.
-          git archive "$SHA" specs/v7-backend/schema-draft.sql cong-no-web-handoff/tools cong-no-web-handoff/web cong-no-web-handoff/preview \
-              docs/business-rules.md docs/decisions.md docs/decisions ':(glob)specs/*.md' \
+          # Chỉ file chạy thật (O9, audit vận hành 23/11/2026): danh sách cho phép ở scripts/deploy/release-paths.txt của chính SHA này.
+          mapfile -t paths < <(grep -v -e '^#' -e '^$' scripts/deploy/release-paths.txt)
+          [[ ${#paths[@]} -gt 0 ]] || { echo "::error::release-paths.txt rỗng"; exit 1; }
+          git archive "$SHA" "${paths[@]}" \
             | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_TARGET" "deploy $SHA"
 
       # Nhật ký triển khai nằm ở đây và ở tab Environments → hao, không mở PR tài liệu chỉ để ghi "đã triển khai".

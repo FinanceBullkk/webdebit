@@ -23,6 +23,9 @@ VN = ZoneInfo("Asia/Ho_Chi_Minh")
 T0 = dt.datetime(2026, 11, 18, 10, 2, tzinfo=VN)
 STEP = dt.timedelta(minutes=15)
 BLOCKS = {"0": [999, "a0"], "1": [1000, "a1"], "2": [500, "a2"]}
+CATALOG = {"level": 2026112301, "functions": {"paste_trips(bigint,bigint,text,date,jsonb)": "f1", "get_ledger(bigint)": "f2"},
+           "views": {"v_trip_current": "v1"}, "triggers": {"trip.trip_sheet_cross_customer": "t1:O"},
+           "indexes": {"event_at": "i1"}, "constraints": {"trip.trip_pkey": "c1"}}
 
 
 def book(version, **parts):
@@ -30,8 +33,8 @@ def book(version, **parts):
 
 
 def result(*, books=None, store=None, settled=2500, check=None, allocations=(), codes=(), customers=(), archived=(),
-           ledger=None):
-    return {"books": len(books or {}), "allocations": list(allocations),
+           ledger=None, catalog=CATALOG):
+    return {"books": len(books or {}), "allocations": list(allocations), "catalog": catalog,
             "totals": {"codes": list(codes), "customers": list(customers), "archived": list(archived)},
             "ledger": ledger if ledger is not None else {"slice": 0, "slices": 8, "checked": 3, "customers": []},
             "fingerprints": books if books is not None else {"7": book(3), "9": book(1)},
@@ -58,6 +61,13 @@ class Base(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.folder = Path(temp.name)
+        manifest = tempfile.TemporaryDirectory()
+        self.addCleanup(manifest.cleanup)
+        self.manifest = Path(manifest.name) / "v7_catalog_manifest.json"
+        self.manifest.write_text(json.dumps(CATALOG), encoding="utf-8")
+        patcher = patch.object(net, "MANIFEST", self.manifest)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def run_net(self, *results, at=T0, **kwargs):
         db = FakeDb(*results)
@@ -239,3 +249,54 @@ class OperationTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CatalogTests(Base):
+    """Kiểm 5 (audit SQL 23/11/2026, F1): định nghĩa trong DB so với bảng băm của release."""
+
+    def test_matching_catalog_is_quiet_and_summarised(self):
+        report, _ = self.run_net(result())
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(report["summary"]["catalog"], "khớp")
+
+    def test_reverted_function_and_disabled_trigger_are_named_until_fixed(self):
+        drift = copy.deepcopy(CATALOG)
+        drift["functions"]["paste_trips(bigint,bigint,text,date,jsonb)"] = "old"
+        drift["triggers"]["trip.trip_sheet_cross_customer"] = "t1:D"
+        del drift["indexes"]["event_at"]
+        for at in (T0, T0 + STEP):  # trạng thái, không phải sự kiện: báo mỗi lượt, không cần chấp nhận
+            report, _ = self.run_net(result(catalog=drift), at=at)
+            self.assertEqual(report["problems"], [
+                "Định nghĩa trong DB khác repo: 1 hàm (paste_trips(bigint,bigint,text,date,jsonb)); "
+                "1 trigger (trip.trip_sheet_cross_customer); 1 index (event_at). "
+                "Chạy lại migration mới nhất hoặc xem ai vừa sửa tay."])
+            self.assertEqual(report["summary"]["catalog"], "lệch")
+        report, _ = self.run_net(result(), at=T0 + 2 * STEP)
+        self.assertEqual(report["problems"], [])
+
+    def test_schema_level_behind_the_release_is_reported(self):
+        report, _ = self.run_net(result(catalog={**CATALOG, "level": 2026112100}))
+        self.assertEqual(report["problems"], ["Mức lược đồ DB 2026112100 khác mức của mã đang chạy 2026112301: "
+                                              "DB chưa nâng hoặc bị kéo về bản cũ."])
+
+    def test_old_safety_function_without_catalog_is_reported(self):
+        report, _ = self.run_net(result(catalog=None))
+        self.assertEqual(len(report["problems"]), 1)
+        self.assertTrue(report["problems"][0].startswith("DB chưa trả bảng băm định nghĩa"))
+
+    def test_missing_or_broken_manifest_file_is_reported(self):
+        self.manifest.write_text("{", encoding="utf-8")
+        report, _ = self.run_net(result())
+        self.assertTrue(report["problems"][0].startswith("Thiếu hoặc hỏng tools/v7_catalog_manifest.json"))
+
+    def test_many_differences_show_five_names(self):
+        drift = copy.deepcopy(CATALOG)
+        drift["functions"] = {f"f{i}()": "x" for i in range(7)}
+        report, _ = self.run_net(result(catalog=drift))
+        self.assertIn("9 hàm (f0(), f1(), f2(), f3(), f4()…)", report["problems"][0])
+
+    def test_release_manifest_matches_the_shape_the_sql_returns(self):
+        manifest = json.loads((ROOT / "tools" / "v7_catalog_manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(manifest), {"level", *net.CATALOG})
+        self.assertIsInstance(manifest["level"], int)
+        self.assertTrue(all(len(value.split(":")[0]) == 32 for part in net.CATALOG for value in manifest[part].values()))
