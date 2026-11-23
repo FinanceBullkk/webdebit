@@ -15,6 +15,14 @@ import v7_api_tables as tables  # noqa: E402
 import v7_identity as identity  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 
+
+def setUpModule():
+    # Audit 23/11/2026 (F4): header danh tính chỉ được tin khi socket client thuộc tailscaled (uid 0, tra /proc/net/tcp trên
+    # Linux). Test chạy cả trên Windows: ở module này mọi peer loopback coi như tailscaled; F4 kiểm riêng ở test_v7_peer_trust.py.
+    peer = mock.patch.object(identity, "loopback_peer_uid", return_value=0)
+    peer.start()
+    unittest.addModuleCleanup(peer.stop)
+
 NOW = datetime(2026, 11, 19, 3, 0, tzinfo=UTC)   # 10:00 giờ VN, cùng giờ với bản chụp giả
 USED, TRAP_LONGER, TRAP_SHORTER, OLD = "NX-AAA", "NX-AAA2", "NX-AA", "NX-OLD"
 

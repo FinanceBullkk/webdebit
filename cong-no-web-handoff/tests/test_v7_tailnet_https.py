@@ -12,6 +12,14 @@ import v7_identity as identity
 import v7_ledger_api as api
 
 
+def setUpModule():
+    # Audit 23/11/2026 (F4): header danh tính chỉ được tin khi socket client thuộc tailscaled (uid 0, tra /proc/net/tcp trên
+    # Linux). Test chạy cả trên Windows: ở module này mọi peer loopback coi như tailscaled; F4 kiểm riêng ở test_v7_peer_trust.py.
+    peer = patch.object(identity, "loopback_peer_uid", return_value=0)
+    peer.start()
+    unittest.addModuleCleanup(peer.stop)
+
+
 class TailnetHttpsTest(unittest.TestCase):
     def test_https_listener_rejects_public_bind(self):
         with patch.object(api.Handler, "default_actor", None), \
@@ -46,31 +54,35 @@ class TailnetHttpsTest(unittest.TestCase):
                 api.main()
 
     def test_starts_second_tls_listener_with_same_handler(self):
+        # main() đặt thuộc tính lớp Handler (Serve, danh sách login, runner): trả lại sau test, không rò sang test khác.
+        saved = {name: value for name, value in vars(api.Handler).items() if not name.startswith("__")}
+        self.addCleanup(lambda: [setattr(api.Handler, name, value) for name, value in saved.items()])
+        self.addCleanup(setattr, api.v7_access, "STORE", api.v7_access.STORE)
         runner_name = api.Psql.__name__
         args = ["api", "--container", "fake", "--behind-tailscale-serve",
                 "--serve-host", "congno.example.test:8445", "--allowed-login", "owner@example.test",
                 "--tailnet-https-ip", "100.101.102.103", "--tailnet-https-port", "8445",
                 "--tailnet-tls-cert", "cert", "--tailnet-tls-key", "key",
                 "--tailnet-https-host", "congno.example.test:8445"]
-        secure = Mock(socket=Mock())
-        raw_socket = secure.socket
+        secure = Mock()
         plain = Mock()
         with patch.dict(os.environ, {}, clear=True), patch.object(sys, "argv", args), \
                 patch.object(api, runner_name), \
                 patch.object(api.subprocess, "run",
                     return_value=subprocess.CompletedProcess([], 0, "100.101.102.103\n")), \
-                patch.object(api, "ThreadingHTTPServer", side_effect=[secure, plain]) as server, \
+                patch.object(api, "TailnetHTTPSServer", return_value=secure) as tls_server, \
+                patch.object(api, "ThreadingHTTPServer", return_value=plain) as server, \
                 patch.object(api.ssl, "SSLContext") as context, patch.object(api.threading, "Thread") as thread, \
                 patch.object(api.Handler, "serve_hosts", ()), \
                 patch.object(api.INBOX, "start"), patch.object(api.INBOX, "keep_fresh"), \
                 patch.object(api.v7_zalo_chat, "warm"), patch.object(api.v7_nhat_ky, "journal"):   # NHAT-KY-01: luồng nền riêng
             api.main()
             self.assertIn("congno.example.test:8445", api.Handler.serve_hosts)
-        self.assertEqual(server.call_args_list[0].args[:2], (("100.101.102.103", 8445), api.Handler))
-        self.assertEqual(server.call_args_list[0].kwargs, {"tailnet_https": True})
-        self.assertEqual(server.call_args_list[1].args[:2], (("127.0.0.1", 8780), api.Handler))
+        # F1 (audit 23/11/2026): socket nghe không bị bọc TLS; mỗi kết nối bắt tay trong luồng xử lý của nó.
+        self.assertEqual(tls_server.call_args.args, (("100.101.102.103", 8445), api.Handler, context.return_value))
+        self.assertEqual(server.call_args.args[:2], (("127.0.0.1", 8780), api.Handler))
         context.return_value.load_cert_chain.assert_called_once_with("cert", "key")
-        context.return_value.wrap_socket.assert_called_once_with(raw_socket, server_side=True)
+        context.return_value.wrap_socket.assert_not_called()
         thread.return_value.start.assert_called_once()
         plain.serve_forever.assert_called_once()
 

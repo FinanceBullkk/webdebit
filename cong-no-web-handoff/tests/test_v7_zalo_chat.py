@@ -747,8 +747,10 @@ class ZaloMediaRangeTest(unittest.TestCase):
         self.assertEqual(len(self.get(self.BIG)[2]), api.MEDIA_CHUNK * chunks - 7)
         # Client đọc đủ thân trước khi luồng máy chủ chạy xong khối finally: chờ luồng xử lý kết thúc rồi mới đọc `calls`.
         self.assertTrue(finished.wait(10))
-        self.assertEqual(calls[0], 5)                                   # _request: hạn đọc yêu cầu
-        self.assertEqual(calls[1:-1], [api.MEDIA_CHUNK_SECONDS] * chunks)   # một lần cho mỗi khúc
+        head = calls.index(api.MEDIA_CHUNK_SECONDS)
+        # Đọc yêu cầu (rfile có hạn tuyệt đối từ audit 23/11, F3) rồi _request: mỗi lần không quá 5 giây.
+        self.assertTrue(head >= 1 and all(value <= 5 for value in calls[:head]), calls[:head])
+        self.assertEqual(calls[head:-1], [api.MEDIA_CHUNK_SECONDS] * chunks)   # một lần cho mỗi khúc
         self.assertEqual(calls[-1], api.Handler.timeout)                # rồi về hạn thường cho yêu cầu kế tiếp
         self.assertGreaterEqual(api.MEDIA_CHUNK_SECONDS, 5)
 
