@@ -315,7 +315,7 @@ for _name, _fields in ARGUMENTS.items():
     _args += [f"(j{'->' if CAST.get(field) == 'jsonb' else '->>'}'{field}')::{CAST[field]}" if field in CAST
               else f"j->>'{field}'" for field in _fields]
     SQL[_name] = f"WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.{_name}({', '.join(_args)}) FROM b;"
-# Ảnh vượt giới hạn một tham số dòng lệnh (-v payload) nên đi qua stdin: _run_psql thay chỗ đánh dấu
+# Ảnh đi qua stdin như mọi payload (audit 23/11/2026, F12): _run_psql thay chỗ đánh dấu
 # bằng chữ base64 đã kiểm (chỉ A-Z a-z 0-9 + / =), không có dấu nháy để thoát chuỗi SQL.
 IMAGE_MARK = "__IMAGE_BASE64__"
 SQL["attach_receipt_image"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.attach_receipt_image("
