@@ -413,7 +413,7 @@
       const amount = item.status !== 'confirmed' ? 'chưa tính vào số dư'
         : item.amount_vnd == null ? 'chưa có giá' : `thành tiền ${escape(ctx.fmt(item.amount_vnd))}`;
       // Dòng hỏi cùng dạng xóa chuyến ở ô STT: nút Xóa hẳn/Thôi do so-khach-v7-edit-ui.js xử lý (lệnh tripDelete).
-      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="cancel-delete">Thôi</button> <button type="button" class="confirm-delete">Xóa hẳn</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }));
     Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved });
