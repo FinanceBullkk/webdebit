@@ -19,4 +19,6 @@ WHERE NOT a.fee_absorbed AND (a.trip_id IS NULL OR (NOT t.deleted AND t.status='
   AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment r WHERE r.reverses_adjustment_id=a.id);
 CREATE OR REPLACE FUNCTION sokhach.schema_level() RETURNS integer
 LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$ SELECT 2026112302 $$;
+REVOKE ALL ON FUNCTION sokhach.schema_level() FROM PUBLIC, sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.schema_level() TO sokhach_app;
 COMMIT;

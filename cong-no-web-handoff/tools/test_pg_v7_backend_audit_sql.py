@@ -211,6 +211,21 @@ def _check_adjustment_needs_price(pg: Pg) -> None:
             "adjustment row stays stored but is not listed while the trip has no price")
     call(pg, "edit_trip_price", customer, version(pg, customer), "f6-reprice", trip, 100, None)
     require(total() == "140", "re-priced trip counts its adjustment again")
+    # Xóa giá rồi nhập giá KHÁC: điều chỉnh (−10) vẫn cộng lên giá mới.
+    call(pg, "edit_trip_price", customer, version(pg, customer), "f6-clear-2", trip, None, None)
+    call(pg, "edit_trip_price", customer, version(pg, customer), "f6-reprice-2", trip, 200, None)
+    require(total() == "240", "new price counts with the existing adjustment: 50 + 200 - 10")
+    # Dòng chỉ phụ phí (không container): còn phụ phí thì điều chỉnh tính; xóa hết phụ phí thì cả dòng lẫn điều chỉnh ra ngoài.
+    fee_book = new_book(pg, ("2026-01-01", 50))
+    fixture_open_month(pg, fee_book, "2026-01-01")
+    fee_row = {"container": None, "carrier": None, "date": "06/01/2026", "from": None, "to": None, "unitPriceVnd": None,
+               "otherFeeVnd": "300", "note": "FAKE phí lẻ"}
+    fee_trip = call(pg, "paste_trips", fee_book, version(pg, fee_book), "f6-fee", "2026-01-01", json.dumps([fee_row]))["trip_ids"][0]
+    call(pg, "adjust_trip", fee_book, version(pg, fee_book), "f6-fee-adjust", fee_trip, 250, "giảm phí")
+    fee_total = lambda: call(pg, "get_ledger", fee_book)["total_outstanding_vnd"]  # noqa: E731
+    require(fee_total() == "300", "fixture: opening 50 + fee 300 - 50")
+    call(pg, "edit_trip_price", fee_book, version(pg, fee_book), "f6-fee-clear", fee_trip, None, None)
+    require(fee_total() == "50", "fee-only row without fee drops with its adjustment")
 
 
 def check_audit_sql(pg: Pg) -> str:
