@@ -608,11 +608,11 @@ class ExportTest(MaskedBase):
         self.assertEqual((data["schema"], data["redact"]), (1, "w1"))
         self.assertEqual(set(data["reads"]), {SHA_LOCAL, SHA_JXL})
         for item in data["reads"].values():
-            self.assertEqual(set(item), {"by", "amount_vnd", "txn_time", "bank", "direction", "txn_ref", "reads"})
+            self.assertEqual(set(item), {"by", "amount_vnd", "txn_time", "bank", "direction", "reads"})   # txn_ref chỉ ở kho tại máy
             for read in item["reads"]:
                 self.assertEqual(set(read), {"engine", "version", "amount_vnd", "confidence"})
         self.assertEqual(data["reads"][SHA_JXL], {"by": "ocr", "amount_vnd": 1_500_000, "txn_time": "2026-11-19T15:02:00+07:00", "bank": "VIETCOMBANK",
-                                                  "direction": "out", "txn_ref": None,
+                                                  "direction": "out",
                                                   "reads": [{"engine": "fake", "version": "1.0+t", "amount_vnd": 1_500_000, "confidence": 0.95}]})
         text = (self.remote.dirs[REMOTE_READS] / money_images.EXPORT).read_text(encoding="utf-8")
         for secret in ("Người nhận", "Số tài khoản", "Chuyển khoản", "boxes", "19/11/2026"):

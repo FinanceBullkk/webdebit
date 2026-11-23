@@ -50,12 +50,14 @@ AMOUNT_RE = re.compile(r"(?<![\d.,])[+-]?\s?(?:(\d{1,3}(?:[.,]\d{3})+)(?:\s?(vnd
 DATE_RE = re.compile(r"(?<!\d)(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})(?!\d)")
 TIME_RE = re.compile(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?!\d)")
 # Giờ ngay sau ngày trên cùng dòng; sau ngày thì nhận cả `12.30` (MB in giờ bằng dấu chấm) và `10:.35` (OCR đọc dư dấu).
-DATE_TIME_RE = re.compile(r"(?<!\d)(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})\s*(?:luc|-|,)?\s*([01]?\d|2[0-3])\s?[:.]{1,2}\s?([0-5]\d)(?!\d)")
+# Không để hai `\s*` liền nhau (bậc hai trên dãy khoảng trắng dài): khoảng trắng sau từ nối nằm trong nhóm tùy chọn.
+DATE_TIME_RE = re.compile(r"(?<!\d)(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})\s*(?:(?:luc|-|,)\s*)?([01]?\d|2[0-3])\s?[:.]{1,2}\s?([0-5]\d)(?!\d)")
 # Luật `a3` (A3, 23/11/2026), rút từ 42 ảnh có dấu hiệu tiền trên máy có Zalo. Dấu hiệu giao dịch ĐÃ XONG: thiếu thì không "chắc" (bảng kê
-# hóa đơn, đề nghị thanh toán, mã QR, màn nhập người hưởng có số tiền và tên ngân hàng mà tiền chưa đi). Ba cụm cuối có trên ảnh thật;
-# ba cụm "... thành công" đầu đã có trong từ khóa ngân hàng từ P0.
-DONE = ("giao dich thanh cong", "chuyen khoan thanh cong", "chuyen tien thanh cong", "thanh toan thanh cong", "transaction successful",
-        "transfer successful", "transaction confirmed", "da phe duyet")
+# hóa đơn, đề nghị thanh toán, mã QR, màn nhập người hưởng có số tiền và tên ngân hàng mà tiền chưa đi). "Transaction successful",
+# "Transaction confirmed", "Đã phê duyệt" có trên ảnh thật; các cụm "thành công" đã có trong từ khóa ngân hàng từ P0; các cụm còn lại thêm
+# theo review #599 (biên lai phổ biến). Một chữ "thành công" đứng riêng cũng là đã xong: chỉ để nâng ảnh lên "chắc" khi đủ các điều khác.
+DONE = ("thanh cong", "successful", "payment successful", "transfer completed", "transaction completed", "transaction confirmed",
+        "da phe duyet", "da chuyen tien")
 IN_WORDS = ("nhan tien", "tien vao", "da nhan", "ghi co", "received", "credited")
 OUT_WORDS = ("chuyen tien", "chuyen khoan", "money transfer", "nguoi thu huong", "nguoi huong", "beneficiary", "ghi no", "debited")
 # Nhãn giờ giao dịch theo thứ tự ưu tiên: màn duyệt của ngân hàng doanh nghiệp có "Ngày yêu cầu" và "Ngày phê duyệt", tiền đi lúc duyệt.
@@ -69,9 +71,11 @@ def words(phrases) -> re.Pattern:
 
 
 DONE_RE, IN_RE, OUT_RE, REF_LABEL_RE = words(DONE), words(IN_WORDS), words(OUT_WORDS), words(REF_LABELS)
-REF_RE = re.compile(r"(?<![A-Za-z0-9])(?=[A-Za-z0-9]{0,29}\d)[A-Za-z0-9]{6,30}(?![A-Za-z0-9])")   # 6-30 chữ-số, có ít nhất một chữ số
+# Dòng có nhãn mã giao dịch mà cũng là tài khoản hay lời nhắn (ô "Nội dung" ghép dòng, "nội dung: ma gd ...") thì không lấy mã.
+REF_SKIP = re.compile(r"tai khoan|account|noi dung|loi nhan|dien giai|ghi chu|content|message|description|remark")
+PHONE = re.compile(r"(?:84|0)[35789]\d{8}")   # số di động Việt Nam: không bao giờ là mã giao dịch
 # Ký hiệu tiền khác VND trong ô số hoặc ô sát bên cùng hàng: số đó không bao giờ là `amount_vnd` (ảnh WeChat có ô "USD 67,435.89").
-FOREIGN = {"USD": re.compile(r"(?<![a-z])usd(?![a-z])|us\$|\$"), "CNY": re.compile(r"(?<![a-z])(?:cny|rmb)(?![a-z])|¥|￥|人民币|元"),
+FOREIGN = {"USD": re.compile(r"(?<![a-z])usd(?![a-z])|us\$|\$\s?\d|\d\s?\$|^\s*\$\s*$"), "CNY": re.compile(r"(?<![a-z])(?:cny|rmb)(?![a-z])|¥|￥|人民币|元"),
            "EUR": re.compile(r"(?<![a-z])eur(?![a-z])|€")}
 
 
@@ -264,13 +268,19 @@ def when(rows: list[str] | str) -> str | None:
 
 
 def reference(rows: list[str]) -> str | None:
-    """Mã giao dịch (chữ in hoa): chuỗi chữ-số 6-30 ký tự có chữ số, đứng sau nhãn mã giao dịch trên cùng dòng; nhãn theo thứ tự `REF_LABELS`.
-    Dòng nhắc tới tài khoản thì bỏ, để không lấy nhầm số tài khoản."""
+    """Mã giao dịch (chữ in hoa) **ngay sau** nhãn mã giao dịch trên cùng dòng (nhãn theo thứ tự `REF_LABELS`): 6-30 ký tự chữ-số, ít nhất
+    6 chữ số và nhiều nhất 4 chữ cái (`FT...`, dãy số tham chiếu), không có dạng số di động. Dòng nhắc tới tài khoản, nội dung, lời nhắn thì
+    bỏ: không lấy nhầm số tài khoản, số điện thoại hay tên trong lời nhắn. Chỉ lưu trong kho tại máy, không xuất (review #599)."""
     for label in REF_LABELS:
         for row in rows:
             found = REF_LABEL_RE.search(row)
-            if found and found[1] == label and not re.search(r"tai khoan|account", row) and (value := REF_RE.search(row[found.end():])):
-                return value[0].upper()
+            if not found or found[1] != label or REF_SKIP.search(row):
+                continue
+            token = re.match(r"[A-Za-z0-9]+", row[found.end():].lstrip(" :.#-"))
+            value = token[0] if token else ""
+            digits, letters = sum(ch.isdigit() for ch in value), sum(ch.isalpha() for ch in value)
+            if 6 <= len(value) <= 30 and digits >= 6 and letters <= 4 and not PHONE.fullmatch(value):
+                return value.upper()
     return None
 
 
@@ -281,6 +291,8 @@ def direction(boxes: list[dict], rows: list[str], amount: int | None) -> str | N
         for box in boxes:
             for match in AMOUNT_RE.finditer(box["t"]):
                 sign = match[0].lstrip()[:1]
+                if sign not in ("+", "-"):   # dấu trừ Unicode (−, –) đứng trước số: AMOUNT_RE chỉ nhận + và - ASCII
+                    sign = "-" if box["t"][:match.start()].rstrip()[-1:] in ("−", "–") else ""
                 if sign in ("+", "-") and int(re.sub(r"\D", "", match[1] or match[3])) == amount:
                     return "in" if sign == "+" else "out"
     text = " ".join(rows)
@@ -299,7 +311,8 @@ def foreign(boxes: list[dict], index: int, folded: list[str]) -> str | None:
     """Mã tiền khác VND (`USD`, `CNY`, `EUR`) ghi trong ô số hoặc ô cùng hàng sát bên trái/phải (cách không quá một chiều cao ô), hoặc None."""
     x0, y0, x1, y1 = boxes[index]["b"]
     near = [index] + [j for j in range(len(boxes)) if j != index and abs((boxes[j]["b"][1] + boxes[j]["b"][3]) - (y0 + y1)) <= (y1 - y0)
-                      and (0 <= boxes[j]["b"][0] - x1 <= y1 - y0 or 0 <= x0 - boxes[j]["b"][2] <= y1 - y0)]
+                      and (0 <= boxes[j]["b"][0] - x1 <= y1 - y0 or 0 <= x0 - boxes[j]["b"][2] <= y1 - y0)
+                      and "vnd" not in folded[j]]   # ô sát bên ghi cả VND ("Amount (USD/VND)") không quyết được đơn vị
     return next((code for j in near for code, pattern in FOREIGN.items() if pattern.search(folded[j])), None)
 
 
@@ -331,12 +344,14 @@ def analyse(boxes: list[dict]) -> dict:
     rows = lines(boxes)
     vnd = best is not None and best["currency"] in ("VND", None)
     amount = best["value"] if vnd else None
+    done = bool(DONE_RE.search(" ".join(rows)))
     # Dấu hiệu tiền cần một số ứng viên (A3): màn "Thông tin người hưởng" có từ khóa mà không có số nào thì không phải ảnh tiền chờ xem.
+    # Trừ khi ảnh có dấu hiệu giao dịch đã xong và đủ từ khóa: biên lai thật mà OCR làm rơi dấu chấm ("5000000", "VND" ô riêng) vẫn chờ người xem.
     signal = len(hits) >= 2 or with_unit or any(item["currency"] not in ("VND", None) for item in candidates)
-    return {"is_money": bool(candidates) and signal, "amount_vnd": amount, "confidence": best["confidence"] if vnd else None,
-            "currency": best and best["currency"],
+    return {"is_money": (bool(candidates) and signal) or (done and len(hits) >= 2), "amount_vnd": amount,
+            "confidence": best["confidence"] if vnd else None, "currency": best and best["currency"],
             "hits": len(hits), "unique": not rivals, "txn_time": when(rows), "bank": bank,
-            "done": bool(DONE_RE.search(" ".join(rows))), "direction": direction(boxes, rows, amount), "txn_ref": reference(rows)}
+            "done": done, "direction": direction(boxes, rows, amount), "txn_ref": reference(rows)}
 
 
 def stamped(boxes: list[dict]) -> dict:

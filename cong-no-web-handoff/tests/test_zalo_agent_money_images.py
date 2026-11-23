@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from concurrent.futures import Future
 from pathlib import Path
@@ -247,16 +248,37 @@ class FinishedTransactionTest(unittest.TestCase):
         rows = [box(30, 600, 230, 630, "Reference number"), box(400, 600, 650, 630, "123456789012345678"),
                 box(30, 650, 180, 680, "Transfer code"), box(400, 650, 650, 680, "FT12345678901234")]
         self.assertEqual(ocr.analyse(rows)["txn_ref"], "123456789012345678")
-        self.assertEqual(ocr.analyse([box(0, 0, 200, 30, "Mã giao dịch: ft2632312345")])["txn_ref"], "FT2632312345")
+        self.assertEqual(ocr.analyse([box(0, 0, 200, 30, "Mã giao dịch: ft26323123456")])["txn_ref"], "FT26323123456")
         self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Số tài khoản"), box(250, 0, 450, 30, "0123456789")])["txn_ref"])
         self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Mã giao dịch"), box(250, 0, 450, 30, "Xem chi tiết")])["txn_ref"])
+        # review #599: số điện thoại, tên kèm năm sinh, chuỗi trong ô nội dung không phải mã; chỉ lấy giá trị ngay sau nhãn
+        self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Mã GD"), box(250, 0, 450, 30, "0912345678")])["txn_ref"])
+        self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Reference number"), box(250, 0, 450, 30, "NGUYENVANA1990")])["txn_ref"])
+        self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Nội dung"), box(250, 0, 650, 30, "ma giao dich 123456789 chuyen tien")])["txn_ref"])
+        self.assertIsNone(ocr.analyse([box(0, 0, 200, 30, "Mã giao dịch"), box(250, 0, 350, 30, "Xem"), box(360, 0, 600, 30, "123456789012")])["txn_ref"])
 
     def test_direction_from_the_sign_of_the_amount_then_from_words(self):
         self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "+1.500.000 VND"), box(0, 80, 300, 110, "Vietcombank")])["direction"], "in")
         self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "-1.500.000 VND"), box(0, 80, 300, 110, "Vietcombank")])["direction"], "out")
+        self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "−1.500.000 VND"), box(0, 80, 300, 110, "Vietcombank")])["direction"], "out")   # dấu trừ Unicode
         self.assertEqual(ocr.analyse(TRANSFER)["direction"], "out")   # biên lai chuyển khoản: tiền ra của người chụp
         self.assertEqual(ocr.analyse([box(0, 0, 400, 60, "1.500.000 VND"), box(0, 80, 300, 110, "Nhận tiền")])["direction"], "in")
         self.assertIsNone(ocr.analyse([box(0, 0, 400, 60, "1.500.000 VND")])["direction"])
+
+    def test_a_finished_receipt_whose_amount_lost_its_dots_still_waits_for_a_person(self):
+        # review #599: biên lai thật, OCR đọc "5000000" và "VND" thành hai ô: không có số ứng viên nhưng giao dịch đã xong
+        found = ocr.analyse([box(0, 0, 400, 40, "Chuyển khoản thành công"), box(0, 100, 300, 160, "5000000"), box(310, 105, 380, 155, "VND"),
+                             box(0, 200, 300, 230, "Vietcombank")])
+        self.assertTrue(found["done"])
+        self.assertEqual((found["is_money"], found["amount_vnd"], ocr.verdict(found)), (True, None, "unsure"))
+
+    def test_done_markers_from_review_and_linear_time_matching(self):
+        for marker in ("Thành công", "Successful", "Payment successful", "Transfer completed", "Đã chuyển tiền"):
+            self.assertTrue(ocr.analyse([box(0, 0, 300, 30, marker)])["done"], marker)
+        hostile = "19/11/2026" + " " * 100_000 + "x"
+        started = time.perf_counter()
+        self.assertEqual(ocr.when(hostile), "2026-11-19")
+        self.assertLess(time.perf_counter() - started, 2)   # trước đây hai \s* liền nhau: bậc hai (100k khoảng trắng mất vài phút)
 
     def test_beneficiary_details_without_any_amount_are_not_a_money_image(self):
         # 12/16 ảnh "cần người xem" trên máy thật là ảnh cắt phần người hưởng: có từ khóa, không có số tiền nào.
@@ -275,6 +297,10 @@ class FinishedTransactionTest(unittest.TestCase):
             self.assertEqual((found["amount_vnd"], found["confidence"], found["currency"]), (None, None, code))
             self.assertEqual(ocr.verdict(found), "unsure")
         self.assertEqual(ocr.analyse(TRANSFER)["currency"], "VND")
+        label = ocr.analyse([box(0, 0, 200, 60, "Amount (USD/VND)"), box(220, 0, 500, 60, "1.500.000"), box(0, 80, 300, 110, "Vietcombank"),
+                             box(0, 120, 300, 150, "Số tiền")])
+        self.assertEqual((label["currency"], label["amount_vnd"]), (None, 1_500_000))   # nhãn ghi cả USD lẫn VND không biến số thành USD
+        self.assertNotEqual(ocr.analyse([box(0, 0, 300, 60, "Mã $ khuyến mãi"), box(310, 0, 600, 60, "1.500.000 đ")])["currency"], "USD")
         self.assertIsNone(ocr.analyse([box(0, 0, 400, 60, "1.500.000"), box(0, 80, 300, 110, "Vietcombank"), box(0, 120, 300, 150, "Số tiền")])["currency"])
 
 
