@@ -64,7 +64,8 @@ class HealthzTest(unittest.TestCase):
         self.assertEqual(status, 200)
         # Hộp việc cho máy canh (CANH-BAO-01, bổ sung 18/11/2026): chỉ số đếm, không mã sổ.
         inbox = body.pop("inbox")
-        self.assertEqual(set(inbox), {"state", "books", "failed", "failed_rounds", "computed_age_seconds"})
+        self.assertEqual(set(inbox), {"state", "books", "failed", "failed_rounds", "computed_age_seconds",
+                                      "auto_flags", "auto_errors_last_round", "auto_error_rounds", "last_write_at"})
         self.assertFalse(any(isinstance(value, (list, dict)) for value in inbox.values()))
         # Tuổi theo bản cũ hơn trong hai file, như nút Làm mới.
         self.assertEqual(body, {"ok": True, "db": "ok", "sheet_snapshot_age_seconds": 900})
