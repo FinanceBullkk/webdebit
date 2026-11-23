@@ -232,6 +232,9 @@ jobs:
       # Audit Đội xe 23/11/2026: áp giá ngược phải xác nhận, số đang thấy ở ứng/hoàn/tiền về/điều chỉnh/xóa chặng/tên gốc, container lặp.
       - name: Doi xe sua audit on isolated PostgreSQL
         run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_audit.py
+      # DOI-XE-SAU-KHOA-01 (audit DX-05): ứng, đợt hoàn và hủy vào tháng đã khóa vẫn ghi, gắn cờ sau khóa.
+      - name: Doi xe sau khoa on isolated PostgreSQL
+        run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_sau_khoa.py
 
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;
   # hàm Tổng quan hay get_ledger bị làm sai thì tự kiểm đỏ.

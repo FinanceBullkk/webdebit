@@ -501,6 +501,8 @@
   const TEN_COT = { ngay: 'Ngày', container: 'Container', loai: 'Loại chặng', xe_id: 'Xe', noi_lay: 'Nơi lấy', noi_ha: 'Nơi hạ', kho: 'Kho',
     ghi_chu: 'Ghi chú', ...Object.fromEntries(Object.entries(SO_LUONG).map(([k, sl]) => [k, sl.ten])) };
   const tenCot = (cot, loaiPhi) => (String(cot).startsWith('phi:') ? loaiPhi.find(p => p.ma === cot.slice(4))?.ten ?? cot : TEN_COT[cot] ?? cot);
+  // DX-05: ứng, đợt hoàn và hủy khi tháng của khoản đã khóa (DOI-XE-SAU-KHOA-01).
+  const sk = s => (s.sau_khoa ? ' · sau khóa (tháng đã khóa)' : '');
   const LY_DC = { thang_khoa: 'Tháng đã khóa', da_hoan: 'Dòng đã hoàn', co_dieu_chinh: 'Đã có điều chỉnh' };
 
   function moTaSuKien(e, dm, loaiPhi) {
@@ -518,14 +520,14 @@
       case 'doi_nguoi_tra': Object.assign(out, { viec: 'Đổi người trả', chi: chang, truoc: giaTri('nguoi_tra', t.nguoi_tra, dm), sau: giaTri('nguoi_tra', s.nguoi_tra, dm) }); break;
       case 'xoa_chang': Object.assign(out, { viec: 'Xóa chặng', chi: chang, truoc: `Chi ${fmt(so(t.tien_vnd) ?? 0)}`, sau: 'đã xóa' }); break;
       case 'bo_chang': Object.assign(out, { viec: 'Bỏ chặng', chi: `${LY_DC[s.ly_do_dc] ?? ''} · ${chang}`, truoc: `Chi ${fmt(so(t.tien_vnd) ?? 0)}`, sau: 'thêm dòng trừ lại' }); break;
-      case 'ghi_ung': Object.assign(out, { viec: 'Ghi ứng', chi: `${fmt(so(s.so_tien_vnd))} · chuyển ngày ${ddmm(s.ngay)}${s.ghi_chu ? ` · ${s.ghi_chu}` : ''}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
-      case 'huy_ung': Object.assign(out, { viec: 'Hủy lần ứng', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
+      case 'ghi_ung': Object.assign(out, { viec: 'Ghi ứng', chi: `${fmt(so(s.so_tien_vnd))} · chuyển ngày ${ddmm(s.ngay)}${s.ghi_chu ? ` · ${s.ghi_chu}` : ''}${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
+      case 'huy_ung': Object.assign(out, { viec: 'Hủy lần ứng', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))}${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
       case 'ghi_hoan': {
         const lech = so(s.tong_dong_vnd) - so(s.so_tien_vnd);
-        Object.assign(out, { viec: 'Ghi đợt hoàn', chi: `${s.so_dong} dòng ${fmt(so(s.tong_dong_vnd))}${lech > 0 ? ` · trừ ứng ${fmt(lech)}` : ''} · chuyển ${fmt(so(s.so_tien_vnd))} ngày ${ddmm(s.ngay)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) });
+        Object.assign(out, { viec: 'Ghi đợt hoàn', chi: `${s.so_dong} dòng ${fmt(so(s.tong_dong_vnd))}${lech > 0 ? ` · trừ ứng ${fmt(lech)}` : ''} · chuyển ${fmt(so(s.so_tien_vnd))} ngày ${ddmm(s.ngay)}${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) });
         break;
       }
-      case 'huy_hoan': Object.assign(out, { viec: 'Hủy đợt hoàn', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))} · ${s.dong_tro_lai} dòng trở lại Chưa hoàn`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
+      case 'huy_hoan': Object.assign(out, { viec: 'Hủy đợt hoàn', chi: `${ddmm(t.ngay)} · ${fmt(so(t.so_tien_vnd))} · ${s.dong_tro_lai} dòng trở lại Chưa hoàn${sk(s)}`, truoc: du(t.so_du_vnd), sau: du(s.so_du_vnd) }); break;
       case 'khoa_thang': Object.assign(out, { viec: `${s.khoa ? 'Khóa' : 'Mở khóa'} tháng ${Number(String(s.thang).slice(5, 7))}/${String(s.thang).slice(0, 4)}`, chi: 'Cả đội xe', truoc: t.khoa ? 'Đã khóa' : 'Đang mở', sau: s.khoa ? 'Đã khóa' : 'Đang mở' }); break;
       default: out.viec = e.viec;
     }
