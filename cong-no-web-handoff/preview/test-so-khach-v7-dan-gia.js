@@ -72,3 +72,12 @@ test('sau review: dòng trống sau chuyến cuối là trống; trùng giá đa
   assert.equal(M.planPricePaste(M.parsePricePaste('DEMU0000011\t45000000'), spaced, []).items[0].reason, 'container có nhiều dòng trong sổ');
   assert.match(M.parsePricePaste('99999999999999999999').errors.join(' '), /Dòng 1/);
 });
+
+test('dán lô: giá ngoài [1.000.000, 1 tỷ] mang cờ doubt (small cũ vẫn có), giá trong khoảng thì không', () => {
+  const plan = M.planPricePaste(M.parsePricePaste('DEMU0000001\t2000000000'), snapshot, []);
+  assert.deepEqual(plan.writes.map(item => [item.doubt, item.small]), [['large', false]]);
+  const low = M.planPricePaste(M.parsePricePaste('DEMU0000001\t45'), snapshot, []);
+  assert.deepEqual(low.writes.map(item => [item.doubt, item.small]), [['small', true]]);
+  const fine = M.planPricePaste(M.parsePricePaste('DEMU0000001\t45000000'), snapshot, []);
+  assert.deepEqual(fine.writes.map(item => item.doubt), [null]);
+});

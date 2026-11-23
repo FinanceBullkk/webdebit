@@ -154,6 +154,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="quyen-02"></a>[QUYEN-02](decisions/quyen-02.md) | Mục Quản trị trên menu (vào thẳng Việc cần làm, dải thẻ đổi màn) và trang Người dùng: cho vào login bị chặn, thêm, đổi vai trò, bỏ quyền, lịch sử; danh sách cố định trong unit là đường cứu | File danh sách trên `hao` ngoài Git; thay mục Nhật ký dưới menu của [NHAT-KY-01](#nhat-ky-01); đóng CÒN MỞ (3) của [ACCESS-01](#access-01) |
 | <a id="tu-lam-01"></a>[TU-LAM-01](decisions/tu-lam-01.md) | Claude tự nạp dữ liệu, ghi Google Sheet, thao tác DB legacy và đổi quyền ngoài runbook, không hỏi trước | Thay một phần danh sách "vẫn hỏi" của [DEPLOY-CLAUDE-01](#deploy-claude-01) |
 | <a id="zalo-bot-01"></a>[ZALO-BOT-01](decisions/zalo-bot-01.md) | Bot hỏi đáp công nợ qua Zalo: người dùng hỏi tự do bằng AI qua chat riêng với một nick phụ chạy zca-js trên hao; bot đọc API web bằng công cụ chỉ đọc, số tiền điền bằng tham chiếu và kiểm trước khi gửi; thu tin vẫn qua zalo-agent | Chốt hướng làm 22/11/2026 (Q1, Q2, Q6–Q8; Q4, Q5 chốt trước khi bật); chưa code. [Spec](../specs/zalo-bot.md) |
+| <a id="gia-don-vi-01"></a>[GIA-DON-VI-01](decisions/gia-don-vi-01.md) | Mọi đường nhập đơn giá hỏi lại tại chỗ khi ngoài 1 triệu đến 1 tỷ đ; đọc số tiền bằng một bộ đọc chặt chung | Chốt 23/11/2026 |
 
 ## Cập nhật khóa tháng 24/10/2026
 
