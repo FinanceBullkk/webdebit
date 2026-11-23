@@ -252,10 +252,13 @@ Luật:
 
 Review độc lập ngày 21/11/2026 (FinanceBullkk/webdebit#562) tìm ra 8 chỗ đếm hai lần, ẩn nhầm hoặc ghi sai lý do ở bản đầu. Luật trên là bản đã sửa; mỗi chỗ có một test trong `ImageReadTests`.
 
+ĐÃ CHỐT (người dùng, 23/11/2026): ảnh tiền của nhóm WeChat đang chọn **đọc, chưa cộng**, không có trong `money-reads.json` (xem mục Ngoài phạm vi, `WECHAT-01`).
+
 CÒN MỞ:
 
 - Ảnh chuyển khoản do người không phải tài khoản Zalo của mình gửi vẫn tính là thu, kể cả nhân viên khác trong nhóm khách. Từ luật `a3` (23/11/2026) máy xuất thêm `direction` (`in`/`out`/null, góc nhìn người chụp) cho ảnh `ocr`; số đo 23/11: cả 24 ảnh `ocr` đều là biên lai tiền **đi** (`out`) của người chụp, tức người gửi ảnh đã trả: vẫn khớp với "ảnh người khác gửi là thu", nhưng ảnh người khác gửi mà là tiền vào của họ thì sẽ bị tính nhầm. `hao` chưa dùng `direction`; dùng nó để bỏ hay đổi chiều khoản là đổi luật đếm, phải hỏi người dùng.
 - File chưa có mã giao dịch: luật `a3` (23/11/2026) rút được mã cho 24/24 ảnh `ocr` nhưng chỉ lưu trong kho tại máy (review #599: chuỗi sau nhãn có thể là số điện thoại hay tên trong lời nhắn); xuất mã và gộp theo mã là việc sau, gộp theo mã là đổi luật đếm, phải hỏi người dùng. Luật `a3` cũng sửa `txn_time` (ghép ngày giờ trên cùng dòng, nhận giờ `12.30`): ảnh `ocr` có giờ đủ phút tăng từ 3 lên 23, nên luật gộp đang có ("cùng số, cùng giờ giao dịch") áp được cho nhiều ảnh hơn; số đo 23/11 không có cặp nào trùng. Hai ảnh khác nhau của cùng một giao dịch mà máy không đọc ra giờ giao dịch vẫn thành hai khoản; hai ảnh khác nhau của cùng giao dịch gửi ở **hai nhóm** cũng vậy (không gộp chéo nhóm chỉ bằng số và giờ: hai khách trả cùng số cùng phút là có thể).
+- **Ảnh Zalo bị gửi lại sang nhóm WeChat sẽ rời tổng thu** (A2, điều phối chốt 23/11/2026): cùng một ảnh (cùng sha256) có ở cả nhóm Zalo và nhóm WeChat đang chọn thì máy coi là ảnh WeChat và không xuất (an toàn trước, vì ảnh WeChat "Đọc, chưa cộng"); số đo 23/11: 0 ảnh trùng. Nếu xảy ra thì khoản "từ ảnh" của tin Zalo biến khỏi trang Thu chi.
 - **Cảnh báo trùng (22/11/2026, Luồng 4 mục 3):** mỗi lần gửi lại bị gộp (cùng ảnh; hoặc gộp theo "cùng số, cùng giờ giao dịch") cộng một vào `resent` của khoản giữ lần trả; trang ghi "Ảnh chuyển khoản gửi lại thêm N lần (cùng giao dịch): chỉ tính một lần." ở ô trạng thái. Ảnh gắn làm ảnh chứng của khoản gõ hay của dấu khách báo không phải trùng. Tổng không đổi.
 
 ## P0: đo trước khi code
@@ -407,7 +410,7 @@ Các tổng là VND `bigint`. Khoản `NO_AMOUNT` không cộng vào tổng và 
 ## Ngoài phạm vi
 
 - **Bot trả lời trong nhóm** (ví dụ @bot "thu chi hôm nay"). Xét khi Zalo Bot chính thức mở hẳn phần nhóm; đọc vẫn qua đường này, bot chỉ để trả lời.
-- **WeChat.** Tạm thời chuyển tiếp ảnh sang nhóm Zalo. Nếu đối tác Trung Quốc nhiều thì xét WeChat Work riêng.
+- **WeChat.** Tin chữ của nhóm WeChat đã chọn đọc qua [`WECHAT-01`](../docs/decisions/wechat-01.md). **Ảnh tiền WeChat ĐÃ CHỐT "Đọc, chưa cộng"** (người dùng, 23/11/2026): máy có Zalo đọc và lưu kết quả tại máy nhưng không xuất vào `money-reads.json`, nên không vào trang Thu chi và tổng thu không đổi; cờ `--money-wechat-export` mặc định tắt, bật cộng là quyết định mới, phải hỏi lại người dùng. Nếu đối tác Trung Quốc nhiều thì xét WeChat Work riêng.
 - **Sao kê hoặc biến động ngân hàng** ([Q7](#câu-hỏi-đã-chốt)).
 - **Sổ chi văn phòng, lương:** web chưa có sổ này. Phần B chỉ liệt kê các khoản đó (`NO_LEDGER`).
 

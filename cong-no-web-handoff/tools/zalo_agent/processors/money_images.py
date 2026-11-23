@@ -1,10 +1,15 @@
 """ZALO-AGENT-01 Phần 3-4: bộ xử lý `money_images`, đọc OCR ảnh của nhóm đã chọn tại máy có Zalo, hỏi Gemini khi cần (ANH-GEMINI-01).
 
-Theo revision như `bundle`: dựng lại từ đầu (lần đầu, baseline đổi, đổi nhóm đã chọn, mất `changes-N`, revision lùi, mỗi đêm) bằng một
-lượt quét ảnh của nhóm đã chọn trong `max_age_days` ngày; giữa hai lần dựng chỉ xét tin thêm/sửa trong `changes-N`. Ảnh lấy từ
-`media-store` qua `media-index.json` (tên file là `id`, không phải sha256). Khóa kho kết quả là sha256 của byte mà gói chat sẽ
-lưu (JXL đã chuyển JPEG như `zalo_web_bundle.Media`), để `hao` nối kết quả với `media/<sha256>.<đuôi>`; `canon` nhớ băm file
-thô -> băm đó để lần dựng lại không giải mã lại. Cùng ảnh gửi ở hai tin chỉ đọc một lần.
+Nguồn ảnh (A2, 23/11/2026): **gói chat do chính agent dựng** (`<root>/bundle`, bộ xử lý `bundle` chạy trước trong cùng vòng lặp), một
+đường cho ảnh Zalo có ở máy, ảnh Zalo chỉ còn ở CDN (gói đã tải về) và ảnh WeChat (`wechat.merge_into`/`adopt` đã gộp vào gói). Gói đổi
+(dấu `export-report.json`: thư mục dữ liệu, băm, delta) thì quét lại cả gói: gói đã giới hạn ở nhóm đã chọn và 30 ngày, vài trăm dòng.
+Khóa kho kết quả là sha256 của byte trong `media/<sha256>.<đuôi>` của gói (JXL đã chuyển JPEG), trùng tên file trên `hao`. Cùng ảnh gửi
+ở hai tin chỉ đọc một lần. Tin ảnh mà gói không có byte (CDN hết hạn, tải hỏng), mục `media.json` không phải ảnh, thiếu file hay quá
+`max_age_days` thì không vào hàng đọc và được đếm theo lý do (`counts.skipped_*`).
+
+Ảnh WeChat (người dùng chốt "Đọc, chưa cộng", 23/11/2026, `docs/decisions/wechat-01.md`): đọc OCR và lưu kết quả tại máy như ảnh Zalo,
+nhưng **không xuất vào `money-reads.json`** (nên không vào tổng trang Thu chi), không hỏi Gemini, không dựng ảnh che, chỉ đếm vào
+`counts.wechat`; cờ `export_wechat` (`--money-wechat-export`, mặc định tắt) để bật sau khi người dùng chốt lại.
 
 OCR và việc hỏi Gemini chạy ở **một luồng nền**, mỗi lần một việc (OCR ảnh mới trước, hỏi Gemini sau): `step()` chỉ nộp việc, thu kết
 quả và ghi con trỏ, nên 14 giây mỗi ảnh không chặn `bundle` hay `insurance` trong cùng vòng lặp. Con trỏ `money_images.json` giữ hàng chờ
@@ -26,7 +31,8 @@ luận mà che được, ảnh đã che `redacted-w1/<sha256 ảnh gốc>.jpg` (
 `hao` chỉ gửi chữ). Ảnh đã che nhớ ở `<root>/redacted-w1/`; `redacted/*` không còn trong kết quả thì bị dọn trên `hao`. Mọi hội thoại trong danh
 sách đã chọn đều được xử lý, nhóm hay chat riêng 1-1 (không lọc theo `is_group`).
 
-Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_revision`, `scan_failed`, `push_failed`. Ảnh hỏng (sai băm chỉ mục, không giải mã được)
+Mã lỗi: `ocr_unavailable` (thiếu easyocr/torch/Pillow), `no_bundle` (chưa có gói chat), `scan_failed`, `push_failed`, `bundle_stale` (gói còn hội
+thoại vừa bỏ chọn: chưa xuất, chờ `bundle` dựng lại). Ảnh hỏng (sai băm, không giải mã được)
 thử 3 lần rồi bỏ vào `failed` (cấm 1 ngày, `reread` vẫn đọc lại được), chỉ đếm vào `counts.failed`, không làm cả bộ xử lý báo lỗi.
 Engine không dùng được (thiếu thư viện, lỗi DLL, thiếu model) là `ocr_unavailable`, không phải lỗi của ảnh: không tính lần thử, không vào `failed`. `--dry-run` không lưu con trỏ, không đẩy, không gửi ra ngoài (kho kết quả
 vẫn ghi: việc tại máy, idempotent).
@@ -37,7 +43,6 @@ import contextlib
 import hashlib
 import json
 import os
-import re
 import threading
 import time
 from collections import deque
@@ -54,9 +59,11 @@ from ..source import LiveSync, read_json, retry_io
 
 NAME = "money_images"
 EXPORT = "money-reads.json"
-MIMES = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "image/jxl": ".jxl"}
 IMAGES = ("image/jpeg", "image/png", "image/gif", "image/webp")
-ID = re.compile(r"[A-Za-z0-9_-]{8,128}")
+DELTA = "messages-delta.jsonl"
+SOURCE = "bundle"        # nguồn ảnh của con trỏ; con trỏ cũ (live-sync `media-index.json`) thì bỏ hàng chờ cũ, quét lại từ gói
+SKIPS = ("no_media", "not_image", "no_file", "too_old")   # lý do một tin ảnh không vào hàng đọc (`counts.skipped_<lý do>`)
+WECHAT_LABEL = "WeChat · "   # nhãn hội thoại WeChat trong gói (`wechat.merge_into`)
 TRIES = 3
 RETRY_ASK = 600        # giây x số lần thử: chờ trước khi hỏi lại đường Gemini đã lỗi
 RESEND = 3600          # giây: gửi lại `money-reads.json` dù không đổi (hao mất file thì tự có lại)
@@ -92,12 +99,14 @@ class MoneyImagesProcessor:
     name = NAME
 
     def __init__(self, live: LiveSync, state: Path, reads_dir: Path, *, engine=None, executor=None, prepare=ocr.prepare_image,
-                 transcode=wb.transcode_jxl, dry_run: bool = False, clock=time.time, max_age_days: int | None = 30,
-                 gemini=None, reads_target: str = "", run=pusher.ssh_run):
+                 dry_run: bool = False, clock=time.time, max_age_days: int | None = 30, gemini=None, reads_target: str = "",
+                 run=pusher.ssh_run, bundle_dir: Path | None = None, wechat_ids=None, export_wechat: bool = False):
         self.live, self.dir, self.reads = live, Path(state), Path(reads_dir)
+        self.bundle = Path(bundle_dir) if bundle_dir is not None else Path(state).parent / "bundle"
+        self.wechat_ids, self.export_wechat = wechat_ids, export_wechat
         self.engine = engine or ocr.EasyOcr(work=str(Path(state).parent / "tmp"))
         self.gemini = gemini if gemini is not None else gemini_module.Gemini()
-        self.executor, self.prepare, self.transcode = executor, prepare, transcode
+        self.executor, self.prepare = executor, prepare
         self.dry_run, self.clock, self.max_age_days = dry_run, clock, max_age_days
         self.reads_target, self.run = reads_target, run
         self.cursor: dict | None = None
@@ -115,7 +124,10 @@ class MoneyImagesProcessor:
     # ---------------------------------------------------------------- con trỏ (nguồn thật là bản trong bộ nhớ)
     def state(self) -> dict:
         if self.cursor is None:
-            self.cursor = {"todo": [], "members": {}, "canon": {}, "failed": {}, **(cursors.load(self.dir, NAME) or {})}
+            self.cursor = {"todo": [], "members": {}, "failed": {}, **(cursors.load(self.dir, NAME) or {})}
+            if self.cursor.get("source") != SOURCE:   # con trỏ của nguồn cũ (live-sync): hàng chờ và ảnh hỏng mang tên file cũ, quét lại từ gói
+                self.cursor.update(todo=[], failed={}, source=SOURCE, bundle_key=None)
+                self.cursor.pop("canon", None)
             if self.cursor.get("redact_rule") != redact.RULE:   # luật che đã đổi: các quyết định "đã có ảnh che" cũ không còn đúng
                 for member in self.cursor["members"].values():
                     member.pop("hidden", None)
@@ -151,7 +163,7 @@ class MoneyImagesProcessor:
             if kind == member.get("verdict"):
                 continue
             moved = member.get("by"), member.get("verdict")
-            member["verdict"], member["by"] = kind, self.decide(sha, read)
+            member["verdict"], member["by"] = kind, self.decide(sha, read, member.get("wechat", False))
             if member["by"] == "ocr" and read.get("amount_vnd") != stored.get("amount_vnd") and not self.dry_run:   # vừa thành `ocr`, số khác: ảnh che cũ sai số
                 try:
                     self.drop_hidden(sha)
@@ -201,14 +213,34 @@ class MoneyImagesProcessor:
         cursor = self.state()
         members = cursor["members"].values()
         banned = sum(1 for entry in cursor["failed"].values() if self.clock() - entry["at"] < FAILED_BAN)   # hết hạn cấm thì không còn tính
+        shown = [member for member in members if self.exported(member)]
         return {"read": len(cursor["members"]), "pending": len(cursor["todo"]), "failed": banned,
-                "review": sum(1 for member in members if member.get("by") == "human"),
-                "asking": sum(1 for member in members if member.get("verdict") == "unsure" and member.get("by") is None)}
+                "review": sum(1 for member in shown if member.get("by") == "human"),
+                "asking": sum(1 for member in shown if member.get("verdict") == "unsure" and member.get("by") is None),
+                "wechat": sum(1 for member in members if member.get("wechat")),
+                **{f"skipped_{reason}": (cursor.get("skipped") or {}).get(reason, 0) for reason in SKIPS}}
+
+    def exported(self, member: dict) -> bool:
+        """Ảnh được phép vào `money-reads.json` (và hỏi Gemini, dựng ảnh che): mọi ảnh Zalo; ảnh WeChat chỉ khi bật `export_wechat`."""
+        return not member.get("wechat") or self.export_wechat
 
     def result(self, action: str, error: str | None = None) -> dict:
-        cursor = self.state()
-        return {"action": action, "revision": cursor.get("revision"), "error": error, "bytes_sent": 0, "reason": None, "counts": self.counts(),
+        return {"action": action, "revision": self.revision(), "error": error, "bytes_sent": 0, "reason": None, "counts": self.counts(),
                 "drain": self.drain()}
+
+    def revision(self) -> int | None:
+        """Revision live-sync mà bộ xử lý đã theo kịp (status.json tính `lag_revisions` từ đây). Đã quét đúng gói hiện tại thì là revision
+        `bundle` đã xử lý (con trỏ `bundle`): `bundle` chỉ tiến con trỏ mà không ghi lại gói khi revision mới không có tin của nhóm đã chọn,
+        nên revision trong `export-report.json` tụt lại và tab Máy chạy báo "đang đuổi kịp" mãi (review #601)."""
+        cursor = self.state()
+        have = cursor.get("revision")
+        if cursor.get("bundle_key") is None or cursor.get("bundle_key") != self.bundle_key():
+            return have
+        bundle = cursors.load(self.dir, "bundle") or {}
+        done = bundle.get("revision")
+        if bundle.get("pending") or not isinstance(done, int) or (isinstance(have, int) and done < have):
+            return have
+        return done
 
     def drain(self) -> dict:
         """Tốc độ xả hàng chờ: `done_1h` ảnh rời hàng chờ trong 60 phút qua, `pending_since` (hàng chờ có ảnh từ lúc nào),
@@ -232,12 +264,13 @@ class MoneyImagesProcessor:
         """Gửi ra ngoài đang bật và đủ hai đường. `--dry-run` không bao giờ gửi ảnh ra ngoài."""
         return self.gemini.ready and not self.dry_run
 
-    def decide(self, sha: str, primary: dict | None) -> str | None:
-        """`ocr`, `gemini-2` hoặc `human`; None khi chưa có kết luận (không dấu hiệu tiền, hoặc đang chờ Gemini)."""
+    def decide(self, sha: str, primary: dict | None, wechat: bool = False) -> str | None:
+        """`ocr`, `gemini-2` hoặc `human`; None khi chưa có kết luận (không dấu hiệu tiền, hoặc đang chờ Gemini). Ảnh WeChat không xuất
+        thì không hỏi Gemini (ảnh không rời máy khi không dùng tới)."""
         kind = ocr.verdict(primary)
         if kind != "unsure":
             return "ocr" if kind == "ocr" else None
-        if not self.asking():
+        if not self.asking() or (wechat and not self.export_wechat):
             return "human"
         answers = [reads.load(self.reads, sha, name, self.gemini.model) for name in gemini_module.ROUTES]
         if any(answer and answer.get("error") and answer.get("tries", 0) >= TRIES for answer in answers):
@@ -290,20 +323,24 @@ class MoneyImagesProcessor:
                 if member.get("by") is not None and member.get("hidden") is True and (self.hidden_dir / f"{sha}.jpg").is_file()]
 
     def export(self, now: float) -> str | None:
-        """Đẩy `money-reads.json` và `redacted/*` khi có đổi (cờ bẩn, không dựng lại mỗi giây) hoặc mỗi giờ. Chỉ xuất khi `members` đúng với
-        nhóm đang chọn; chọn rỗng thì xuất rỗng."""
+        """Đẩy `money-reads.json` và `redacted/*` khi có đổi (cờ bẩn, không dựng lại mỗi giây) hoặc mỗi giờ. Chỉ xuất khi gói đã quét không
+        còn hội thoại nào ngoài nhóm đang chọn (vừa bỏ chọn mà gói chưa dựng lại thì chờ); chọn rỗng thì xuất rỗng. Ảnh WeChat không xuất
+        trừ khi bật `export_wechat`."""
         cursor, selection = self.state(), self.live.selection()
         if not self.reads_target or self.dry_run:
             return None
         due = now - cursor.get("pushed_at", 0) >= RESEND
-        scope = cursors.selection_sha256(selection) if selection else ""
+        wanted = sorted({*selection, *(self.wechat_ids() if self.wechat_ids else ())}) if selection else []
+        scope = cursors.selection_sha256(wanted) if wanted else ""
         if scope != self.export_scope:   # đổi nhóm đã chọn (kể cả bỏ chọn hết) cũng là có đổi
             self.export_dirty = True
         if not (self.export_dirty or due):
             return None
-        if selection and cursor.get("selection_sha256") != cursors.selection_sha256(selection):
-            return None   # vừa đổi nhóm, chưa dựng lại: members còn của nhóm cũ
-        members = cursor["members"] if selection else {}
+        allowed = {*wanted, *(cursor.get("wechat_conversations") or ())}   # ảnh WeChat không bao giờ xuất khi chưa bật cờ
+        if selection and not set(cursor.get("conversations") or ()) <= allowed:
+            # vừa bỏ chọn một nhóm, gói chưa dựng lại: members còn ảnh của nhóm đó. Báo mã (status) để gói không dựng lại được thì không im lặng.
+            return "bundle_stale"
+        members = {sha: member for sha, member in cursor["members"].items() if self.exported(member)} if selection else {}
         data = self.export_bytes(members)
         digest = hashlib.sha256(data).hexdigest()
         if digest == cursor.get("pushed_sha") and not due:
@@ -319,71 +356,113 @@ class MoneyImagesProcessor:
         self.save(now)
         return None
 
-    # ---------------------------------------------------------------- phát hiện ảnh mới
+    # ---------------------------------------------------------------- phát hiện ảnh mới: từ gói chat do chính agent dựng (A2)
+    def bundle_key(self) -> str | None:
+        """Dấu của gói chat hiện tại (thư mục dữ liệu, băm, byte và số dòng delta), hoặc None khi chưa có gói. `bundle` ghi
+        `export-report.json` sau cùng (sau delta, `media.json`, phần WeChat), nên dấu đổi là mọi file của lượt đó đã xong."""
+        report = read_json(self.bundle / wb.REPORT, {}) or {}
+        data = report.get("data_dir")
+        if not (isinstance(data, str) and data.startswith("data-") and (self.bundle / data).is_dir()):
+            return None
+        return f"{data}:{report.get('bundle_sha256')}:{report.get('delta_bytes', 0)}:{report.get('delta_lines', 0)}"
+
     def wants_work(self) -> bool:
-        """Có revision mới hoặc phải dựng lại (vòng lặp gom 3 giây). Hàng chờ OCR không tính: nó tự chạy mỗi nhịp."""
-        revision, selection, cursor = self.live.revision(), self.live.selection(), self.state()
-        if revision is None or not selection or self.clock() < self.broken_until:
-            return False   # engine hỏng: không đòi gom 3 giây mỗi vòng cho cả agent (review L8)
-        if cursor.get("revision") is None or revision != cursor["revision"]:
-            return True
-        return cursors.rebuild_reason(cursor, revision, self.live.baseline_sha256(), selection, self.clock()) is not None
+        """Gói chat vừa đổi (vòng lặp gom 3 giây). Hàng chờ OCR không tính: nó tự chạy mỗi nhịp."""
+        if self.clock() < self.broken_until or not self.live.selection():
+            return False   # engine hỏng: không đòi gom 3 giây mỗi vòng cho cả agent (review L8); bỏ chọn hết: gói cũ không còn là nguồn
+        key = self.bundle_key()
+        return key is not None and key != self.state().get("bundle_key")
 
-    def add_rows(self, rows: list[dict]) -> None:
-        cursor = self.state()
-        if not rows:
-            return
-        by_message: dict[str, list[dict]] = {}
-        for key, item in ((read_json(self.live.dir / "media-index.json", {}) or {}).get("items") or {}).items():
-            if isinstance(item, dict) and isinstance(item.get("client_message_id"), str) and item.get("mime") in MIMES:
-                by_message.setdefault(item["client_message_id"], []).append({**item, "id": item.get("id") or key})
-        waiting, now = {item["raw"] for item in cursor["todo"]}, self.clock()
-        failed = {raw for raw, entry in cursor["failed"].items() if now - entry["at"] < FAILED_BAN}
-        version = self.engine.version
-        for row in rows:
-            stamp = int(row["timestamp"]) if str(row.get("timestamp", "")).isdigit() else 0
-            for item in by_message.get(row.get("client_message_id"), ()):
-                raw = item.get("sha256")
-                if not isinstance(raw, str) or raw in waiting or raw in failed or not ID.fullmatch(str(item["id"])):
+    def wechat_conversations(self, names: dict[str, str]) -> set[str]:
+        """Hội thoại WeChat của gói: theo danh sách của bộ xử lý `wechat` (nếu có) và theo nhãn "WeChat · " mà `wechat.merge_into` đặt.
+        Nhận thừa thì chỉ là ảnh Zalo không xuất ra; nhận thiếu mới nguy (ảnh nhóm nội bộ thành khoản thu), nên lấy hợp của hai nguồn."""
+        listed = set(self.wechat_ids() if self.wechat_ids else ())
+        return listed | {cid for cid, name in names.items() if isinstance(name, str) and name.startswith(WECHAT_LABEL)}
+
+    def scan(self, now: float) -> tuple[dict[str, dict], dict[str, int], dict, list[str], list[str]]:
+        """(ảnh theo sha256, số ảnh bỏ qua theo lý do, báo cáo gói, hội thoại của gói, hội thoại WeChat của gói). Đọc `messages.jsonl` rồi `messages-delta.jsonl` của
+        thư mục dữ liệu hiện tại (dòng sau của cùng `message_id` thắng: tin sửa, tin xóa). Một đường cho ảnh Zalo có ở máy, ảnh Zalo tải từ
+        CDN và ảnh WeChat: gói đã có sẵn byte ở `media/<sha256>.<đuôi>` (JXL đã chuyển JPEG), cùng khóa với kho kết quả và tên file trên `hao`."""
+        report = read_json(self.bundle / wb.REPORT, {}) or {}
+        data = self.bundle / report["data_dir"]
+        media = read_json(data / "media.json", {}) or {}
+        conversations = [item for item in read_json(data / "conversations.json", []) or [] if isinstance(item, dict)]
+        names = {item.get("conversation_id"): item.get("display_name") for item in conversations}
+        wechat = self.wechat_conversations(names)
+        since = int((now - self.max_age_days * 86400) * 1000) if self.max_age_days else 0
+        latest: dict[str, dict] = {}
+        for name in ("messages.jsonl", DELTA):
+            path = data / name
+            if not path.is_file():
+                continue
+            for line in retry_io(path.read_bytes).splitlines():
+                try:
+                    row = json.loads(line)
+                except ValueError:
                     continue
-                entry = {"raw": raw, "file": item["id"] + MIMES[item["mime"]], "ts": stamp}
-                sha = cursor["canon"].get(raw)
-                found = sha and self.current(sha, reads.load(self.reads, sha, self.engine.name, version))
-                if found:   # đã đọc (cùng engine và phiên bản): không đọc lại, chỉ vào tập `members`
-                    cursor["members"][sha] = {**entry, "verdict": ocr.verdict(found), "by": self.decide(sha, found)}
-                    if (self.hidden_dir / f"{sha}.jpg").is_file():
-                        cursor["members"][sha]["hidden"] = True
-                else:
-                    cursor["todo"].append({**entry, "tries": 0})
-                    waiting.add(raw)
+                if isinstance(row, dict) and isinstance(row.get("message_id"), str):
+                    latest[row["message_id"]] = row
+        images: dict[str, dict] = {}
+        skipped = dict.fromkeys(SKIPS, 0)
+        for row in latest.values():
+            if row.get("deleted") or row.get("message_type") not in wb.IMAGE_TYPES:
+                continue
+            stamp = int(row["timestamp"]) if str(row.get("timestamp", "")).isdigit() else 0
+            if stamp < since:
+                skipped["too_old"] += 1
+                continue
+            shas = [sha for sha in row.get("media") or [] if isinstance(sha, str) and reads.SHA.fullmatch(sha)]
+            if not shas:   # gói không có byte ảnh: CDN đã hết hạn hoặc tải hỏng, hoặc quá lượt tải của lần dựng
+                skipped["no_media"] += 1
+                continue
+            for sha in shas:
+                item = media.get(sha) if isinstance(media.get(sha), dict) else {}
+                if item.get("mime") not in IMAGES:
+                    skipped["not_image"] += 1
+                    continue
+                file = sha + wb.EXTENSIONS[item["mime"]]
+                if not (self.bundle / "media" / file).is_file():
+                    skipped["no_file"] += 1
+                    continue
+                entry = images.setdefault(sha, {"raw": sha, "file": file, "ts": stamp, "wechat": False})
+                entry["ts"] = max(entry["ts"], stamp)
+                entry["wechat"] = entry["wechat"] or row.get("conversation_id") in wechat   # cùng ảnh ở cả hai nguồn: coi là WeChat
+        return images, skipped, report, sorted(cid for cid in names if isinstance(cid, str)), sorted(cid for cid in wechat if isinstance(cid, str))
 
-    def discover(self, revision: int, selection: list[str], now: float) -> None:
-        cursor, baseline = self.state(), self.live.baseline_sha256()
-        have = cursor.get("revision")
-        reason, ids = cursors.decide(cursor if have is not None else None, revision, baseline, selection, now, self.live)
-        if reason is None and revision == have:
+    def discover(self, key: str, now: float) -> None:
+        """Gói đổi thì quét lại cả gói (vài trăm dòng, đã giới hạn ở nhóm đã chọn và 30 ngày): `members` = ảnh của gói đã có kết quả (giữ
+        nguyên kết luận, ảnh che, số lần thử của ảnh đã có), `todo` = ảnh chưa có kết quả và không bị cấm. Ảnh rời gói (bỏ chọn nhóm, quá hạn)
+        rời `members`, nên không bao giờ được xuất."""
+        cursor = self.state()
+        if key == cursor.get("bundle_key"):
             return
-        conversations = set(selection)
-        if reason:
-            since = int((now - self.max_age_days * 86400) * 1000) if self.max_age_days else 0
-            rows = self.live.image_rows(conversations, since)
-            cursor["todo"], cursor["members"] = [], {}
-            cursor["built_at"] = cursors.now_iso(now)
-        else:
-            rows = [row for row in self.live.rows_for(ids, conversations) if row.get("message_type") in wb.IMAGE_TYPES and not row.get("deleted")]
-        self.add_rows(rows)
-        cursor.update(revision=revision, baseline_sha256=baseline, selection_sha256=cursors.selection_sha256(selection))
+        images, skipped, report, conversations, wechat = self.scan(now)
+        banned = {raw for raw, entry in cursor["failed"].items() if now - entry["at"] < FAILED_BAN}
+        version = self.engine.version
+        before, waiting = cursor["members"], {item["raw"]: item for item in cursor["todo"]}
+        members, todo = {}, []
+        for sha, entry in sorted(images.items()):
+            found = self.current(sha, reads.load(self.reads, sha, self.engine.name, version))
+            if found:
+                member = before.get(sha)
+                if member is None:   # đã đọc (cùng engine và phiên bản): không đọc lại, chỉ vào tập `members`
+                    member = {"verdict": ocr.verdict(found), "by": self.decide(sha, found, entry["wechat"])}
+                    if (self.hidden_dir / f"{sha}.jpg").is_file():
+                        member["hidden"] = True
+                members[sha] = {**member, **entry}
+            elif sha not in banned:
+                todo.append({**entry, "tries": waiting.get(sha, {}).get("tries", 0)})
+        cursor.update(members=members, todo=todo, skipped=skipped, conversations=conversations, wechat_conversations=wechat, bundle_key=key,
+                      revision=report.get("revision", report.get("source_revision")), built_at=cursors.now_iso(now))
         self.export_dirty = True
         self.save(now)
 
     # ---------------------------------------------------------------- việc của luồng nền: đọc OCR một ảnh, hỏi Gemini một ảnh
     def load_image(self, item: dict) -> bytes | None:
-        """Byte ảnh như gói chat sẽ lưu (JXL đã chuyển JPEG), hoặc None khi file không khớp chỉ mục của viewer hay không phải ảnh."""
-        data = retry_io((self.live.dir / "media-store" / item["file"]).read_bytes)
+        """Byte ảnh trong gói chat (`media/<sha256>.<đuôi>`), hoặc None khi file không khớp băm hay không phải ảnh."""
+        data = retry_io((self.bundle / "media" / item["file"]).read_bytes)
         if hashlib.sha256(data).hexdigest() != item["raw"]:
             return None
-        if wb.sniff(data) == "image/jxl":
-            data = self.transcode(data)
         return data if wb.sniff(data) in IMAGES else None
 
     def process(self, item: dict, engine) -> dict:
@@ -493,7 +572,8 @@ class MoneyImagesProcessor:
                 member["by"] = "human"
             return
         member["hidden"] = True   # `hidden_bytes` đã dựng xong file trước khi gửi
-        member["by"] = self.decide(outcome["sha"], self.current(outcome["sha"], reads.load(self.reads, outcome["sha"], self.engine.name, self.engine.version)))
+        member["by"] = self.decide(outcome["sha"], self.current(outcome["sha"], reads.load(self.reads, outcome["sha"], self.engine.name, self.engine.version)),
+                                   member.get("wechat", False))
         if member["by"] is None:   # đường Gemini lỗi: hỏi lại sau, lâu dần
             tries = max((reads.load(self.reads, outcome["sha"], name, self.gemini.model) or {}).get("tries", 1) for name in gemini_module.ROUTES)
             member["next_ask"] = now + RETRY_ASK * tries
@@ -530,9 +610,10 @@ class MoneyImagesProcessor:
             return True, None
         if outcome["status"] == "ok":
             sha = outcome["sha"]
-            cursor["canon"][outcome["raw"]] = sha
-            cursor["members"][sha] = {"raw": item["raw"], "file": item["file"], "ts": item["ts"], "verdict": outcome["verdict"],
-                                      "by": self.decide(sha, self.current(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version)))}
+            entry = {key: item[key] for key in ("raw", "file", "ts", "wechat") if key in item}
+            cursor["members"][sha] = {**entry, "verdict": outcome["verdict"],
+                                      "by": self.decide(sha, self.current(sha, reads.load(self.reads, sha, self.engine.name, self.engine.version)),
+                                                        item.get("wechat", False))}
             cursor["todo"].remove(item)
             self.drained(now)
         else:
@@ -540,7 +621,7 @@ class MoneyImagesProcessor:
             if item["tries"] >= TRIES:
                 cursor["todo"].remove(item)
                 self.drained(now)
-                cursor["failed"][item["raw"]] = {"file": item["file"], "ts": item["ts"], "at": now}
+                cursor["failed"][item["raw"]] = {"file": item["file"], "ts": item["ts"], "at": now, "wechat": item.get("wechat", False)}
                 for old in sorted(cursor["failed"], key=lambda raw: cursor["failed"][raw]["at"])[:-MAX_FAILED]:
                     del cursor["failed"][old]
         self.save(now)
@@ -559,14 +640,15 @@ class MoneyImagesProcessor:
                 self.future = self.executor.submit(self.process, dict(max(cursor["todo"], key=lambda item: item["ts"])), self.engine)   # mới nhất trước
             return
         due = [(member["ts"], sha) for sha, member in members.items()
-               if self.asking() and member.get("verdict") == "unsure" and member.get("by") is None and now >= member.get("next_ask", 0)]
+               if self.asking() and self.exported(member) and member.get("verdict") == "unsure" and member.get("by") is None
+               and now >= member.get("next_ask", 0)]
         if due:
             sha = max(due)[1]
             self.future = self.executor.submit(self.ask, sha, dict(members[sha]))
             return
         if self.reads_target and not self.dry_run:
             due = [(member["ts"], sha) for sha, member in members.items()
-                   if member.get("by") is not None and member.get("hidden") is None and now >= member.get("next_hide", 0)]
+                   if self.exported(member) and member.get("by") is not None and member.get("hidden") is None and now >= member.get("next_hide", 0)]
             if due:
                 sha = max(due)[1]
                 self.future = self.executor.submit(self.hide, sha, dict(members[sha]))
@@ -583,14 +665,16 @@ class MoneyImagesProcessor:
                 error = "ocr_unavailable"
         if error or now < self.broken_until:   # engine chưa dùng được: không phát hiện, không nộp việc, khỏi hỏi lại mỗi giây
             return self.result("read" if worked else "idle", error or "ocr_unavailable")
-        revision, selection = self.live.revision(), self.live.selection()
-        if revision is None:
-            return self.result("read" if worked else "idle", error or "no_revision")
-        if selection:
-            try:
-                self.discover(revision, selection, now)
-            except OSError:
-                return self.result("idle", error or "scan_failed")
+        if not self.live.selection():   # bỏ chọn hết nhóm Zalo: `bundle` không dựng lại, gói còn của nhóm cũ nên không đọc tiếp
+            return self.result("read" if worked else "idle", self.export(now))
+        key = self.bundle_key()
+        if key is None:   # chưa có gói chat (bộ xử lý `bundle` chưa dựng lần nào): vẫn đọc nốt hàng chờ đã có
+            self.submit(now)
+            return self.result("read" if worked else "idle", "no_bundle")
+        try:
+            self.discover(key, now)
+        except (OSError, KeyError, TypeError):   # gói đang dở hoặc hỏng khuôn: lượt sau quét lại
+            return self.result("idle", error or "scan_failed")
         self.submit(now)
         return self.result("read" if worked else "idle", error or self.export(now))
 
@@ -601,6 +685,9 @@ class MoneyImagesProcessor:
         con trỏ (ảnh `failed` đọc được thì lần dựng lại sau hết hạn cấm sẽ nhận nó từ kho). Ném `OcrUnavailable` khi thiếu engine."""
         version = engine.version
         cursor = self.state()
+        key = self.bundle_key()
+        if key is not None and key != cursor.get("bundle_key"):   # con trỏ cũ (nguồn live-sync) hay gói mới: quét gói trước để tên file đúng
+            self.discover(key, self.clock())
         counts = {"wanted": 0, "read": 0, "had": 0, "failed": 0}
         candidates = list(cursor["members"].items()) + [(None, {"raw": raw, **entry}) for raw, entry in cursor["failed"].items()]
         for sha, member in sorted(candidates, key=lambda pair: -pair[1]["ts"]):

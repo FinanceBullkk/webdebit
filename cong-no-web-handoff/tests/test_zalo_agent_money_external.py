@@ -6,6 +6,7 @@ Không gọi Gemini thật, không ssh, không dữ liệu thật: Gemini giả 
 và `prepare` giả không có ảnh thật; luật che được kiểm riêng ở `RedactWhitelistTest` và `RedactPixelsTest`.
 """
 
+import hashlib
 import http.client
 import http.server
 import io
@@ -29,6 +30,7 @@ from test_zalo_agent_money_images import (  # noqa: E402
     JXL_AS_JPEG,
     SHA_JXL,
     SHA_LOCAL,
+    SKIPPED,
     TRANSFER,
     FakeEngine,
     Inline,
@@ -36,7 +38,18 @@ from test_zalo_agent_money_images import (  # noqa: E402
     box,
     prepare,
 )
-from test_zalo_web_bundle import GROUP, OTHER, PRIVATE, FakeCdn, no_jxl  # noqa: E402
+from test_zalo_web_bundle import (  # noqa: E402
+    GROUP,
+    KHACH,
+    OTHER,
+    PRIVATE,
+    FakeCdn,
+    cdn_bytes,
+    image,
+)
+from test_zalo_web_bundle import (  # noqa: E402
+    row as chat_row,
+)
 from zalo_agent import __main__ as agent_main  # noqa: E402
 from zalo_agent import gemini, ocr, reads, redact  # noqa: E402
 from zalo_agent.processors import money_images  # noqa: E402
@@ -429,7 +442,7 @@ class ExternalTest(MaskedBase):
         self.assertTrue(all(image == MASKED for _, image in self.gemini.calls))   # chỉ ảnh đã che
         self.assertEqual(processor.state()["members"][SHA_LOCAL]["by"], "gemini-2")
         self.assertEqual(processor.state()["members"][SHA_JXL]["by"], "ocr")
-        self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0})
+        self.assertEqual(result["counts"], {"read": 2, "pending": 0, "failed": 0, "review": 0, "asking": 0, **SKIPPED, "skipped_no_media": 3})
         self.assertEqual(sorted(line["route"] for line in self.sent_lines()), sorted(gemini.ROUTES))
         for line in self.sent_lines():
             self.assertEqual(set(line), {"sha256", "route", "at", "result"})
@@ -581,8 +594,90 @@ class ExternalTest(MaskedBase):
     def test_deselected_group_images_are_never_sent(self):
         (self.src / "web-groups.json").write_text(json.dumps({"conversations": []}), encoding="utf-8")
         processor = self.make()
-        self.drain(processor)
+        self.drain(processor, build=False)   # bỏ chọn hết thì `bundle` không dựng lại; gói cũ không còn là nguồn
         self.assertEqual(self.gemini.calls, [])
+        self.assertEqual(self.engine.calls, [])
+
+
+class BundleSourceTest(MaskedBase):
+    """A2: một nguồn ảnh chung là gói chat của agent: ảnh Zalo có ở máy, ảnh Zalo chỉ còn trên CDN, ảnh WeChat."""
+
+    def test_an_image_only_on_the_zalo_cdn_is_read_once_the_bundle_has_fetched_it(self):
+        url = "https://f1.photo.zdn.vn/moi.jpg"   # tin ảnh mới chỉ có trên CDN (không có trong media-store của live-sync)
+        message = chat_row(GROUP, "cdn1", KHACH, int(self.now * 1000) - 86_400_000, image(url), 2)
+        with (self.src / "messages.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(message, ensure_ascii=False) + "\n")
+        self.fetch = FakeCdn()   # gói tải ảnh CDN còn trong hạn; ảnh CDN cũ, hỏng và ảnh của máy chủ lạ vẫn không có byte
+        processor = self.make()
+        result = self.drain(processor)
+        cdn = hashlib.sha256(cdn_bytes(url)).hexdigest()
+        self.assertIn(cdn, processor.state()["members"])
+        self.assertIn(cdn_bytes(url), self.engine.calls)
+        self.assertEqual((result["counts"]["read"], result["counts"]["skipped_no_media"]), (3, 3))   # đếm ảnh bỏ qua theo lý do
+
+    def test_wechat_images_are_read_and_kept_on_this_machine_but_never_exported_asked_or_redacted(self):
+        processor = self.make(reads_target="fake:" + REMOTE_READS, run=self.remote_run(), wechat_ids=lambda: [GROUP])
+        result = self.drain(processor)
+        members = processor.state()["members"]
+        self.assertEqual(set(members), {SHA_LOCAL, SHA_JXL})   # đọc và lưu tại máy như ảnh Zalo
+        self.assertTrue(all(member["wechat"] for member in members.values()))
+        self.assertTrue(self.stored(SHA_LOCAL))
+        self.assertEqual(self.gemini.calls, [])   # không hỏi Gemini cho ảnh không dùng tới
+        self.assertEqual(members[SHA_LOCAL]["by"], "human")
+        self.assertEqual(json.loads((self.base / "remote" / "reads" / money_images.EXPORT).read_text(encoding="utf-8"))["reads"], {})
+        self.assertFalse((self.root / "redacted-w1").exists())   # không dựng ảnh che
+        self.assertEqual((result["counts"]["wechat"], result["counts"]["review"], result["counts"]["asking"]), (2, 0, 0))
+
+    def test_the_wechat_label_in_the_bundle_is_enough_even_without_the_wechat_list_and_the_export_flag_turns_it_on(self):
+        self.build()
+        data = sorted((self.root / "bundle").glob("data-*"))[-1]
+        conversations = json.loads((data / "conversations.json").read_text(encoding="utf-8"))
+        for item in conversations:
+            item["display_name"] = "WeChat · Nhóm bịa"
+        (data / "conversations.json").write_text(json.dumps(conversations, ensure_ascii=False), encoding="utf-8")
+        processor = self.make(reads_target="fake:" + REMOTE_READS, run=self.remote_run())
+        self.drain(processor, build=False)
+        self.assertTrue(all(member["wechat"] for member in processor.state()["members"].values()))
+        self.assertEqual(json.loads((self.base / "remote" / "reads" / money_images.EXPORT).read_text(encoding="utf-8"))["reads"], {})
+        on = self.make(reads_target="fake:" + REMOTE_READS, run=self.remote_run(), export_wechat=True)   # cờ bật sau khi người dùng chốt
+        self.drain(on, build=False)
+        self.assertEqual(set(json.loads((self.base / "remote" / "reads" / money_images.EXPORT).read_text(encoding="utf-8"))["reads"]), {SHA_LOCAL, SHA_JXL})
+
+    def test_a_cursor_from_the_live_sync_source_drops_its_old_queue_and_keeps_its_decisions(self):
+        processor = self.make()
+        self.drain(processor)
+        path = self.root / "state" / "money_images.json"
+        cursor = json.loads(path.read_text(encoding="utf-8"))
+        cursor.pop("source")
+        cursor["todo"] = [{"raw": "a" * 64, "file": "x" * 64 + ".jxl", "ts": 1, "tries": 1}]   # khuôn cũ: tên file của media-store
+        cursor["canon"] = {"a" * 64: SHA_LOCAL}
+        path.write_text(json.dumps(cursor), encoding="utf-8")
+        calls = len(self.engine.calls)
+        again = self.make()
+        self.drain(again, build=False)
+        state = again.state()
+        self.assertEqual((state["source"], state["todo"], "canon" in state), ("bundle", [], False))
+        self.assertEqual(state["members"][SHA_LOCAL]["by"], "gemini-2")   # kết luận cũ giữ nguyên, không hỏi lại
+        self.assertEqual(len(self.engine.calls), calls)   # không OCR lại
+
+    def test_the_same_picture_sent_in_a_zalo_group_and_a_wechat_group_counts_as_wechat_and_is_not_exported(self):
+        # Điều phối chốt 23/11/2026: an toàn trước (CÒN MỞ trong specs/zalo-thu-chi-real-time.md: ảnh Zalo gửi lại sang WeChat rời tổng thu).
+        (self.src / "web-groups.json").write_text(json.dumps({"conversations": [GROUP, OTHER]}), encoding="utf-8")
+        self.feed.add_image(OTHER, JPEG_LOCAL)   # cùng byte với ảnh của nhóm Zalo GROUP, gửi ở hội thoại coi là WeChat
+        processor = self.make(reads_target="fake:" + REMOTE_READS, run=self.remote_run(), wechat_ids=lambda: [OTHER])
+        self.drain(processor)
+        self.assertTrue(processor.state()["members"][SHA_LOCAL]["wechat"])
+        self.assertFalse(processor.state()["members"][SHA_JXL]["wechat"])
+        self.assertEqual(set(json.loads((self.base / "remote" / "reads" / money_images.EXPORT).read_text(encoding="utf-8"))["reads"]), {SHA_JXL})
+        self.assertEqual(self.gemini.calls, [])
+
+    def remote_run(self):
+        if not hasattr(self, "remote"):
+            (self.base / "remote").mkdir()
+            self.remote = Remote(self.base / "remote")
+            self.remote.dirs[REMOTE_READS] = self.base / "remote" / "reads"
+            self.remote.dirs[REMOTE_READS].mkdir()
+        return self.remote
 
 
 class ExportTest(MaskedBase):
@@ -649,13 +744,20 @@ class ExportTest(MaskedBase):
         self.assertFalse((self.remote.dirs[REMOTE_READS] / money_images.EXPORT).exists())
 
     def test_deselecting_every_group_pushes_an_empty_file_and_a_changed_selection_waits_for_the_rebuild(self):
-        processor = self.make()
-        self.drain(processor)
         selection = self.src / "web-groups.json"
         selection.write_text(json.dumps({"conversations": [GROUP, OTHER]}), encoding="utf-8")
+        other = b"\xff\xd8\xff\xe0other-group"
+        self.engine.script[other] = TRANSFER
+        self.feed.add_image(OTHER, other)
+        processor = self.make()
+        self.drain(processor)
+        self.assertIn(hashlib.sha256(other).hexdigest(), self.pushed()["reads"])
+        selection.write_text(json.dumps({"conversations": [GROUP]}), encoding="utf-8")   # bỏ nhóm OTHER, gói chưa dựng lại
         calls = len(self.remote.calls)
-        self.assertIsNone(processor.export(self.now + money_images.RESEND * 2))   # members còn của nhóm cũ: chưa xuất
+        self.assertEqual(processor.export(self.now + money_images.RESEND * 2), "bundle_stale")   # gói còn ảnh của nhóm vừa bỏ: chưa xuất, có mã
         self.assertEqual(len(self.remote.calls), calls)
+        self.drain(processor)   # gói dựng lại không còn OTHER
+        self.assertNotIn(hashlib.sha256(other).hexdigest(), self.pushed()["reads"])
         selection.write_text(json.dumps({"conversations": []}), encoding="utf-8")
         processor.step()
         self.assertEqual(self.pushed()["reads"], {})   # bỏ chọn hết: hao không giữ kết quả cũ
@@ -860,15 +962,15 @@ class ExportTest(MaskedBase):
 
     def test_status_counts_carry_no_free_text_and_bundle_is_not_held_back(self):
         agent = agent_main.Agent(self.live, self.root, "fake:" + BUNDLE_REMOTE, "fake:" + STATUS_REMOTE, run=self.remote, clock=lambda: self.now,
-                                 fetch=FakeCdn(), transcode=no_jxl, max_age_days=None, money_images=True,
+                                 fetch=FakeCdn(), transcode=lambda data: JXL_AS_JPEG, max_age_days=None, money_images=True,
                                  money_args={"engine": self.engine, "executor": Inline(), "prepare": prepare, "max_age_days": None,
-                                             "gemini": self.gemini, "reads_target": "fake:" + REMOTE_READS, "transcode": lambda data: JXL_AS_JPEG})
+                                             "gemini": self.gemini, "reads_target": "fake:" + REMOTE_READS})
         self.addCleanup(agent.release)
         (self.src / "poller-identity.json").write_text(json.dumps({"status": "attached"}), encoding="utf-8")
         for _ in range(10):
             status = agent.cycle(force_status=True)
         entry = status["processors"]["money_images"]
-        self.assertEqual(set(entry["counts"]), {"read", "pending", "failed", "review", "asking"})
+        self.assertEqual(set(entry["counts"]), {"read", "pending", "failed", "review", "asking", *SKIPPED})
         self.assertEqual((entry["error"], status["processors"]["bundle"]["error"]), (None, None))
         self.assertEqual(set(self.pushed()["reads"]), {SHA_LOCAL, SHA_JXL})
 
