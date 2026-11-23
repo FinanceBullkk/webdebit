@@ -13,7 +13,7 @@ canh. Người dùng mở web qua Tailscale Serve (cổng 8443 → API `127.0.0.
 | Việc | Ở đâu, nhịp | Ghi tiền? | Ai biết khi nó dừng (check healthchecks.io) | Dừng bằng |
 | --- | --- | --- | --- | --- |
 | API + web (`v7-ledger-api`) | `hao`, luôn chạy | qua nút bấm của người dùng | tiền (`/healthz` không 200) | `systemctl stop v7-ledger-api` (web tắt hẳn) |
-| Máy 15 phút trong API (dán chuyến, ghi giá, phí PS, chữ, tách phí) | `hao`, nhịp nền mỗi phút, tính lại mỗi đợt bản chụp | **có** | tiền (hộp việc không tính được, cũ quá 90 phút) | bỏ cờ trong `WEBDEBIT_AUTO_SHEET` (drop-in `auto-sheet.conf` của API), `daemon-reload`, restart |
+| Máy 15 phút trong API (dán chuyến, ghi giá, phí PS, chữ, tách phí) | `hao`, nhịp nền mỗi phút, tính lại mỗi đợt bản chụp | **có** | tiền (hộp việc không tính được, cũ quá 90 phút, máy lỗi hai lượt liền, thiếu cờ) | bỏ cờ trong `WEBDEBIT_AUTO_SHEET` (drop-in `auto-sheet.conf` của API), `daemon-reload`, restart |
 | Máy đối soát (`v7-reconcile-auto`) | `hao`, mỗi giờ :05 từ 7 tới 22 giờ | **có** (`--fix`) | tiền (cũ quá 3 giờ trong ngày, lỗi ghi, chạy không `--fix`, cầu dao 40 khách hai lượt) | `systemctl disable --now v7-reconcile-auto.timer` |
 | Bản chụp Sheet (`webdebit-sheet-sync`, `-sheet-prices`, `-ps-snapshot`) | `hao`, 15 phút | không | tiền (file cũ quá 60 phút, nguồn booking trống 3 ngày) | `systemctl disable --now <tên>.timer` |
 | Thông tin cty (`webdebit-company-info`), nút Làm mới (`.path`) | `hao`, mỗi giờ :20 / khi bấm | không | không ai (chỉ chữ trên trang) | `systemctl disable --now` |
@@ -43,6 +43,8 @@ Theo thứ tự, trên `hao` (sudo); nhớ ghi nhật ký vào `docs/deploys/`:
 1. `systemctl disable --now v7-reconcile-auto.timer` — máy đối soát.
 2. Sửa `/etc/systemd/system/v7-ledger-api.service.d/auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=` (chép bản cũ ra
    trước), `systemctl daemon-reload`, `systemctl restart v7-ledger-api` — máy 15 phút trong API. Web vẫn mở, người vẫn bấm được.
+   Máy canh sẽ báo nhóm tiền vì thiếu cờ: đúng ý. Dừng lâu thì thêm `WEBDEBIT_ALERT_AUTO_FLAGS=` (trống) vào `alert.env`,
+   bật lại thì bỏ dòng đó.
 3. Muốn chặn cả người bấm: `systemctl stop v7-ledger-api` (web tắt). Máy canh sẽ báo nhóm tiền: là đúng.
 
 Bản chụp Sheet, sao lưu, máy canh, Zalo không ghi tiền, để chạy. Bật lại theo thứ tự ngược, đối soát tổng khách trước khi bật

@@ -240,6 +240,21 @@ class InboxTests(unittest.TestCase):
                          ["Hộp việc chưa tính lại 91 phút: nhịp nền của API có thể đã dừng."])
         self.assertEqual(dog.check_inbox("x", health_opener(state="computing", computed_age_seconds=None)), [])
 
+    def test_machine_flag_off_or_errors_two_rounds_are_reported(self):
+        # Audit vận hành 23/11/2026, O4: drop-in sửa tay làm mất cờ, hay máy lỗi ghi lặp lại, mà web vẫn 200.
+        full = {"auto_flags": "text,trips,prices,road,ps,headers", "auto_errors_last_round": 0, "auto_error_rounds": 0}
+        self.assertEqual(dog.check_inbox("x", health_opener(**full)), [])
+        self.assertEqual(dog.check_inbox("x", health_opener(**{**full, "auto_flags": "text,prices,road,ps,headers"})),
+                         ["Máy 15 phút trong API đang tắt trips (WEBDEBIT_AUTO_SHEET): "
+                          "chuyến, giá hay phí theo Sheet không tự vào web nữa."])
+        self.assertEqual(len(dog.check_inbox("x", health_opener(**{**full, "auto_flags": ""}))), 1)
+        self.assertEqual(dog.check_inbox("x", health_opener(**{**full, "auto_errors_last_round": 3, "auto_error_rounds": 1})), [])
+        self.assertEqual(dog.check_inbox("x", health_opener(**{**full, "auto_errors_last_round": 3, "auto_error_rounds": 2})),
+                         ["Máy 15 phút trong API lỗi 3 lần ở lượt vừa rồi, 2 lượt liền: "
+                          "xem journalctl -u v7-ledger-api | grep 'V7 máy'."])
+        with patch.object(dog, "AUTO_FLAGS", ("text", "prices")):   # cố ý tắt cờ khác: sửa WEBDEBIT_ALERT_AUTO_FLAGS cùng lúc
+            self.assertEqual(dog.check_inbox("x", health_opener(**{**full, "auto_flags": "text,prices"})), [])
+
     def test_body_of_a_503_is_still_read(self):
         body = json.dumps({"ok": False, "db": "error", "inbox": {"state": "ready", "books": 10, "failed": 3, "failed_rounds": 4,
                                                                  "computed_age_seconds": 60}}).encode("utf-8")
