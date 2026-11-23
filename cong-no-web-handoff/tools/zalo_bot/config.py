@@ -28,6 +28,7 @@ RELEASE_ENV = "WEBDEBIT_ZALO_BOT_RELEASE"
 MODEL_ENV = "WEBDEBIT_ZALO_BOT_MODEL"            # trống: chưa gọi model, trả câu cố định (PR-1)
 EFFORT_ENV = "WEBDEBIT_ZALO_BOT_EFFORT"
 CAP_ENV = "WEBDEBIT_ZALO_BOT_CAP_USD"            # trần chi phí ngày (Q4), USD
+CAP_MAX = 3                                      # Q4 chốt 24/11/2026: tối đa 3 USD/ngày lúc thử; nâng cần quyết định mới
 LINK_ENV = "WEBDEBIT_ZALO_BOT_LINK_BASE"         # gốc link trang web (địa chỉ Tailscale Serve), không ghi vào repo
 API_ENV = "WEBDEBIT_ZALO_BOT_API"
 DOCS_ENV = "WEBDEBIT_ZALO_BOT_DOCS"              # gốc có docs/ và specs/ cho công cụ tra tài liệu (mặc định: bản phát hành)
@@ -90,7 +91,7 @@ def from_env(env: dict[str, str] | None = None) -> Config:
     if effort not in EFFORTS:
         raise ConfigError("effort_unknown")
     cap = env.get(CAP_ENV) or "3"
-    if not cap.isdigit() or not 1 <= int(cap) <= 100:
+    if not cap.isdigit() or not 1 <= int(cap) <= CAP_MAX:
         raise ConfigError("cap_usd")
     link = env.get(LINK_ENV) or ""
     if link and not LINK.fullmatch(link):

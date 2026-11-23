@@ -28,7 +28,7 @@ Claude chốt theo quyền người dùng trao 21/10, đúng đề xuất trong 
 
 ## Ngày / nguồn
 
-22/11/2026, chat.
+22/11/2026, chat. Q4, Q5: 24/11/2026, người dùng nhờ Claude chốt.
 
 1. Người dùng hỏi làm bot Zalo vào nhóm để thu ảnh và tin. Claude nêu bot chính thức chỉ nhận tin @nhắc trong nhóm, nên thu tin giữ đường `zalo-agent`, còn bot chỉ hỏi đáp.
 2. Người dùng chọn hỏi tự do bằng AI và chỉ mình dùng thử.
@@ -37,13 +37,15 @@ Claude chốt theo quyền người dùng trao 21/10, đúng đề xuất trong 
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT hướng làm ngày 22/11/2026. Chưa code.
+ĐÃ CHỐT hướng làm ngày 22/11/2026. Mã đã merge (PR-1 đến PR-3c, sửa theo audit 23/11/2026), **chưa cài trên `hao`, chưa bật** (chờ nick phụ, P0).
 
 - Không thay [`ZALO-THU-CHI-01`](zalo-thu-chi-01.md) mục 1: thu tin vẫn qua `zalo-agent`. Đưa nick phụ vào nhóm khách hoặc dùng nick phụ để thu tin thì cần quyết định riêng.
 - Không bao giờ chạy zca-js bằng nick làm việc với khách.
 - Bot chỉ đọc. Tin chat không ghi tiền; tin chat của khách không vào model ([`ZALO-THU-CHI-01`](zalo-thu-chi-01.md) mục 3).
 
-CÒN MỞ, chốt với người dùng trước khi bật (lúc người dùng tạo khóa API ở P0):
+## Q4, Q5 — ĐÃ CHỐT 24/11/2026
 
-- **Q4:** trần chi phí (đề xuất 3 USD mỗi ngày trong lúc thử);
-- **Q5:** dữ liệu gửi Anthropic theo từng câu hỏi (tên khách, mã sổ, số tiền, ngày, trạng thái).
+Người dùng nhờ Claude chốt (24/11/2026, qua phiên điều phối "Kiểm toàn bộ website"); Claude chốt đúng đề xuất trong spec. Phạm vi: bot hỏi đáp Zalo trong lúc người dùng thử; đổi model, trần hay danh sách trường cần quyết định mới.
+
+- **Q4, trần chi phí:** 3 USD mỗi ngày trong lúc thử, tính theo ngày giờ Việt Nam. Chạm trần thì bot không gọi model, trả câu "Hôm nay đã hết hạn mức hỏi, mai hỏi lại giúp mình.", nhật ký và bộ đếm ghi `over_budget`, máy canh báo email. Mã: `Budget` (`tools/zalo_bot/budget.py`) cộng chi phí theo token thật mỗi lượt gọi; cấu hình chặn trần trên 3 USD (`CAP_MAX`). Một câu đang chạy có thể vượt trần tối đa một lượt gọi, vì trần kiểm trước mỗi lượt.
+- **Q5, dữ liệu gửi Anthropic:** mỗi câu hỏi chỉ gửi đúng các trường cần để trả lời: tên khách, mã sổ, số tiền, ngày, trạng thái (kèm số đếm, mã lý do máy, tên địa điểm bảng giá, tên trò chuyện Zalo và đoạn trích tài liệu dự án như danh sách trong [spec Q5](../../specs/zalo-bot.md#câu-hỏi-cần-chốt)). Không gửi số điện thoại, số tài khoản ngân hàng, ảnh, tin chat của khách, ghi chú hay lý do gõ tay. Mã: danh sách giữ lại `KEEP` (`tools/zalo_bot/tools.py`, từ #608); khóa `reason`/`error` chỉ mang mã máy, chữ khác thành rỗng; test chặn các trường cấm ở mọi công cụ.
