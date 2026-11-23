@@ -7,7 +7,7 @@
 .dxt-thang{display:inline-flex;flex-direction:column;align-items:flex-start;min-height:44px;padding:3px 14px;border:1px solid #c9d1db;border-radius:8px;background:#fff;color:var(--ink);font:inherit;line-height:1.25;text-align:left;cursor:pointer}
 .dxt-thang:hover{background:#eaf2fc}
 .dxt-thang.on{border-color:var(--accent-ink);background:#eaf2fc}
-.dxt-thang span{font-size:12.5px}
+.dxt-thang span{font-size:13px}
 .tt-nhap{color:#6f6d67}
 .tt-gui,.tt-doi{color:var(--accent-ink)}
 .tt-du{color:var(--credit)}

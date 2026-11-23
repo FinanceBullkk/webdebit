@@ -46,6 +46,7 @@ import v7_read_cache
 import v7_role
 import v7_sheet_refresh
 import v7_telegram
+import v7_todo_badge
 import v7_zalo_chat
 from v7_api_sheet import (
     apply_sheet_price,
@@ -386,6 +387,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, INBOX.view(runner)
+    elif parts.path == "/api/v7/todo-badge":   # số đệm menu Quản trị: ba nguồn của Việc cần làm, chỉ phần hàm đếm cần
+        return 200, v7_todo_badge.handle_get(parts.query, runner, READS, INBOX, actor)
     elif parts.path == "/api/v7/machine/booking":
         # KIEM-BOOKING-01: kết quả kiểm Sheet sổ nợ so với booking; file của lượt đối soát, không qua DB, sau xác thực danh tính.
         if parts.query:

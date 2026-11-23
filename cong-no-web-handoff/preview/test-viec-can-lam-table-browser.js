@@ -46,6 +46,11 @@ function serverFor(opts = {}) {
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? sample));
     if (route === '/api/v7/dashboard') return send(opts.dashboardStatus ?? 200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(opts.debtStatus ?? 200, { customers: value(opts.unsorted ?? []) });
+    if (route === '/api/v7/todo-badge') {   // số đệm menu ở trang khác (web/v7_todo_badge.py)
+      if ((opts.dashboardStatus ?? 200) !== 200 || (opts.debtStatus ?? 200) !== 200) return send(503, { error: 'DB_UNAVAILABLE' });
+      const debt = { customers: value(opts.unsorted ?? []) };
+      return send(200, { inbox: value(opts.inbox ?? sample), dashboard: opts.dashboard ?? dashboard, debt: { customers: (debt?.customers ?? []).map(({ customer_id, name, commodity, transport_mode }) => ({ customer_id, name, commodity, transport_mode })) } });
+    }
     if (route === '/api/v7/customers') return send(200, { customers: opts.customers ?? customers });
     if (route === '/api/v7/price-table/status') return send(200, opts.priceStatus ?? { trips: [] });
     if (route === '/api/v7/ledger') return send(opts.ledgerStatus ?? 200, value(opts.ledger ?? ledger));

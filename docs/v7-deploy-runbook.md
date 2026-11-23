@@ -2221,6 +2221,11 @@ Nhóm nào chưa có link riêng thì về check chính; riêng lưới an toàn
 báo hai việc mới trong nhóm tiền: `reconcile.json` ghi `mode` khác `fix`, và cầu dao hơn 40 khách lệch giữ hai lượt liền.
 Rollback: xóa bốn dòng, mọi nhóm về lại check chính.
 
+Máy 15 phút trong API (O4): `/healthz` phần `inbox` có `auto_flags`, `auto_errors_last_round`, `auto_error_rounds`,
+`last_write_at`. Nhóm tiền báo khi máy lỗi hai lượt liền, hay khi thiếu cờ so với `WEBDEBIT_ALERT_AUTO_FLAGS` (mặc định
+`text,trips,prices,road,ps,headers`, đúng drop-in `auto-sheet.conf`). Sửa `WEBDEBIT_AUTO_SHEET` có chủ ý thì sửa biến này
+trong `alert.env` cùng lúc. Xem cờ đang chạy: `curl -s http://127.0.0.1:8780/healthz | python3 -m json.tool`.
+
 ## Bot Zalo hỏi đáp (ZALO-BOT-01) — unit `v7-zalo-bot` và `v7-zalo-kenh` (CHƯA CHẠY)
 
 Spec: [`specs/zalo-bot.md`](../specs/zalo-bot.md). PR-1 chỉ trả câu cố định; trả lời số từ PR-2. Cài lần đầu theo [`TU-LAM-01`](decisions/tu-lam-01.md), ghi nhật ký trong `docs/deploys/`.

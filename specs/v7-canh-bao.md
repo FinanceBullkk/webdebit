@@ -50,5 +50,6 @@ Cấu hình trên healthchecks.io: một check, chu kỳ 15 phút, thời gian c
 - [ ] Chạy trên `hao` dưới `v7app`, trong sandbox của unit: mọi phép kiểm đọc được, kết quả "ổn" khớp thực tế.
 - [x] Chủ sổ tạo check và đặt link ping lên `hao` (máy canh báo `configured`, 18/11/2026).
 - [x] Bổ sung 23/11/2026 (audit vận hành O2, O4, O8): `tests/test_v7_watchdog.py` (nhóm về check riêng hay check chính, lưới an toàn chưa có check riêng thì theo tiền, check chính luôn có ping, mỗi check một ping mỗi lượt, `--test-fail` tới mọi check, link sai khuôn không gửi gì; chế độ `report`, cầu dao 40 khách phải giữ hai lượt, đọc đuôi sổ theo dõi), `tests/test_v7_offsite_pull.py` (PC ping sau `PASS`, `/fail` chỉ chữ `FAIL`, lỗi ping không đổi kết quả kéo, link không vào `pull.log`).
-- [ ] `--test-fail`: email tới hộp thư chủ sổ; lượt kế có email hết lỗi.
+- [x] `--test-fail`: email tới hộp thư chủ sổ; lượt kế có email hết lỗi (23/11/2026, 5 check: [nhật ký](../docs/deploys/2026-11-23-van-hanh-canh-bao.md)).
+- [x] Bổ sung 23/11/2026 (O4, hộp việc): `tests/test_v7_inbox.py` (lỗi máy theo lượt, đếm lượt liền, tự về 0, cờ đang bật, lần ghi cuối, chỉ giá trị đơn), `tests/test_v7_api_healthz.py` (đủ trường), `tests/test_v7_watchdog.py` (thiếu cờ, lỗi phải lặp hai lượt, API cũ im, cố ý tắt cờ thì sửa `WEBDEBIT_ALERT_AUTO_FLAGS`).
 - [ ] Dừng thử: ngừng timer máy canh quá thời gian chờ thì có email, bật lại thì có email hết lỗi.

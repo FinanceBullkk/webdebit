@@ -50,6 +50,10 @@ SOURCE_DAYS = int(os.getenv("WEBDEBIT_ALERT_SOURCE_DAYS") or 3)
 # Hộp việc tính lại mỗi đợt bản chụp (15 phút): quá 90 phút là nhịp nền đã dừng. Sổ lỗi phải lặp 2 lượt liền mới báo (lỗi lẻ tự lành).
 INBOX_MAX_MINUTES = 90
 INBOX_FAILED_ROUNDS = 2
+# Cờ máy 15 phút phải bật (= drop-in auto-sheet.conf trên hao, audit vận hành 23/11/2026, O4). Cố ý tắt một cờ thì sửa biến này
+# trong alert.env cùng lúc, không thì nhóm tiền báo (đúng ý: tắt nhầm khi sửa drop-in tay là chuyến/giá ngừng vào web mà web vẫn 200).
+AUTO_FLAGS = tuple(flag.strip() for flag in
+                   os.getenv("WEBDEBIT_ALERT_AUTO_FLAGS", "text,trips,prices,road,ps,headers").split(",") if flag.strip())
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
 MONEY_TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
                                          "webdebit-ps-snapshot": None}
@@ -212,6 +216,17 @@ def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str
     age = inbox.get("computed_age_seconds")
     if isinstance(age, int) and age > INBOX_MAX_MINUTES * 60:
         found.append(f"Hộp việc chưa tính lại {age // 60} phút: nhịp nền của API có thể đã dừng.")
+    # API cũ chưa có các trường dưới thì im (O4).
+    flags = inbox.get("auto_flags")
+    if isinstance(flags, str):
+        missing = [flag for flag in AUTO_FLAGS if flag not in flags.split(",")]
+        if missing:
+            found.append(f"Máy 15 phút trong API đang tắt {', '.join(missing)} (WEBDEBIT_AUTO_SHEET): "
+                         "chuyến, giá hay phí theo Sheet không tự vào web nữa.")
+    errors, error_rounds = inbox.get("auto_errors_last_round"), inbox.get("auto_error_rounds")
+    if isinstance(errors, int) and isinstance(error_rounds, int) and errors and error_rounds >= INBOX_FAILED_ROUNDS:
+        found.append(f"Máy 15 phút trong API lỗi {errors} lần ở lượt vừa rồi, {error_rounds} lượt liền: "
+                     "xem journalctl -u v7-ledger-api | grep 'V7 máy'.")
     return found
 
 

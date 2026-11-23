@@ -1,5 +1,6 @@
 """Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): gom nhóm, tính nền, tính lại sổ vừa ghi."""
 
+import io
 import json
 import os
 import sys
@@ -7,6 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -158,12 +160,13 @@ class InboxTests(unittest.TestCase):
 
     def test_health_counts_rounds_with_failed_books_for_the_watchdog(self):
         # CANH-BAO-01, bổ sung 18/11/2026: /healthz chỉ có số đếm; sổ lỗi phải lặp lượt liền mới đáng báo.
+        quiet = {"auto_flags": "", "auto_errors_last_round": 0, "auto_error_rounds": 0, "last_write_at": None}
         self.assertEqual(self.inbox.health(1000.0), {"state": "computing", "books": 0, "failed": 0, "failed_rounds": 0,
-                                                     "computed_age_seconds": None})
+                                                     "computed_age_seconds": None, **quiet})
         broken = Runner([1, 2, 5])   # sổ 5 lỗi đọc
         self.inbox.refresh_all(broken)
         self.assertEqual(self.inbox.health(self.inbox.computed_at + 30),
-                         {"state": "ready", "books": 3, "failed": 1, "failed_rounds": 1, "computed_age_seconds": 30})
+                         {"state": "ready", "books": 3, "failed": 1, "failed_rounds": 1, "computed_age_seconds": 30, **quiet})
         self.inbox.refresh_all(broken)
         self.assertEqual(self.inbox.health(self.inbox.computed_at)["failed_rounds"], 2)
         self.inbox.refresh_all(Runner([1, 2]))   # tự lành: đếm lại từ đầu
@@ -172,6 +175,24 @@ class InboxTests(unittest.TestCase):
         self.paths[0].unlink()   # thiếu bản chụp
         self.inbox.refresh_all(Runner([1, 2]))
         self.assertEqual(self.inbox.health(self.inbox.computed_at)["state"], "unavailable")
+
+    def test_health_reports_machine_errors_by_round_flags_and_last_write(self):
+        # Audit vận hành 23/11/2026, O4: lỗi ghi của máy, cờ bật và lần ghi cuối lên /healthz cho máy canh.
+        def failing_relock(runner, customers=()):
+            self.inbox._error("khóa lại tháng", 1, "X")
+            self.inbox._error("khóa lại tháng", 2, "X")
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "prices, text,unknown"}), \
+                patch.object(self.inbox, "_relock", side_effect=failing_relock), redirect_stderr(io.StringIO()):
+            self.inbox.refresh_all(Runner([1, 2]))
+            self.inbox.refresh_all(Runner([1, 2]))
+            health = self.inbox.health(self.inbox.computed_at)
+        self.assertEqual((health["auto_flags"], health["auto_errors_last_round"], health["auto_error_rounds"]), ("text,prices", 2, 2))
+        self.inbox.refresh_all(Runner([1, 2]))   # lượt không lỗi: đếm lại
+        health = self.inbox.health(self.inbox.computed_at)
+        self.assertEqual((health["auto_errors_last_round"], health["auto_error_rounds"]), (0, 0))
+        self.inbox.auto_log.extend([{"at": 1_800_000_000.4, "kind": "price"}, {"at": 1_700_000_000.0, "kind": "trip"}])
+        self.assertEqual(self.inbox.health(self.inbox.computed_at)["last_write_at"], "2027-01-15T08:00:00+00:00")
+        self.assertFalse(any(isinstance(value, (list, dict)) for value in health.values()))   # chỉ số đếm, không mã sổ
 
     def test_dirty_book_recomputed_on_next_view(self):
         runner = Runner([1, 2])
