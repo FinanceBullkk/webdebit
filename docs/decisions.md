@@ -173,3 +173,4 @@ Nguồn S15R ghi thiết kế `NOT_ACCEPTED_FOR_FINANCIAL_WRITES`. Tóm tắt n�
 - Vận hành: role/auth, DB integration, nghiệm thu và quyền deploy riêng. (**Người duyệt riêng hết hiệu lực 19/10/2026** theo `V6-DB`; chỗ của nó là lưu vết ai sửa gì, ai được xem lưu vết chốt 21/10/2026 theo `V7-CSM` (4): ai mở được sổ thì xem được Lịch sử sổ đó.)
 
 Probe DDL đơn phiên đã tái hiện thiếu guard. Không coi fixture, CHECK/FK, command thành công hoặc báo cáo cũ là nghiệm thu các mục trên. Quyết định mới ghi người chốt, ngày, phạm vi, ví dụ cạnh biên, code/test tác động và liên kết bằng chứng có quyền riêng.
+| <a id="dieu-chinh-theo-gia-01"></a>[DIEU-CHINH-THEO-GIA-01](decisions/dieu-chinh-theo-gia-01.md) | Điều chỉnh của chuyến chỉ tính khi chuyến còn số tiền gốc (đơn giá, hoặc dòng chỉ phụ phí có phụ phí); xóa đơn giá thì cả chuyến lẫn điều chỉnh ra khỏi số dư | Chốt 23/11/2026 (người dùng chọn cách A, audit SQL F6); migration `2026-11-23-v7-dieu-chinh-theo-gia.sql` |

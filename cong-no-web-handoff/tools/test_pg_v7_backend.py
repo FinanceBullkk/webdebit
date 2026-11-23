@@ -445,7 +445,8 @@ def check_migration(pg: Pg) -> None:
                      "2026-11-19-v7-doi-xe-tai-chinh-chang.sql",
                      "2026-11-19-v7-audit-kien-truc.sql", "2026-11-19-v7-khach-moi-60-ngay.sql",
                      "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
-                     "2026-11-23-v7-doi-xe-sua-audit.sql", "2026-11-23-v7-audit-sql.sql"):
+                     "2026-11-23-v7-doi-xe-sua-audit.sql", "2026-11-23-v7-audit-sql.sql",
+                     "2026-11-23-v7-dieu-chinh-theo-gia.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
@@ -511,6 +512,7 @@ def check_migration(pg: Pg) -> None:
     copy.rejects(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set manifest /tmp/v7_catalog_manifest.json\n" + checker,
                  message="catalog differs from repo manifest: functions (1): edit_trip_info(bigint,bigint,text,bigint,text,text);")
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-audit-sql.sql").read_text(encoding="utf-8"))
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql").read_text(encoding="utf-8"))
     copy.sql(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set manifest /tmp/v7_catalog_manifest.json\n" + checker)
     # Loader conflict/retry and balance checks use isolated reference-only cutover.
     copy.sql("ALTER TABLE sokhach.baseline_trip_ref DISABLE TRIGGER baseline_trip_ref_immutable; "

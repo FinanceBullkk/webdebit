@@ -365,7 +365,7 @@ class Shadow:
         for trip in book.trips:
             if trip.counted():
                 add(trip.month, trip.base())
-                if trip.adj_rows:
+                if trip.adj_rows and trip.base() is not None:  # DIEU-CHINH-THEO-GIA-01: không còn đơn giá thì điều chỉnh không tính
                     add(trip.month, trip.delta)
         for adj in book.adjs:
             if not adj.deleted:

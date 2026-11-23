@@ -18,7 +18,8 @@ LEDGER_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v
 DASHBOARD_DEBT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-19-v7-khach-moi-60-ngay.sql"
 DASHBOARD_DEBT_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-tong-quan-tat-jit.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
-VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
+# DIEU-CHINH-THEO-GIA-01 23/11/2026: điều chỉnh chuyến chỉ tính khi chuyến còn số tiền gốc.
+VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql"
 # Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
 AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql"
 # CAN-DU-01 30/10/2026: record_receipt, get_receivables_detail và hai view nợ tháng bằng migration mới nhất thay chúng.
@@ -118,9 +119,12 @@ class FeeSqlSync(unittest.TestCase):
             self.assertEqual(definition(report, "FUNCTION", "get_trip_month"), definition(canonical, "FUNCTION", "get_trip_month"))
         safety = LUOI_AN_TOAN_MIGRATION.read_text(encoding="utf-8")
         audit_sql = AUDIT_SQL_MIGRATION.read_text(encoding="utf-8")
-        for name in ("paste_trips", "edit_trip_info", "get_safety_net", "_trip_dup_reason", "_catalog_manifest", "schema_level"):
+        for name in ("paste_trips", "edit_trip_info", "get_safety_net", "_trip_dup_reason", "_catalog_manifest"):
             with self.subTest(name=name, latest="audit-sql"):
                 self.assertEqual(definition(audit_sql, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        with self.subTest(name="schema_level", latest="dieu-chinh-theo-gia"):   # mỗi migration tăng mức: bản mới nhất thắng
+            self.assertEqual(definition(VIEW_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "schema_level"),
+                             definition(canonical, "FUNCTION", "schema_level"))
         for name in ("_safety_fingerprints", "_safety_events"):
             with self.subTest(name=name):
                 self.assertEqual(definition(safety, "FUNCTION", name), definition(canonical, "FUNCTION", name))

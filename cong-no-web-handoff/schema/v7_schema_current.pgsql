@@ -888,9 +888,15 @@ CREATE VIEW sokhach.v_adjustment_current AS
     a.actor,
     a.at,
     a.created_by_event
-   FROM (sokhach.adjustment a
+   FROM ((sokhach.adjustment a
      LEFT JOIN sokhach.v_trip_current t ON ((t.id = a.trip_id)))
-  WHERE ((NOT a.fee_absorbed) AND ((a.trip_id IS NULL) OR ((NOT t.deleted) AND (t.status = 'confirmed'::text))) AND (a.reverses_adjustment_id IS NULL) AND (NOT (EXISTS ( SELECT 1
+     LEFT JOIN LATERAL ( SELECT trip_price_rev.unit_price_vnd,
+            trip_price_rev.other_fee_vnd
+           FROM sokhach.trip_price_rev
+          WHERE (trip_price_rev.trip_id = a.trip_id)
+          ORDER BY trip_price_rev.id DESC
+         LIMIT 1) p ON ((a.trip_id IS NOT NULL)))
+  WHERE ((NOT a.fee_absorbed) AND ((a.trip_id IS NULL) OR ((NOT t.deleted) AND (t.status = 'confirmed'::text) AND ((p.unit_price_vnd IS NOT NULL) OR (((t.container IS NULL) OR (t.container = ''::text)) AND (p.other_fee_vnd IS NOT NULL))))) AND (a.reverses_adjustment_id IS NULL) AND (NOT (EXISTS ( SELECT 1
            FROM sokhach.adjustment r
           WHERE (r.reverses_adjustment_id = a.id)))));
 ALTER VIEW sokhach.v_adjustment_current OWNER TO sokhach_owner;
@@ -6089,7 +6095,7 @@ CREATE OR REPLACE FUNCTION sokhach.schema_level()
  LANGUAGE sql
  IMMUTABLE
  SET search_path TO 'pg_catalog', 'sokhach', 'pg_temp'
-AS $function$ SELECT 2026112301 $function$;
+AS $function$ SELECT 2026112302 $function$;
 ALTER FUNCTION sokhach.schema_level() OWNER TO sokhach_owner;
 REVOKE ALL ON FUNCTION sokhach.schema_level() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION sokhach.schema_level() TO sokhach_app;

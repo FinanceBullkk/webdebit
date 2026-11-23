@@ -356,6 +356,9 @@ AUDIT_KIEN_TRUC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11
 # Audit SQL 23/11/2026 (F1, F2, F8, F9): bản paste_trips, edit_trip_info, _change_legacy, _begin_command, reallocate,
 # get_dashboard, get_safety_net hiện hành; chuỗi nào chạy lại migration cũ của các hàm đó thì chạy file này sau cùng.
 AUDIT_SQL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-audit-sql.sql"
+# DIEU-CHINH-THEO-GIA-01 23/11/2026: bản v_adjustment_current và schema_level hiện hành; chạy sau AUDIT_SQL_MIGRATION và sau
+# mọi lần chạy lại 2026-10-29-v7-xoa-dieu-chinh-thang.sql.
+DIEU_CHINH_THEO_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql"
 # BANG-GIA-02 5/11/2026: bản save_price_table hiện hành; ai chạy lại 2026-10-29-v7-bang-gia.sql thì chạy file này sau.
 GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"

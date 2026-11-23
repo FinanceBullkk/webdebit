@@ -7,6 +7,7 @@ import json
 
 from pg_v7_harness import (
     AUDIT_SQL_MIGRATION,
+    DIEU_CHINH_THEO_GIA_MIGRATION,
     ROOT,
     Pg,
     PsqlSession,
@@ -51,6 +52,7 @@ def _check_catalog(pg: Pg) -> None:
     migration = MIGRATION.read_text(encoding="utf-8")
     pg.sql(migration)
     pg.sql(migration)
+    pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     require(pg.value(CATALOG) == fresh, "audit SQL migration rerun changed function catalog")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     live = json.loads(pg.value("SELECT sokhach._catalog_manifest()"))
@@ -194,12 +196,31 @@ def _check_archive(pg: Pg) -> None:
     require(pg.value(f"SELECT archived FROM sokhach.customer WHERE id={customer}") == "f", "unarchive failed")
 
 
+def _check_adjustment_needs_price(pg: Pg) -> None:
+    """DIEU-CHINH-THEO-GIA-01 (F6, cách A): xóa đơn giá thì điều chỉnh của chuyến cũng ra khỏi số dư; nhập lại giá thì tính lại."""
+    customer = new_book(pg, ("2026-01-01", 50))
+    fixture_open_month(pg, customer, "2026-01-01")
+    trip = _paste_one(pg, customer, "f6-paste", "FAKE-F6-1", "05")["trip_ids"][0]
+    call(pg, "adjust_trip", customer, version(pg, customer), "f6-adjust", trip, 90, "giảm giá")
+    total = lambda: call(pg, "get_ledger", customer)["total_outstanding_vnd"]  # noqa: E731
+    require(total() == "140", "fixture: opening 50 + trip 100 - 10")
+    call(pg, "edit_trip_price", customer, version(pg, customer), "f6-clear", trip, None, None)
+    require(total() == "50", "cleared price must drop the trip and its adjustment")
+    ledger = call(pg, "get_ledger", customer)
+    require(ledger["adjustments"] == [] and pg.value(f"SELECT count(*) FROM sokhach.adjustment WHERE trip_id={trip}") == "1",
+            "adjustment row stays stored but is not listed while the trip has no price")
+    call(pg, "edit_trip_price", customer, version(pg, customer), "f6-reprice", trip, 100, None)
+    require(total() == "140", "re-priced trip counts its adjustment again")
+
+
 def check_audit_sql(pg: Pg) -> str:
     _check_catalog(pg)
     _check_fee_month(pg)
     _check_dup_reason(pg)
     _check_locks(pg)
     _check_archive(pg)
+    _check_adjustment_needs_price(pg)
     return ("manifest = fresh schema, trigger disabled is visible; undated fee rows need an open, non-future month; "
             "legacy container/date edits hold matching web trips, paste/trip edit see edited legacy rows; book lock is "
-            "NO KEY UPDATE and sheet container locks are ordered; archive flag goes through a command with History")
+            "NO KEY UPDATE and sheet container locks are ordered; archive flag goes through a command with History; "
+            "trip adjustment counts only while the trip has a price")

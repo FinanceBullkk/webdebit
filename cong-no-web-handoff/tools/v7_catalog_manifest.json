@@ -391,7 +391,7 @@
   "review_trip(bigint,bigint,text,bigint,text,text)": "10a71793c0d594ef9f283a7d333ceea5",
   "rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)": "d1945fecc832f9b2afe7145593b23abb",
   "save_price_table(bigint,bigint,text,jsonb)": "21b3d4c34d43cba0aa7a9bab49ea5283",
-  "schema_level()": "67386150c375929c7d84cb2186dc1b9a",
+  "schema_level()": "32bc63d56071f4040582c9231cccbce7",
   "set_book_fee_columns(bigint,bigint,text,jsonb)": "aabcaa9e4814a2176ed2fb7e6fd31145",
   "set_customer_archived(bigint,bigint,text,boolean)": "9af8439652074cc76cb38da6e13efcab",
   "set_customer_commodity(bigint,bigint,text,text)": "402f0efa7f9fe21cfdbe93f9d571a95f",
@@ -502,7 +502,7 @@
   "zalo_link_customer": "f936406a6d19ff9e3cb7b397d2e0e043",
   "zalo_link_pkey": "5519291b8b0bc001085ffe1d81be6dfb"
  },
- "level": 2026112301,
+ "level": 2026112302,
  "triggers": {
   "adjustment.adjustment_immutable": "65ed57e825e16bb1704f5992fb2e49ca:O",
   "baseline_trip_ref.baseline_trip_ref_immutable": "eaa623a7994a2b3f5e08f0f22859cc78:O",
@@ -537,7 +537,7 @@
   "trip_price_source.trip_price_source_immutable": "001c5d159dba3d427e50e9902edc9502:O"
  },
  "views": {
-  "v_adjustment_current": "522720055b68593c6238bc4f3bd7ec9a",
+  "v_adjustment_current": "69f8a5ac82214e6edd9675fc5d7422f6",
   "v_month_chain": "4b2720a9b5f858bc272ba6fe0e97f4f5",
   "v_offset_outgoing": "f04820c38f668e6889493d362b266942",
   "v_outstanding_month": "83fff91ded07794a3516a24a942b0ace",
