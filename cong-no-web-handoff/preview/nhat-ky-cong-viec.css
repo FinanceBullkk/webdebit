@@ -13,7 +13,7 @@
 .nk .link { border: 0; background: none; color: var(--accent-ink); cursor: pointer; padding: 0; font-size: 14px; font-weight: 600 }
 .nk .link:hover { text-decoration: underline }
 .nk .pick { cursor: pointer }
-.nk svg text { fill: var(--ink-3); font-size: 11px; font-family: inherit }
+.nk svg text { fill: var(--ink-3); font-size: 13px; font-family: inherit }
 
 /* Trực tiếp */
 .nk.live-controls .live, .nk .live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 2em; padding: 2px 10px 2px 8px; background: var(--surface) }
@@ -63,13 +63,13 @@ button.cal-lab:hover { background: var(--head) }
 .nk button.sq:not(:disabled):hover { outline: 2px solid var(--ink-2); outline-offset: 1px }
 .nk .sq.sel { outline: 2px solid var(--ink); outline-offset: 1px }
 .cal-wk7.dim, .cal-row.dim .cal-wk7, .cal-row.dim .cal-lab, .cal-row.dim .cal-n { opacity: .3 }
-.cal-wk { padding: 0 2px; border: 0; border-radius: 4px; background: none; font-size: 12.5px; color: var(--ink-3); text-align: left; cursor: pointer }
+.cal-wk { padding: 0 2px; border: 0; border-radius: 4px; background: none; font-size: 13px; color: var(--ink-3); text-align: left; cursor: pointer }
 .cal-wk:hover { color: var(--ink) }
 .cal-wk.on { color: var(--accent-ink); font-weight: 700 }
 .cal-n { text-align: right; font-size: 14px }
-.cal-head .cal-n { font-size: 12px; font-weight: 600; color: var(--ink-3) }
+.cal-head .cal-n { font-size: 13px; font-weight: 600; color: var(--ink-3) }
 .cal-n.zero { color: var(--ink-3); font-weight: 400 }
-.cal-leg { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 6px; font-size: 12px; color: var(--ink-3) }
+.cal-leg { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 6px; font-size: 13px; color: var(--ink-3) }
 .cal-leg .sq { width: 11px }
 .cal-leg span { margin: 0 3px }
 
@@ -80,7 +80,7 @@ button.cal-lab:hover { background: var(--head) }
 .nk .fbar:empty { display: none }
 .nk .fchip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--accent); color: var(--accent-ink); background: var(--accent-soft); border-radius: 2em; padding: 2px 10px; font-size: 13.5px; font-weight: 600; cursor: pointer }
 .nk .fchip .x { font-size: 16px; line-height: 1 }
-.nk .tag { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); border-radius: 2em; padding: 0 8px; white-space: nowrap }
+.nk .tag { font-size: 13px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); border-radius: 2em; padding: 0 8px; white-space: nowrap }
 /* Dòng thời gian kiểu "Contribution activity" của GitHub: mỗi ngày một nút trên đường dọc, mỗi mảng một thanh */
 .tl { position: relative; padding-left: 26px }
 .tl::before { content: ""; position: absolute; left: 7px; top: 10px; bottom: 10px; width: 2px; background: var(--line) }
@@ -128,12 +128,12 @@ button.cal-lab:hover { background: var(--head) }
 .nk .hist { display: block; width: 100% }
 .nk .hist rect.on { fill: color-mix(in srgb, var(--ink) 8%, transparent) }
 .nk .hist rect.pick:hover { fill: color-mix(in srgb, var(--ink) 6%, transparent) }
-.nk-hours .cap { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-3) }
+.nk-hours .cap { margin: 4px 0 0; font-size: 13px; color: var(--ink-3) }
 .nk .wdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; align-items: end }
-.nk .wd { display: grid; justify-items: center; gap: 3px; font-size: 12px; color: var(--ink-2); min-height: 72px; align-content: end }
+.nk .wd { display: grid; justify-items: center; gap: 3px; font-size: 13px; color: var(--ink-2); min-height: 72px; align-content: end }
 .nk .wd i { width: 100%; max-width: 30px; border-radius: 3px 3px 0 0; background: var(--h-in) }
 .nk .wd.we i { background: var(--h-weekend) }
-.nk .wd small { font-size: 12px; color: var(--ink-3); font-weight: 600 }
+.nk .wd small { font-size: 13px; color: var(--ink-3); font-weight: 600 }
 
 /* Chú thích nổi, báo thay đổi mới */
 .nk .tooltip { position: fixed; z-index: 30; pointer-events: none; background: var(--tip-bg, var(--ink)); color: #fff; font-size: 13px; line-height: 1.4; padding: 6px 9px; border-radius: 6px; max-width: 300px; box-shadow: 0 8px 24px #1f293733 }

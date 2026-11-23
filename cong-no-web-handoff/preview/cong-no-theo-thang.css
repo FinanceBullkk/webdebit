@@ -69,9 +69,9 @@
 .heat tfoot tr.sub td{padding:6px;font-weight:600;color:var(--nav-ink);border-bottom:1px solid rgba(255,255,255,.12)}
 .heat tfoot tr.sub td.khach{padding:6px 12px;font-weight:600;border-bottom-left-radius:0}
 .heat tfoot td.khach{white-space:normal}
-.heat tfoot td.khach small{font-size:12px;font-weight:400;color:var(--nav-ink);white-space:nowrap}
-.heat tfoot tr.net td.khach small{display:block;font-size:12.5px}
-.heat tfoot td.khach span{display:block;font-size:12.5px;font-weight:400;color:var(--nav-ink)}
+.heat tfoot td.khach small{font-size:13px;font-weight:400;color:var(--nav-ink);white-space:nowrap}
+.heat tfoot tr.net td.khach small{display:block;font-size:13px}
+.heat tfoot td.khach span{display:block;font-size:13px;font-weight:400;color:var(--nav-ink)}
 .recon{margin:10px 2px 0;font-size:13.5px;color:var(--ink-3)}
 .recon b{color:var(--credit);font-weight:600}
 .recon.mismatch{padding:10px 14px;background:var(--critical-soft);border-radius:8px;color:#8a1f1f}
@@ -124,9 +124,9 @@
 .drawer .mini-table td.wrap{white-space:normal}
 .drawer-scroll h3{margin:14px 0 6px;font-size:15px;font-weight:700}
 .drawer-scroll h3 .h-sub{margin-left:8px;font-size:13.5px;font-weight:400;color:var(--ink-3)}
-.drawer .mini-table tr.part td{padding:8px 6px 4px;font-size:13.5px;font-weight:600;color:var(--ink-2);background:var(--surface)}
+.drawer .mini-table tr.part td{padding:8px 6px 4px;font-size:14px;font-weight:600;color:var(--ink-2);background:var(--surface)}
 .drawer .mini-table .money{text-align:right}
-.drawer .mini-table .tag{margin-left:6px;padding:1px 8px;font-size:12px}
+.drawer .mini-table .tag{margin-left:6px;padding:1px 8px;font-size:13px}
 .drawer .mini-table tr.excluded td{color:var(--ink-3)}
 .drawer .missing{color:var(--warning);font-weight:600}
 .drawer .note{margin:10px 0 0;font-size:14px;color:var(--ink-3)}
@@ -135,7 +135,7 @@
 /* Điện thoại: thu lề và khoảng ô để bảng chuyến có phụ phí vừa bề ngang. */
 @media (max-width:560px){
   .drawer-top,.drawer-scroll{padding-left:12px;padding-right:12px}
-  .drawer .mini-table{font-size:13px}
+  .drawer .mini-table{font-size:14px}
   .drawer .mini-table th,.drawer .mini-table td{padding:6px 3px}
 }
 

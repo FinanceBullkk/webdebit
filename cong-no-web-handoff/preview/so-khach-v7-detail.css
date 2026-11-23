@@ -88,7 +88,7 @@
 .ledger-book .ledger .dt-du td.num{padding:2px 5px;font-size:13px}
 .dt-du .dt-text{overflow:hidden;text-overflow:ellipsis}
 .dt-du td.dt-day-bad{outline:2px solid #c77700;outline-offset:-2px;background:#f8f9fb;font-weight:700;text-align:center;cursor:help}
-.dt-du .dt-cont{font-size:12.5px}
+.dt-du .dt-cont{font-size:13px}
 .dt-du td.dt-own{background:#f8f9fb}
 .dt-du td.dt-of-own{background:#eaf2fc;font-weight:600}
 .dt-du td.dt-of-customer{background:#fce9c4;color:#5c3b00}
