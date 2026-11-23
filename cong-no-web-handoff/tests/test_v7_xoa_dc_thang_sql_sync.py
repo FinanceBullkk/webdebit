@@ -9,6 +9,8 @@ MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 EVENT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql"
+# DIEU-CHINH-THEO-GIA-01 (23/11/2026) thay v_adjustment_current sau XOA-DC-THANG-01: khối view so với migration đó.
+VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql"
 
 
 def text(path: Path) -> str:
@@ -26,10 +28,15 @@ class XoaDcThangSqlSync(unittest.TestCase):
     def test_function_view_and_grant_match_canonical(self):
         migration, canonical = text(MIGRATION), text(FUNCTIONS)
         for pattern in (r"(?ms)^-- XOA-DC-THANG-01: xóa điều chỉnh.*?^END \$\$;\n",
-                        r"(?ms)^-- Trip adjustments follow current information.*?\);\n",
                         r"(?m)^GRANT EXECUTE ON FUNCTION sokhach\.delete_month_adjustment\(.*\n"):
             with self.subTest(pattern=pattern):
                 self.assertIn(block(migration, pattern), canonical)
+        # View: điều kiện ẩn dòng đảo dấu của XOA-DC-THANG-01 còn nguyên trong bản mới nhất, và bản đó trùng file chuẩn.
+        view = r"(?ms)^CREATE OR REPLACE VIEW sokhach\.v_adjustment_current AS.*?\);\n"
+        self.assertIn("AND a.reverses_adjustment_id IS NULL", block(migration, view))
+        latest = block(text(VIEW_MIGRATION), view)
+        self.assertIn("AND a.reverses_adjustment_id IS NULL", latest)
+        self.assertIn(latest, canonical)
 
     def test_column_and_event_constraints_match_schema(self):
         migration, schema = text(MIGRATION), text(SCHEMA)

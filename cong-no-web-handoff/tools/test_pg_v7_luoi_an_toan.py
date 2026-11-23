@@ -23,6 +23,7 @@ import v7_safety_net as net  # thêm web/ vào sys.path cho adapter bên dưới
 from pg_v7_harness import (
     AUDIT_SQL_MIGRATION,
     DATABASE,
+    DIEU_CHINH_THEO_GIA_MIGRATION,
     IMAGE,
     HarnessError,
     Pg,
@@ -193,6 +194,7 @@ def scenario(pg: Pg, folder: Path, cases: list[str]) -> None:
     # Migration 18/11 là bản cũ của get_safety_net (chưa có bảng băm): kiểm 5 báo tới khi chạy lại migration mới nhất.
     probe.expect("chạy lại migration cũ", "DB chưa trả bảng băm định nghĩa")
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     probe.quiet("sau migration")
     require(pg.value("SELECT has_function_privilege('v7_app','sokhach.get_safety_net(jsonb)','EXECUTE') AND NOT "
                      "has_function_privilege('v7_app','sokhach._safety_events(bigint,interval)','EXECUTE')") == "t",

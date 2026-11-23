@@ -10,6 +10,7 @@ from pg_v7_harness import (
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
+    DIEU_CHINH_THEO_GIA_MIGRATION,
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
     NOI_DEN_TUY_CHON_MIGRATION,
@@ -50,6 +51,7 @@ def check_ra_ghi_tien(pg) -> str:
     pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau KHOA-CHU-01
     pg.sql(AUDIT_KIEN_TRUC_MIGRATION.read_text(encoding="utf-8"))  # audit 19/11: bản edit_trip_info/record_mark hiện hành
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
+    pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     after = pg.value(CATALOG)
     require(after == fresh, f"ra-ghi-tien migration rerun changed function catalog: {[k for k in json.loads(after).keys() | json.loads(fresh).keys() if json.loads(after).get(k) != json.loads(fresh).get(k)]}")
     pg.true("EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.trip'::regclass AND tgname='trip_sheet_cross_customer')",
