@@ -8,6 +8,7 @@
  *   CongNoNet.fetchJson(url, { what: 'bảng giá' })          → dữ liệu JSON, hoặc ném Error có câu tiếng Việt
  *   CongNoNet.postJson(url, body, { what: 'quyết định' })    → như trên, gửi POST body JSON
  *   CongNoNet.messageOf(error, 'Không lưu được.')           → câu hiện cho người dùng từ một lỗi bất kỳ
+ *   CongNoNet.customers()                                   → thân GET /api/v7/customers, mỗi trang đọc một lần (dùng chung)
  *   CongNoNet.fetchResponse(url, { what, fetcher })         → Response như fetch, chỉ đổi lỗi mạng thành câu tiếng Việt
  *   CongNoNet.readJson(response, what)                      → response.json(), thân hỏng thành câu tiếng Việt
  *   (hai hàm cuối cho chỗ tự xét response.ok với câu riêng của mình)
@@ -98,5 +99,18 @@
     return text || fallback;
   }
 
-  return { fetchJson, postJson, fetchResponse, readJson, messageOf };
+  // Danh sách khách: trước 23/11/2026 mỗi trang gọi /api/v7/customers 2–4 lần lúc mở (menu, presence, sổ; Máy chạy bốn lần,
+  // audit giao diện F7). Các phần cùng trang dùng chung một lần đọc: lời gọi đang chạy hoặc kết quả chưa quá 60 giây thì trả lại
+  // đúng promise đó; lỗi thì bỏ để lần sau đọc lại. `fresh: true` khi vừa đổi danh sách (gán mặt hàng, tạo sổ).
+  let customersCache = null;
+  function customers({ fresh = false, fetcher } = {}) {
+    const now = Date.now();
+    if (!fresh && customersCache && now - customersCache.at < 60_000) return customersCache.promise;
+    const promise = fetchJson('/api/v7/customers', { what: 'danh sách khách', fetcher });
+    customersCache = { at: now, promise };
+    promise.catch(() => { if (customersCache?.promise === promise) customersCache = null; });
+    return promise;
+  }
+
+  return { fetchJson, postJson, fetchResponse, readJson, messageOf, customers };
 });

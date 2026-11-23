@@ -166,7 +166,7 @@
       const [debt, reminders, customers, inbox] = await Promise.all([
         json('/api/v7/dashboard/debt'),
         json('/api/v7/reminders').then(body => body.reminders ?? []).catch(() => []),
-        json('/api/v7/customers').then(body => body.customers ?? []).catch(() => []),
+        CongNoNet.customers().then(body => body.customers ?? []).catch(() => []),
         json('/api/v7/inbox').catch(() => null),
       ]);
       state.pendingKnown = inbox?.state === 'ready';
