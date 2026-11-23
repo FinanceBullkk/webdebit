@@ -1,7 +1,7 @@
 /* BAO-CAO-THANG-01: Báo cáo tháng theo ngôn ngữ của Bảng thu (màu, cỡ chữ, thanh đầu). Khung thấy thật 1280×560: thanh đầu một hàng,
    bảng tổng Booking / Sheet / Web theo biển, bộ, rồi bảng theo khách; bấm một khách mới bung danh sách cont. */
 html:has(body.bc){background:#f3f5f8}
-body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;--amber:#8a5300;--teal:#0f766e;
+body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#64625c;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;--amber:#8a5300;--teal:#0f766e;
   background:#f3f5f8;color:var(--ink-1);font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 .bc [hidden]{display:none!important}
 .bc svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
