@@ -50,6 +50,7 @@ READ.add('get_trip_month(date)')  # BAO-CAO-THANG-01: chỉ đọc, như bảng 
 APP_READ.add('get_ledger_events(bigint)')  # MO-SO-NHANH-02: khung Lịch sử của trang, không cấp reader
 APP_READ.add('get_activity(date)')  # HOAT-DONG-01: việc đã ghi theo ngày, có trước → sau như Lịch sử, không cấp reader
 APP_READ.add('get_safety_net(jsonb)')  # LUOI-AN-TOAN-01: lưới an toàn của máy canh (v7app), không cấp reader
+APP_READ.add('schema_level()')  # audit SQL 23/11/2026 (F1): API bắt tay mức lược đồ, không cấp reader
 READ.update({'get_zalo_links()', 'get_marks(bigint,text)'})  # ZALO-GROUP-01: ai vào app cũng xem được gắn sổ và dấu
 READ.add('get_cash_reviews(jsonb)')  # ZALO-THU-CHI-01 PR-3: trạng thái xác nhận khoản thu chi, chỉ đọc
 WRITE = {
@@ -139,6 +140,8 @@ KNOWN_FUNCTIONS.add('create_book_from_sheet')  # MAY-TAO-SO-01
 KNOWN_FUNCTIONS.add('get_activity')  # HOAT-DONG-01
 KNOWN_FUNCTIONS.add('get_read_stamp')  # HIEU-NANG-01
 KNOWN_FUNCTIONS.update({'get_safety_net', '_safety_fingerprints', '_safety_events'})  # LUOI-AN-TOAN-01
+KNOWN_FUNCTIONS.update({'schema_level', '_catalog_manifest', '_catalog_view_text', '_trip_dup_reason', '_legacy_edited_date_match',
+                        'set_customer_archived'})  # audit SQL 23/11/2026 (F1, F8, F10)
 KNOWN_FUNCTIONS.update({'get_ledger_events', '_ledger_events'})  # MO-SO-NHANH-02
 KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'set_customer_transport', 'assign_sheet_trip',
                         'undo_sheet_batch'})  # Việc cần làm xử lý tại dòng 2/11/2026

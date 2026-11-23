@@ -282,7 +282,7 @@ sudo -u <os_user_loader> psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U <l
 ```
 
 ```bash
-sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql
+sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -v manifest=<release>/cong-no-web-handoff/tools/v7_catalog_manifest.json -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql
 ```
 
 Thêm `-v expect_customers=0 -v expect_openings=0` trước nạp. Checker chỉ đọc, không in khách/tiền.
@@ -437,7 +437,7 @@ legacy exact counts không đổi. Dừng: sai bất kỳ mục nào, giữ evid
 Thời gian: chưa đo, `api_reconcile.seconds`.
 
 ```bash
-sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -v expect_customers=<customer_count> -v expect_openings=<opening_count> -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql
+sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -v expect_customers=<customer_count> -v expect_openings=<opening_count> -v manifest=<release>/cong-no-web-handoff/tools/v7_catalog_manifest.json -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql
 ```
 
 ```bash
@@ -1415,7 +1415,7 @@ psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -f <rel
 ```
 
 ```text
-psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql
+psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v7=<db_v7> -v loader_role=<loader_role> -v manifest=<release>/cong-no-web-handoff/tools/v7_catalog_manifest.json -f <release>/cong-no-web-handoff/tools/v7_post_deploy_check.sql
 ```
 
 CÒN MỞ: peer/pg_hba thật (container dùng trust); dung lượng thật và thời gian restore;

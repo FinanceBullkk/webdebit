@@ -226,7 +226,16 @@ class ConsistentReadTests(unittest.TestCase):
                 runner = ConsistentRunner(text=text)
                 cache.run(runner, "get_ledger", {"customer_id": 7 if text else 8}, "fake")
                 cache.run(runner, "list_customers", {}, "fake")
-                self.assertEqual(runner.flags, [("get_ledger", True), ("list_customers", False)])
+                self.assertEqual(runner.flags, [("get_ledger", True), ("list_customers", True)])
+
+    def test_every_uncached_get_reader_asks_for_one_snapshot(self):
+        # Audit SQL 23/11/2026 (F3): đọc nhiều câu ngoài bộ nhớ cũng không được trộn hai trạng thái.
+        for function, payload in (("get_receivables_detail", {"customer_id": 7, "month": "2026-11-01"}),
+                                  ("get_price_status", {"customer_id": 7}), ("get_price_table", {"customer_id": 7})):
+            with self.subTest(function=function):
+                runner = ConsistentRunner()
+                v7_read_cache.CachedReads(runner, v7_read_cache.ReadCache()).run(function, payload, "fake")
+                self.assertEqual(runner.flags, [(function, True)])
 
     def test_broken_stamp_reads_directly_still_consistent(self):
         runner = ConsistentRunner(stamp=RuntimeError("no stamp"))

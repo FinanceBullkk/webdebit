@@ -66,5 +66,25 @@ class SnapshotPlacementTests(unittest.TestCase):
         self.assertIn("cong-no-web-handoff/tools/v7_schema_snapshot.py --check", job)
 
 
+
+class ManifestPlacementTests(unittest.TestCase):
+    """Audit SQL 23/11/2026 (F1): bảng băm phải đi theo release (lưới an toàn trên hao đọc nó) và không kích cổng SQL."""
+    rel = snap.MANIFEST.relative_to(REPO).as_posix()
+
+    def test_manifest_ships_in_release_archive(self):
+        # Gói release theo danh sách cho phép (O9): file phải có tên riêng trong scripts/deploy/release-paths.txt.
+        lines = (REPO / "scripts" / "deploy" / "release-paths.txt").read_text(encoding="utf-8").splitlines()
+        self.assertIn(self.rel, [line.strip() for line in lines])
+
+    def test_manifest_is_not_caught_by_deploy_sql_gate(self):
+        gate = re.search(r"if grep -E '([^']+)' <<< \"\$changed\"", DEPLOY)
+        self.assertIsNotNone(gate, "không tìm thấy cổng SQL trong deploy-hao.yml")
+        self.assertIsNone(re.search(gate.group(1), self.rel), self.rel)
+
+    def test_manifest_sits_next_to_the_safety_net(self):
+        import v7_safety_net
+        self.assertEqual(v7_safety_net.MANIFEST, snap.MANIFEST)
+
+
 if __name__ == "__main__":
     unittest.main()
