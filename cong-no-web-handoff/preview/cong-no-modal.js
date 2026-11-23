@@ -42,6 +42,16 @@
     }
   }
 
+  // Hộp đóng (hidden = true) rồi trang gọi ngay opener.focus() trong cùng lượt: lúc đó MutationObserver chưa chạy nên opener vẫn
+  // inert và focus() không có tác dụng. Phần tử nằm trong vùng mình đã inert mà được gọi focus() thì đồng bộ ngay trước.
+  if (typeof HTMLElement !== 'undefined') {
+    const focus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (...args) {
+      if (this.closest?.(`[${MARK}]`)) sync();
+      return focus.apply(this, args);
+    };
+  }
+
   let queued = false;
   const schedule = () => {
     if (queued) return;
