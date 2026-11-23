@@ -125,7 +125,7 @@
         if (list.some(other => other.sha256 === item.sha256)) { URL.revokeObjectURL(item.url); problems.set(month, 'Ảnh này đã có trong phiếu đang nhập.'); continue; }
         item.warning = await duplicateWarning(item.sha256);
         list.push(item);
-      } catch (error) { problems.set(month, error.message); }
+      } catch (error) { problems.set(month, CongNoNet.messageOf(error)); }
     }
     if (list.length) drafts.set(month, list);
     if (list.length) view = { month, index: list.length - 1, zoom: false };
@@ -137,7 +137,7 @@
     for (const file of files) {
       if ((saved.get(pid)?.length ?? 0) >= MAX_IMAGES) { showNotice(`Phiếu ${pid} đã đủ ${MAX_IMAGES} ảnh.`); return; }
       let item;
-      try { item = await prepare(file); } catch (error) { showNotice(error.message); return; }
+      try { item = await prepare(file); } catch (error) { showNotice(CongNoNet.messageOf(error)); return; }
       URL.revokeObjectURL(item.url);
       const done = await send(pid, item);
       if (!done) return;
