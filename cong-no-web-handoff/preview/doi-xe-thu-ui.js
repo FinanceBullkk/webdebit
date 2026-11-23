@@ -81,10 +81,15 @@
     if (S.panel?.k === 'ls') draw();
   }
   async function taiExcel(thang) {
-    const r = await fetch(`/api/v7/doixe/bang-ke.xlsx?thang=${thang}`, { cache: 'no-store' });
+    let r;
+    try {
+      r = await fetch(`/api/v7/doixe/bang-ke.xlsx?thang=${thang}`, { cache: 'no-store' });
+    } catch {
+      throw Error('mất kết nối tới máy chủ. Kiểm tra mạng rồi bấm lại.');
+    }
     if (!r.ok) {
       const body = await r.json().catch(() => null);
-      throw Error(body?.message || `Lỗi ${r.status}`);
+      throw Error(body?.message || DoiXeChung.loiMayChu(r.status));
     }
     const name = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') ?? '')?.[1] ?? `BangKe_HTH_${thang.slice(0, 7)}.xlsx`;
     const url = URL.createObjectURL(await r.blob());

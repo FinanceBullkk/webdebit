@@ -21,11 +21,8 @@ const PREVIEW = path.join(ROOT, "cong-no-web-handoff", "preview");
 const FLOOR_PX = 13;
 
 // Chỗ còn nợ, sửa ở PR sau (file đang do phiên khác sửa). Mỗi dòng: "file|selector". Bỏ dòng khi đã sửa;
-// dòng không còn khớp chỗ nào cũng là lỗi để danh sách không mục dần.
-const PENDING = new Set([
-  "doi-xe.css|.dx-noi.chua,.dx-sk",
-  "doi-xe-thu.css|.dxt-thang span",
-]);
+// dòng không còn khớp chỗ nào cũng là lỗi để danh sách không mục dần. Rỗng từ 23/11/2026 (Đội xe đã sửa).
+const PENDING = new Set([]);
 
 // Thay chú thích bằng khoảng trắng cùng số dòng để số dòng báo lỗi đúng.
 const blankComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
