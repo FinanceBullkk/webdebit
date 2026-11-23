@@ -33,7 +33,7 @@
 .heat thead th:first-child{border-top-left-radius:var(--radius)}
 .heat thead th:last-child{border-top-right-radius:var(--radius)}
 .heat thead th.tot{padding-right:10px;text-align:right}
-.heat thead th.cur{background:var(--accent);color:#fff}
+.heat thead th.cur{background:var(--accent-ink);color:#fff}
 .heat th.mh,.heat td.m{border-left:1px solid var(--line-soft)}
 .heat th.mh.even:not(.cur),.heat td.m.even{background-color:#f6f8fb}
 .heat tr.alt td.m.even{background-color:#eef2f7}
