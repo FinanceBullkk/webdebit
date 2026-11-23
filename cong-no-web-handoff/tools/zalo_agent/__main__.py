@@ -211,7 +211,8 @@ def configure_logging(root: Path) -> logging.Logger:
 def run_reread(args, root: Path) -> int:
     """`zalo_agent reread`: in số đếm, không in chữ OCR, số tiền hay đường dẫn."""
     since = datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=VN)
-    processor = MoneyImagesProcessor(LiveSync(Path(args.live_sync)), root / "state", root / "reads")
+    # dry_run: `reread` chỉ ghi kho kết quả; con trỏ không lưu nên phân tích lại khi nạp con trỏ không được ghi kho hay xóa ảnh che (`current`)
+    processor = MoneyImagesProcessor(LiveSync(Path(args.live_sync)), root / "state", root / "reads", dry_run=True)
     try:
         counts = processor.reread(ocr.ENGINES[args.engine](), int(since.timestamp() * 1000))
     except ocr.OcrUnavailable:
