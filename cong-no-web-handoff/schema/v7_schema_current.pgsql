@@ -92,12 +92,12 @@ CREATE TABLE sokhach.booking_name (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT booking_name_created_by_check CHECK ((btrim(created_by) <> ''::text)),
     CONSTRAINT booking_name_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES sokhach.customer(id),
-    CONSTRAINT booking_name_name_check CHECK (((name = btrim(name)) AND (name <> ''::text) AND (char_length(name) <= 200) AND (POSITION(('  '::text) IN (name)) = 0) AND (name !~ '[[:cntrl:]]'::text) AND (name = NORMALIZE(name, NFC)) AND (name = upper(name)))),
+    CONSTRAINT booking_name_name_check CHECK (((name = btrim(name)) AND (name <> ''::text) AND (char_length(name) <= 200) AND (POSITION(('  '::text) IN (name)) = 0) AND (name !~ '[[:cntrl:]]'::text) AND (name !~ '[- ­ ᠎ -‏ -  -⁯　﻿]'::text) AND (name = NORMALIZE(name, NFC)) AND (name = upper(name)))),
     CONSTRAINT booking_name_pkey PRIMARY KEY (name)
 );
 ALTER TABLE sokhach.booking_name OWNER TO sokhach_owner;
 CREATE INDEX booking_name_customer ON sokhach.booking_name USING btree (customer_id);
-COMMENT ON TABLE sokhach.booking_name IS 'KHACH-WEB-01: tên chủ hàng trên booking (cột "Chủ hàng (chuẩn)" của CONT_NGUON, "CHỦ HÀNG" của CONT_BO) ứng với một sổ; một tên chỉ một sổ. Web viết hoa, bỏ khoảng trắng thừa trước khi ghi. Không tham gia tính tiền.';
+COMMENT ON TABLE sokhach.booking_name IS 'KHACH-WEB-01: tên chủ hàng trên booking (cột "Chủ hàng (chuẩn)" của CONT_NGUON, "CHỦ HÀNG" của CONT_BO) ứng với một sổ; một tên chỉ một sổ. Web viết hoa, bỏ khoảng trắng thừa trước khi ghi; không nhận ký tự điều khiển hay khoảng trắng lạ (NBSP, ký tự vô hình). Không tham gia tính tiền.';
 
 CREATE TABLE sokhach.cash_report_review (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
@@ -3387,7 +3387,7 @@ CREATE OR REPLACE FUNCTION sokhach.create_customer(book_name text, commodity_nam
 AS $function$
 DECLARE v_actor text := sokhach._actor(); v_commodity bigint; v_customer bigint; v_cutover bigint;
  v_month date := date_trunc('month', clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
- v_key text; v_hash text; v_sha text; v_saved sokhach.idempotency%ROWTYPE; v_name text; v_n int := 0; v_result jsonb;
+ v_key text; v_hash text; v_sha text; v_saved sokhach.idempotency%ROWTYPE; v_name text; v_n int := 0; v_result jsonb; v_book_key text;
 BEGIN
  IF idempotency_key IS NULL OR btrim(idempotency_key) = '' OR char_length(idempotency_key) > 200 THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
  v_key := 'create_customer:' || idempotency_key;
@@ -3399,7 +3399,9 @@ BEGIN
   IF v_saved.request_hash <> v_hash THEN RAISE EXCEPTION 'IDEMPOTENCY_CONFLICT'; END IF;
   RETURN v_saved.result;
  END IF;
- IF book_name IS NULL OR btrim(book_name) = '' OR book_name <> btrim(book_name) OR length(book_name) > 200
+ IF book_name IS NULL OR btrim(book_name) = '' OR book_name <> btrim(book_name) OR char_length(book_name) > 200
+    OR position('  ' IN book_name) > 0 OR book_name ~ '[[:cntrl:]]' OR book_name ~ U&'[\0080-\009F\00A0\00AD\1680\180E\2000-\200F\2028-\202F\205F-\206F\3000\FEFF]'
+    OR book_name <> normalize(book_name, NFC) OR translate(book_name, '/\?*[]:''', '') <> book_name
  THEN RAISE EXCEPTION 'INVALID_BOOK_NAME'; END IF;
  IF book_mode IS NULL OR book_mode NOT IN ('CANG','BO')
     OR (commodity_name IS NOT NULL AND (btrim(commodity_name) = '' OR commodity_name <> btrim(commodity_name) OR length(commodity_name) > 80))
@@ -3411,12 +3413,15 @@ BEGIN
  THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
  IF (SELECT count(DISTINCT x.v) <> count(*) FROM jsonb_array_elements_text(booking_names) x(v))
  THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
- IF EXISTS (SELECT 1 FROM sokhach.customer c WHERE lower(c.name) = lower(book_name)) THEN RAISE EXCEPTION 'BOOK_EXISTS'; END IF;
+ v_book_key := lower(btrim(regexp_replace(translate(normalize(book_name, NFC), '/\?*[]:''', ''), U&'[\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+', ' ', 'g')) COLLATE "pg_c_utf8");
+ IF EXISTS (SELECT 1 FROM sokhach.customer c WHERE lower(btrim(regexp_replace(translate(normalize(c.name, NFC), '/\?*[]:''', ''), U&'[\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+', ' ', 'g')) COLLATE "pg_c_utf8") = v_book_key)
+ THEN RAISE EXCEPTION 'BOOK_EXISTS'; END IF;
  IF EXISTS (SELECT 1 FROM sokhach.booking_name b WHERE b.name IN (SELECT jsonb_array_elements_text(booking_names)))
  THEN RAISE EXCEPTION 'BOOKING_NAME_TAKEN'; END IF;
+ -- Chỉ mặt hàng có sẵn trong danh mục: gõ tự do thì danh mục thêm nhóm lạ và sổ không bao giờ trùng mặt hàng booking để tự dán.
  IF commodity_name IS NOT NULL THEN
-  INSERT INTO sokhach.commodity(name) VALUES (commodity_name) ON CONFLICT (name) DO NOTHING;
   SELECT m.id INTO v_commodity FROM sokhach.commodity m WHERE m.name = commodity_name;
+  IF NOT FOUND THEN RAISE EXCEPTION 'INVALID_COMMODITY'; END IF;
  END IF;
  INSERT INTO sokhach.customer(name, commodity_id, transport_mode) VALUES (book_name, v_commodity, book_mode) RETURNING id INTO v_customer;
  INSERT INTO sokhach.book_fee_column(customer_id, fee_type_id, position)
@@ -5239,12 +5244,12 @@ BEGIN
     PERFORM sokhach._actor();
     RETURN (SELECT jsonb_build_object('customers',coalesce(jsonb_agg(
         jsonb_build_object('id',id,'name',name,'status',status,
-                           'commodity',commodity,'transport_mode',transport_mode,'booking_names',booking_names)
+                           'commodity',commodity,'transport_mode',transport_mode,'booking_names',booking_names,'archived',archived)
         ORDER BY name COLLATE "C",id),'[]'::jsonb))
       FROM (SELECT c.id,c.name,
                    CASE WHEN cc.status='active' AND co.status='active'
                         THEN 'active' ELSE 'NO_BASELINE' END AS status,
-                   m.name AS commodity,c.transport_mode,sokhach._booking_names(c.id) AS booking_names
+                   m.name AS commodity,c.transport_mode,sokhach._booking_names(c.id) AS booking_names,c.archived
               FROM sokhach.customer c
               LEFT JOIN sokhach.commodity m ON m.id=c.commodity_id
               LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id
@@ -6281,12 +6286,14 @@ BEGIN
  v_retry := sokhach._begin_command(customer_id, expected_version, idempotency_key, v_payload);
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
  IF remove IS NULL OR name IS NULL OR name <> btrim(name) OR name = '' OR char_length(name) > 200 OR position('  ' IN name) > 0
-    OR name ~ '[[:cntrl:]]' OR name <> normalize(name, NFC) OR name <> upper(name)
+    OR name ~ '[[:cntrl:]]' OR name ~ U&'[\0080-\009F\00A0\00AD\1680\180E\2000-\200F\2028-\202F\205F-\206F\3000\FEFF]' OR name <> normalize(name, NFC) OR name <> upper(name)
  THEN RAISE EXCEPTION 'INVALID_BOOKING_NAME'; END IF;
  -- Khóa sổ của _begin_command chỉ chặn trong một sổ: hai sổ cùng gán một tên cùng lúc thì khóa theo tên.
  PERFORM pg_advisory_xact_lock(hashtextextended('booking_name:' || set_booking_name.name, 0));
  SELECT b.customer_id INTO v_owner FROM sokhach.booking_name b WHERE b.name = set_booking_name.name;
  SELECT to_jsonb(c) INTO v_customer FROM sokhach.customer c WHERE c.id = set_booking_name.customer_id;
+ -- Sổ đã lưu trữ không nhận chuyến mới nên không gán thêm tên; bỏ tên vẫn được để dọn.
+ IF NOT remove AND (v_customer->>'archived')::boolean THEN RAISE EXCEPTION 'CUSTOMER_ARCHIVED'; END IF;
  v_before := sokhach._booking_names(set_booking_name.customer_id);
  IF remove THEN
   IF v_owner IS DISTINCT FROM set_booking_name.customer_id THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;

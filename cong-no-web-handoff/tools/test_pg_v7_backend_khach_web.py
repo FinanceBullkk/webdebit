@@ -1,5 +1,6 @@
 """Quản lý tạo sổ khách mới và gán tên chủ hàng booking trên web (KHACH-WEB-01). Chạy qua harness V7 dùng một lần, dữ liệu giả."""
 import json
+import unicodedata
 
 from pg_v7_harness import (
     ROOT,
@@ -28,6 +29,7 @@ def _listed(pg, customer):
 
 def check_khach_web(pg):
     month = pg.value("SELECT to_char(date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh'), 'YYYY-MM-DD')")
+    pg.sql("INSERT INTO sokhach.commodity(name) VALUES ('Dừa') ON CONFLICT (name) DO NOTHING")   # danh mục có sẵn trên DB thật
     names = json.dumps(["KHACH GIA 413", "KHACH GIA 413 B"], ensure_ascii=False)
     created = call(pg, "create_customer", "KHACH MOI WEB", "Dừa", "CANG", names, "web-tao-1", actor="quan-ly-thu")
     customer = created["customer_id"]
@@ -70,6 +72,18 @@ def check_khach_web(pg):
     reject_call(pg, "create_customer", "KHACH X", None, "CANG", "[]", " ", error="INVALID_COMMAND")
     require(_rows(pg) == before, "failed create left rows behind")
 
+    # Review: tên sổ phải sạch như tên tab Sheet trong file xuất (máy đối soát so theo tên đó); gần trùng một sổ có sẵn theo khóa gộp
+    # (khoảng trắng, hoa thường, các dấu file bỏ) là BOOK_EXISTS; mặt hàng ngoài danh mục là INVALID_COMMODITY, danh mục không thêm dòng.
+    for name in ("KHACH  X", "KHACH/X", "KHACH:X", "KHACH 'X'", "KHACH\u00a0X", "KHACH\u200bX", unicodedata.normalize("NFD", "KHÁCH X")):
+        reject_call(pg, "create_customer", name, None, "CANG", "[]", "web-ten-sai", error="INVALID_BOOK_NAME")
+    reject_call(pg, "create_customer", "Khach Moi Web", None, "CANG", "[]", "web-gan-trung-1", error="BOOK_EXISTS")
+    slash = new_book(pg, ("2026-01-01", 100))
+    pg.sql(f"UPDATE sokhach.customer SET name='KHACH A/B WEB' WHERE id={slash}")   # tên máy tạo theo tab cũ có thể còn dấu này
+    reject_call(pg, "create_customer", "khach ab web", None, "CANG", "[]", "web-gan-trung-2", error="BOOK_EXISTS")
+    commodities, before = pg.value("SELECT count(*) FROM sokhach.commodity"), _rows(pg)
+    reject_call(pg, "create_customer", "KHACH MAT HANG LA", "Dừa Lạ", "CANG", "[]", "web-mat-hang", error="INVALID_COMMODITY")
+    require(pg.value("SELECT count(*) FROM sokhach.commodity") == commodities and _rows(pg) == before, "unknown commodity added or left rows")
+
     # Sổ mới nhận chuyến như mọi sổ (paste_trips cần mốc có tham chiếu: dòng đánh dấu SO-MOI).
     fixture_open_month(pg, customer, month)
     pasted = call(pg, "paste_trips", customer, version(pg, customer), "web-dan", month, trip_json(month=month))
@@ -89,7 +103,7 @@ def check_khach_web(pg):
     reject_call(pg, "set_booking_name", old, v + 1, "ten-3", "KHACH GIA 413", False, error="BOOKING_NAME_TAKEN")
     reject_call(pg, "set_booking_name", old, v + 1, "ten-4", "KHACH GIA 413", True, error="NO_CHANGE")
     reject_call(pg, "set_booking_name", old, v, "ten-5", "CHU HANG KHAC", False, error="STALE_LEDGER")
-    for bad in ("chu hang thuong", "CHU  HANG", " CHU HANG", "CHU\tHANG", "", "X" * 201):
+    for bad in ("chu hang thuong", "CHU  HANG", " CHU HANG", "CHU\tHANG", "", "X" * 201, "CHU\u00a0HANG", "CHU\u200bHANG", "CHU\ufeffHANG"):
         reject_call(pg, "set_booking_name", old, v + 1, "ten-sai", bad, False, error="INVALID_BOOKING_NAME")
     reject_call(pg, "set_booking_name", old, v + 1, "ten-null", "CHU HANG", None, error="INVALID_BOOKING_NAME")
     removed = call(pg, "set_booking_name", old, v + 1, "ten-6", "CHU HANG CU 126", True)
@@ -97,6 +111,15 @@ def check_khach_web(pg):
     gone = [row for row in call(pg, "get_ledger_events", old)["events"] if row["after"].get("booking_name_removed")]
     require(len(gone) == 1, "remove not in history")
     require(call(pg, "get_ledger", old)["total_outstanding_vnd"] == balance, "booking names changed money")
+    # Bảng cũng chặn khoảng trắng lạ, ký tự vô hình khi ghi thẳng (không qua lệnh).
+    pg.rejects(f"INSERT INTO sokhach.booking_name(name, customer_id, created_by) VALUES ('CHU\u00a0HANG', {old}, 'thu')", message="booking_name_name_check")
+    # Sổ lưu trữ không nhận tên mới (không nhận chuyến mới); bỏ tên vẫn được. list_customers trả cờ lưu trữ.
+    stored = new_book(pg, ("2026-01-01", 100))
+    call(pg, "set_booking_name", stored, version(pg, stored), "luu-1", "CHU HANG LUU TRU", False)
+    pg.sql(f"UPDATE sokhach.customer SET archived=true WHERE id={stored}")
+    require(_listed(pg, stored)["archived"] is True and _listed(pg, customer)["archived"] is False, "archived flag in list_customers")
+    reject_call(pg, "set_booking_name", stored, version(pg, stored), "luu-2", "CHU HANG LUU TRU 2", False, error="CUSTOMER_ARCHIVED")
+    require(call(pg, "set_booking_name", stored, version(pg, stored), "luu-3", "CHU HANG LUU TRU", True)["booking_names"] == [], "archived remove")
     # Tên vừa bỏ thì sổ khác gán được.
     call(pg, "set_booking_name", customer, version(pg, customer), "ten-7", "CHU HANG CU 126", False)
     require(_listed(pg, customer)["booking_names"] == ["CHU HANG CU 126", "KHACH GIA 413", "KHACH GIA 413 B"], "moved name")

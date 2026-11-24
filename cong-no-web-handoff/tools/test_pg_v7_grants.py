@@ -240,11 +240,11 @@ def check_api(pg):
         return result
     expected = json.loads(pg.value("SELECT jsonb_build_object('customers',coalesce(jsonb_agg("
         "jsonb_build_object('id',id,'name',name,'status',status,'commodity',commodity,"
-        "'transport_mode',transport_mode,'booking_names',booking_names) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) "
+        "'transport_mode',transport_mode,'booking_names',booking_names,'archived',archived) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) "
         "FROM (SELECT c.id,c.name,CASE WHEN cc.status='active' AND co.status='active' THEN 'active' "
         "ELSE 'NO_BASELINE' END AS status,m.name AS commodity,c.transport_mode,"
         "(SELECT coalesce(jsonb_agg(b.name ORDER BY b.name COLLATE \"C\"),'[]'::jsonb) FROM sokhach.booking_name b "
-        "WHERE b.customer_id=c.id) AS booking_names FROM sokhach.customer c "
+        "WHERE b.customer_id=c.id) AS booking_names,c.archived FROM sokhach.customer c "
         "LEFT JOIN sokhach.commodity m ON m.id=c.commodity_id LEFT JOIN sokhach.cutover_customer cc "
         "ON cc.customer_id=c.id LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q"))
     require(invoke('list_customers') == expected, 'customer JSON differs from original query')

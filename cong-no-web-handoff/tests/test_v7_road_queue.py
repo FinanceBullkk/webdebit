@@ -3,6 +3,7 @@
 import json
 import sys
 import tempfile
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -136,6 +137,27 @@ class OwnerBookTests(unittest.TestCase):
         self.assertEqual([(item["container"], item["customer_id"], item["book_basis"]) for item in queue["items"]],
                          [("NEWU1000001", 7, "booking_name")])
         self.assertEqual(queue["stats"], {"BOOKING_NAME": 1, "TAB_FAR": 1, "AMBIGUOUS_SOURCE": 2, "NO_TAB": 1})
+
+    def test_booking_name_respects_road_mode_tab_history_and_unicode(self):
+        """Review KHACH-WEB-01: tên ở sổ ghi đi biển không dẫn chuyến bộ; sổ lưu trữ không nhận; tab đã đưa chủ hàng vào sổ khác thì
+        tên web không thắng (về luật chủ hàng như trước); chữ gõ dạng tổ hợp (NFD) vẫn khớp; hai sổ cùng một khóa thì bỏ khóa."""
+        customers = [{**CUSTOMERS[0], "booking_names": ["KHÁCH MỚI 401"]},
+                     {**CUSTOMERS[1], "transport_mode": "CANG", "booking_names": ["CHU HANG BIEN"]},
+                     {"id": 10, "name": "KHACH LUU TRU", "status": "active", "archived": True, "booking_names": ["CHU HANG CU"]},
+                     {"id": 11, "name": "KHACH D", "status": "active", "transport_mode": "BO", "booking_names": ["CHU HANG A/B"]},
+                     {"id": 12, "name": "KHACH E", "status": "active", "transport_mode": "BO", "booking_names": ["CHU HANG AB"]},
+                     {"id": 13, "name": "KHACH F", "status": "active", "transport_mode": "BO", "booking_names": ["CHU HANG TAB"]}]
+        rows = [road_row(2, "NEWU1000001", "2026-11-05", owner=unicodedata.normalize("NFD", "khách mới 401")),
+                road_row(3, "NEWU1000002", "2026-11-06", owner="CHU HANG BIEN"),
+                road_row(4, "NEWU1000003", "2026-11-07", owner="CHU HANG CU"),
+                road_row(5, "NEWU1000004", "2026-11-08", owner="CHU HANG AB"),
+                road_row(6, "TABU1000001", "2026-10-02", owner="CHU HANG TAB"),
+                road_row(7, "NEWU1000005", "2026-11-09", owner="CHU HANG TAB")]
+        queue = build_road_queue({"sha256": SHA, "rows": rows}, {"rows": [tab_row("KHACH B", 40, "TABU1000001", "2026-10-02")]}, customers)
+        self.assertEqual([(item["container"], item["customer_id"], item["book_basis"]) for item in queue["items"]],
+                         [("NEWU1000001", 7, "booking_name"), ("TABU1000001", 8, "tab")])
+        self.assertEqual(queue["stats"], {"BOOKING_NAME": 1, "BOOK": 1, "NO_TAB": 4})
+        self.assertEqual(queue["owner_books"], {"CHU HANG TAB": [8]})
 
     def test_same_container_twice_within_three_days_is_not_two_trips(self):
         queue = self.build([road_row(2, "TWIN0000001", "2026-10-11", owner="CHU HANG X 379"),

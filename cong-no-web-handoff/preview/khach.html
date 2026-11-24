@@ -46,15 +46,14 @@
       <div class="nd-dialog-body">
         <label class="nd-field">Tên sổ
           <input id="create-name" type="text" autocomplete="off" maxlength="200" required aria-describedby="create-name-hint create-error">
-          <span id="create-name-hint" class="kh-hint">Sheet cũng có tab của khách này thì đặt đúng tên tab, để máy đối soát ghép đúng sổ.</span>
+          <span id="create-name-hint" class="kh-hint">Sheet cũng có tab của khách này thì đặt đúng tên tab (máy tự theo đúng chữ tab), không dùng các dấu / \ ? * [ ] : '.</span>
         </label>
         <fieldset class="nd-roles kh-mode"><legend>Đi đường</legend>
           <label class="nd-role-opt"><input type="radio" name="create-mode" value="CANG" checked><span><b>Biển</b><span>Chuyến từ CONT_NGUON</span></span></label>
           <label class="nd-role-opt"><input type="radio" name="create-mode" value="BO"><span><b>Bộ</b><span>Chuyến từ CONT_BO</span></span></label>
         </fieldset>
         <label class="nd-field"><span>Mặt hàng <span class="nd-optional">(chuyến biển chỉ tự vào sổ khi trùng mặt hàng booking)</span></span>
-          <input id="create-commodity" type="text" list="commodity-list" autocomplete="off" maxlength="80">
-          <datalist id="commodity-list"></datalist>
+          <select id="create-commodity" class="nd-box"><option value="">Chưa gán</option></select>
         </label>
         <label class="nd-field"><span>Tên trên booking <span class="nd-optional">(mỗi dòng một tên, đúng như cột chủ hàng)</span></span>
           <textarea id="create-booking" rows="3" spellcheck="false"></textarea>

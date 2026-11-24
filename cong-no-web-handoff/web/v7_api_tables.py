@@ -94,8 +94,11 @@ ERRORS = {
     "BOOK_EXISTS": (409, "Sổ tên này đã có."),
     # KHACH-WEB-01: tạo sổ và gán tên chủ hàng booking trên web.
     "BOOKING_NAME_TAKEN": (409, "Tên chủ hàng này đã gán cho sổ khác. Bỏ ở sổ đó trước."),
+    "BOOKING_NAME_ROUTED": (409, "Tên này đang đưa chuyến vào sổ khác."),
     "INVALID_BOOKING_NAME": (422, "Tên chủ hàng không hợp lệ."),
-    "INVALID_BOOK_NAME": (422, "Tên sổ không hợp lệ."),
+    "INVALID_BOOK_NAME": (422, "Tên sổ không hợp lệ: không có ký tự lạ hay các dấu / \\ ? * [ ] : ', tối đa 200 ký tự."),
+    "INVALID_COMMODITY": (422, "Mặt hàng chưa có trong danh mục. Chọn một mặt hàng có sẵn."),
+    "CUSTOMER_ARCHIVED": (409, "Sổ đã lưu trữ, không gán thêm tên booking."),
     "INVALID_CUTOVER_INPUT": (422, "Dữ liệu sổ mới không hợp lệ."),
     "CUTOVER_CUSTOMER_TOTAL_MISMATCH": (422, "Tổng số dư đầu của sổ mới không khớp."),
     "CUTOVER_SOURCE_INCOMPLETE": (422, "Dữ liệu sổ mới thiếu tháng."),

@@ -2434,7 +2434,7 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
 
 ## Khách mới và tên chủ hàng booking trên web (KHACH-WEB-01) — nâng DB đang có (CHƯA CHẠY)
 
-Migration `cong-no-web-handoff/tools/migrations/2026-11-24-v7-khach-web.sql` ([quyết định](decisions/khach-web-01.md), [spec](../specs/v7-khach-web.md)) chỉ THÊM bảng `booking_name`, hai lệnh `create_customer(text,text,text,jsonb,text)`, `set_booking_name(bigint,bigint,text,text,boolean)` cấp cho app, hàm phụ `_booking_names(bigint)` không cấp ai, và thay `list_customers()` (thêm trường `booking_names`, quyền giữ nguyên). Không đổi tiền, phân bổ, dữ liệu cũ. Không tăng `schema_level`. Chạy lại được.
+Migration `cong-no-web-handoff/tools/migrations/2026-11-24-v7-khach-web.sql` ([quyết định](decisions/khach-web-01.md), [spec](../specs/v7-khach-web.md)) chỉ THÊM bảng `booking_name`, hai lệnh `create_customer(text,text,text,jsonb,text)`, `set_booking_name(bigint,bigint,text,text,boolean)` cấp cho app, hàm phụ `_booking_names(bigint)` không cấp ai, và thay `list_customers()` (thêm trường `booking_names` và `archived`, quyền giữ nguyên). Không đổi tiền, phân bổ, dữ liệu cũ. Không tăng `schema_level`. Chạy lại được.
 
 Thứ tự với release: chạy migration trước. Release mới mà DB chưa có bảng thì `list_customers` cũ không có `booking_names` (hàng chờ coi như chưa có tên nào), còn trang Khách gửi lệnh thì lỗi hàm không có; không ghi gì sai.
 

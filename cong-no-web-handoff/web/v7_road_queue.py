@@ -13,6 +13,7 @@ mà chưa dòng CONT_BO nào nhận thì cũng chờ: đó thường là chính 
 from __future__ import annotations
 
 import datetime as dt
+import unicodedata
 from collections import Counter
 from typing import Any
 
@@ -41,9 +42,10 @@ def _near(tab_row: dict[str, Any], date: dt.date) -> bool:
     return str(tab_row.get("debt_month") or "")[:7] == date.isoformat()[:7]
 
 
-def _owner_key(owner: Any) -> str:
-    """CHỦ HÀNG gõ tay: bỏ khoảng trắng thừa và không phân biệt hoa thường; số mã khách (379) vẫn giữ."""
-    return name_key(owner).upper()
+def owner_key(owner: Any) -> str:
+    """CHỦ HÀNG gõ tay: NFC (chữ gõ dạng tổ hợp vẫn khớp), bỏ khoảng trắng thừa và các dấu file xuất không nhận, không phân biệt hoa
+    thường; số mã khách (379) vẫn giữ. Trang Khách dùng chung khóa này để kiểm tên gán trên web (KHACH-WEB-01)."""
+    return name_key(unicodedata.normalize("NFC", str(owner or ""))).upper()
 
 
 def _close(tab_row: dict[str, Any], date: dt.date) -> bool:
@@ -100,15 +102,20 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
     near_any = {(row.get("customer_tab"), row.get("source_row")) for source, date, *_ in placed
                 for row in by_container.get(container_key(source.get("container")), []) if _near(row, date)}
     # KHACH-WEB-01: CHỦ HÀNG quản lý đã gán tên booking cho một sổ thì vào sổ đó, không cần đủ OWNER_MIN_TRIPS chuyến tab đã xếp.
-    named: dict[str, int] = {}
+    # Chỉ sổ không ghi là đi biển và chưa lưu trữ: tên gán ở sổ biển chỉ dẫn chuyến biển. Hai sổ cùng một khóa (tên khác nhau chỉ ở
+    # dấu file bỏ) thì bỏ khóa đó, như `owners()`.
+    named: dict[str, int | None] = {}
     for customer in active:
+        if customer.get("transport_mode") == "CANG" or customer.get("archived"):
+            continue
         for name in customer.get("booking_names") or ():
-            if isinstance(name, str) and _owner_key(name):
-                named[_owner_key(name)] = customer["id"]
+            key = owner_key(name) if isinstance(name, str) else ""
+            if key:
+                named[key] = customer["id"] if named.get(key, customer["id"]) == customer["id"] else None
     learned: dict[str, Counter] = {}
     for source, _date, reason, book, tab_row in placed:
-        if not reason and claimed[(tab_row.get("customer_tab"), tab_row.get("source_row"))] == 1 and _owner_key(source.get("owner")):
-            learned.setdefault(_owner_key(source.get("owner")), Counter())[book] += 1
+        if not reason and claimed[(tab_row.get("customer_tab"), tab_row.get("source_row"))] == 1 and owner_key(source.get("owner")):
+            learned.setdefault(owner_key(source.get("owner")), Counter())[book] += 1
     # Lượt 2, từ ROAD_FROM.
     items, stats, skipped = [], Counter(), []
 
@@ -119,8 +126,11 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
         if date.isoformat()[:7] < ROAD_FROM:
             continue
         if reason == "NO_TAB":
-            by_name = named.get(_owner_key(source.get("owner")))
-            books = Counter({by_name: OWNER_MIN_TRIPS}) if by_name else learned.get(_owner_key(source.get("owner"))) or Counter()
+            history = learned.get(owner_key(source.get("owner"))) or Counter()
+            by_name = named.get(owner_key(source.get("owner")))
+            if by_name and set(history) - {by_name}:
+                by_name = None   # tab đã đưa chủ hàng này vào sổ khác (hay nhiều sổ, thường là kho): tên gán trên web không thắng
+            books = Counter({by_name: OWNER_MIN_TRIPS}) if by_name else history
             if len(books) != 1 or sum(books.values()) < OWNER_MIN_TRIPS:
                 skip(source, date, "NO_TAB")   # chủ hàng chưa rõ sổ (kho, khách mới): chờ tab
                 continue
@@ -151,8 +161,10 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
         skipped += [{"container": item["container"], "event_date": item["event_date"], "reason": "AMBIGUOUS_SOURCE"}
                     for item in items if id(item) in twin]
         items = [item for item in items if id(item) not in twin]
+    # owner_books: CHỦ HÀNG → các sổ tab đã nhận chuyến của nó; trang Khách dựa vào đây để không gán tên kho hay tên đang vào sổ khác.
     return {"snapshot_sha256": road.get("sha256"), "snapshot_created_at": (road.get("runner") or {}).get("created_at"),
-            "items": items, "stats": dict(stats), "skipped": skipped}
+            "items": items, "stats": dict(stats), "skipped": skipped,
+            "owner_books": {key: sorted(found) for key, found in learned.items()}}
 
 
 def in_book(pool: list[dict[str, Any]], container: str, date: dt.date) -> bool:

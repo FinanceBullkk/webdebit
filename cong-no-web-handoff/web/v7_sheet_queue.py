@@ -113,19 +113,22 @@ def _pick_book(name: str, commodity: str, names: dict[str, list[dict[str, Any]]]
 
 
 def web_aliases(customers: list[dict[str, Any]]) -> dict[str, str]:
-    """Tên chủ hàng booking → tên sổ theo bảng tên booking quản lý gán trên web (KHACH-WEB-01), chỉ sổ đang hoạt động.
+    """Tên chủ hàng booking → tên sổ theo bảng tên booking quản lý gán trên web (KHACH-WEB-01).
 
-    Khóa chuẩn hóa như `_name` (cùng cách bảng WEB_GHEP_KHACH được đọc), nên tên gán trên web thắng tên cùng chữ ở bảng đó.
-    DB chặn một tên ứng hai sổ; danh sách khách lỗi dạng thì bỏ qua dòng đó.
+    Chỉ sổ đang hoạt động, chưa lưu trữ, không ghi là đi bộ: tên gán ở sổ bộ chỉ dẫn chuyến bộ (hàng chờ CONT_BO). Khóa chuẩn hóa như
+    `_name` (cùng cách bảng WEB_GHEP_KHACH được đọc), nên tên gán trên web thắng tên cùng chữ ở bảng đó. DB chặn một tên ứng hai sổ;
+    hai sổ vẫn ra cùng một khóa thì bỏ khóa đó (bảng WEB_GHEP_KHACH, nếu có, lại áp dụng); khách lỗi dạng thì bỏ qua.
     """
-    aliases: dict[str, str] = {}
+    aliases: dict[str, str | None] = {}
     for customer in customers:
-        if not isinstance(customer, dict) or customer.get("status") != "active" or not isinstance(customer.get("name"), str):
+        if not isinstance(customer, dict) or customer.get("status") != "active" or not isinstance(customer.get("name"), str) \
+                or customer.get("transport_mode") == "BO" or customer.get("archived"):
             continue
         for name in customer.get("booking_names") or ():
-            if isinstance(name, str) and _name(name):
-                aliases[_name(name)] = customer["name"]
-    return aliases
+            key = _name(name) if isinstance(name, str) else ""
+            if key:
+                aliases[key] = customer["name"] if aliases.get(key, customer["name"]) == customer["name"] else None
+    return {key: book for key, book in aliases.items() if book is not None}
 
 
 def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], baseline: dict[str, Any]) -> dict[str, Any]:

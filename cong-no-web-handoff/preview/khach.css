@@ -15,6 +15,10 @@
 .kh-ask .ask{overflow-wrap:anywhere}
 .kh-ask.danger .ask{color:#8f1f1c}
 .kh-ask b{font-weight:700}
+/* Chủ hàng không gán được ở đây (tên kho đã vào nhiều sổ, tên đã gán cho sổ khác đường): lý do thay cho nút. */
+.kh-owner.kh-blocked{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.kh-why{margin:0;color:#4a5562;font-size:14px;overflow-wrap:anywhere}
+.kh-dialog select.nd-box{width:100%}
 
 .kh-books-head{flex-wrap:wrap}
 .kh-search{width:240px;height:40px;padding:0 12px;border:1px solid #c3cbd4;border-radius:8px;font:inherit;color:var(--ink)}
@@ -40,7 +44,7 @@
 .kh-mode .nd-role-opt{flex:1}
 
 @media (max-width:760px){
-  .kh-owner{grid-template-columns:1fr;row-gap:10px;padding:12px 8px 12px 14px}
+  .kh-owner,.kh-owner.kh-blocked{grid-template-columns:1fr;row-gap:10px;padding:12px 8px 12px 14px}
   .kh-owner .nd-acts{flex-wrap:wrap}
   .kh-pick{width:100%}
   .kh-cols{display:none}
