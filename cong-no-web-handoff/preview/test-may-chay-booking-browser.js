@@ -67,6 +67,7 @@ test('Kiểm booking: lượt đạt hiện giờ, số dòng khớp, nhóm đ�
   const groups = await page.locator('.bk-group').allInnerTexts();
   assert.deepEqual(groups.map(text => text.replace(/\s+/g, ' ')), ['Nghi tính hai lần 3', 'Booking có, sổ chưa tính 1', 'Sổ khác khách booking 0', 'Trên sổ, booking không có 1',
     'Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này chưa lên sổ 0']);
+  assert.equal(await page.locator('[data-group="fix"]').count(), 0, 'lượt chưa có booking_fix: không hiện nhóm như thể 0 dòng lỗi');
   assert.equal(await page.locator('[data-group="other"]').isDisabled(), true);
   assert.equal(await page.locator('#bk-list').isVisible(), false);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
@@ -135,6 +136,46 @@ test('Kiểm booking: đọc sổ web lỗi thì nhóm tháng này giữ một n
   await page.locator('[data-group="recent"]').click();
   assert.ok((await page.locator('#bk-body').innerText()).includes('Tháng này, sổ có thể chưa ghi'));
   assert.equal(await page.locator('#bk-body a', { hasText: 'xem lý do' }).count(), 0);
+}));
+
+// Lọc nhiễu 24/11/2026: dòng booking thiếu ngày liệt kê theo tab nguồn cho người giữ booking; chuyến chưa tính nói rõ sổ có mấy dòng.
+const FIX = [
+  { family: 'BIEN', tab: 'THÁNG 08/2026', line: '41', cont: 'OERU4400262', owner: 'CHU HANG GIA', ref: 'BK8', raw_date: '/' },
+  { family: 'BIEN', tab: 'THÁNG 07/2026', line: '25', cont: 'OERU4111260', owner: '', ref: 'BK7', raw_date: 'in' },
+  { family: 'BO', tab: 'CONT_BO', line: 91, cont: 'CRLU1220757', owner: 'KHO GIA', ref: '47C-23393', raw_date: '' },
+];
+const NEAR_ROWS = [
+  { ...ROWS[3], near: { booking: 2, sheet: 1 } },
+  { ...ROWS[3], container: 'ALOU7777777', near: { booking: 1, sheet: 0 } },
+  { ...ROWS[5], month: '2026-06', source: src('2026-05-29', 'BO') },
+];
+
+test('Kiểm booking: nhóm Booking thiếu ngày lọc theo tab nguồn; chuyến chưa tính nói sổ có mấy dòng; sổ ghi ở khối tháng sau', () => withPage(ok({
+  booking_fix: FIX, rows: [...ROWS.filter(row => row.group !== 'missing' && row.group !== 'nodate'), ...NEAR_ROWS],
+  counts: { ...COUNTS, missing: 2 },
+}), async page => {
+  const fix = page.locator('[data-group="fix"]');
+  assert.equal((await fix.innerText()).replace(/\s+/g, ' '), 'Booking thiếu ngày 3');
+  assert.equal(await fix.evaluate(el => el.closest('.bk-row').classList.contains('bk-info')), true, 'không đụng tiền: nằm ở hàng để biết');
+  await fix.click();
+  assert.equal(await page.locator('#bk-headrow').innerText(), 'Container\tÔ ngày trong booking\tTab nguồn\tBooking / số xe\tChủ hàng\tViệc');
+  const rows = await page.locator('#bk-body tr').allInnerTexts();
+  assert.equal(rows.length, 3);
+  assert.ok(rows[0].includes('OERU4400262') && rows[0].includes('THÁNG 08/2026 dòng 41') && rows[0].includes('BK8') && rows[0].includes('CHU HANG GIA'), rows[0]);
+  assert.ok(rows[2].includes('trống') && rows[2].includes('CONT_BO dòng 91') && rows[2].includes('Bộ'), rows[2]);
+  assert.equal(await page.locator('#bk-filter-name').innerText(), 'Tab nguồn');
+  await page.locator('#bk-book').selectOption('CONT_BO');
+  assert.equal(await page.locator('#bk-body tr').count(), 1);
+  assert.equal(await page.locator('#bk-list-name').innerText(), 'Booking thiếu ngày · 1 / 3');
+  await page.locator('[data-group="missing"]').click();
+  assert.equal(await page.locator('#bk-filter-name').innerText(), 'Sổ');
+  assert.ok((await page.locator('#bk-headrow').innerText()).startsWith('Container\tNgày trên sổ'));
+  const missing = await page.locator('#bk-body tr').allInnerTexts();
+  assert.ok(missing[0].includes('booking có 2 chuyến container này trong 45 ngày quanh đó, sổ có 1 dòng'), missing[0]);
+  assert.ok(missing[1].includes('sổ không có dòng nào của container này trong 45 ngày quanh đó'), missing[1]);
+  await page.locator('[data-group="nodate"]').click();
+  assert.ok((await page.locator('#bk-body tr').innerText()).includes('Sổ không ghi ngày, ghi ở khối tháng sau'));
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
 }));
 
 test('Kiểm booking: chưa có lượt, lượt lỗi, kết quả cũ, không tải được đều không hiện như "không có gì lệch"', async () => {

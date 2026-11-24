@@ -11,7 +11,8 @@ CONT_BO / "CONT BỘ" (road), "THÁNG m/yyyy" (sea, booking file), "ĐƯỜNG S�
 3 days apart) is dropped; rows of one tab never drop each other.
 
 Rule (1): a Sheet trip and a source trip pair when the container matches and the dates are at most 3 days apart; a
-Sheet row without a date pairs within its debt month. Each source trip pairs once, smallest gap first. A road trip also pairs
+Sheet row without a date pairs within its debt month, and failing that with a trip from the second half of the month before
+(KIEM-BOOKING-01, 24/11/2026). Each source trip pairs once, smallest gap first. A road trip also pairs
 by its "Số xe" cell when exactly one trip fits (KIEM-BOOKING-01, 16/11/2026). Prints counts
 only (no names, no money), so the output may go into a deploy log or a spec. DIR must be outside the repository: it
 gets sheet_rows.csv, source_rows.csv and can_xem.csv, which carry customer names. Exit 0 on success, 2 on bad input.
@@ -42,6 +43,10 @@ TRIP_KEY = re.compile(r"[A-Z]{3,5}\d{6,8}")
 PLATE = re.compile(r"\d{2}[A-Z]{1,2}\d{4,6}")
 PAIR_DAYS = 3   # rule (1), same window as BASELINE_DATE_WINDOW
 NEAR_DAYS = 31  # unpaired, same container, 4-31 days apart: maybe a mistyped date, a person decides
+# An undated Sheet row of month M also pairs a trip from the second half of month M-1, after every same-month pair (KIEM-BOOKING-01,
+# 24/11/2026): the Sheet writes end-of-month trips at the top of the next month's block without a date. Measured 24/11/2026: 57 of the
+# 106 "booking has it, the book does not" trips were dated 20-31 May and sat undated in the June block of the same tab.
+LATE_DAY = 16
 # First month each family has sources, measured 3/11/2026 (booking 2025 + CONT_NGUON + CONT_BO).
 START = {"BIEN": "2025-01", "BO": "2025-03"}
 LAYOUTS = {  # field -> headers after loader.normalized, first one found wins; date2 is the per-row fallback
@@ -195,8 +200,14 @@ def days(a: str, b: str) -> int:
     return abs((date.fromisoformat(a) - date.fromisoformat(b)).days)
 
 
+def next_month(month: str) -> str:
+    year, number = int(month[:4]), int(month[5:7])
+    return f"{year + number // 12}-{number % 12 + 1:02d}"
+
+
 def pair(sheet: list[dict[str, Any]], source: list[dict[str, Any]]) -> tuple[dict[int, int], dict[int, int]]:
-    """Rule (1), one-to-one, smallest gap first; dated pairs before undated (same debt month) ones.
+    """Rule (1), one-to-one, smallest gap first; dated pairs before undated (same debt month) ones, and last an undated row with a trip
+    from the second half of the month before its block (`LATE_DAY`).
 
     On equal gaps a row carrying money wins over a 0đ copy, then a row whose month block holds the trip's date: the leftover row is
     then the one to question. A road trip's second key (`source_index`) pairs only when exactly one trip fits, since a truck makes
@@ -211,6 +222,8 @@ def pair(sheet: list[dict[str, Any]], source: list[dict[str, Any]]) -> tuple[dic
             head = (0, gap)
         elif b["date"][:7] == s["month"]:
             head = (1, abs(int(b["date"][8:]) - 15))
+        elif int(b["date"][8:]) >= LATE_DAY and next_month(b["date"][:7]) == s["month"]:
+            head = (2, 31 - int(b["date"][8:]))   # the later in the month, the likelier it moved to the next block
         else:
             return None
         return (*head, second, not s["amount"], s["month"] != b["date"][:7])
@@ -342,7 +355,8 @@ def review(sheet, source, s_pair, b_pair, end, start=None) -> tuple[list[tuple[s
     for i, j in s_pair.items():
         s, b = sheet[i], source[j]
         if not s["date"]:
-            out.append(("NGAY_TU_NGUON", s, b, f"ngày theo nguồn {b['date']}"))
+            later = " (sổ ghi ở khối tháng sau)" if s["month"] != b["date"][:7] else ""
+            out.append(("NGAY_TU_NGUON", s, b, f"ngày theo nguồn {b['date']}{later}"))
         elif s["date"] != b["date"]:
             out.append(("LECH_NGAY", s, b, f"lệch {days(s['date'], b['date'])} ngày"))
         # The owner matches the book when it matches the book's main owner, or is written in the tab name itself: a tab may carry
