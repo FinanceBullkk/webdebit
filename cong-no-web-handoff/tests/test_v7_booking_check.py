@@ -309,3 +309,84 @@ class MonthReportTests(unittest.TestCase):
         self.assertEqual(target.name, "booking-report.json")
         if os.name == "posix":
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+
+def book(book_id, name, trips, mode=None):
+    return {"id": book_id, "name": name, "transport_mode": mode, "trips": trips}
+
+
+def target(cont, day, month=None, kind="trip", price=None, total=None, ident=1):
+    return {"kind": kind, "id": ident, "container": cont, "date": dt.date.fromisoformat(day) if day else None,
+            "month": month or day[:7], "price": price, "total": total}
+
+
+# Sổ web giả (DU-CHUYEN-01): cùng chuyến với SHEET ở trên, mã sổ thay tên tab.
+BOOKS = [
+    book(1, "A", [target("DUPU1111111", "2026-03-10", price=40_000_000), target("GANU2222222", "2026-04-01", kind="legacy", total=40_000_000, ident=2),
+                  target("NONU4444444", "2026-03-15", price=40_000_000, ident=3), target("OTHU8888888", "2026-04-10", ident=4)]),
+    book(2, "B", [target("DUPU1111111", "2026-03-10", kind="legacy", total=40_000_000), target("BBBU1212121", "2026-03-20", ident=2),
+                  target("BEFU0000000", "2026-03-01", ident=3)]),
+    book(3, "A BO", [target("ROAU6666666", "2026-05-05"), target("ROBU7777777", None, month="2026-05", ident=2)], mode="BO"),
+]
+
+
+class WebCheckTests(unittest.TestCase):
+    """DU-CHUYEN-01: sổ web so với booking, cùng luật ghép và nhóm như phép kiểm Sheet."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.dir = Path(folder.name)
+        self.out = self.dir / "booking-web.json"
+
+    def snapshot(self, name, rows):
+        path = self.dir / name
+        path.write_text(json.dumps({"rows": rows, "runner": {"created_at": (NOW - dt.timedelta(minutes=10)).isoformat()}}), encoding="utf-8")
+        return path
+
+    def evaluate(self, books=BOOKS):
+        return job.evaluate_web(books, self.snapshot("snapshot.json", SEA), self.snapshot("road.json", ROAD), NOW)
+
+    def test_web_trips_become_book_rows(self):
+        rows = job.web_rows([*BOOKS, book(4, "DUONG BO X", [target("XYZU1000001", "2026-05-01")]),
+                             book(5, "C", [{"kind": "trip", "id": 9, "container": "", "date": None, "month": "2026-05"}])])
+        self.assertEqual(rows[0], {"tab": "A", "row": "trip:1", "customer_id": 1, "month": "2026-03", "date": "2026-03-10", "raw_date": "",
+                                   "cont": "DUPU1111111", "mode": "CANG", "amount": 40_000_000})
+        self.assertEqual(rows[1]["amount"], 40_000_000, "dòng sổ gốc lấy tổng đã tính")
+        self.assertEqual(rows[3]["amount"], 0, "chuyến chưa giá: 0, chỉ để xếp ưu tiên khi ghép")
+        self.assertEqual({row["tab"]: row["mode"] for row in rows}, {"A": "CANG", "B": "CANG", "A BO": "BO", "DUONG BO X": "BO"})
+        self.assertNotIn("C", {row["tab"] for row in rows}, "chuyến không container không so được")
+        self.assertIsNone(next(row for row in rows if row["cont"] == "ROBU7777777")["date"])
+
+    def test_groups_and_how_many_booking_trips_the_web_has(self):
+        result = self.evaluate()
+        self.assertEqual(result["compare"], "web")
+        self.assertEqual(result["counts"]["dup"], 2, "hai sổ cùng tính một chuyến")
+        self.assertEqual(result["counts"]["nosource"], 2, "NONU trên sổ A, BEFU trên sổ B: booking không có")
+        missing = {row["container"] for row in result["rows"] if row["group"] == "missing"}
+        self.assertEqual(missing, {"MISU9999999", "QQQU1313131", "ROCU7777777"})
+        self.assertEqual(result["counts"]["recent"], 1)
+        self.assertEqual(result["counts"]["nodate"], 1, "dòng web không ngày ghép chuyến booking cùng tháng")
+        self.assertEqual(result["booking"], {"trips": 10, "on_web": 6})
+        self.assertEqual(result["web"], {"rows": 9, "paired": 6}, "hai dòng DUPU chỉ một dòng giữ được chuyến booking")
+        on_book = [row for row in result["rows"] if row["tab"]]
+        self.assertTrue(on_book and all(row["customer_id"] in (1, 2, 3) for row in on_book), "dòng sổ web mang mã sổ để mở đúng sổ")
+        self.assertTrue(all("customer_id" not in row for row in result["rows"] if not row["tab"]))
+
+    def test_empty_web_is_an_error_not_all_clear(self):
+        with self.assertRaises(job.CheckError) as caught:
+            self.evaluate([book(1, "A", [target("OLDU5555555", "2025-06-10")])])
+        self.assertEqual(caught.exception.code, "WEB_EMPTY")
+
+    def test_run_never_raises_and_keeps_the_last_good_result(self):
+        sea_path, road_path = self.snapshot("snapshot.json", SEA), self.snapshot("road.json", ROAD)
+        with mock.patch("sys.stderr"):
+            line = job.run_web_safely(BOOKS, self.out, sea_path, road_path, NOW)
+            self.assertEqual(line["booking"], {"trips": 10, "on_web": 6})
+            good = json.loads(self.out.read_text(encoding="utf-8"))
+            self.assertEqual(job.run_web_safely([{"bad": True}], self.out, sea_path, road_path, NOW)["error"], "WEB_EMPTY")
+            self.assertEqual(job.run_web_safely(None, self.out, sea_path, road_path, NOW)["error"], "TypeError")
+        kept = json.loads(self.out.read_text(encoding="utf-8"))
+        self.assertEqual((kept["checked_at"], kept["rows"], kept["last_error"]["reason"]), (good["checked_at"], good["rows"], "TypeError"))
+        self.assertNotIn(FAKE, json.dumps(line), "dòng in ra chỉ có số đếm")
+        self.assertEqual(job.web_path(Path("/x/booking-check.json")), Path("/x/booking-web.json"))
