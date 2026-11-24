@@ -510,9 +510,16 @@ def scan_tabs(tabs) -> dict[str, dict]:
                 columns.update(detected)
                 columns["fees"] = [col for col, value in cells.items()
                                    if normalized(value).startswith(("OTHER FEE", "PHU PHI"))]
-                if not {"price", "date", "receipt", "anchor"} <= columns.keys():
+                # KHOI-KHONG-DON-GIA-01: a block may have no UNIT PRICE column (one tab bills services
+                # as invoice lines + VAT, 24/11/2026). Each trip then reads like a TOTAL-only row
+                # (MISSING_PRICE, the Sheet's own TOTAL counts) and the month-end chain must still
+                # close. Date, received and balance columns stay required.
+                required = {"date", "receipt", "anchor"}
+                if not required <= columns.keys():
                     issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1
-                    issues["LAYOUT_HEADER_MISSING_" + "_".join(sorted({"price", "date", "receipt", "anchor"} - columns.keys()) or ["BLOCK"])] += 1
+                    issues["LAYOUT_HEADER_MISSING_" + "_".join(sorted(required - columns.keys()) or ["BLOCK"])] += 1
+                elif "price" not in columns:
+                    current.setdefault("flags", set()).add("NO_PRICE_COLUMN")
                 continue
             if current is None or current.get("closed"):
                 # Rows after the block's TỔNG row are notes (CÒN LẠI, 总共, 剩余...), not trips.

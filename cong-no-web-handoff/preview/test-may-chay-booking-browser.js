@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { launchShared, test } = require('./shared-browser.js');
 
-// KIEM-BOOKING-01: khối "Kiểm Sheet sổ nợ với booking" của tab Máy chạy. Dữ liệu giả; chỉ xem nên không có lệnh POST nào ngoài presence.
+// KIEM-BOOKING-01 + DU-CHUYEN-01: khối "Kiểm sổ với booking" của tab Máy chạy. Dữ liệu giả; chỉ xem nên không có lệnh POST nào ngoài presence.
 const NOW = '2026-11-13T10:30:00+07:00';
 const machine = () => ({ now: NOW, run: null, jobs: [], office: { state: 'off', tasks: {} }, runs: [] });
 const CUSTOMERS = [{ id: 7, name: 'KHACH BAY', status: 'active' }, { id: 9, name: 'KHACH CHIN', status: 'active' }];
@@ -177,6 +177,62 @@ test('Kiểm booking: nhóm Booking thiếu ngày lọc theo tab nguồn; chuy�
   assert.ok((await page.locator('#bk-body tr').innerText()).includes('Sổ không ghi ngày, ghi ở khối tháng sau'));
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
 }));
+
+// DU-CHUYEN-01: phía sổ web (tiêu chí số 1) là mặc định khi API có `web_check`; dòng mang mã sổ web nên có link không cần ghép tên.
+const WEB_ROWS = [
+  { group: 'missing', code: 'CHUA_TINH', tab: null, row: null, month: '2026-05', date: null, container: 'MISU3333333', amount_vnd: null,
+    source: src('2026-05-20', 'BO', 'KHO GIA'), suggest: { tab: 'SO WEB TEN KHAC', from: '2025-08' }, pair: null, paired: false, near: { booking: 1, sheet: 0 } },
+  { group: 'nosource', code: 'KHONG_NGUON', tab: 'SO WEB TEN KHAC', row: 'legacy:5', customer_id: 42, month: '2026-03', date: '2026-03-02',
+    container: 'NONU4444444', amount_vnd: '12000000', source: null, pair: null, paired: false },
+  { group: 'recent', code: 'THANG_CUOI', tab: null, row: null, month: '2026-11', date: null, container: 'NEWU3333333', amount_vnd: null,
+    source: src('2026-11-04'), suggest: null, pair: null, paired: false },
+];
+const WEB = {
+  version: 1, state: 'ok', now: NOW, compare: 'web', checked_at: '2026-11-13T10:15:00+07:00', window: { BIEN: '2025-12', BO: '2025-08', end: '2026-11' },
+  booking: { trips: 7692, on_web: 7621 }, web: { rows: 7749, paired: 7619 }, counts: { dup: 0, missing: 1, other: 0, nosource: 1, date: 0, nodate: 0, recent: 1 },
+  rows: WEB_ROWS, booking_fix: [],
+};
+
+test('Kiểm booking: mặc định so sổ web; đếm chuyến booking đã có trên web; tên nhóm nói web; chuyển sang Sheet rồi về', () => withPage(ok({ web_check: WEB }), async page => {
+  assert.equal(await page.locator('#bk-title').innerText(), 'Kiểm sổ với booking');
+  assert.equal(await page.locator('#bk-sides').isVisible(), true);
+  assert.equal(await page.locator('[data-side="web"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await status(page), 'Lượt 10:15 hôm nay · 7.621/7.692 chuyến booking đã có trên sổ web');
+  assert.ok((await page.locator('#bk-scope').innerText()).includes('tiêu chí số 1'));
+  const groups = (await page.locator('.bk-group').allInnerTexts()).map(text => text.replace(/\s+/g, ' '));
+  assert.deepEqual(groups, ['Booking có, web chưa có 1', 'Nghi tính hai lần 0', 'Sổ khác khách booking 0', 'Trên web, booking không có 1',
+    'Lệch ngày 0', 'Web thiếu ngày 0', 'Tháng này, web chưa có 1', 'Booking thiếu ngày 0']);
+  await page.locator('[data-group="nosource"]').click();
+  assert.equal(await page.locator('#bk-body tr a').getAttribute('href'), '/so-khach-v7-live.html?customer=42&month=2026-03', 'mã sổ có sẵn, không cần ghép tên');
+  assert.ok(!(await page.locator('#bk-body tr').innerText()).includes('legacy:5'), 'không lộ mã dòng nội bộ');
+  await page.locator('[data-group="recent"]').click();
+  const recent = await page.locator('#bk-body tr').innerText();
+  assert.ok(recent.includes('Web chưa có'), recent);
+  assert.equal(await page.locator('#bk-body tr a', { hasText: 'xem lý do' }).getAttribute('href'), '/bao-cao-thang.html?month=2026-11&webchua=1');
+  await page.locator('[data-side="sheet"]').click();
+  assert.equal(await page.locator('[data-side="sheet"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#bk-list').isVisible(), false, 'đổi phía thì đóng danh sách đang mở');
+  assert.equal(await status(page), 'Lượt 10:14 hôm nay · 7.308/7.641 dòng chuyến khớp booking');
+  assert.ok((await page.locator('.bk-group').allInnerTexts()).some(text => text.includes('Booking có, sổ chưa tính')));
+  await page.locator('[data-side="web"]').click();
+  assert.ok((await status(page)).includes('chuyến booking đã có trên sổ web'));
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+}));
+
+test('Kiểm booking: phía sổ web chưa có lượt nào thì nói rõ, không hiện như ổn; API cũ không có web_check thì không có nút chọn', async () => {
+  await withPage(ok({ web_check: { state: 'none', now: NOW } }), async page => {
+    assert.ok((await status(page)).startsWith('Chưa có lượt kiểm nào'));
+    assert.equal(await page.locator('#bk-groups').isVisible(), false);
+    await page.locator('[data-side="sheet"]').click();
+    assert.ok((await status(page)).includes('dòng chuyến khớp booking'));
+  });
+  await withPage(ok({ web_check: { state: 'none', now: NOW, last_error: { at: '2026-11-13T10:15:00+07:00', reason: 'WEB_EMPTY' } } }), async page => {
+    assert.ok((await status(page)).includes('đọc sổ web không thấy dòng chuyến nào'));
+  });
+  await withPage(ok(), async page => {
+    assert.equal(await page.locator('#bk-sides').isVisible(), false);
+  });
+});
 
 test('Kiểm booking: chưa có lượt, lượt lỗi, kết quả cũ, không tải được đều không hiện như "không có gì lệch"', async () => {
   await withPage({ state: 'none', now: NOW }, async page => {

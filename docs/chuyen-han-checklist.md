@@ -24,6 +24,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 
 | # | Kiểm gì | Đạt khi | Máy | Trạng thái 11/11/2026 |
 | --- | --- | --- | --- | --- |
+| A0 | **Sổ web đủ chuyến theo booking** (tiêu chí số 1, [`DU-CHUYEN-01`](decisions/du-chuyen-01.md)) | Mọi chuyến booking trong khoảng kiểm có trên sổ web, hoặc đã có kết luận của chủ sổ | có, mỗi giờ | Đo 24/11/2026: 7.621/7.692 chuyến có trên web; thiếu 4 chuyến tháng 11 (2 chờ tab Sheet vì container dùng lại, 1 chủ hàng chưa có sổ, 1 chuyến trong ngày) và 47 chuyến tháng cũ chờ chủ sổ kết luận. Khối "Kiểm sổ với booking" của tab Máy chạy, phía Sổ web |
 | A1 | Tổng nợ từng khách web bằng Sheet lúc cuối tháng | Mọi khách khớp hoặc lệch đã giải thích; báo cả theo tiền | có | Chưa tới ngày xét. Lượt 17:12: 236/239 khớp, 3 khách web đi trước Sheet, lệch chưa giải thích bằng 0 |
 | A2 | Tab TONG cộng đủ các tab khách | Mọi dòng TONG khớp sổ; không sổ nào còn số dư mà TONG để trống | có, mỗi giờ | **KHÔNG ĐẠT.** Khối tháng 10: 64 dòng có số đều khớp, nhưng 14 sổ còn số dư bị để trống (11 nợ, 3 dư). Chờ chủ sổ kết luận từng khách. Máy đối soát kiểm mỗi giờ theo [`KIEM-TONG-01`](decisions/kiem-tong-01.md); lượt đo 19:13 bằng mã đó ra đúng danh sách như lệnh audit trên cùng bản tải |
 | A3 | Từng dòng và từng tháng, không chỉ tổng | Không còn dòng, tháng hay tổng thu nào `CHUA_GIAI_THICH` | có | ĐẠT cho lượt đo: 9.526/10.521 dòng khớp tuyệt đối, 0 dòng lệch giá; 7 tháng và 3 tổng thu khác nhau đều có lời giải; 17 dòng một bên có đều có lời giải |

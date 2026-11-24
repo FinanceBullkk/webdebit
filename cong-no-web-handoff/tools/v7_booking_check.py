@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Kiểm Sheet sổ nợ so với booking mỗi giờ (KIEM-BOOKING-01; NGUON-CHUYEN-01, specs/v7-chuyen-theo-nguon.md).
+"""Kiểm sổ so với booking mỗi giờ: sổ web (DU-CHUYEN-01, tiêu chí số 1) và Sheet sổ nợ (KIEM-BOOKING-01;
+NGUON-CHUYEN-01, specs/v7-chuyen-theo-nguon.md).
+
+Phần sổ web (`run_web_safely`) chạy trong lượt đối soát sau khi lượt đọc sổ mọi khách, ghi `booking-web.json` cạnh file kiểm
+Sheet. Phần Sheet dưới đây giữ như trước.
 
 Chạy trong lượt đối soát máy (`v7_reconcile_auto.py`), trên chính bản xlsx sổ gốc lượt đó vừa tải, nên không tải Sheet thêm lần nào.
 Nguồn booking là hai bản chụp timer `webdebit-sheet-sync` ghi: `snapshot.json` (CONT_NGUON, chuyến biển) và `road.json` (CONT_BO,
@@ -174,6 +178,32 @@ def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
     end = now.date().isoformat()[:7]
     s_pair, b_pair = match.pair(sheet, source)
     found, dup_counts = match.review(sheet, source, s_pair, b_pair, end, window)
+    rows, hidden, in_window = page_rows(sheet, source, s_pair, b_pair, found, end, window)
+    if not in_window:   # Sheet đổi cấu trúc thì không được ra "0/0 khớp, không thấy gì lệch"
+        raise CheckError("SHEET_EMPTY")
+    result = {
+        **head(now, window, end, sea, road, source, stats),
+        "sheet": {"rows": len(in_window), "paired": sum(1 for i in in_window if i in s_pair)},
+        "counts": {group: sum(1 for row in rows if row["group"] == group) for group in ORDER},
+        "dup_groups": dup_counts.get("nhom_trung", 0), "hidden": dict(hidden),
+        "rows": rows,
+        # Chuyến có số container mà ô ngày booking trống hay sai: người giữ booking sửa ở tab nguồn (người dùng chọn 24/11/2026).
+        "booking_fix": fix,
+    }
+    return result, month_report(sheet, source, s_pair, found, now, window)
+
+
+def head(now: dt.datetime, window: dict[str, str], end: str, sea: dict, road: dict, source: list[dict], stats: Counter) -> dict[str, Any]:
+    return {"version": 1, "checked_at": now.isoformat(timespec="seconds"), "window": {**window, "end": end},
+            "sources": {name: {"created_at": data["runner"]["created_at"], "sha256": data.get("sha256"), "rows": len(data["rows"])}
+                        for name, data in (("sea", sea), ("road", road))},
+            "source_trips": dict(Counter(b["family"] for b in source)), "source_stats": dict(stats)}
+
+
+def page_rows(sheet: list[dict], source: list[dict], s_pair: dict[int, int], b_pair: dict[int, int], found: list, end: str,
+              window: dict[str, str]) -> tuple[list[dict[str, Any]], Counter[str], list[int]]:
+    """Dòng cho trang (đã lọc theo khoảng kiểm), số dòng ẩn theo mã, và chỉ số các dòng sổ trong khoảng kiểm. Dòng sổ mang
+    `customer_id` (sổ web) thì dòng trang mang theo, để trang mở đúng sổ không cần ghép tên."""
     sheet_index, source_index = {id(s): i for i, s in enumerate(sheet)}, {id(b): j for j, b in enumerate(source)}
     by_cont, sheet_by_cont = defaultdict(list), defaultdict(list)
     for item in source:
@@ -203,24 +233,84 @@ def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
             "pair": pair, "paired": s is not None and sheet_index[id(s)] in s_pair, "near_trips": near,
             "gap_days": match.days(s["date"], b["date"]) if s and b and s["date"] else None,
             "near": near_counts(b["date"], by_cont[b["cont"]], sheet_by_cont[b["cont"]]) if GROUPS[code] == "missing" else None,
+            **({"customer_id": s["customer_id"]} if s and s.get("customer_id") is not None else {}),
         })
     rows.sort(key=lambda row: (ORDER.index(row["group"]), row["container"], row["date"] or (row["source"] or {}).get("date") or ""))
     in_window = [i for i, s in enumerate(sheet) if match.in_window(match.family_of(s["mode"]), s["month"], end, window)]
-    if not in_window:   # Sheet đổi cấu trúc thì không được ra "0/0 khớp, không thấy gì lệch"
-        raise CheckError("SHEET_EMPTY")
-    result = {
-        "version": 1, "checked_at": now.isoformat(timespec="seconds"), "window": {**window, "end": end},
-        "sources": {name: {"created_at": data["runner"]["created_at"], "sha256": data.get("sha256"), "rows": len(data["rows"])}
-                    for name, data in (("sea", sea), ("road", road))},
-        "source_trips": dict(Counter(b["family"] for b in source)), "source_stats": dict(stats),
-        "sheet": {"rows": len(in_window), "paired": sum(1 for i in in_window if i in s_pair)},
+    return rows, hidden, in_window
+
+
+def web_rows(books: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Chuyến của sổ web (chuyến web và dòng chuyến sổ gốc, bản hiện hành, chưa xóa) thành dòng sổ dạng công cụ GĐ1 (DU-CHUYEN-01).
+
+    `books`: mỗi sổ `{"id", "name", "transport_mode", "trips"}` với `trips` là `v7_price_queue.targets` của `get_ledger` (lượt đối soát
+    đã đọc sẵn, không vào DB thêm). Biển hay bộ theo `transport_mode` của sổ; sổ chưa gán thì theo tên như sổ gốc (`mode_of`). Tiền:
+    đơn giá của chuyến web, tổng đã tính của dòng sổ gốc; chưa có thì 0, chỉ để ưu tiên dòng mang tiền khi ghép (công cụ GĐ1 cũng gộp
+    như vậy)."""
+    rows = []
+    for book in books:
+        mode = book.get("transport_mode")
+        mode = mode if mode in ("CANG", "BO") else match.mode_of(str(book.get("name") or ""), {})
+        for trip in book.get("trips") or ():
+            day = trip.get("date")
+            money = trip.get("total") if trip.get("kind") == "legacy" else trip.get("price")
+            rows.append({"tab": str(book.get("name") or ""), "row": f"{trip.get('kind')}:{trip.get('id')}", "customer_id": book.get("id"),
+                         "month": str(trip.get("month") or "")[:7], "date": day.isoformat() if hasattr(day, "isoformat") else (day or None),
+                         "raw_date": "", "cont": match.container_key(trip.get("container")), "mode": mode, "amount": int(money or 0)})
+    return [row for row in rows if row["cont"] and len(row["month"]) == 7]
+
+
+def evaluate_web(books: list[dict[str, Any]], sea_path: Path, road_path: Path, now: dt.datetime,
+                 window: dict[str, str] | None = None) -> dict[str, Any]:
+    """Sổ web so với booking (DU-CHUYEN-01: đủ chuyến booking là tiêu chí số 1), cùng luật ghép và nhóm như phép kiểm Sheet.
+
+    `booking`: số chuyến booking trong khoảng kiểm (trừ chuyến trước tháng đầu của sổ, nằm trong số dư đầu kỳ) và số đã có trên web.
+    `web`: số dòng chuyến web trong khoảng kiểm và số ghép được booking."""
+    window = window or WINDOW
+    sea, road = read_snapshot(sea_path, "SEA", now), read_snapshot(road_path, "ROAD", now)
+    source, stats, fix = snapshot_sources(sea, road)
+    if not source:
+        raise CheckError("SOURCE_EMPTY")
+    sheet = web_rows(books)
+    end = now.date().isoformat()[:7]
+    s_pair, b_pair = match.pair(sheet, source)
+    found, dup_counts = match.review(sheet, source, s_pair, b_pair, end, window)
+    rows, hidden, in_window = page_rows(sheet, source, s_pair, b_pair, found, end, window)
+    if not in_window:   # đọc sổ web hỏng thì không được ra "0/0, không thấy gì lệch"
+        raise CheckError("WEB_EMPTY")
+    early = {id(b) for code, s, b, _note in found if s is None and code == "TRUOC_KHI_CO_SO"}
+    counted = [j for j, b in enumerate(source) if match.in_window(b["family"], b["date"][:7], end, window) and id(b) not in early]
+    return {
+        **head(now, window, end, sea, road, source, stats), "compare": "web",
+        "booking": {"trips": len(counted), "on_web": sum(1 for j in counted if j in b_pair)},
+        "web": {"rows": len(in_window), "paired": sum(1 for i in in_window if i in s_pair)},
         "counts": {group: sum(1 for row in rows if row["group"] == group) for group in ORDER},
         "dup_groups": dup_counts.get("nhom_trung", 0), "hidden": dict(hidden),
-        "rows": rows,
-        # Chuyến có số container mà ô ngày booking trống hay sai: người giữ booking sửa ở tab nguồn (người dùng chọn 24/11/2026).
-        "booking_fix": fix,
+        "rows": rows, "booking_fix": fix,
     }
-    return result, month_report(sheet, source, s_pair, found, now, window)
+
+
+def web_path(output: Path) -> Path:
+    """File kết quả so sổ web, cạnh file kiểm Sheet."""
+    return output.with_name("booking-web.json")
+
+
+def run_web_safely(books: list[dict[str, Any]], output: Path, sea_path: Path, road_path: Path,
+                   now: dt.datetime | None = None) -> dict[str, Any]:
+    """Cho lượt đối soát, sau khi đọc sổ mọi khách: ghép ngay trong tiến trình (vài giây, không đọc xlsx). Lỗi thành mã và
+    `last_error`, kết quả lượt đạt trước vẫn giữ; không bao giờ ném ra (lượt có thể đã ghi tiền)."""
+    now, started = now or now_vn(), time.monotonic()
+    try:
+        result = evaluate_web(books, sea_path, road_path, now)
+        snapshots.write(result, output)
+    except Exception as exc:  # noqa: BLE001  (lỗi thành mã, không in dữ liệu)
+        code = failure_code(exc)
+        print(f"V7 kiểm booking với sổ web: không kiểm được ({code})", file=sys.stderr, flush=True)
+        with contextlib.suppress(Exception):
+            record_failure(output, code, now)
+        return {"error": code, "seconds": round(time.monotonic() - started)}
+    return {"counts": result["counts"], "booking": result["booking"], "web_rows": result["web"]["rows"],
+            "paired": result["web"]["paired"], "seconds": round(time.monotonic() - started)}
 
 
 def month_report(sheet: list[dict], source: list[dict], s_pair: dict[int, int], found: list, now: dt.datetime,

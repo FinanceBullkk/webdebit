@@ -1,4 +1,5 @@
-"""Kết quả kiểm Sheet sổ nợ so với booking (KIEM-BOOKING-01) cho khối "Kiểm booking" của tab Máy chạy.
+"""Kết quả kiểm sổ so với booking cho khối "Kiểm booking" của tab Máy chạy: sổ web (DU-CHUYEN-01, `web_check`) và Sheet sổ nợ
+(KIEM-BOOKING-01).
 
 Số của file job ghi. Riêng nhóm "tháng này chưa lên sổ" (`THANG_CUOI`), `with_web` đọc thêm sổ web (`get_trip_month`, hàm đọc của
 Báo cáo tháng): phép kiểm so tab khách trên Sheet, nên chuyến máy đã đưa vào sổ web vẫn nằm trong nhóm tới khi Sheet ghi (đo
@@ -32,6 +33,11 @@ def path() -> Path:
     return Path(os.getenv("WEBDEBIT_BOOKING_CHECK_PATH") or v7_machine.base_dir() / "booking-check.json")
 
 
+def web_path() -> Path:
+    """Kết quả so sổ web với booking (DU-CHUYEN-01), lượt đối soát ghi cạnh file kiểm Sheet."""
+    return Path(os.getenv("WEBDEBIT_BOOKING_WEB_PATH") or path().with_name("booking-web.json"))
+
+
 def last_slot(now: datetime) -> datetime:
     """Giờ lượt đối soát gần nhất theo lịch, tính tới `now` (giờ VN)."""
     slot = now.astimezone(v7_machine.VN).replace(minute=MINUTE, second=0, microsecond=0)
@@ -56,10 +62,10 @@ def _when(text: Any) -> datetime | None:
     return found if found.tzinfo else None
 
 
-def view(now: datetime | None = None) -> dict[str, Any]:
+def view(now: datetime | None = None, source: Path | None = None) -> dict[str, Any]:
     now = now or datetime.now(v7_machine.VN)
     try:
-        data = json.loads(path().read_text(encoding="utf-8"))
+        data = json.loads((source or path()).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = None
     if not isinstance(data, dict):
@@ -75,6 +81,13 @@ def view(now: datetime | None = None) -> dict[str, Any]:
     else:
         state = "ok"
     return {**data, "state": state, "now": now.isoformat(timespec="seconds")}
+
+
+def both(runner, reads, actor: str, now: datetime | None = None) -> dict[str, Any]:
+    """Body của `GET /api/v7/machine/booking`: kết quả kiểm Sheet (như trước, kèm `with_web`) và `web_check` là kết quả so sổ web, cùng
+    cách tính `state`. Trang mặc định hiện phần sổ web (tiêu chí số 1)."""
+    now = now or datetime.now(v7_machine.VN)
+    return {**with_web(view(now), runner, reads, actor), "web_check": view(now, web_path())}
 
 
 def _cont(raw: Any) -> str:

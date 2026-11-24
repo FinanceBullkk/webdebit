@@ -1,4 +1,6 @@
-/* Khối "Kiểm Sheet sổ nợ với booking" của tab Máy chạy (KIEM-BOOKING-01). Chỉ xem: đọc /api/v7/machine/booking, không có lệnh ghi.
+/* Khối "Kiểm sổ với booking" của tab Máy chạy. Chỉ xem: đọc /api/v7/machine/booking, không có lệnh ghi.
+ * Hai phía so, chọn bằng nút trên đầu khối: "Sổ web" (DU-CHUYEN-01, tiêu chí số 1: web đủ chuyến booking; mặc định) và "Sheet sổ nợ"
+ * (KIEM-BOOKING-01). API cũ chưa có `web_check` thì chỉ có phía Sheet, không hiện nút chọn.
  * Thứ tự theo câu chủ sổ hỏi: lượt kiểm gần nhất có tin được không, rồi bốn nhóm đụng tiền, rồi ba nhóm chỉ để biết. Bấm nhóm thì mở
  * danh sách ngay dưới. Chưa có kết quả, kết quả cũ hay lượt lỗi thì nói rõ, không bao giờ hiện như "không có gì lệch".
  * Nhóm "tháng này" tách hai khi API đã so với sổ web (`recent_web: 'checked'`): web chưa có (cần xem) và máy đã đưa vào web, chỉ
@@ -30,8 +32,19 @@
     SEA_MISSING: 'chưa có bản chụp CONT_NGUON', SEA_STALE: 'bản chụp CONT_NGUON cũ quá 3 giờ', SEA_EMPTY: 'bản chụp CONT_NGUON rỗng', SEA_UNREADABLE: 'bản chụp CONT_NGUON đọc không được',
     ROAD_MISSING: 'chưa có bản chụp CONT_BO', ROAD_STALE: 'bản chụp CONT_BO cũ quá 3 giờ', ROAD_EMPTY: 'bản chụp CONT_BO rỗng', ROAD_UNREADABLE: 'bản chụp CONT_BO đọc không được',
     SOURCE_EMPTY: 'hai bản chụp booking không có chuyến nào', SHEET_EMPTY: 'bản tải Sheet sổ nợ không có dòng chuyến', TIMEOUT: 'chạy quá 15 phút',
+    WEB_EMPTY: 'đọc sổ web không thấy dòng chuyến nào',
   };
-  const state = { data: null, failed: false, open: null, book: '', ids: new Map() };
+  // Phía sổ web: sổ được so là sổ web, nên tên nhóm nói "web" thay cho "sổ".
+  const WEB_NAMES = {
+    missing: { name: 'Booking có, web chưa có', about: 'Chuyến đã đi theo booking mà chưa sổ web nào có.' },
+    nosource: { name: 'Trên web, booking không có', about: 'Sổ web tính tiền một container mà booking không có.' },
+    nodate: { name: 'Web thiếu ngày', about: 'Dòng sổ web không có ngày, booking có. Không đổi tiền.' },
+    recent: { name: 'Tháng này, web chưa có', about: 'Chuyến tháng này có trong booking mà sổ web chưa có. Lý do máy chưa đưa vào: Báo cáo tháng.' },
+  };
+  const state = { body: null, data: null, side: 'web', failed: false, open: null, book: '', ids: new Map() };
+  const hasWeb = () => Boolean(state.body && typeof state.body.web_check === 'object' && state.body.web_check);
+  const onWeb = () => state.side === 'web' && hasWeb();
+  const pick = () => { state.data = state.body ? (onWeb() ? state.body.web_check : state.body) : null; };
 
   const day = iso => F.dateText(String(iso ?? '').slice(0, 10));
   const hhmm = iso => String(iso ?? '').slice(11, 16);
@@ -39,11 +52,14 @@
   const count = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   const monthText = key => (key ? `${Number(key.slice(5, 7))}/${key.slice(0, 4)}` : '');
   const nameKey = name => String(name ?? '').trim().split(/\s+/).join(' ');
-  const split = () => state.data?.recent_web === 'checked';
+  const split = () => !onWeb() && state.data?.recent_web === 'checked';
   const groupOf = row => (row.group === 'recent' && row.web && split() ? 'recent_web' : row.group);
   // Kết quả của lượt trước khi có `booking_fix` thì không hiện nhóm đó: hiện "0" sẽ thành "không có dòng lỗi" dù chưa kiểm.
-  const groups = () => GROUPS.filter(group => !group.booking || Array.isArray(state.data?.booking_fix))
-    .flatMap(group => (split() && group.key === 'recent' ? [SPLIT.recent, SPLIT.recent_web] : [group]));
+  // Phía sổ web: thiếu chuyến là tiêu chí số 1 nên đứng đầu hàng đụng tiền.
+  const ordered = () => (onWeb() ? [...GROUPS].sort((a, b) => (b.key === 'missing') - (a.key === 'missing')) : GROUPS);
+  const groups = () => ordered().filter(group => !group.booking || Array.isArray(state.data?.booking_fix))
+    .flatMap(group => (split() && group.key === 'recent' ? [SPLIT.recent, SPLIT.recent_web]
+      : [onWeb() && WEB_NAMES[group.key] ? { ...group, ...WEB_NAMES[group.key] } : group]));
   // Dòng booking cần sửa (`booking_fix`) có hình khác dòng sổ: cột riêng, lọc theo tab nguồn thay vì theo sổ.
   const countOf = group => (group.booking ? (state.data?.booking_fix ?? []).length
     : split() && group.key in SPLIT ? state.data.rows.filter(row => groupOf(row) === group.key).length : state.data.counts?.[group.key] ?? 0);
@@ -85,7 +101,7 @@
       case 'NGAY_TU_NGUON': return src.date && row.month && String(src.date).slice(0, 7) !== row.month ? 'Sổ không ghi ngày, ghi ở khối tháng sau' : 'Sổ không ghi ngày';
       case 'THANG_CUOI':
         if (row.web) return `Đã vào sổ web ngày ${day(row.web.date)}, chờ Sheet ghi giá`;
-        return split() ? 'Web chưa có' : 'Tháng này, sổ có thể chưa ghi';
+        return split() || onWeb() ? 'Web chưa có' : 'Tháng này, sổ có thể chưa ghi';
       default: return '';
     }
   }
@@ -94,10 +110,11 @@
     const src = row.source;
     const sheetDay = row.date ? esc(day(row.date)) : row.raw_date ? esc(row.raw_date) : '—';
     const book = row.web ? bookCell(row.web.name ?? `sổ ${row.web.customer_id}`, row.web.date.slice(0, 7), '', row.web.customer_id)
+      : row.tab && row.customer_id ? bookCell(row.tab, row.month, '', row.customer_id)   // phía sổ web: mã sổ có sẵn
       : row.tab ? bookCell(row.tab, row.month, ` <span class="bk-sub">dòng ${esc(row.row)}</span>`)
       : row.suggest ? `<span class="bk-sub">gợi ý</span> ${bookCell(row.suggest.tab, row.month)}` : '—';
     // Web chưa có: lý do máy giữ từng chuyến nằm ở danh sách "web chưa có" của Báo cáo tháng (BAO-CAO-THANG-02).
-    const reason = groupOf(row) === 'recent' && split() && src?.date
+    const reason = groupOf(row) === 'recent' && (split() || onWeb()) && src?.date
       ? `${esc(why(row))}: <a href="${reportHref(src.date.slice(0, 7))}">xem lý do</a>` : esc(why(row));
     // Chỉ dòng "booking không có" mới ghi "không có"; dòng chưa ghép của cặp tính hai lần thì chuyến đã ghép dòng kia, để trống.
     const booking = src ? `${esc(day(src.date))} · ${src.kind === 'BO' ? 'Bộ' : 'Biển'}${src.owner ? `<span class="bk-sub bk-line">${esc(src.owner)}</span>` : ''}`
@@ -110,21 +127,34 @@
     if (!data) return ['', 'Đang tải…'];
     const error = data.last_error, reason = error ? (ERRORS[error.reason] ?? `mã ${error.reason}`) : '';
     if (data.state === 'none') return error ? ['bad', `Lượt kiểm ${when(error.at)} lỗi: ${reason}. Chưa có kết quả nào.`] : ['warn', 'Chưa có lượt kiểm nào. Kết quả có sau lượt đối soát kế tiếp (phút 05 mỗi giờ, 7–22 giờ).'];
-    const sheet = data.sheet ?? {}, base = `${count(sheet.paired ?? 0)}/${count(sheet.rows ?? 0)} dòng chuyến khớp booking`;
+    const sheet = data.sheet ?? {}, booking = data.booking ?? {};
+    const base = onWeb() ? `${count(booking.on_web ?? 0)}/${count(booking.trips ?? 0)} chuyến booking đã có trên sổ web`
+      : `${count(sheet.paired ?? 0)}/${count(sheet.rows ?? 0)} dòng chuyến khớp booking`;
     if (data.state === 'error') return ['bad', `Lượt kiểm ${when(error.at)} lỗi: ${reason}. Số dưới đây của lượt ${when(data.checked_at)}, có thể cũ.`];
     if (data.state === 'stale') return ['warn', `Lượt kiểm gần nhất ${when(data.checked_at)}, đã lỡ các lượt sau. Số dưới đây có thể cũ.`];
     const clean = GROUPS.filter(group => group.money).every(group => !countOf(group));
     return [clean ? 'ok' : '', `Lượt ${when(data.checked_at)} · ${base}${clean ? '. Không thấy chuyến nào nghi tính hai lần, sót, sai khách hay thiếu booking.' : ''}`];
   }
 
+  function sides() {
+    const box = $('bk-sides');
+    box.hidden = !hasWeb();
+    for (const button of box.querySelectorAll('button[data-side]')) button.setAttribute('aria-pressed', String(button.dataset.side === (onWeb() ? 'web' : 'sheet')));
+  }
+
   function render() {
+    pick();
+    sides();
     const data = state.data, hasRows = Array.isArray(data?.rows) && data.state !== 'none';
     const [tone, line] = statusLine(data);
     const status = $('bk-status');
     status.className = `bk-status ${tone}`;
     status.textContent = line;
     const scope = data?.window;
-    $('bk-scope').textContent = scope ? `Kiểm chuyến biển từ ${monthText(scope.BIEN)}, chuyến bộ từ ${monthText(scope.BO)} tới nay, theo hai bản chụp CONT_NGUON và CONT_BO. Chỉ so; sửa trên Sheet thì lượt sau tự cập nhật.` : '';
+    const range = scope ? `Kiểm chuyến biển từ ${monthText(scope.BIEN)}, chuyến bộ từ ${monthText(scope.BO)} tới nay, theo hai bản chụp CONT_NGUON và CONT_BO.` : '';
+    $('bk-scope').textContent = !scope ? '' : onWeb()
+      ? `${range} Web đủ chuyến booking là tiêu chí số 1. Chuyến trước tháng đầu của sổ nằm trong số dư đầu kỳ nên không tính. Chỉ so, không ghi.`
+      : `${range} Chỉ so; sửa trên Sheet thì lượt sau tự cập nhật.`;
     $('bk-groups').hidden = !hasRows;
     if (!hasRows) { $('bk-list').hidden = true; return; }
     const button = group => {
@@ -176,11 +206,11 @@
     try {
       const response = await fetch('/api/v7/machine/booking', { cache: 'no-store', signal: AbortSignal.timeout(FETCH_TIMEOUT) });
       if (!response.ok) throw new Error(String(response.status));
-      state.data = await response.json();
+      state.body = await response.json();
       state.failed = false;
     } catch {
       state.failed = true;
-      state.data = null;   // không giữ số cũ khi không biết nó còn đúng không
+      state.body = null;   // không giữ số cũ khi không biết nó còn đúng không
     }
     render();
     timer = setTimeout(load, REFRESH);
@@ -190,6 +220,14 @@
     const button = event.target.closest('button[data-group]');
     if (!button) return;
     state.open = state.open === button.dataset.group ? null : button.dataset.group;
+    state.book = '';
+    render();
+  });
+  $('bk-sides').addEventListener('click', event => {
+    const button = event.target.closest('button[data-side]');
+    if (!button || button.dataset.side === state.side) return;
+    state.side = button.dataset.side;
+    state.open = null;
     state.book = '';
     render();
   });

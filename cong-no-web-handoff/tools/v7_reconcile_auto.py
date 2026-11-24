@@ -166,8 +166,9 @@ def read_sheet(xlsx: Path, source_dir: Path, out: Path, known: set[str]) -> tupl
             [book for book in books if book["in_summary"] and not book["reasons"]], digests["source-google-export.xlsx"])
 
 
-def read_web(db, rows: list[dict], on_row=lambda _done: None) -> tuple[dict, dict, dict]:
-    """(tổng từng sổ, id theo tên, chuyến mọi sổ theo container để kiểm tab mới có đụng sổ khác không)."""
+def read_web(db, rows: list[dict], on_row=lambda _done: None, books: list[dict] | None = None) -> tuple[dict, dict, dict]:
+    """(tổng từng sổ, id theo tên, chuyến mọi sổ theo container để kiểm tab mới có đụng sổ khác không). `books` (nếu có) nhận chuyến
+    từng sổ cho phép kiểm sổ web với booking (DU-CHUYEN-01), từ chính lần đọc này."""
     web, ids, seen = {}, {}, {}
     for done, row in enumerate(rows):
         on_row(done)
@@ -177,8 +178,11 @@ def read_web(db, rows: list[dict], on_row=lambda _done: None) -> tuple[dict, dic
         ledger = db.run("get_ledger", {"customer_id": row["id"]}, ACTOR)
         web[key] = rec.ledger(ledger)
         ids[key] = row["id"]
-        for target in targets(ledger):
+        trips = targets(ledger)
+        for target in trips:
             seen.setdefault(target["container"], []).append((row["id"], target["date"], target["month"]))
+        if books is not None:
+            books.append({"id": row["id"], "name": row["name"], "transport_mode": row.get("transport_mode"), "trips": trips})
     return web, ids, seen
 
 
@@ -494,7 +498,11 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         sheet, held, outside, books, digest = read_sheet(Path(xlsx), args.source_dir, work / "sach", {rec.name(row["name"]) for row in rows})
         trace.mark(books=len(rows))
         trace.stage("doc", total=len(rows))
-        web, ids, seen = read_web(db, rows, trace.tick)
+        book_trips: list[dict] = []
+        web, ids, seen = read_web(db, rows, trace.tick, book_trips)
+        # DU-CHUYEN-01: sổ web so với booking, trên chuyến vừa đọc (vài giây). Chỉ đọc, file riêng; lỗi không làm hỏng lượt.
+        booking_web = (booking_check.run_web_safely(book_trips, booking_check.web_path(args.booking_output), args.snapshot, args.road)
+                       if args.booking_check else {"skipped": "OFF"})
         trace.stage("so", total=len(rows))
         results, _, _ = rec.reconcile(sheet, web, compare_months=False)
         by_month, _, _ = rec.reconcile(sheet, web, compare_months=True, can_du=True)
@@ -566,7 +574,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                     if row["customer_id"] and row.get("reason") != "DETAIL_DIFFERS"},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
         "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
-        "details": details,
+        "booking_web": booking_web, "details": details,
     }
 
 
@@ -599,6 +607,7 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
     line["editing"] = sum(bool(row.get("sheet_editing")) for row in result["customers"])
     line["tong"] = tong_counts(result["tong"])
     line["booking"] = result.get("booking")
+    line["booking_web"] = result.get("booking_web")
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -642,7 +651,8 @@ def main(argv: list[str] | None = None) -> int:
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
                       "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],
-                      "tong": tong_counts(result["tong"]), "booking": result["booking"], "seconds": round(time.monotonic() - started)}))
+                      "tong": tong_counts(result["tong"]), "booking": result["booking"],
+                      "booking_web": result.get("booking_web"), "seconds": round(time.monotonic() - started)}))
     return 0
 
 

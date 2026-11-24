@@ -161,9 +161,13 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(saved["last_error"]["reason"], "SEA_MISSING")
         log = json.loads(self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual(log["booking"], {"error": "SEA_MISSING"})
+        # DU-CHUYEN-01: phần so sổ web chạy trong lượt, lỗi cũng chỉ thành mã ở file riêng.
+        self.assertEqual((self.result()["booking_web"]["error"], log["booking_web"]["error"]), ("SEA_MISSING", "SEA_MISSING"))
+        saved_web = json.loads(self.output.with_name("booking-web.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved_web["last_error"]["reason"], "SEA_MISSING")
         self.assertEqual(list((self.root / "work").iterdir()), [])
         self.run_job(Db(), "--fix")
-        self.assertEqual(self.result()["booking"], {"skipped": "OFF"})
+        self.assertEqual((self.result()["booking"], self.result()["booking_web"]), ({"skipped": "OFF"}, {"skipped": "OFF"}))
 
     def test_booking_check_reads_the_download_before_the_work_folder_is_removed(self):
         """Bản tải nằm trong thư mục tạm của lượt; tiến trình con phải đọc xong trước khi thư mục bị xóa."""
