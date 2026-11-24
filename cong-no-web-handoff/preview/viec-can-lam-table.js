@@ -65,6 +65,21 @@ globalThis.InboxTable = (() => {
     }
     return list.sort((a, b) => b.trips.length - a.trips.length || (a.trips[0].event_date ?? '').localeCompare(b.trips[0].event_date ?? ''));
   }
+  // GIA-BOOKING-01: gợi ý giá booking của một chuyến (`sheet_sync.booking_prices` của GET sổ). `unit` là đơn giá (đồng) khi máy
+  // đọc chắc được chữ; `fee` là phụ phí booking sẽ điền, chỉ khi chuyến chưa có phụ phí (đã có thì giữ). Chữ không đọc được: chỉ `text`.
+  function bookingHint(ledger, row) {
+    const hint = ledger?.sheet_sync?.booking_prices?.[String(row?.id)];
+    const text = typeof hint?.text === 'string' ? hint.text.trim() : '';
+    if (!text) return null;
+    const digits = value => typeof value === 'string' && /^\d+$/.test(value);
+    if (!digits(hint.unit_price_vnd) || BigInt(hint.unit_price_vnd) <= 0n || !(hint.other_fee_vnd == null || digits(hint.other_fee_vnd))) return { text, unit: null, fee: null };
+    return { text, unit: hint.unit_price_vnd, fee: row.other_fee_vnd == null ? hint.other_fee_vnd ?? null : null };
+  }
+  // Hàng tuyến có nút booking khi mọi chuyến của tuyến có cùng gợi ý (cùng đơn giá và cùng phụ phí sẽ điền).
+  function groupBooking(ledger, group) {
+    const hints = group.trips.map(row => bookingHint(ledger, row)), first = hints[0];
+    return first?.unit && hints.every(hint => hint?.unit === first.unit && hint.fee === first.fee) ? first : null;
+  }
   // MAY-DOI-SOAT-01: sổ đã khớp Sheet ở lượt đối soát gần nhất, tổng chưa đổi từ đó: việc từ Sheet và "chưa giá" còn treo không làm số
   // đúng hơn nên không tính vào số trên menu. Chờ kiểm, số dư đầu, mặt hàng vẫn tính vì chỉ người quyết được. Tab Dọn chi tiết hiện hết.
   function books(data, dashboard, unsorted = [], showMatched = false) {
@@ -172,13 +187,20 @@ globalThis.InboxTable = (() => {
       const rate = ledger.price_status?.trips?.find(p => p.trip_id === r.id && p.ready)?.lookup?.unit_price_vnd;
       return rate == null ? '' : millionInput(rate);
     };
+    // GIA-BOOKING-01: nút "Giá booking …" đứng cạnh ô giá như nút giá gần nhất: bấm mới điền ô, ghi vẫn qua Ghi giá → Xác nhận.
+    const bookingButton = (hint, attrs, kept) => `<button type="button" class="use-booking" ${attrs} title="${esc(`Booking ghi "${hint.text}". Bấm để điền đơn giá ${millionInput(hint.unit)} tr${hint.fee != null ? `, phụ phí ${millionInput(hint.fee)} tr ghi kèm` : kept ? ', phụ phí giữ như sổ' : ''}. Chỉ ghi khi bấm Ghi giá rồi Xác nhận.`)}"${opts.busy ? ' disabled' : ''}>Giá booking ${millionInput(hint.unit)} tr${hint.fee != null ? ` + ${millionInput(hint.fee)} tr` : ''}</button>`;
     const tripItem = (r, group = null) => {
       const suggested = suggestedOf(r);
-      const hint = suggested ? `bảng giá gợi ý ${suggested}` : group ? '' : 'sổ chưa có giá gợi ý';
+      const booking = bookingHint(ledger, r);
+      // Tuyến mà mọi chuyến cùng một giá booking thì nút nằm ở hàng tuyến, dòng chuyến không lặp lại.
+      const useBooking = booking?.unit && r.editable === true && !group?.booking ? bookingButton(booking, `data-use-booking="${r.id}"`, r.other_fee_vnd != null) : '';
+      const hint = [suggested ? `bảng giá gợi ý ${suggested}` : group || booking ? '' : 'sổ chưa có giá gợi ý',
+        booking && !booking.unit ? `Booking ghi: ${booking.text}` : ''].filter(Boolean).join(' · ');
       // Chuyến trong một tuyến: tuyến đã ở hàng trên, dòng chỉ còn gợi ý của bảng giá (nếu có).
-      const desc = group ? hint : `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''} · ${hint}`;
+      const desc = group ? hint : `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''}${hint ? ` · ${hint}` : ''}`;
       return item(r.container, r.event_date, desc, null,
-        r.editable === true ? `<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho ${esc(r.container)}" data-manual-price="${r.id}"${group ? ` data-price-route="${esc(group.key)}"` : ''} data-suggested-price="${suggested}" placeholder="giá, tr"><span class="price-unit">triệu</span>${btn('Ghi giá', `data-command="price" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `price:${r.id}`, group ? { cls: 'price-child' } : {});
+        r.editable === true ? `${useBooking}<span class="price-entry"><input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho ${esc(r.container)}" data-manual-price="${r.id}"${group ? ` data-price-route="${esc(group.key)}"` : ''} data-suggested-price="${suggested}" placeholder="giá, tr"><span class="price-unit">triệu</span>${btn('Ghi giá', `data-command="price" data-trip="${r.id}"`)}</span>` : link('Mở trong sổ'),
+        `price:${r.id}`, { cls: [group ? 'price-child' : '', useBooking ? 'has-suggest' : ''].join(' ').trim() });
     };
     // Tuyến có từ hai chuyến: một hàng tuyến gõ giá một lần, điền xuống các chuyến bên dưới (GIA-TUYEN-01).
     const groupItem = g => {
@@ -187,12 +209,14 @@ globalThis.InboxTable = (() => {
       const range = `${day(g.trips[0].event_date)}${g.trips.length > 1 && g.trips.at(-1).event_date !== g.trips[0].event_date ? `–${day(g.trips.at(-1).event_date)}` : ''}`;
       // Giá gần nhất là nút điền (người bấm mới vào ô), đặt ở vùng thao tác để tên tuyến không bị cắt.
       const last = g.last ? `<button type="button" class="use-last" data-use-last="${esc(g.key)}" data-last-price="${millionInput(g.last.price)}" title="Điền giá của chuyến gần nhất cùng tuyến đã có giá (${esc(F.dateText(g.last.date))})"${opts.busy ? ' disabled' : ''}>Giá gần nhất ${millionInput(g.last.price)} tr · ${esc(day(g.last.date))}</button>` : '';
+      const booking = g.booking ? bookingButton(g.booking, `data-use-booking-group="${esc(g.key)}"`, false) : '';
       return item(`${g.trips.length} chuyến`, null, `${g.label} · ${range}`, null,
-        `${last}<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho cả tuyến ${esc(g.label)}" data-group-price="${esc(g.key)}" data-suggested-price="${common}" placeholder="giá, tr"><span class="price-unit">triệu</span>${btn('Ghi giá', `data-price-group="${esc(g.key)}"`, 'primary group-write')}`,
-        `price-group:${g.key}`, { cls: 'price-group', dateText: '' });
+        `${booking ? `<span class="suggest">${booking}${last}</span>` : last}<span class="price-entry"><input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho cả tuyến ${esc(g.label)}" data-group-price="${esc(g.key)}" data-suggested-price="${common}" placeholder="giá, tr"><span class="price-unit">triệu</span>${btn('Ghi giá', `data-price-group="${esc(g.key)}"`, 'primary group-write')}</span>`,
+        `price-group:${g.key}`, { cls: `price-group${booking ? ' has-suggest' : ''}`, dateText: '' });
     };
     const missingTrips = (ledger.trips ?? []).filter(isMissing);
     const groups = priceGroups(ledger).filter(g => g.trips.length > 1);
+    for (const g of groups) g.booking = groupBooking(ledger, g);
     const grouped = new Set(groups.flatMap(g => g.trips.map(r => r.id)));
     const missing = [...groups.flatMap(g => [groupItem(g), ...g.trips.map(r => tripItem(r, g))]), ...missingTrips.filter(r => !grouped.has(r.id)).map(r => tripItem(r))];
     const routeCount = groups.length + missingTrips.length - grouped.size;
@@ -220,5 +244,5 @@ globalThis.InboxTable = (() => {
       + (ledger.ps_fees?.ready?.length ? btn(`Tách ${ledger.ps_fees.ready.length} dòng`, 'data-command="ps"') : '')
       + section('Thiết lập sổ', setup, 'cần đối chiếu sổ gốc');
   }
-  return { render, books, count, parseMillions, million, millionInput, priceGroups, icon };
+  return { render, books, count, parseMillions, million, millionInput, priceGroups, bookingHint, groupBooking, icon };
 })();

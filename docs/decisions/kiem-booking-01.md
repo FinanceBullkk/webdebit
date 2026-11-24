@@ -91,6 +91,8 @@ Ba luật dưới đây là ĐỀ XUẤT của Claude. Như lần 16/11, chúng 
 
 Ba nhóm đụng tiền còn lại, lệch ngày và tháng này giữ nguyên số. Báo cáo tháng: tháng 5/2026 còn 13 chuyến "booking có, Sheet không có" (trước 70), tháng 6/2026 còn 11 dòng "Sheet không ngày" (trước 68); tháng 10 và 11 không đổi. Trong 48 chuyến còn lại, 27 chuyến sổ có dòng cùng container mà ít hơn số chuyến booking, 21 chuyến sổ không có dòng nào cùng container trong 45 ngày quanh đó. Đây là phần chủ nghiệp vụ phải quyết: sót tiền thật, booking ghi lặp, hay chuyến không phải tính.
 
+ĐÃ TRIỂN KHAI trên `hao` 24/11/2026 (FinanceBullkk/webdebit#630, release `3c75c094`, không có SQL). ĐÃ KIỂM CHỨNG: lượt đối soát máy 03:05 UTC cùng ngày ghi `booking-check.json` đúng số đo trên: 48 chuyến booking có mà sổ chưa tính, 37 dòng booking thiếu ngày, 190 dòng không phải chuyến.
+
 ### So sổ web với booking (24/11/2026)
 
 [`DU-CHUYEN-01`](du-chuyen-01.md) đặt "sổ web đủ chuyến booking" làm tiêu chí số 1. Lượt đối soát nay so thêm **sổ web ↔ booking** bằng đúng luật ghép và nhóm ở trên, ghi `booking-web.json`. Khối trên trang đổi tên thành "Kiểm sổ với booking", có nút chọn "Sổ web" (mặc định) và "Sheet sổ nợ". Phép so Sheet trong file này giữ nguyên.

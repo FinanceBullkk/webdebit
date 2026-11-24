@@ -30,7 +30,7 @@ Review trước merge nêu một điểm nặng: DB chỉ chặn trùng tên s�
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT hai lựa chọn của người dùng; phần cách làm là ĐỀ XUẤT. Chi tiết ở [spec](../../specs/v7-khach-web.md). Migration `2026-11-24-v7-khach-web.sql` thêm:
+ĐÃ CHỐT hai lựa chọn của người dùng; phần cách làm là ĐỀ XUẤT. ĐÃ TRIỂN KHAI trên `hao` 24/11/2026 (FinanceBullkk/webdebit#631, migration áp tay, [nhật ký](../deploys/2026-11-24-khach-web.md)); người dùng chưa đi thử luồng trên màn thật. Chi tiết ở [spec](../../specs/v7-khach-web.md). Migration `2026-11-24-v7-khach-web.sql` thêm:
 
 - bảng `booking_name`;
 - hai lệnh `create_customer`, `set_booking_name` cấp cho app;

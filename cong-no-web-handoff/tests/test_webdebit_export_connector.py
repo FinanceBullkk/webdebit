@@ -201,6 +201,17 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         # Dòng chỉ có bốn cột mới (các cột cũ trống) vẫn là dòng trống như trước.
         self.assertEqual(connector.parse_source_values([base + ["Nhà xe"], [""] * len(base) + ["MX-1"]]), [])
 
+    def test_source_tab_reads_booking_price_text_when_the_column_is_there(self):
+        # GIA-BOOKING-01: "Giá + phí (gốc)" tìm theo tên như cột đội xe, giữ nguyên chữ (bỏ khoảng trắng hai đầu); thiếu cột thì trống.
+        base = list(connector.SOURCE_COLUMNS.values())
+        cells = ["ABCU1234567", "01/10/2026", "BK1", "Khách A", "Ship", "WH", "Kho", "Port", "", "", "BIỂN", "T", "2", ""]
+        rows = connector.parse_source_values([base + ["giá + phí (GỐC)"], cells + [" 38TR+1 (TẾT) "]])
+        self.assertEqual((rows[0]["status"], rows[0]["booking_price"]), ("READY", "38TR+1 (TẾT)"))
+        self.assertEqual(connector.parse_source_values([base, cells])[0]["booking_price"], "")
+        self.assertEqual(sorted(connector._source_index([base + ["Giá + phí (gốc)", "Nhà xe"]])[1]), ["booking_price", "nha_xe"])
+        # Dòng chỉ có chữ giá (các cột chuyến trống) vẫn là dòng trống.
+        self.assertEqual(connector.parse_source_values([base + ["Giá + phí (gốc)"], [""] * len(base) + ["38TR"]]), [])
+
     def test_read_source_lists_present_optional_columns(self):
         base = list(connector.SOURCE_COLUMNS.values())
         mapping = [["Chủ hàng từ BOOKING_DATA", "", "", "", "", "Khách chuẩn trên hao (bạn điền)"], ["Khách A", "", "", "", "", "KHÁCH A"]]

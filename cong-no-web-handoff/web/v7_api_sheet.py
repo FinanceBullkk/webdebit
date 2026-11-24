@@ -46,7 +46,13 @@ from v7_receipt_queue import METHOD as RECEIPT_METHOD
 from v7_receipt_queue import load_receipt_snapshot, project_receipts, review_reference
 from v7_receipt_queue import reference as receipt_reference
 from v7_road_queue import build_road_queue, load_road_snapshot, project_road
-from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
+from v7_sheet_queue import (
+    build_queue,
+    load_baseline,
+    load_snapshot,
+    project_booking_prices,
+    project_customer,
+)
 from v7_sheet_task_keep import SOURCE_SCOPES, source_kept
 
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
@@ -186,6 +192,7 @@ def sheet_queue(customers: dict, parts_query: str) -> dict:
     except ValueError as exc:
         raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
     queue = build_queue(snapshot, with_display_names(customers).get("customers", []), baseline)
+    queue.pop("booking_prices", None)   # chữ giá của mọi dòng (GIA-BOOKING-01) chỉ dùng khi chiếu từng sổ, không trả ở đây
     if parts_query:
         customer = int(parse_qs(parts_query, keep_blank_values=True)["customer"][0])
         queue["items"] = [item for item in queue["items"] if item["customer_id"] == customer]
@@ -276,7 +283,7 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     # Tên khách và mặt hàng từ bảng gán tên để chọn sổ theo mặt hàng (P3b), như ba hàm chiếu kia.
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
-    queue = cached_queue(snapshot, customers, baseline)
+    queue = base = cached_queue(snapshot, customers, baseline)
     current = next((c for c in customers if c["id"] == ledger["customer_id"]), {})
     family = current.get("display_name") or current.get("name")
     candidates = [c for c in customers if c.get("status") == "active" and c.get("transport_mode") != "BO"
@@ -318,7 +325,10 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     waiting = [row for row in result.get("waiting_items") or [] if trip_identity(row) not in assigned]
     return {**result, "items": items, "new_count": sum(r["sync_state"] == "NEW" and not r["closed"] for r in items),
             "conflict_count": sum(r["sync_state"] == "CONFLICT" and not r["closed"] for r in items),
-            "waiting_items": waiting, "waiting_count": len(waiting)}
+            "waiting_items": waiting, "waiting_count": len(waiting),
+            # GIA-BOOKING-01: gợi ý giá booking cho chuyến chưa có đơn giá, chỉ theo dòng đã gắn đúng sổ này (hàng chờ trước khi
+            # nhận dòng chưa gắn sổ của cả nhà); Việc cần làm hiện nút điền, người vẫn bấm Ghi giá rồi Xác nhận.
+            "booking_prices": project_booking_prices(base, ledger)}
 
 
 _ROAD: list = [None, None, None, None]   # [road.json, prices.json, khóa danh sách khách, hàng chờ chuyến bộ]
@@ -1012,7 +1022,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
     shared = SharedReads(runner)
     parts = (
         ("sheet_sync", sheet_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0,
-                                          "removed_items": [], "removed_count": 0}),
+                                          "removed_items": [], "removed_count": 0, "booking_prices": {}}),
         ("sheet_prices", price_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("sheet_receipts", receipt_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("ps_fees", ps_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),

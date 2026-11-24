@@ -26,7 +26,9 @@ SOURCE_COLUMNS = {"container": "Số cont", "date": "Ngày đóng", "booking": "
                   "source_line": "Dòng nguồn", "flag": "Cờ lỗi"}
 # DOI-XE-CHANG-01 (19/11/2026): bốn cột cuối của CONT_NGUON cho việc của đội xe. Tìm theo tên như các cột trên (không phân biệt
 # hoa thường); thiếu cột thì ô coi như trống và `read_source` ghi cột nào có trong bản chụp (`columns`), không làm hỏng sổ khách.
-OPTIONAL_SOURCE_COLUMNS = {"nha_xe": "Nhà xe", "seal": "Số seal", "nhiet_do": "Nhiệt độ", "ten_tau": "Tên tàu"}
+# GIA-BOOKING-01 (24/11/2026): chữ giá gốc của booking ("38TR+1"), giữ nguyên chữ; web chỉ hiện làm gợi ý cho người, máy không ghi.
+OPTIONAL_SOURCE_COLUMNS = {"nha_xe": "Nhà xe", "seal": "Số seal", "nhiet_do": "Nhiệt độ", "ten_tau": "Tên tàu",
+                           "booking_price": "Giá + phí (gốc)"}
 SOURCE_KIND_SEA = "BIỂN"
 # GĐ2 của NGUON-CHUYEN-01 (specs/v7-chuyen-theo-nguon.md): chuyến bộ ở tab CONT_BO, cũng tìm cột theo tên ở dòng 1.
 ROAD_RANGE = "CONT_BO!A1:Z20000"

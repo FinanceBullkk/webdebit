@@ -112,7 +112,7 @@ Số đo 24/11/2026 (chỉ đọc, báo cáo tháng 11 trên `hao`): booking 220
 
   `test-so-khach-v7-api.js`: câu Lịch sử "Tên trên booking". `test-nguoi-dung-browser.js`: dải thẻ tám thẻ.
 - [x] Xem ảnh render (dữ liệu giả) ở 1265×1400, hộp thoại và 390.
-- [ ] Sau triển khai trên `hao`: chạy migration theo runbook; checker đạt; tổng nợ mọi sổ trước = sau; trang Khách liệt kê đúng các tên đo được.
+- [x] Sau triển khai trên `hao` (24/11/2026, [nhật ký](../docs/deploys/2026-11-24-khach-web.md)): migration theo runbook; checker 10/10; dấu vân tiền trước = sau; trang Khách liệt kê 3 chủ hàng chưa có sổ, 246 sổ.
 - [ ] Người dùng tự gán một tên và tạo một sổ trên `hao`, thấy chuyến vào sổ ở lượt máy sau.
 
 ## Phạm vi agent
