@@ -1,6 +1,6 @@
 # F2. Architecture Decision Records
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 24/11/2026). Không ADR nào đã chốt. Khi chốt, mỗi ADR thành `docs/decisions/tien-<số>.md` theo [sổ quyết định](../../docs/decisions.md). `schema:` = `cong-no-web-handoff/schema/v7_schema_current.pgsql` trên `main` tại `3c75c094`. Tham chiếu ngành chi tiết ở [R](R-nghien-cuu-tham-chieu.md).
+Trạng thái: **ĐỀ XUẤT** (Claude, 24/11/2026). Phần nghiệp vụ của ADR-TIEN-01, 08, 12, 17, 18 đã chốt theo [`SO-TIEN-01`](../../docs/decisions/so-tien-01.md) (24/11/2026); phần kỹ thuật của mọi ADR vẫn là đề xuất tới PR migration. Khi chốt, mỗi ADR thành `docs/decisions/tien-<số>.md` theo [sổ quyết định](../../docs/decisions.md). `schema:` = `cong-no-web-handoff/schema/v7_schema_current.pgsql` trên `main` tại `3c75c094`. Tham chiếu ngành chi tiết ở [R](R-nghien-cuu-tham-chieu.md).
 
 [← Mục lục](README.md) · Kiến trúc: [F1](F1-kien-truc-ky-thuat.md) · Test của từng `AT-xx.y`: [G §3](G-uat-test.md#3-kế-hoạch-test-tự-động)
 
