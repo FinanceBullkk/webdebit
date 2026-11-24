@@ -83,6 +83,16 @@ class BookingViewTests(unittest.TestCase):
         self.assertEqual((status, body["recent_web"]), (200, "checked"))
         self.assertEqual(body["rows"][0]["web"], {"customer_id": 7, "name": "KHACH BAY", "date": "2026-11-13"})
 
+    def test_route_carries_the_web_check_with_its_own_state(self):
+        """DU-CHUYEN-01: `web_check` đọc booking-web.json, tính `state` như phần Sheet; chưa có file thì `none`, không phải "ổn"."""
+        self.write(self.result())
+        status, body = self.request("/api/v7/machine/booking")
+        self.assertEqual((status, body["web_check"]["state"]), (200, "none"))
+        (self.dir / "booking-web.json").write_text(json.dumps(self.result(compare="web", booking={"trips": 9, "on_web": 8})), encoding="utf-8")
+        body = view.both(mock.Mock(), None, "nguoi@test", at("13T10:30:00"))
+        self.assertEqual((body["state"], body["web_check"]["state"], body["web_check"]["booking"]), ("ok", "ok", {"trips": 9, "on_web": 8}))
+        self.assertNotIn("web_check", body["web_check"])
+
     def test_page_script_is_served(self):
         self.assertIn("/may-chay-booking.js", api.ASSETS)
 
