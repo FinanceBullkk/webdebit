@@ -64,11 +64,39 @@ class BookingCheckTests(unittest.TestCase):
             return job.check(Path("so-goc.xlsx"), self.snapshot("snapshot.json", sea_rows), self.snapshot("road.json", road_rows), NOW)
 
     def test_snapshot_rows_become_source_trips(self):
-        rows, stats = job.snapshot_sources({"rows": SEA}, {"rows": [*ROAD, road("DUPU1111111", "2026-03-11")]})
-        self.assertEqual(stats, {"dong_ngay_sai": 1, "dong_lap_cung_ngay": 1, "dong_thieu_cont_hoac_ngay": 1, "dong_lap_tab_truoc": 1})
+        rows, stats, fix = job.snapshot_sources({"rows": SEA}, {"rows": [*ROAD, road("DUPU1111111", "2026-03-11")]})
+        self.assertEqual(stats, {"dong_thieu_ngay": 1, "dong_lap_cung_ngay": 1, "dong_khong_phai_chuyen": 1, "dong_lap_tab_truoc": 1})
         self.assertEqual({(row["tab"], row["family"]) for row in rows}, {("CONT_NGUON", "BIEN"), ("CONT_BO", "BO")})
         self.assertEqual(rows[0], {"family": "BIEN", "tab": "CONT_NGUON", "line": 2, "cont": "DUPU1111111", "date": "2026-03-10",
                                    "owner": "KHACH A", "ref": "BK", "price": ""})
+        self.assertEqual([row["cont"] for row in fix], ["JUNK1616161"])
+
+    def test_booking_rows_to_fix_and_rows_that_are_not_trips(self):
+        """Lọc nhiễu 24/11/2026: dòng tổng, dòng tiêu đề mặt hàng không phải chuyến; chuyến có số container mà thiếu ngày thì liệt kê
+        theo tab nguồn và dòng nguồn để người giữ booking sửa."""
+        sea_rows = [{**sea("", None), "source_date": "04/11/1900", "event_date": "1900-11-04"},          # dòng cuối tab tháng
+                    {**sea("THANHLONG", None), "source_date": ""},                                     # tiêu đề mặt hàng
+                    {**sea("OERU4400262", None, owner="KHACH S", line=268), "source_date": "/", "source_tab": "THÁNG 08/2026",
+                     "source_line": "41", "status": "INVALID"},
+                    {**sea("FBIU5751189", "1900-01-21", line=315), "source_date": "21/01/1900"}]           # số cont thật, ngày rác
+        road_rows = [{**road("CRLU1220757", None, owner="KHO R", line=91), "source_date": "", "status": "INVALID"},
+                     road("ROAU6666666", "2026-05-05")]
+        _, stats, fix = job.snapshot_sources({"rows": sea_rows}, {"rows": road_rows})
+        self.assertEqual(stats, {"dong_khong_phai_chuyen": 2, "dong_thieu_ngay": 3})
+        self.assertEqual(fix, [
+            {"family": "BIEN", "tab": "CONT_NGUON", "line": 315, "cont": "FBIU5751189", "owner": "KHACH A", "ref": "BK", "raw_date": "21/01/1900"},
+            {"family": "BIEN", "tab": "THÁNG 08/2026", "line": "41", "cont": "OERU4400262", "owner": "KHACH S", "ref": "BK", "raw_date": "/"},
+            {"family": "BO", "tab": "CONT_BO", "line": 91, "cont": "CRLU1220757", "owner": "KHO R", "ref": "51C-1", "raw_date": ""}])
+        result = self.check(sea_rows=[*SEA, *sea_rows], road_rows=[*ROAD, *road_rows[:1]])
+        self.assertEqual([row["cont"] for row in result["booking_fix"]], ["JUNK1616161", "FBIU5751189", "OERU4400262", "CRLU1220757"])
+        self.assertEqual(job.counts_line(result)["booking_fix"], 4)
+
+    def test_missing_trip_counts_booking_trips_and_book_rows_of_the_container(self):
+        rows = [*SHEET, sheet("A", 7, "MISU9999999", "2026-04-01"), sheet("A", 8, "MISU9999999", None, month="2026-05")]
+        result = self.check(rows, [*SEA, sea("MISU9999999", "2026-04-02"), sea("MISU9999999", "2026-05-14")])
+        missing = next(row for row in result["rows"] if row["code"] == "CHUA_TINH")
+        self.assertEqual((missing["source"]["date"], missing["near"]), ("2026-04-20", {"booking": 3, "sheet": 2}))
+        self.assertTrue(all(row["near"] is None for row in result["rows"] if row["group"] != "missing"))
 
     def test_groups_for_the_page(self):
         result = self.check()

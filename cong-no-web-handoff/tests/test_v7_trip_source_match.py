@@ -76,6 +76,25 @@ class TripSourceMatchTests(unittest.TestCase):
         source = [src("ABCU1234567", "2026-03-06"), src("ABCU1234567", "2026-05-30"), src("WXYZ7654321", "2026-04-10")]
         self.assertEqual(match.pair(rows, source)[0], {1: 0, 3: 2})
 
+    def test_undated_row_takes_a_late_trip_of_the_month_before(self):
+        """KIEM-BOOKING-01 (24/11/2026): Sheet ghi chuyến cuối tháng ở đầu khối tháng sau, không ngày."""
+        rows = [sheet("A", 1, "LATU1111111", None, month="2026-06"),
+                sheet("A", 2, "EARU2222222", None, month="2026-06"),
+                sheet("A", 3, "BOTU3333333", None, month="2026-06"),
+                sheet("A", 0, "FIRU0000000", "2026-01-05")]                                # tab có từ tháng 1
+        source = [src("LATU1111111", "2026-05-29"),
+                  src("EARU2222222", "2026-05-10"),                                       # nửa đầu tháng trước: không ghép
+                  src("BOTU3333333", "2026-05-30"), src("BOTU3333333", "2026-06-12"),     # chuyến cùng tháng thắng
+                  src("FIRU0000000", "2026-01-05")]
+        s_pair, found = found_for(rows, source)
+        self.assertEqual(s_pair, {0: 0, 2: 3, 3: 4})
+        notes = {(g, (s or b)["cont"], note) for g, s, b, note in found}
+        self.assertIn(("NGAY_TU_NGUON", "LATU1111111", "ngày theo nguồn 2026-05-29 (sổ ghi ở khối tháng sau)"), notes)
+        self.assertIn(("NGAY_TU_NGUON", "BOTU3333333", "ngày theo nguồn 2026-06-12"), notes)
+        self.assertIn(("CHUA_TINH", "EARU2222222"), {(g, (s or b)["cont"]) for g, s, b, _ in found})
+        self.assertIn(("CHUA_TINH", "BOTU3333333"), {(g, (s or b)["cont"]) for g, s, b, _ in found})
+        self.assertEqual((match.next_month("2026-05"), match.next_month("2026-12")), ("2026-06", "2027-01"))
+
     def test_review_groups(self):
         rows = [sheet("A", 1, "DUPU1111111", "2026-03-10"), sheet("B", 1, "DUPU1111111", "2026-03-10"),
                 sheet("A", 9, "NOSU1111111", "2026-03-12"), sheet("B", 9, "NOSU1111111", "2026-03-12"),
