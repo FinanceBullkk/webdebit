@@ -158,6 +158,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="tu-lam-01"></a>[TU-LAM-01](decisions/tu-lam-01.md) | Claude tự nạp dữ liệu, ghi Google Sheet, thao tác DB legacy và đổi quyền ngoài runbook, không hỏi trước | Thay một phần danh sách "vẫn hỏi" của [DEPLOY-CLAUDE-01](#deploy-claude-01) |
 | <a id="zalo-bot-01"></a>[ZALO-BOT-01](decisions/zalo-bot-01.md) | Bot hỏi đáp công nợ qua Zalo: người dùng hỏi tự do bằng AI qua chat riêng với một nick phụ chạy zca-js trên hao; bot đọc API web bằng công cụ chỉ đọc, số tiền điền bằng tham chiếu và kiểm trước khi gửi; thu tin vẫn qua zalo-agent | Chốt hướng làm 22/11/2026 (Q1, Q2, Q6–Q8); Q4 (trần 3 USD/ngày) và Q5 (chỉ trường cần, không SĐT/STK/ảnh/tin chat/ghi chú) chốt 24/11/2026; mã đã merge, chưa cài, chưa bật. [Spec](../specs/zalo-bot.md) |
 | <a id="gia-don-vi-01"></a>[GIA-DON-VI-01](decisions/gia-don-vi-01.md) | Mọi đường nhập đơn giá hỏi lại tại chỗ khi ngoài 1 triệu đến 1 tỷ đ; đọc số tiền bằng một bộ đọc chặt chung | Chốt 23/11/2026 |
+| <a id="gia-booking-01"></a>[GIA-BOOKING-01](decisions/gia-booking-01.md) | Giá chữ "Giá + phí (gốc)" của `CONT_NGUON` là gợi ý ở nhóm Chưa giá của Việc cần làm: bấm chỉ điền ô giá, người vẫn Ghi giá rồi Xác nhận; máy không tự ghi; giá Sheet vẫn là chuẩn khi chạy song song | Chốt 24/11/2026 (người dùng chọn "Gợi ý, người bấm ghi"); cách làm là đề xuất của Claude; đổi vế (3) của [NGUON-CHUYEN-01](#nguon-chuyen-01). [Spec](../specs/v7-gia-booking.md) |
 
 ## Cập nhật khóa tháng 24/10/2026
 

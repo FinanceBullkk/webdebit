@@ -7,6 +7,7 @@ import json
 import re
 import unicodedata
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,30 @@ import v7_normalize as normalize
 QUEUE_FIRST_YEAR = 2026
 # Cột "Mặt hàng" của booking sheet ghi thế này thì không dùng để chọn sổ (đo trên hao 1/11/2026).
 UNKNOWN_COMMODITY = {"KHÁC", "(CHƯA GHI)"}
+# GIA-BOOKING-01: một phần của ô "Giá + phí (gốc)", tính bằng triệu đồng; phẩy hay chấm là dấu thập phân, tối đa sáu số lẻ (tới
+# từng đồng). Cùng cách đọc với `price_vnd` của tools/v7_trip_source_match.py (web không import tools/, ARCH-02).
+_BOOKING_PART = re.compile(r"(\d+(?:[.,]\d{1,6})?)(?:TR|TRIEU|TRIỆU|M)?")
+# Gợi ý chỉ là số khi đơn giá trong 1 triệu – 1 tỷ đ (khoảng hỏi lại của GIA-DON-VI-01) và phụ phí không quá 1 tỷ đ.
+BOOKING_UNIT_RANGE = (1_000_000, 1_000_000_000)
+
+
+def booking_price_vnd(text: Any) -> tuple[int, int | None] | None:
+    """Chữ giá booking → (đơn giá, phụ phí) VND nguyên. GIA-BOOKING-01.
+
+    Đơn giá là phần đầu, phụ phí là tổng các phần sau dấu "+" ("38TR+1" → 38 và 1 triệu; "38TR+1+0,5" → 38 và 1,5 triệu).
+    Không có phần sau "+" thì phụ phí là None, không phải 0. Có phần không phải số (chữ, USD, RMB, "HC", ghi chú trong
+    ngoặc) hay đơn giá bằng 0 thì cả ô là None: người đọc chữ gốc, máy không đoán.
+    """
+    values = []
+    for part in re.sub(r"\s+", "", unicodedata.normalize("NFC", str(text or ""))).upper().split("+"):
+        match = _BOOKING_PART.fullmatch(part)
+        if not match:
+            return None
+        values.append(int(Decimal(match.group(1).replace(",", ".")) * 1_000_000))   # ≤ 6 số lẻ: luôn tròn đồng
+    unit, *fees = values
+    if unit <= 0:
+        return None
+    return unit, (sum(fees) if fees else None)
 
 
 def _name(value: Any) -> str:
@@ -122,6 +147,9 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
                 owners.setdefault(_name(customer["display_name"]), []).append(customer)
     aliases = snapshot.get("customer_aliases") or {}
     items = []
+    # GIA-BOOKING-01: chữ giá booking của dòng READY theo số dòng nguồn. Để ngoài `items`: `removed_identity` băm cả dòng hàng
+    # chờ, nên thêm một trường vào dòng là đổi dấu vân mọi chuyến "Giữ" đã chốt (và mỗi lần ô giá trên Sheet đổi).
+    booking_prices: dict[Any, str] = {}
     skipped_out_of_scope = 0
     for source in snapshot["rows"]:
         if not isinstance(source, dict):
@@ -156,11 +184,14 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
         item.update({"customer_id": match["id"] if match else None,
                      "review_status": review_status, "review_reasons": reasons})
         items.append(item)
+        price_text = str(source.get("booking_price") or "").strip()
+        if status == "READY" and price_text:
+            booking_prices[source.get("source_row")] = price_text
     return {"source": snapshot.get("source"), "snapshot_sha256": snapshot["sha256"],
             "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "baseline_cutover_id": baseline["cutover_id"], "items": items,
             "row_count": len(items), "ready_count": 0, "review_count": len(items),
-            "skipped_out_of_scope": skipped_out_of_scope}
+            "skipped_out_of_scope": skipped_out_of_scope, "booking_prices": booking_prices}
 
 
 def _same_legacy_trip(ref: dict[str, Any], container: str, date: dt.date) -> bool:
@@ -398,6 +429,52 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any], *, include_kept
         result.append({"source_fingerprint": source, "trip_id": trip["id"], "container": trip.get("container"), "event_date": date.isoformat(),
                        "month": trip.get("month"), "status": trip.get("status"), "amount_vnd": trip.get("amount_vnd"),
                        "month_locked": trip.get("info_editable") is not True})
+    return result
+
+
+def project_booking_prices(queue: dict[str, Any], ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Giá chữ booking làm gợi ý cho chuyến web chưa có đơn giá của sổ (GIA-BOOKING-01); người bấm mới điền, máy không ghi.
+
+    Ghép theo NGUON-CHUYEN-01 (1): cùng container, ngày lệch không quá 3 ngày, với dòng hàng chờ READY đã gắn đúng sổ này.
+    Chỉ gợi ý khi chuyến ghép đúng một dòng nguồn và dòng đó cũng chỉ ghép một chuyến của sổ (chuyến chưa xóa, chưa loại,
+    kể cả chuyến chờ kiểm): nhiều dòng hay nhiều chuyến thì không biết giá là của chuyến nào. Dòng sổ gốc không xét.
+    Chữ không đọc được thành số, hay số ngoài `BOOKING_UNIT_RANGE`, vẫn trả `text` để người đọc; hai số là None.
+    """
+    texts = queue.get("booking_prices") or {}
+    trips = [trip for trip in ledger.get("trips") or [] if type(trip.get("id")) is int and not trip.get("deleted")
+             and trip.get("status") != "rejected"]
+    # Hộp việc chiếu mọi sổ mỗi lượt: sổ không có chuyến chưa giá thì không duyệt hàng chờ.
+    if not texts or not any(trip.get("status") == "confirmed" and trip.get("unit_price_vnd") is None for trip in trips):
+        return {}
+    rows: dict[str, list[tuple[dict[str, Any], dt.date]]] = {}
+    for row in queue["items"]:
+        if row.get("customer_id") != ledger.get("customer_id") or row.get("status") != "READY":
+            continue
+        day, container = _day(row.get("event_date")), _container(row.get("container"))
+        if day and container:
+            rows.setdefault(container, []).append((row, day))
+    matches: dict[int, list[dict[str, Any]]] = {}
+    claims: Counter = Counter()
+    for trip in trips:
+        day = _day(trip.get("event_date"))
+        found = [row for row, other in rows.get(_container(trip.get("container")), ()) if day and abs((day - other).days) <= 3]
+        matches[trip["id"]] = found
+        claims.update(row.get("source_row") for row in found)
+    low, high = BOOKING_UNIT_RANGE
+    result = {}
+    for trip in trips:
+        found = matches[trip["id"]]
+        if trip.get("status") != "confirmed" or trip.get("unit_price_vnd") is not None or len(found) != 1:
+            continue
+        source = found[0].get("source_row")
+        text = texts.get(source)
+        if claims[source] != 1 or not text:
+            continue
+        price = booking_price_vnd(text)
+        if price and not (low <= price[0] <= high and (price[1] is None or price[1] <= high)):
+            price = None
+        result[str(trip["id"])] = {"text": text, "unit_price_vnd": str(price[0]) if price else None,
+                                   "other_fee_vnd": str(price[1]) if price and price[1] is not None else None}
     return result
 
 

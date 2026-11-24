@@ -24,7 +24,19 @@ function makeWorld() {
     trip(12, '2026-11-05', { container: null, other_fee_vnd: '300000' }),   // dòng phí lẻ: đã tính nợ bằng phụ phí, không phải chưa giá
   ] };
 }
-const ledgerOf = world => ({ version: world.version, total_outstanding_vnd: world.total, trips: world.trips, sheet_sync: { items: [], removed_items: [] }, sheet_prices: { ready: [], review: [] } });
+// GIA-BOOKING-01: gợi ý giá booking như GET sổ trả (`sheet_sync.booking_prices`, theo mã chuyến). Tuyến A: chuyến 3 đã có phụ phí nên
+// tuyến không cùng một gợi ý (nút ở từng chuyến); tuyến TT MẪU cùng giá (nút ở hàng tuyến, kèm giá gần nhất của chuyến 102).
+const booking = (text, unit = null, fee = null) => ({ text, unit_price_vnd: unit, other_fee_vnd: fee });
+function bookingWorld() {
+  const world = makeWorld();
+  world.trips.push(trip(102, '2026-10-25', { shipper: 'TT MẪU', unit_price_vnd: '41000000' }));
+  const a = booking('38TR+1', '38000000', '1000000'), tt = booking('42TR+0,5', '42000000', '500000');
+  world.booking = { 1: a, 2: a, 3: a, 4: a, 5: booking('40TR', '40000000'), 7: booking('<img src=x onerror="window.__xss=1">38TR (TẾT)'),
+    8: booking('38TR', '38000000'), 9: booking('39.5TR+1+0,5', '39500000', '1500000'), 10: tt, 11: tt };
+  return world;
+}
+const ledgerOf = world => ({ version: world.version, total_outstanding_vnd: world.total, trips: world.trips,
+  sheet_sync: { items: [], removed_items: [], booking_prices: world.booking ?? {} }, sheet_prices: { ready: [], review: [] } });
 const dashboard = { as_of: '2026-11-13', demo: true, todo: { missing_price: [{ customer_id: 2, count: 11 }], pending_review: [], no_baseline: [], credit: [] },
   today: { trips: 0, receipts: 0, voids: 0, received_vnd: '0', by_actor: [] } };
 const inbox = { state: 'ready', sheet_at: '2026-11-13T02:00:00Z', computed_at: '2026-11-13T02:05:00Z', failed: [], books: [], auto: {} };
@@ -99,7 +111,7 @@ const values = page => page.evaluate(() => Object.fromEntries([...document.query
 
 if (process.argv.includes('--preview')) {
   const port = Number(process.env.UX_PREVIEW_PORT ?? 18768);
-  serverFor(makeWorld(), { posted: [] }).listen(port, '127.0.0.1', () => process.stdout.write(`Fixture preview: http://127.0.0.1:${port}/viec-can-lam.html\n`));
+  serverFor(process.argv.includes('--booking') ? bookingWorld() : makeWorld(), { posted: [] }).listen(port, '127.0.0.1', () => process.stdout.write(`Fixture preview: http://127.0.0.1:${port}/viec-can-lam.html\n`));
 } else {
   test('hàng tuyến: chỉ tuyến ≥ 2 chuyến sửa được, tách theo shipper, giá gần nhất, không cuộn ngang', async () => withPage({}, async page => {
     assert.match(await page.locator('.detail-group.warn h3').first().innerText(), /Chưa giá\s*11 chuyến · 6 tuyến/);
@@ -307,6 +319,103 @@ if (process.argv.includes('--preview')) {
       await page.waitForFunction(() => !document.querySelector('.pending-action'));
       assert.equal(posted.length, 0);
       assert.equal(await groupInput(page).inputValue(), '45');
+    });
+  });
+
+  // GIA-BOOKING-01 (specs/v7-gia-booking.md): giá booking là gợi ý, bấm mới điền ô; ghi vẫn qua Ghi giá → Xác nhận.
+  const keyTT = JSON.stringify(['KHO MẪU A', 'CẢNG MẪU 1', 'TT MẪU']);
+  const ghi = (page, id) => page.locator(`[data-command="price"][data-trip="${id}"]`);
+  test('giá booking: nút ở đúng chuyến, ở hàng tuyến khi cả tuyến cùng giá; chữ lạ chỉ hiện chữ; vừa khung 1280', async () => {
+    const posted = [];
+    await withPage({ posted, world: bookingWorld() }, async page => {
+      const labels = await page.locator('[data-use-booking]').evaluateAll(nodes => Object.fromEntries(nodes.map(n => [n.dataset.useBooking, n.textContent])));
+      assert.deepEqual(labels, { 1: 'Giá booking 38 tr + 1 tr', 2: 'Giá booking 38 tr + 1 tr', 3: 'Giá booking 38 tr', 4: 'Giá booking 38 tr + 1 tr',
+        5: 'Giá booking 40 tr', 9: 'Giá booking 39,5 tr + 1,5 tr' }, 'chuyến 3 đã có phụ phí: chỉ điền đơn giá');
+      assert.deepEqual(await page.locator('[data-use-booking-group]').evaluateAll(nodes => nodes.map(n => [n.dataset.useBookingGroup, n.textContent])),
+        [[keyTT, 'Giá booking 42 tr + 0,5 tr']], 'tuyến TT MẪU cùng giá: một nút ở hàng tuyến, dòng chuyến không lặp lại');
+      for (const id of [6, 7, 8, 10, 11]) assert.equal(await page.locator(`[data-detail-key="price:${id}"] [data-use-booking]`).count(), 0, `chuyến ${id} không có nút`);
+      // Chữ không đọc được thành số: hiện nguyên chữ để người đọc, không chèn được HTML.
+      assert.equal(await page.locator('[data-detail-key="price:7"] .detail-description').textContent(), 'KHO MẪU C → CẢNG MẪU 1 · Booking ghi: <img src=x onerror="window.__xss=1">38TR (TẾT)');
+      assert.equal(await page.locator('.work-detail img').count(), 0);
+      assert.equal(await page.evaluate(() => globalThis.__xss), undefined);
+      const fit = await page.evaluate(key => {
+        const box = node => node.getBoundingClientRect();
+        const inside = [...document.querySelectorAll('.use-booking')].every(b => { const r = box(b), row = box(b.closest('li')); return r.left >= row.left && r.right <= row.right; });
+        const head = [...document.querySelectorAll('[data-group-price]')].find(i => i.dataset.groupPrice === key).closest('li');
+        const route = head.querySelector('.detail-description');
+        const right = sel => box(document.querySelector(sel)).right;
+        return { noScroll: document.scrollingElement.scrollWidth <= innerWidth, inside, font: getComputedStyle(document.querySelector('.use-booking')).fontSize,
+          routeWhole: route.scrollWidth <= route.clientWidth && route.scrollHeight <= route.clientHeight + 1, headHeight: box(head).height <= 96,
+          aligned: [right('[data-manual-price="1"]'), right(`[data-group-price='${key}']`), right('[data-manual-price="10"]')].every(r => Math.abs(r - right('[data-manual-price="6"]')) < 1) };
+      }, keyTT);
+      assert.deepEqual(fit, { noScroll: true, inside: true, font: '14px', routeWhole: true, headHeight: true, aligned: true });
+      assert.equal(posted.length, 0);
+    });
+  });
+
+  test('bấm Giá booking chỉ điền ô; Ghi giá xem lại nêu đơn giá + phụ phí; chỉ Xác nhận mới gửi; chuyến có phụ phí giữ phụ phí', async () => {
+    const posted = [];
+    await withPage({ posted, world: bookingWorld() }, async page => {
+      await page.locator('[data-use-booking="1"]').click();
+      assert.equal(await page.locator('[data-manual-price="1"]').inputValue(), '38');
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.manualPrice), '1');
+      assert.equal(await groupInput(page).inputValue(), '', 'bấm ở một chuyến không điền cả tuyến');
+      await ghi(page, 1).click();
+      assert.match(await page.locator('.pending-action').innerText(), /Ghi giá 38 tr \+ phụ phí 1 tr · nợ 679 → 718 tr/);
+      assert.equal(posted.length, 0, 'chưa Xác nhận thì chưa gửi lệnh nào');
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-manual-price="1"]'));
+      assert.deepEqual(posted.map(p => [p.route, p.body.trip_id, p.body.unit_price_vnd, p.body.other_fee_vnd]), [['/api/v7/trips/price', 1, '38000000', '1000000']]);
+      await page.locator('[data-use-booking="3"]').click();
+      await ghi(page, 3).click();
+      const review = await page.locator('.pending-action').innerText();
+      assert.match(review, /Ghi giá 38 tr · nợ 679 → 717,5 tr/);
+      assert.doesNotMatch(review, /phụ phí/);
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-manual-price="3"]'));
+      assert.deepEqual([posted.length, posted[1].body.unit_price_vnd, posted[1].body.other_fee_vnd], [2, '38000000', '500000']);
+    });
+  });
+
+  test('bấm Giá booking rồi sửa ô thành số khác: giá là của người, không kèm phụ phí booking', async () => {
+    const posted = [];
+    await withPage({ posted, world: bookingWorld() }, async page => {
+      await page.locator('[data-use-booking="2"]').click();
+      await page.locator('[data-manual-price="2"]').fill('39');
+      await ghi(page, 2).click();
+      const review = await page.locator('.pending-action').innerText();
+      assert.match(review, /Ghi giá 39 tr · nợ 679 → 718 tr/);
+      assert.doesNotMatch(review, /phụ phí/);
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-manual-price="2"]'));
+      assert.deepEqual(posted.map(p => [p.body.trip_id, p.body.unit_price_vnd, p.body.other_fee_vnd]), [[2, '39000000', null]]);
+    });
+  });
+
+  test('nút Giá booking ở hàng tuyến: điền cả tuyến, xem lại nêu phụ phí, Xác nhận ghi từng chuyến kèm phụ phí', async () => {
+    const posted = [];
+    await withPage({ posted, world: bookingWorld() }, async page => {
+      // Tuyến A đang xem lại: ô giá và nút booking của các chuyến trong tuyến khóa, như GIA-TUYEN-01.
+      await groupInput(page).fill('45');
+      await groupButton(page).click();
+      await page.locator('.pending-action').waitFor();
+      assert.equal(await page.locator('[data-use-booking="1"]').isDisabled(), true);
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('.pending-action'));
+      await page.locator(`[data-use-booking-group='${keyTT}']`).click();
+      assert.deepEqual([await groupInput(page, keyTT).inputValue(), await page.locator('[data-manual-price="10"]').inputValue(),
+        await page.locator('[data-manual-price="11"]').inputValue()], ['42', '42', '42']);
+      assert.equal(await groupButton(page, keyTT).innerText(), 'Ghi giá 2 chuyến');
+      assert.equal(posted.length, 0);
+      await groupButton(page, keyTT).click();
+      assert.match(await page.locator('.pending-action').innerText(),
+        /Ghi 2 chuyến 42 tr \+ phụ phí 0,5 tr · nợ 679 → 764 tr · khác giá gần nhất 41 tr \(25\/10\/2026\)/);
+      const tops = await page.locator('.pending-action [data-action-write], .pending-action [data-action-cancel]').evaluateAll(nodes => nodes.map(n => Math.round(n.getBoundingClientRect().top)));
+      assert.equal(new Set(tops).size, 1, 'Xác nhận và Thôi cùng một dòng');
+      assert.equal(posted.length, 0);
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.locator('[data-undo-batch]').waitFor();
+      assert.deepEqual(posted.map(p => [p.body.trip_id, p.body.unit_price_vnd, p.body.other_fee_vnd]), [[10, '42000000', '500000'], [11, '42000000', '500000']]);
     });
   });
 }

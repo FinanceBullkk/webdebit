@@ -12,7 +12,7 @@ Người dùng chốt: **chuyến lấy theo bảng booking, tiền lấy theo s
    - với chuyến biển, thêm khách (chủ hàng chuẩn, qua bảng ghép tên) và mặt hàng.
 
    Chuyến bộ lấy khách theo sổ trên Sheet, vì cột CHỦ HÀNG của bảng bộ có khi là kho đóng hàng chứ không phải khách. Ngày chuyến bộ là ngày xe nhập kho theo [`DATE`](date.md) khi bảng có ghi: cột "NGÀY ĐÓNG HÀNG", hoặc "NGÀY LÊN KHO" ở hai tab bộ sầu riêng của file 2025. Không có thì lấy ngày khởi hành ("NGÀY KHỞI HÀNH" / "NGÀY XUẤT PHÁT").
-3. **Theo sổ gốc:** đơn giá, phụ phí, tổng tiền, như [`GIA-NGUON-01`](gia-nguon-01.md). Giá ghi bằng chữ trong booking (ví dụ "38TR+1") chỉ dùng để đối chiếu, không ghi vào sổ.
+3. **Theo sổ gốc:** đơn giá, phụ phí, tổng tiền, như [`GIA-NGUON-01`](gia-nguon-01.md). Giá ghi bằng chữ trong booking (ví dụ "38TR+1") chỉ dùng để đối chiếu, không ghi vào sổ. Từ 24/11/2026 ([`GIA-BOOKING-01`](gia-booking-01.md)) chữ giá này được hiện làm gợi ý cho người ở nhóm Chưa giá của Việc cần làm; máy vẫn không ghi.
 4. **Chỗ lệch do người quyết ở hộp ngoại lệ**, với "theo nguồn" là cách xử lý đề xuất sẵn. Các loại lệch:
    - ngày khác nguồn;
    - khách khác booking;

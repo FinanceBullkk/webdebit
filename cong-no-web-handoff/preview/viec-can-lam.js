@@ -101,6 +101,13 @@
   const draftKey = input => input.hasAttribute('data-group-price') ? `group:${inbox.open}:${input.dataset.groupPrice}` : input.hasAttribute('data-trip-book') ? `trip-book:${input.dataset.tripBook}` : input.hasAttribute('data-commodity') ? `commodity:${input.dataset.commodity}` : input.hasAttribute('data-transport') ? `transport:${input.dataset.transport}` : input.hasAttribute('data-receipt-date') ? `receipt-date:${input.dataset.receiptDate}` : input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
   // GIA-TUYEN-01: chuyến người đã tự gõ giá riêng; gõ ở hàng tuyến không đè các ô này.
   const priceTouched = new Set();
+  // GIA-BOOKING-01: giá booking người đã bấm điền, theo mã chuyến: { unit, fee }. Phụ phí booking chỉ đi vào lệnh ghi giá khi ô còn
+  // đúng đơn giá đã điền và chuyến chưa có phụ phí; gõ số khác thì giá là của người, không kèm phụ phí booking.
+  const bookingFill = new Map();
+  const bookingFee = (row, price) => {
+    const fill = bookingFill.get(String(row.id));
+    return fill && fill.unit === price && fill.fee != null && row.other_fee_vnd == null ? fill.fee : null;
+  };
   const groupInputs = key => [...inboxRoot.querySelectorAll('[data-manual-price][data-price-route]')].filter(input => input.dataset.priceRoute === key);
   const groupInput = key => [...inboxRoot.querySelectorAll('[data-group-price]')].find(node => node.dataset.groupPrice === key);
   // Ô có chữ sai: viền đỏ và lời nhắc ngay tại ô (ô trống là bỏ qua, không phải sai).
@@ -177,8 +184,7 @@
     // Tuyến đang xem lại hay đang ghi: khóa ô giá các chuyến của tuyến. Số trên dòng xem lại là số sẽ ghi; muốn đổi thì bấm Thôi.
     if (inbox.action?.priceBatch) for (const input of groupInputs(inbox.action.groupKey)) {
       input.disabled = true;
-      const own = input.closest('.detail-actions')?.querySelector('[data-command="price"]');
-      if (own) own.disabled = true;
+      for (const own of input.closest('.detail-actions')?.querySelectorAll('[data-command="price"],[data-use-booking]') ?? []) own.disabled = true;
     }
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
     if (inbox.stale) for (const control of inboxRoot.querySelectorAll('button,input,select')) if (!VIEW_ONLY.some(attr => control.hasAttribute(attr))) control.disabled = true;
@@ -464,7 +470,7 @@
     const kind = button.dataset.command;
     const row = ledger.trips?.find(r => r.id === Number(button.dataset.trip));
     const body = { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID() };
-    let title, text, path, inlineText, warn = '';
+    let title, text, path, inlineText, warn = '', feeNote = '', feeText = '';
     try {
       if (kind === 'ps' || kind === 'approve') {
         const part = kind === 'ps' ? ledger.ps_fees : ledger.sheet_sync;
@@ -488,11 +494,17 @@
         let next = '0';
         if (kind === 'price') {
           body.unit_price_vnd = globalThis.InboxTable.parseMillions(inboxRoot.querySelector(`[data-manual-price="${row.id}"]`).value);
-          body.other_fee_vnd = row.other_fee_vnd;
+          // GIA-BOOKING-01: phụ phí của giá booking đã bấm đi kèm và được nêu rõ ở bước xem lại; không thì giữ phụ phí của chuyến.
+          const booked = bookingFee(row, body.unit_price_vnd);
+          body.other_fee_vnd = booked ?? row.other_fee_vnd;
+          if (booked != null) {
+            feeNote = ` + phụ phí ${globalThis.InboxTable.millionInput(booked)} tr`;
+            feeText = `Đơn giá ${F.full(body.unit_price_vnd)}, phụ phí ${F.full(booked)} theo giá booking. `;
+          }
           // Ô nhập bằng triệu: "45000000" thành 45 nghìn tỷ đồng, "0,5" chỉ 500 nghìn. Ngoài [1 triệu, 1 tỷ] thì nêu đầu câu hỏi.
           if (SoKhachV7Model.priceDoubt(body.unit_price_vnd)) warn = `Kiểm lại đơn vị: ${SoKhachV7Model.priceDoubtText(body.unit_price_vnd)} `;
-          next = SoKhachV7Model.tripAmount({ unitPriceVnd: body.unit_price_vnd, otherFeeVnd: row.other_fee_vnd, container: row.container, status: row.status }).amountVnd.toString();
-          title = `Ghi đơn giá ${F.full(body.unit_price_vnd)} cho ${row.container}`;
+          next = SoKhachV7Model.tripAmount({ unitPriceVnd: body.unit_price_vnd, otherFeeVnd: body.other_fee_vnd, container: row.container, status: row.status }).amountVnd.toString();
+          title = `Ghi đơn giá ${F.full(body.unit_price_vnd)}${booked != null ? ` và phụ phí ${F.full(booked)}` : ''} cho ${row.container}`;
           path = '/api/v7/trips/price';
         } else {
           body.reason = '';
@@ -501,8 +513,8 @@
           title = `${kind === 'confirm' ? 'Tính vào sổ' : 'Loại chuyến'} ${row.container}`;
           path = '/api/v7/trips/review';
         }
-        text = `${warn}Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))}. ${body.reason ?? 'Chuyến bắt đầu tính nợ theo đơn giá đã nhập.'}`;
-        inlineText = `${warn}${kind === 'price' ? `Ghi giá ${globalThis.InboxTable.million(body.unit_price_vnd)} tr` : kind === 'confirm' ? 'Chuyến riêng' : 'Bỏ chuyến'} · ${next === '0' ? 'nợ không đổi' : `nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))} tr`}`;
+        text = `${warn}Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))}. ${feeText}${body.reason ?? 'Chuyến bắt đầu tính nợ theo đơn giá đã nhập.'}`;
+        inlineText = `${warn}${kind === 'price' ? `Ghi giá ${globalThis.InboxTable.million(body.unit_price_vnd)} tr${feeNote}` : kind === 'confirm' ? 'Chuyến riêng' : 'Bỏ chuyến'} · ${next === '0' ? 'nợ không đổi' : `nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))} tr`}`;
       }
       inbox.action = { title, text, inlineText, path, body, id: inbox.open, rowKey: row ? `${kind === 'price' ? 'price' : 'review'}:${row.id}` : null, reasonRequired: kind === 'confirm' || kind === 'reject' };
       paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
@@ -527,32 +539,55 @@
       if (!input.value.trim()) continue;
       const row = group.trips.find(r => r.id === Number(input.dataset.manualPrice));
       if (!row) continue;
-      try { items.push({ row, price: T.parseMillions(input.value) }); }
+      // GIA-BOOKING-01: `fee` là phụ phí booking đi kèm (null: giữ phụ phí đang có của chuyến).
+      try { const price = T.parseMillions(input.value); items.push({ row, price, fee: bookingFee(row, price) }); }
       catch (error) { input.setCustomValidity(error.message); input.reportValidity(); return; }
     }
     let added = 0n;
-    for (const { row, price } of items) {
-      const amount = SoKhachV7Model.tripAmount({ unitPriceVnd: price, otherFeeVnd: row.other_fee_vnd, container: row.container, status: 'confirmed' }).amountVnd;
+    for (const { row, price, fee } of items) {
+      const amount = SoKhachV7Model.tripAmount({ unitPriceVnd: price, otherFeeVnd: fee ?? row.other_fee_vnd, container: row.container, status: 'confirmed' }).amountVnd;
       if (amount == null) return;   // không tính được tiền của chuyến thì không cho ghi mù
       added += BigInt(amount);
     }
     if (!items.length) return;
     const before = ledger.total_outstanding_vnd, after = (F.toBig(before) + added).toString();
     const counts = new Map();
-    for (const { price } of items) counts.set(price, (counts.get(price) ?? 0) + 1);
-    const summary = [...counts].map(([price, n]) => `${n} chuyến ${T.millionInput(price)} tr`).join(' · ');
+    for (const { price, fee } of items) { const k = `${price}|${fee ?? ''}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
+    const summary = [...counts].map(([k, n]) => { const [price, fee] = k.split('|'); return `${n} chuyến ${T.millionInput(price)} tr${fee ? ` + phụ phí ${T.millionInput(fee)} tr` : ''}`; }).join(' · ');
+    const prices = new Set(items.map(({ price }) => price));
     const last = group.last, lastDate = last?.date ? ` (${F.dateText(last.date)})` : '';
-    const differ = last && [...counts.keys()].some(price => price !== last.price);
-    const priceWarn = [...counts.keys()].filter(price => SoKhachV7Model.priceDoubt(price)).map(price => `Kiểm lại đơn vị: ${SoKhachV7Model.priceDoubtText(price)} `).join('');
+    const differ = last && [...prices].some(price => price !== last.price);
+    const priceWarn = [...prices].filter(price => SoKhachV7Model.priceDoubt(price)).map(price => `Kiểm lại đơn vị: ${SoKhachV7Model.priceDoubtText(price)} `).join('');
     inbox.action = { id: inbox.open, rowKey: `price-group:${key}`, groupKey: key, route: group.label, priceBatch: true, path: '/api/v7/trips/price', count: items.length,
       groupTrips: group.trips.map(r => String(r.id)),
       before, after, title: `Ghi giá ${items.length} chuyến ${group.label}`,
       text: `${priceWarn}${summary}. Còn nợ ${F.full(before)} → ${F.full(after)}.${differ ? ` Giá gần nhất cùng tuyến là ${F.full(last.price)}${lastDate}.` : ''} Mỗi chuyến ghi Lịch sử riêng.`,
       inlineText: `${priceWarn}Ghi ${summary} · nợ ${T.million(before)} → ${T.million(after)} tr${differ ? ` · khác giá gần nhất ${T.millionInput(last.price)} tr${lastDate}` : ''}`,
-      tasks: items.map(({ row, price }) => ({ done: false, body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: hexKey(),
-        trip_id: row.id, unit_price_vnd: price, other_fee_vnd: row.other_fee_vnd } })) };
+      tasks: items.map(({ row, price, fee }) => ({ done: false, body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: hexKey(),
+        trip_id: row.id, unit_price_vnd: price, other_fee_vnd: fee ?? row.other_fee_vnd } })) };
     inbox.action.summaryText = inbox.action.inlineText;
     paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+
+  // GIA-BOOKING-01: nút "Giá booking" chỉ điền ô giá như gõ tay (nút ở hàng tuyến thì điền ô tuyến, rồi xuống các chuyến chưa tự sửa)
+  // và nhớ phụ phí booking của từng chuyến cho bước xem lại. Không gửi lệnh nào: ghi vẫn qua Ghi giá → Xác nhận.
+  function useBooking(button) {
+    const T = globalThis.InboxTable, ledger = inbox.details.get(inbox.open), key = button.dataset.useBookingGroup;
+    const group = key == null ? null : T.priceGroups(ledger).find(g => g.key === key);
+    const rows = group ? group.trips : (ledger?.trips ?? []).filter(r => r.id === Number(button.dataset.useBooking));
+    const hint = group ? T.groupBooking(ledger, group) : rows.length === 1 ? T.bookingHint(ledger, rows[0]) : null;
+    const input = group ? groupInput(key) : inboxRoot.querySelector(`[data-manual-price="${rows[0]?.id}"]`);
+    if (!hint?.unit || !input || input.disabled) return;
+    for (const row of rows) bookingFill.set(String(row.id), { unit: hint.unit, fee: T.bookingHint(ledger, row)?.fee ?? null });
+    input.value = T.millionInput(hint.unit);
+    input.setCustomValidity('');
+    if (group) fillGroup(input);
+    else {
+      drafts.set(draftKey(input), input.value);
+      setPriceValidity(input);
+      if (input.dataset.priceRoute) { priceTouched.add(input.dataset.manualPrice); setGroupState(input.dataset.priceRoute); }
+    }
+    input.focus();
   }
 
   // Ghi lần lượt; lệnh sau dùng phiên bản lệnh trước trả về. Mất mạng: giữ nguyên lệnh chưa rõ (cùng khóa), Thử lại không ghi trùng.
@@ -570,7 +605,7 @@
         a.unknown = false;
         if (!response.ok || !Number.isInteger(body.version)) { stop = body.message ?? 'Chưa ghi được.'; break; }
         task.done = true; version = body.version;
-        drafts.delete(`price:${task.body.trip_id}`); priceTouched.delete(String(task.body.trip_id));
+        drafts.delete(`price:${task.body.trip_id}`); priceTouched.delete(String(task.body.trip_id)); bookingFill.delete(String(task.body.trip_id));
         if (a.tasks[i + 1]) a.tasks[i + 1].body.expected_version = body.version;
       }
     } catch {
@@ -625,7 +660,7 @@
         a.path = null;
       } else {
         inbox.action = null;
-        if (a.body.trip_id) { drafts.delete(`price:${a.body.trip_id}`); drafts.delete(`reason:${a.body.trip_id}`); }
+        if (a.body.trip_id) { drafts.delete(`price:${a.body.trip_id}`); drafts.delete(`reason:${a.body.trip_id}`); bookingFill.delete(String(a.body.trip_id)); }
         if (a.doiChieu) statementWritten(a, body);
         else {
           inbox.details.delete(a.id);
@@ -875,6 +910,7 @@
       group.focus();
       return;
     }
+    if (button.hasAttribute('data-use-booking') || button.hasAttribute('data-use-booking-group')) { useBooking(button); return; }
     if (button.hasAttribute('data-price-group')) { reviewPriceGroup(button.dataset.priceGroup); return; }
     if (button.hasAttribute('data-assign-trip')) {
       if (inbox.action || inbox.review) return;

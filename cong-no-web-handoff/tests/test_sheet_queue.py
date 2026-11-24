@@ -7,9 +7,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
 import v7_sheet_queue as sheet_queue
 from v7_sheet_queue import (
+    booking_price_vnd,
     build_queue,
     load_snapshot,
     plan_shipper_backfill,
+    project_booking_prices,
     project_customer,
 )
 
@@ -541,6 +543,133 @@ class RemovedSheetTripTests(unittest.TestCase):
         self.assertEqual(self.project([invalid, self.ready("KEEP1", "2026-10-20")], trips)["removed_count"], 1)
         self.assertEqual(self.project([invalid], trips)["removed_count"], 0)
         self.assertEqual(self.project([], trips)["removed_items"], [])
+
+
+class BookingPriceTests(unittest.TestCase):
+    """GIA-BOOKING-01: chữ giá booking chỉ thành số gợi ý khi đọc chắc; ghép chuyến ±3 ngày, một dòng nguồn với một chuyến."""
+
+    def test_text_reads_unit_then_fee_in_millions(self):
+        cases = {"38TR": (38_000_000, None), "38TR+1": (38_000_000, 1_000_000), "41.5TR": (41_500_000, None),
+                 "41,5tr": (41_500_000, None), " 38 TR + 1 + 0,5 ": (38_000_000, 1_500_000), "38TR+0": (38_000_000, 0),
+                 "38": (38_000_000, None), "38TR+1TR": (38_000_000, 1_000_000), "38M+1": (38_000_000, 1_000_000),
+                 "38 triệu": (38_000_000, None), "38,000001TR": (38_000_001, None)}
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(booking_price_vnd(text), expected)
+        for text in ("", None, "HC +38TR", "38TR+1 (TẾT)", "38TR+50USD", "38TR+1RMB", "SUA BILL", "38TR+", "+1", "0TR+1",
+                     "1.500.000", "38,0000001TR", "38TR5", "38TR-1"):
+            with self.subTest(text=text):
+                self.assertIsNone(booking_price_vnd(text))
+
+    def test_queue_keeps_price_text_beside_rows_so_task_fingerprints_stay(self):
+        rows = [{"source_row": 2, "container": "MAUU0000001", "event_date": "2026-11-02", "status": "READY", "customer_name": "Khách A",
+                 "booking_price": " 38TR+1 "},
+                {"source_row": 3, "container": "MAUU0000002", "event_date": "2026-11-02", "status": "INVALID", "customer_name": "Khách A",
+                 "booking_price": "40TR"},
+                {"source_row": 4, "container": "MAUU0000003", "event_date": "2026-11-02", "status": "READY", "customer_name": "Khách A",
+                 "booking_price": ""}]
+        queue = build_queue({"sha256": "a" * 64, "row_count": 3, "rows": rows}, [{"id": 7, "name": "KHÁCH A", "status": "active"}], BASELINE)
+        self.assertEqual(queue["booking_prices"], {2: "38TR+1"})
+        self.assertTrue(all("booking_price" not in item for item in queue["items"]))
+
+    @staticmethod
+    def queue(*rows):
+        items, texts = [], {}
+        for n, (container, day, text, extra) in enumerate(rows, start=2):
+            items.append({"source_row": n, "customer_id": 7, "container": container, "event_date": day, "status": "READY", **extra})
+            if text:
+                texts[n] = text
+        return {"items": items, "booking_prices": texts}
+
+    @staticmethod
+    def trip(trip_id, container, day, **extra):
+        return {"id": trip_id, "container": container, "event_date": day, "status": "confirmed", "unit_price_vnd": None, **extra}
+
+    def project(self, rows, trips):
+        return project_booking_prices(self.queue(*rows), {"customer_id": 7, "trips": trips})
+
+    def test_one_source_row_for_one_trip_within_three_days(self):
+        result = self.project([("MAUU0000001", "2026-11-02", "38TR+1", {}), ("MAUU0000002", "2026-11-02", "40TR", {})],
+                              [self.trip(1, "mauu 0000001", "2026-11-05"), self.trip(2, "MAUU0000002", "2026-11-06")])
+        self.assertEqual(result, {"1": {"text": "38TR+1", "unit_price_vnd": "38000000", "other_fee_vnd": "1000000"}})
+        self.assertEqual(self.project([("MAUU0000002", "2026-11-02", "40TR", {})], [self.trip(2, "MAUU0000002", "2026-11-04")]),
+                         {"2": {"text": "40TR", "unit_price_vnd": "40000000", "other_fee_vnd": None}})
+
+    def test_two_rows_or_two_trips_on_one_row_give_no_number(self):
+        two_rows = [("MAUU0000001", "2026-11-02", "38TR+1", {}), ("MAUU0000001", "2026-11-04", "", {})]
+        self.assertEqual(self.project(two_rows, [self.trip(1, "MAUU0000001", "2026-11-03")]), {})
+        one_row = [("MAUU0000001", "2026-11-02", "38TR+1", {})]
+        for other in (self.trip(9, "MAUU0000001", "2026-11-01", unit_price_vnd="39000000"),
+                      self.trip(9, "MAUU0000001", "2026-11-01", status="pending_review")):
+            with self.subTest(other=other["status"]):
+                self.assertEqual(self.project(one_row, [self.trip(1, "MAUU0000001", "2026-11-03"), other]), {})
+        # Chuyến đã xóa hay đã loại không giành dòng nguồn.
+        for gone in ({"deleted": True}, {"status": "rejected"}):
+            with self.subTest(gone=gone):
+                result = self.project(one_row, [self.trip(1, "MAUU0000001", "2026-11-03"), self.trip(9, "MAUU0000001", "2026-11-01", **gone)])
+                self.assertEqual(list(result), ["1"])
+
+    def test_only_ready_rows_of_this_book_count(self):
+        trips = [self.trip(1, "MAUU0000001", "2026-11-03")]
+        for extra in ({"customer_id": 8}, {"customer_id": None}, {"status": "DUPLICATE"}):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.project([("MAUU0000001", "2026-11-02", "38TR", extra)], trips), {})
+        self.assertEqual(self.project([("MAUU0000001", "2026-10-30", "38TR", {})], trips), {}, "lệch 4 ngày là chuyến khác")
+
+    def test_trip_that_has_a_price_or_is_not_confirmed_gets_nothing(self):
+        rows = [("MAUU0000001", "2026-11-02", "38TR", {})]
+        for extra in ({"unit_price_vnd": "38000000"}, {"unit_price_vnd": "0"}, {"status": "pending_review"}, {"deleted": True},
+                      {"event_date": None}):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.project(rows, [self.trip(1, "MAUU0000001", "2026-11-02", **extra)]), {})
+
+    def test_unreadable_or_implausible_text_is_shown_as_text_only(self):
+        trips = [self.trip(1, "MAUU0000001", "2026-11-02")]
+        for text in ("38TR+1 (TẾT)", "HC +38TR", "0,5TR", "38000000", "38TR+5000"):
+            with self.subTest(text=text):
+                self.assertEqual(self.project([("MAUU0000001", "2026-11-02", text, {})], trips),
+                                 {"1": {"text": text, "unit_price_vnd": None, "other_fee_vnd": None}})
+        self.assertEqual(self.project([("MAUU0000001", "2026-11-02", "", {})], trips), {})
+        self.assertEqual(project_booking_prices({"items": []}, {"customer_id": 7, "trips": trips}), {})
+
+
+BOOKING_SNAPSHOT = {"sha256": "e" * 64, "row_count": 2, "rows": [
+    {"source_row": 2, "container": "MAUU0000001", "event_date": "2026-11-02", "status": "READY", "customer_name": "Khách mẫu",
+     "carrier": "WH", "origin": "A", "destination": "B", "booking_price": "38TR+1"},
+    {"source_row": 3, "container": "MAUU0000002", "event_date": "2026-11-02", "status": "READY", "customer_name": "Khách khác",
+     "carrier": "WH", "origin": "A", "destination": "B", "booking_price": "40TR"}]}
+
+
+class SheetProjectionBookingTests(unittest.TestCase):
+    """sheet_projection trả `booking_prices` của chuyến trong sổ; GET /api/v7/sheet-queue không mang chữ giá của mọi dòng."""
+
+    def load(self, loader, path):
+        from v7_price_queue import load_price_snapshot
+        if loader is load_price_snapshot:
+            raise ValueError("Sheet price snapshot unavailable")
+        return BOOKING_SNAPSHOT if loader is sheet_queue.load_snapshot else PROJECTION_BASELINE
+
+    def test_projection_carries_booking_prices_of_this_book_only(self):
+        import v7_api_sheet
+
+        class Runner:
+            def run(self, function, payload, actor):
+                return {"customers": PROJECTION_CUSTOMERS} if function == "list_customers" else {"items": []}
+
+        ledger = {"customer_id": 7, "legacy_rows": [], "events": [], "trips": [
+            {"id": 1, "container": "MAUU0000001", "event_date": "2026-11-03", "status": "confirmed", "unit_price_vnd": None},
+            {"id": 2, "container": "MAUU0000002", "event_date": "2026-11-02", "status": "confirmed", "unit_price_vnd": None}]}
+        with patch.object(v7_api_sheet, "cached_load", self.load), patch.object(v7_api_sheet, "customer_name_mapping", return_value={}), \
+                patch.object(v7_api_sheet, "other_book_checks", return_value=(set(), [])):
+            result = v7_api_sheet.sheet_projection(Runner(), ledger, "test")
+        self.assertEqual(result["booking_prices"], {"1": {"text": "38TR+1", "unit_price_vnd": "38000000", "other_fee_vnd": "1000000"}})
+
+    def test_sheet_queue_api_does_not_send_price_texts(self):
+        import v7_api_sheet
+        with patch.object(v7_api_sheet, "cached_load", self.load), patch.object(v7_api_sheet, "customer_name_mapping", return_value={}):
+            body = v7_api_sheet.sheet_queue({"customers": PROJECTION_CUSTOMERS}, "")
+        self.assertEqual(body["row_count"], 2)
+        self.assertNotIn("booking_prices", body)
 
 
 if __name__ == "__main__":
