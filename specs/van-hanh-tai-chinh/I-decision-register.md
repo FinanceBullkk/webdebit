@@ -1,6 +1,6 @@
 # I. Sổ quyết định cho chủ doanh nghiệp (Business Owner Decision Register)
 
-Trạng thái: **CÒN MỞ** (Claude lập 24/11/2026). Khuyến nghị không phải quyết định; code không dựa vào câu nào chưa có người chốt. Câu đã chốt chuyển thành file `docs/decisions/<id>.md`.
+Trạng thái: **11 câu chặn P0-a ĐÃ CHỐT** theo phương án A ngày 24/11/2026 ([`SO-TIEN-01`](../../docs/decisions/so-tien-01.md)); các câu khác **CÒN MỞ** (Claude lập 24/11/2026). Khuyến nghị không phải quyết định; code không dựa vào câu nào chưa có người chốt. Câu đã chốt chuyển thành file `docs/decisions/<id>.md`.
 
 [← Mục lục](README.md) · Quy tắc liên quan: [D](D-business-rules.md) · Rollout: [H](H-migration-rollout.md)
 
@@ -10,17 +10,17 @@ Cột **Chặn**: P0-a, P0-b, P0-c, P1 = chưa chốt thì chưa làm bước đ
 
 | ID | Quyết định | Khuyến nghị | Chặn | Người chốt |
 | --- | --- | --- | --- | --- |
-| QD-01 | Hướng v3 và cách chia P0 | Theo v3, chia P0-a/b/c có cổng | P0-a | Chủ DN |
-| QD-02 | Tài khoản thí điểm | TK VND công ty, không có tiền hàng, sau khi đo tỷ lệ cước về USD | P0-a | Chủ DN, kế toán |
+| QD-01 | Hướng v3 và cách chia P0 | Theo v3, chia P0-a/b/c có cổng | P0-a · **ĐÃ CHỐT A** | Chủ DN |
+| QD-02 | Tài khoản thí điểm | TK VND công ty, không có tiền hàng, sau khi đo tỷ lệ cước về USD | P0-a · **ĐÃ CHỐT A** | Chủ DN, kế toán |
 | QD-03 | Danh mục đủ pháp nhân/tài khoản/quỹ; tài khoản cá nhân | Lập danh mục ngay; không đưa TK cá nhân vào P0 | P1 | Chủ DN |
-| QD-04 | Giờ cutoff, lịch, chồng kỳ, người tải | Tải 17h, kỳ từ ngày làm việc trước | P0-a | Chủ DN, kế toán |
-| QD-05 | Phạm vi V7-CSM (1) "không tiền chưa rõ chủ trên web" | Chỉ áp cho sổ nợ | P0-a | Chủ DN |
-| QD-06 | Tách nhiệm vụ, trùng vai, agent | Vai theo F1; trùng vai có cờ + tóm tắt tuần; agent không ghi dữ liệu tiền | P0-a | Chủ DN |
-| QD-07 | Định dạng file VCB và bộ đọc | File gốc `.xlsx`/CSV bằng thư viện chuẩn; `.xls` thì thêm thư viện ghim băm; không mở/lưu lại | P0-a | Kế toán, kỹ thuật |
-| QD-08 | Bảo vệ, lưu trữ dữ liệu ngân hàng | File gốc trong DB, quyền hẹp, mã hóa mọi bản sao lưu, log truy cập | P0-a | Chủ DN, kế toán |
-| QD-09 | Sổ kế toán chính thức | Sổ tiền là sổ quản trị + CSV | P0-a | Kế toán |
-| QD-10 | Số dư mở và bằng chứng | Đầu tháng, sao kê ngày trước, người khác đối chiếu | P0-a | Kế toán |
-| QD-11 | Danh mục phân loại | Danh sách đích P0 + 10–15 mục chi | P0-a | Kế toán |
+| QD-04 | Giờ cutoff, lịch, chồng kỳ, người tải | Tải 17h, kỳ từ ngày làm việc trước | P0-a · **ĐÃ CHỐT A** | Chủ DN, kế toán |
+| QD-05 | Phạm vi V7-CSM (1) "không tiền chưa rõ chủ trên web" | Chỉ áp cho sổ nợ | P0-a · **ĐÃ CHỐT A** | Chủ DN |
+| QD-06 | Tách nhiệm vụ, trùng vai, agent | Vai theo F1; trùng vai có cờ + tóm tắt tuần; agent không ghi dữ liệu tiền | P0-a · **ĐÃ CHỐT A** | Chủ DN |
+| QD-07 | Định dạng file VCB và bộ đọc | File gốc `.xlsx`/CSV bằng thư viện chuẩn; `.xls` thì thêm thư viện ghim băm; không mở/lưu lại | P0-a · **ĐÃ CHỐT A** | Kế toán, kỹ thuật |
+| QD-08 | Bảo vệ, lưu trữ dữ liệu ngân hàng | File gốc trong DB, quyền hẹp, mã hóa mọi bản sao lưu, log truy cập | P0-a · **ĐÃ CHỐT A** | Chủ DN, kế toán |
+| QD-09 | Sổ kế toán chính thức | Sổ tiền là sổ quản trị + CSV | P0-a · **ĐÃ CHỐT A** | Kế toán |
+| QD-10 | Số dư mở và bằng chứng | Đầu tháng, sao kê ngày trước, người khác đối chiếu | P0-a · **ĐÃ CHỐT A** | Kế toán |
+| QD-11 | Danh mục phân loại | Danh sách đích P0 + 10–15 mục chi | P0-a · **ĐÃ CHỐT A** | Kế toán |
 | QD-12 | Khoản nào phải duyệt, ngưỡng, duyệt thay, khẩn, hạn | Mọi khoản chi duyệt trước, trừ danh sách định kỳ; duyệt bù ≤ 1 ngày; hạn duyệt 7 ngày | P0-b | Chủ DN |
 | QD-13 | Xác minh người nhận mới/đổi tài khoản | Gọi lại qua kênh đã biết, ghi kết quả | P0-b | Chủ DN |
 | QD-14 | Ai duyệt đề nghị do chính sếp tạo | Người duyệt thay chỉ định; nếu không có: ngoại lệ ghi cờ + hậu kiểm tuần | P0-b | Chủ DN |
@@ -33,11 +33,11 @@ Cột **Chặn**: P0-a, P0-b, P0-c, P1 = chưa chốt thì chưa làm bước đ
 | QD-21 | Ngưỡng tự động; phí, chênh, xóa chênh | Không tự động tới khi shadow đạt ngưỡng; dòng phí do người tạo | P0-c | Kế toán |
 | QD-22 | Cách tính số dư ước tính | Thận trọng: chỉ trừ chi đã báo; thu đã báo hiện riêng | P0-b | Chủ DN |
 | QD-23 | Thông báo | P0-a không thông báo; từ P0-b chỉ số đếm + link | Không | Chủ DN |
-| QD-24 | Ai ký review ngày, hạn ngoại lệ | Kế toán ký (có cờ) + sếp review tuần + người khác tự tải sao kê tháng | P0-a | Chủ DN, kế toán |
+| QD-24 | Ai ký review ngày, hạn ngoại lệ | Kế toán ký (có cờ) + sếp review tuần + người khác tự tải sao kê tháng | P0-a · **ĐÃ CHỐT A** | Chủ DN, kế toán |
 | QD-25 | Đóng băng đọc chat/ảnh để tính tiền | Đóng băng phần tính tiền, giữ đọc chat để xem | Không (nên trước P0-b) | Chủ DN |
 | QD-26 | Mã thanh toán trên debit note | Lưu bản phát hành + mã có chữ số kiểm; QR tùy chọn | Không | Chủ DN |
 
-Chặn P0-a: 11 câu (QD-01, 02, 04–11, 24). Chặn P0-b: 4. Chặn P0-c: 5. Chặn P1: 2. Không chặn: 4.
+Chặn P0-a: 11 câu (QD-01, 02, 04–11, 24) — cả 11 đã chốt ngày 24/11/2026 theo [`SO-TIEN-01`](../../docs/decisions/so-tien-01.md). Chặn P0-b: 4. Chặn P0-c: 5. Chặn P1: 2. Không chặn: 4.
 
 ## 2. Chi tiết
 
