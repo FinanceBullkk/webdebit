@@ -377,7 +377,7 @@
   "import_cutover(bigint,bigint,text,bigint,jsonb,jsonb,jsonb,bigint,text)": "be9fe79deafbc588827223ab29e69cea",
   "keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)": "0dea2542e2eb46ba6a255980774be3f9",
   "link_zalo(text,bigint)": "30210b892f4389d99c545ecbec5525fb",
-  "list_customers()": "66560b869019460b7b6cbb6e945988d7",
+  "list_customers()": "a61207c38ff35f914733588997214358",
   "list_legacy_trip_refs(jsonb)": "c22b8c30a2440eb7b352a27bcff68543",
   "list_offset_sources(bigint)": "a8056c1d734dd2e7db4f291cbac968ee",
   "list_receipt_images(bigint)": "a2296e03dc9c154e4b5504128ea28217",

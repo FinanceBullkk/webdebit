@@ -158,11 +158,14 @@ BEGIN
       FROM (SELECT c.id,c.name,
                    CASE WHEN cc.status='active' AND co.status='active'
                         THEN 'active' ELSE 'NO_BASELINE' END AS status,
-                   m.name AS commodity,c.transport_mode,sokhach._booking_names(c.id) AS booking_names,c.archived
+                   m.name AS commodity,c.transport_mode,coalesce(bn.names,'[]'::jsonb) AS booking_names,c.archived
               FROM sokhach.customer c
               LEFT JOIN sokhach.commodity m ON m.id=c.commodity_id
               LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id
-              LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q);
+              LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id
+              -- Một lượt gom cho mọi sổ: gọi _booking_names từng sổ (SECURITY DEFINER, không inline) làm hàm chậm gấp đôi.
+              LEFT JOIN (SELECT b.customer_id,jsonb_agg(b.name ORDER BY b.name COLLATE "C") AS names
+                           FROM sokhach.booking_name b GROUP BY b.customer_id) bn ON bn.customer_id=c.id) q);
 END $$;
 RESET ROLE;
 COMMIT;
