@@ -68,6 +68,19 @@ Khi trang đọc kết quả, API gắn chuyến web cho mỗi dòng `THANG_CUOI
 
 Đọc sổ web lỗi thì giữ một nhóm như cũ. File job và cách job phân nhóm không đổi. ĐỀ XUẤT của Claude trong phạm vi "sửa ở đây". Không đổi luật tiền.
 
+### Lọc nhiễu lần hai, dòng booking cần sửa (24/11/2026)
+
+24/11/2026, chat: người dùng giao "xem hết 106 chuyến booking có mà Sheet không tính, và dọn 228 dòng booking lỗi", một mục trong danh sách việc để bỏ được Sheet sổ nợ. Claude rà từng chuyến trên lượt kiểm 08:05 cùng ngày (chỉ đọc; danh sách có tên khách giữ ngoài Git), rồi hỏi ai sửa dòng booking lỗi. Người dùng chọn **"Web liệt kê, người giữ booking sửa"**: dòng lỗi hiện ở khối này, Claude không ghi file booking.
+
+Ba luật dưới đây là ĐỀ XUẤT của Claude. Như lần 16/11, chúng chỉ đổi cách ghép và phân nhóm của phép kiểm và báo cáo tháng, không đổi tiền hay điều kiện máy ghi.
+
+- **Dòng sổ không ngày ghép được chuyến nửa cuối tháng trước.** Sheet ghi chuyến cuối tháng vào đầu khối tháng sau mà không ghi ngày. Nay dòng không ngày của khối tháng M ghép được chuyến booking từ ngày 16 của tháng M−1 (`LATE_DAY` trong công cụ GĐ1). Bậc này xét sau mọi cặp cùng tháng, nên chuyến cùng tháng vẫn thắng. Đo lượt 08:05: 57/106 chuyến "booking có, sổ chưa tính" là chuyến ngày 20–31/5, nằm không ngày ở khối tháng 6 của chính tab gợi ý (hai sổ đường bộ, một sổ biển). Cặp này hiện ở nhóm "Sổ thiếu ngày", ghi chú "ghi ở khối tháng sau".
+- **Dòng booking không phải chuyến không còn đếm là lỗi** (`dong_khong_phai_chuyen`): ô container trống, hoặc không phải số container hay biển số. Đo: 190 dòng `CONT_NGUON`, là dòng cuối của từng tab tháng (container trống, ngày năm 1900) và dòng tiêu đề mặt hàng nằm ở cột container.
+- **Chuyến thật thiếu ngày thành nhóm "Booking thiếu ngày"** (`dong_thieu_ngay`): có số container mà ô ngày trống, không đọc được hoặc trước năm 2000. Nhóm nằm ở hàng không đổi tiền, liệt kê container, ô ngày, tab nguồn và dòng nguồn, booking hoặc số xe, chủ hàng. Với chuyến biển, tab nguồn là tab tháng của file booking mà `CONT_NGUON` chép từ đó. Đo: 23 dòng biển, 14 dòng bộ. Số "228 dòng lỗi" trước đây là tổng của loại này và loại trên.
+- **Chuyến "booking có, sổ chưa tính" kèm số đếm:** số chuyến booking và số dòng sổ (mọi tab) của cùng container trong 45 ngày quanh đó. Sổ có dòng mà ít hơn booking thì có thể sót một chuyến, hoặc booking ghi lặp. Sổ không có dòng nào thì chuyến chưa ở sổ nào. Chỉ là chữ giải thích, không đổi nhóm.
+
+KẾT_QUẢ_ĐO
+
 ## Ngày / nguồn
 
 13/11/2026, chat. Phiên điều phối giao việc A6/F5. Claude viết bài toán của màn (chủ sổ hỏi gì, theo thứ tự) rồi hỏi bằng ba câu chọn. Người dùng chọn:

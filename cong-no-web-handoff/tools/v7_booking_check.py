@@ -53,6 +53,8 @@ ORDER = ("dup", "missing", "other", "nosource", "date", "nodate", "recent")
 # Bản chép 0đ trong báo cáo tháng: cùng ngưỡng 31 ngày với nhóm lệch ngày của công cụ GĐ1. Đo 16/11/2026: khối tháng cũ để 0đ ngày 07/10
 # cho chuyến đã tính ở khối sau ngày 26/10 (19 ngày). Dòng 0đ không mang tiền nên nới ngưỡng không che được tiền tính hai lần.
 COPY_DAYS = 31
+# Khoảng đếm chuyến booking và dòng sổ cùng container quanh một chuyến "booking có, sổ chưa tính" (lọc nhiễu 24/11/2026).
+NEAR_COUNT_DAYS = 45
 
 
 class CheckError(Exception):
@@ -87,25 +89,35 @@ def read_snapshot(path: Path, label: str, now: dt.datetime) -> dict[str, Any]:
     return data
 
 
-def snapshot_sources(sea: dict[str, Any], road: dict[str, Any]) -> tuple[list[dict[str, Any]], Counter[str]]:
-    """Dòng hai bản chụp thành chuyến nguồn dạng của công cụ GĐ1 (`load_sources`).
+def snapshot_sources(sea: dict[str, Any], road: dict[str, Any]) -> tuple[list[dict[str, Any]], Counter[str], list[dict[str, Any]]]:
+    """Dòng hai bản chụp thành chuyến nguồn dạng của công cụ GĐ1 (`load_sources`), cộng các dòng booking người giữ booking phải sửa.
 
-    Lấy mọi dòng có container và ngày, kể cả dòng thiếu xe hay nơi đến (vẫn là một chuyến đã đi). Ngày trước năm 2000 là ô rác
-    (đo 13/11/2026: 175 dòng CONT_NGUON ra 1899–1902). Hai dòng cùng container, cùng ngày trong một bản chụp là một chuyến; dòng của
-    bản chụp sau lặp chuyến (±3 ngày) của bản trước thì bỏ, như `load_sources`.
+    Lấy mọi dòng có container và ngày, kể cả dòng thiếu xe hay nơi đến (vẫn là một chuyến đã đi). Hai dòng cùng container, cùng ngày
+    trong một bản chụp là một chuyến; dòng của bản chụp sau lặp chuyến (±3 ngày) của bản trước thì bỏ, như `load_sources`.
+
+    Dòng không thành chuyến chia hai loại (lọc nhiễu 24/11/2026, KIEM-BOOKING-01):
+    - `dong_khong_phai_chuyen`: ô container trống hoặc không phải số container hay biển số. Đo 24/11/2026: 190 dòng CONT_NGUON, gần hết
+      là dòng cuối của từng tab tháng (container trống, ngày 1900) và dòng tiêu đề mặt hàng ("THANHLONG" ở cột container). Không phải lỗi.
+    - `dong_thieu_ngay`: có số container mà ô ngày trống, không đọc được hoặc trước năm 2000 (ô rác). Đây là chuyến thật không so được
+      với sổ: trả về trong danh sách thứ ba kèm tab nguồn và dòng nguồn để người giữ booking sửa (đo 24/11/2026: 23 dòng biển, 14 dòng bộ).
     """
     rows: list[dict[str, Any]] = []
     stats: Counter[str] = Counter()
+    fix: list[dict[str, Any]] = []
     seen: dict[str, list[tuple[dt.date, str]]] = defaultdict(list)
     for tab, family, data, owner, ref in (("CONT_NGUON", "BIEN", sea, "customer_name", "booking"), ("CONT_BO", "BO", road, "owner", "plate")):
         same: set[tuple[str, str]] = set()
         for item in data["rows"]:
             cont, day = match.container_key(item.get("container")), str(item.get("event_date") or "")
-            if not cont or not day:
-                stats["dong_thieu_cont_hoac_ngay"] += 1
+            if not cont or not match.trip_like(cont):
+                stats["dong_khong_phai_chuyen"] += 1
                 continue
-            if day < "2000":
-                stats["dong_ngay_sai"] += 1
+            if not day or day < "2000":
+                stats["dong_thieu_ngay"] += 1
+                # Chuyến biển: CONT_NGUON chép từ tab tháng của file booking, người sửa ở tab đó ("Tab nguồn", "Dòng nguồn").
+                fix.append({"family": family, "tab": str(item.get("source_tab") or tab), "line": item.get("source_line") or item.get("source_row"),
+                            "cont": cont, "owner": str(item.get(owner) or ""), "ref": str(item.get(ref) or ""),
+                            "raw_date": str(item.get("source_date") or "")})
                 continue
             if (cont, day) in same:
                 stats["dong_lap_cung_ngay"] += 1
@@ -118,7 +130,20 @@ def snapshot_sources(sea: dict[str, Any], road: dict[str, Any]) -> tuple[list[di
             seen[cont].append((when, tab))
             rows.append({"family": family, "tab": tab, "line": item.get("source_row"), "cont": cont, "date": day,
                          "owner": str(item.get(owner) or ""), "ref": str(item.get(ref) or ""), "price": ""})
-    return rows, stats
+    fix.sort(key=lambda row: (row["family"] != "BIEN", row["tab"], int(str(row["line"])) if str(row["line"]).isdigit() else 0))
+    return rows, stats, fix
+
+
+def near_counts(day: str, trips: list[dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Số chuyến booking (`trips`) và số dòng sổ mọi tab (`rows`) của cùng container quanh một chuyến booking chưa ghép, trong
+    ±`NEAR_COUNT_DAYS` ngày (dòng sổ không ngày: khối tháng đó hoặc liền kề). Booking nhiều chuyến hơn sổ thì có thể sót một chuyến hoặc
+    booking ghi lặp; sổ không có dòng nào thì chuyến chưa ở sổ nào. Chỉ để người xem đọc, không đổi nhóm."""
+    when = dt.date.fromisoformat(day)
+    first = when.replace(day=1)
+    months = {(first - dt.timedelta(days=1)).isoformat()[:7], day[:7], (first + dt.timedelta(days=32)).isoformat()[:7]}
+    close = lambda other: abs((dt.date.fromisoformat(other) - when).days) <= NEAR_COUNT_DAYS  # noqa: E731
+    return {"booking": sum(1 for b in trips if close(b["date"])),
+            "sheet": sum(1 for s in rows if (close(s["date"]) if s["date"] else s["month"] in months))}
 
 
 def shown(code: str, sheet_row: dict | None, source_row: dict | None, window: dict[str, str]) -> bool:
@@ -141,7 +166,7 @@ def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
     """Kết quả kiểm cho tab Máy chạy và báo cáo tháng (BAO-CAO-THANG-01) từ cùng một lần đọc và ghép."""
     window = window or WINDOW
     sea, road = read_snapshot(sea_path, "SEA", now), read_snapshot(road_path, "ROAD", now)
-    source, stats = snapshot_sources(sea, road)
+    source, stats, fix = snapshot_sources(sea, road)
     if not source:
         raise CheckError("SOURCE_EMPTY")
     sheet = match.load_sheet(Path(xlsx))
@@ -149,9 +174,11 @@ def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
     s_pair, b_pair = match.pair(sheet, source)
     found, dup_counts = match.review(sheet, source, s_pair, b_pair, end, window)
     sheet_index, source_index = {id(s): i for i, s in enumerate(sheet)}, {id(b): j for j, b in enumerate(source)}
-    by_cont = defaultdict(list)
+    by_cont, sheet_by_cont = defaultdict(list), defaultdict(list)
     for item in source:
         by_cont[item["cont"]].append(item)
+    for item in sheet:
+        sheet_by_cont[item["cont"]].append(item)
     rows, hidden = [], Counter()
     for code, s, matched, _note in found:
         b = matched
@@ -174,6 +201,7 @@ def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
             "suggest": {"tab": b["suggest_tab"], "from": b.get("suggest_from")} if b and not s and b.get("suggest_tab") else None,
             "pair": pair, "paired": s is not None and sheet_index[id(s)] in s_pair, "near_trips": near,
             "gap_days": match.days(s["date"], b["date"]) if s and b and s["date"] else None,
+            "near": near_counts(b["date"], by_cont[b["cont"]], sheet_by_cont[b["cont"]]) if GROUPS[code] == "missing" else None,
         })
     rows.sort(key=lambda row: (ORDER.index(row["group"]), row["container"], row["date"] or (row["source"] or {}).get("date") or ""))
     in_window = [i for i, s in enumerate(sheet) if match.in_window(match.family_of(s["mode"]), s["month"], end, window)]
@@ -188,6 +216,8 @@ def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
         "counts": {group: sum(1 for row in rows if row["group"] == group) for group in ORDER},
         "dup_groups": dup_counts.get("nhom_trung", 0), "hidden": dict(hidden),
         "rows": rows,
+        # Chuyến có số container mà ô ngày booking trống hay sai: người giữ booking sửa ở tab nguồn (người dùng chọn 24/11/2026).
+        "booking_fix": fix,
     }
     return result, month_report(sheet, source, s_pair, found, now, window)
 
@@ -287,7 +317,7 @@ def record_failure(output: Path, reason: str, now: dt.datetime) -> None:
 def counts_line(result: dict[str, Any]) -> dict[str, Any]:
     """Cho stdout, journal và sổ theo dõi: không tên, không tiền."""
     return {"counts": result["counts"], "sheet_rows": result["sheet"]["rows"], "paired": result["sheet"]["paired"],
-            "source_trips": result["source_trips"]}
+            "source_trips": result["source_trips"], "booking_fix": len(result.get("booking_fix") or ())}
 
 
 def run_safely(xlsx: Path, output: Path, sea_path: Path, road_path: Path, now: dt.datetime | None = None) -> dict[str, Any]:

@@ -15,12 +15,17 @@
     { key: 'date', name: 'Lệch ngày', money: false, about: 'Cùng chuyến, ngày trên sổ khác booking. Không đổi tiền.' },
     { key: 'nodate', name: 'Sổ thiếu ngày', money: false, about: 'Dòng sổ không có ngày, booking có. Không đổi tiền.' },
     { key: 'recent', name: 'Tháng này chưa lên sổ', money: false, about: 'Chuyến tháng này có trong booking, sổ có thể chưa kịp ghi.' },
+    // Không phải nhóm của dòng sổ: dòng booking người giữ booking phải sửa (KIEM-BOOKING-01, lọc nhiễu 24/11/2026).
+    { key: 'fix', name: 'Booking thiếu ngày', money: false, booking: true,
+      about: 'Chuyến có số container mà ô ngày trong booking trống hoặc sai, nên không so được với sổ. Người giữ booking sửa ở tab nguồn; lượt sau tự cập nhật.' },
   ];
   // Khi đã so với sổ web: hai nhóm thay cho 'recent'.
   const SPLIT = {
     recent: { key: 'recent', name: 'Tháng này, web chưa có', money: false, about: 'Chuyến tháng này có trong booking mà cả Sheet lẫn sổ web chưa có. Lý do máy chưa đưa vào: Báo cáo tháng.' },
     recent_web: { key: 'recent_web', name: 'Web có, Sheet chưa ghi', money: false, about: 'Máy đã đưa chuyến vào sổ web, chưa có giá. Sheet ghi vào tab khách thì có giá và dòng hết hiện ở đây.' },
   };
+  const HEAD = '<th>Container</th><th>Ngày trên sổ</th><th>Sổ</th><th>Số tiền</th><th>Booking</th><th>Vì sao</th>';
+  const FIX_HEAD = '<th>Container</th><th>Ô ngày trong booking</th><th>Tab nguồn</th><th>Booking / số xe</th><th>Chủ hàng</th><th>Việc</th>';
   const ERRORS = {
     SEA_MISSING: 'chưa có bản chụp CONT_NGUON', SEA_STALE: 'bản chụp CONT_NGUON cũ quá 3 giờ', SEA_EMPTY: 'bản chụp CONT_NGUON rỗng', SEA_UNREADABLE: 'bản chụp CONT_NGUON đọc không được',
     ROAD_MISSING: 'chưa có bản chụp CONT_BO', ROAD_STALE: 'bản chụp CONT_BO cũ quá 3 giờ', ROAD_EMPTY: 'bản chụp CONT_BO rỗng', ROAD_UNREADABLE: 'bản chụp CONT_BO đọc không được',
@@ -36,8 +41,11 @@
   const nameKey = name => String(name ?? '').trim().split(/\s+/).join(' ');
   const split = () => state.data?.recent_web === 'checked';
   const groupOf = row => (row.group === 'recent' && row.web && split() ? 'recent_web' : row.group);
-  const groups = () => (split() ? [...GROUPS.slice(0, -1), SPLIT.recent, SPLIT.recent_web] : GROUPS);
-  const countOf = key => (split() && key in SPLIT ? state.data.rows.filter(row => groupOf(row) === key).length : state.data.counts?.[key] ?? 0);
+  const groups = () => (split() ? GROUPS.flatMap(group => (group.key === 'recent' ? [SPLIT.recent, SPLIT.recent_web] : [group])) : GROUPS);
+  // Dòng booking cần sửa (`booking_fix`) có hình khác dòng sổ: cột riêng, lọc theo tab nguồn thay vì theo sổ.
+  const countOf = group => (group.booking ? (state.data?.booking_fix ?? []).length
+    : split() && group.key in SPLIT ? state.data.rows.filter(row => groupOf(row) === group.key).length : state.data.counts?.[group.key] ?? 0);
+  const groupRows = group => (group.booking ? (state.data.booking_fix ?? []) : state.data.rows.filter(row => groupOf(row) === group.key));
   const bookOf = row => row.web?.name ?? row.tab ?? row.suggest?.tab;
   const reportHref = month => `/bao-cao-thang.html?month=${encodeURIComponent(month ?? '')}&amp;webchua=1`;
   const when = iso => {
@@ -62,12 +70,17 @@
       }
       case 'TRUNG_GAN': return `Chuyến booking ${day(src.date)} đã tính ở ${pair.tab} dòng ${pair.row}`;
       case 'TRUNG_DAO_NGAY': return `Đảo ngày/tháng thì trùng chuyến booking ${day(src.date)}, đã tính ở ${pair.tab} dòng ${pair.row}`;
-      case 'CHUA_TINH': return 'Chưa thấy ở sổ nào';
-      case 'CHU_HANG_CHUA_GHEP': return 'Chủ hàng chưa ứng với sổ nào';
+      case 'CHUA_TINH': case 'CHU_HANG_CHUA_GHEP': {
+        const base = row.code === 'CHUA_TINH' ? 'Chưa thấy ở sổ nào' : 'Chủ hàng chưa ứng với sổ nào';
+        const near = row.near;
+        // Sổ đã có dòng của container gần đó: booking nhiều chuyến hơn sổ, người xem sót một chuyến hay booking ghi lặp.
+        if (!near || !near.sheet) return near ? `${base}; sổ không có dòng nào của container này trong 45 ngày quanh đó` : base;
+        return `${base}; booking có ${near.booking} chuyến container này trong 45 ngày quanh đó, sổ có ${near.sheet} dòng: sót một chuyến, hay booking ghi lặp?`;
+      }
       case 'KHAC_KHACH': return 'Chủ hàng trên booking khác khách của sổ';
       case 'KHONG_NGUON': return 'Không thấy container trong booking';
       case 'LECH_NGAY': return row.paired ? `Lệch ${row.gap_days} ngày` : `Chuyến booking gần nhất cách ${row.gap_days} ngày, chưa ghép`;
-      case 'NGAY_TU_NGUON': return 'Sổ không ghi ngày';
+      case 'NGAY_TU_NGUON': return src.date && row.month && String(src.date).slice(0, 7) !== row.month ? 'Sổ không ghi ngày, ghi ở khối tháng sau' : 'Sổ không ghi ngày';
       case 'THANG_CUOI':
         if (row.web) return `Đã vào sổ web ngày ${day(row.web.date)}, chờ Sheet ghi giá`;
         return split() ? 'Web chưa có' : 'Tháng này, sổ có thể chưa ghi';
@@ -98,7 +111,7 @@
     const sheet = data.sheet ?? {}, base = `${count(sheet.paired ?? 0)}/${count(sheet.rows ?? 0)} dòng chuyến khớp booking`;
     if (data.state === 'error') return ['bad', `Lượt kiểm ${when(error.at)} lỗi: ${reason}. Số dưới đây của lượt ${when(data.checked_at)}, có thể cũ.`];
     if (data.state === 'stale') return ['warn', `Lượt kiểm gần nhất ${when(data.checked_at)}, đã lỡ các lượt sau. Số dưới đây có thể cũ.`];
-    const clean = GROUPS.filter(group => group.money).every(group => !countOf(group.key));
+    const clean = GROUPS.filter(group => group.money).every(group => !countOf(group));
     return [clean ? 'ok' : '', `Lượt ${when(data.checked_at)} · ${base}${clean ? '. Không thấy chuyến nào nghi tính hai lần, sót, sai khách hay thiếu booking.' : ''}`];
   }
 
@@ -113,25 +126,37 @@
     $('bk-groups').hidden = !hasRows;
     if (!hasRows) { $('bk-list').hidden = true; return; }
     const button = group => {
-      const n = countOf(group.key);
+      const n = countOf(group);
       return `<button type="button" class="bk-group${group.money ? ' money' : ''}${n ? ' has' : ''}" data-group="${group.key}" aria-expanded="${state.open === group.key}"${n ? '' : ' disabled'}><span>${esc(group.name)}</span><b>${count(n)}</b></button>`;
     };
     $('bk-groups').innerHTML = `<div class="bk-row">${groups().filter(g => g.money).map(button).join('')}</div><div class="bk-row bk-info"><span class="bk-sub">Không đổi tiền:</span>${groups().filter(g => !g.money).map(button).join('')}</div>`;
     renderList();
   }
 
+  function fixHtml(row) {
+    const raw = String(row.raw_date ?? '').trim();
+    const owner = row.owner ? `<span class="bk-sub bk-line">${esc(row.owner)}</span>` : '';
+    return `<tr><td class="bk-cont">${esc(row.cont)}</td><td class="num">${raw ? esc(raw) : '<span class="bk-sub">trống</span>'}</td>`
+      + `<td>${esc(row.tab)} <span class="bk-sub">dòng ${esc(row.line ?? '—')}</span></td><td>${esc(row.ref || '—')}</td>`
+      + `<td>${row.family === 'BO' ? 'Bộ' : 'Biển'}${owner}</td><td>Ghi ngày vào ô ngày ở tab nguồn</td></tr>`;
+  }
+
   function renderList() {
     const list = $('bk-list'), group = groups().find(item => item.key === state.open);
-    const rows = group ? state.data.rows.filter(row => groupOf(row) === group.key) : [];
+    const rows = group ? groupRows(group) : [];
     list.hidden = !rows.length;
     if (!rows.length) return;
-    const books = [...new Set(rows.map(bookOf).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+    const keyOf = row => (group.booking ? row.tab : bookOf(row));
+    const books = [...new Set(rows.map(keyOf).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
     if (state.book && !books.includes(state.book)) state.book = '';
-    const shown = state.book ? rows.filter(row => bookOf(row) === state.book) : rows;
+    const shown = state.book ? rows.filter(row => keyOf(row) === state.book) : rows;
     $('bk-list-name').textContent = `${group.name} · ${count(shown.length)}${state.book ? ` / ${count(rows.length)}` : ''}`;
     $('bk-list-about').textContent = group.about;
-    $('bk-book').innerHTML = `<option value="">Mọi sổ (${books.length})</option>${books.map(book => `<option value="${esc(book)}"${book === state.book ? ' selected' : ''}>${esc(book)}</option>`).join('')}`;
-    $('bk-body').innerHTML = shown.map(rowHtml).join('');
+    $('bk-filter-name').textContent = group.booking ? 'Tab nguồn' : 'Sổ';
+    $('bk-book').innerHTML = `<option value="">${group.booking ? 'Mọi tab' : 'Mọi sổ'} (${books.length})</option>${books.map(book => `<option value="${esc(book)}"${book === state.book ? ' selected' : ''}>${esc(book)}</option>`).join('')}`;
+    list.classList.toggle('fix', Boolean(group.booking));
+    $('bk-headrow').innerHTML = group.booking ? FIX_HEAD : HEAD;
+    $('bk-body').innerHTML = shown.map(group.booking ? fixHtml : rowHtml).join('');
   }
 
   async function loadIds() {
