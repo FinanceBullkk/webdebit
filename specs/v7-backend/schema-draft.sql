@@ -111,6 +111,18 @@ CREATE TABLE sokhach.cash_report_review (
 CREATE INDEX cash_report_review_message ON sokhach.cash_report_review (message_id, id);
 COMMENT ON TABLE sokhach.cash_report_review IS 'ZALO-THU-CHI-01 PR-3: xác nhận/sửa số/gắn đối tượng/loại một khoản thu chi báo trong nhóm Zalo; chỉ thêm dòng, gộp theo thứ tự; không tham gia tính tiền.';
 
+-- KHACH-WEB-01 (migration 2026-11-24-v7-khach-web.sql, kèm hàm set_booking_name/create_customer).
+CREATE TABLE sokhach.booking_name (
+    name text PRIMARY KEY CHECK (name = btrim(name) AND name <> '' AND char_length(name) <= 200 AND position('  ' IN name) = 0
+                                 AND name !~ '[[:cntrl:]]' AND name !~ U&'[\0080-\009F\00A0\00AD\1680\180E\2000-\200F\2028-\202F\205F-\206F\3000\FEFF]'
+                                 AND name = normalize(name, NFC) AND name = upper(name)),
+    customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    created_by text NOT NULL CHECK (btrim(created_by) <> ''),
+    created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX booking_name_customer ON sokhach.booking_name (customer_id);
+COMMENT ON TABLE sokhach.booking_name IS 'KHACH-WEB-01: tên chủ hàng trên booking (cột "Chủ hàng (chuẩn)" của CONT_NGUON, "CHỦ HÀNG" của CONT_BO) ứng với một sổ; một tên chỉ một sổ. Web viết hoa, bỏ khoảng trắng thừa trước khi ghi; không nhận ký tự điều khiển hay khoảng trắng lạ (NBSP, ký tự vô hình). Không tham gia tính tiền.';
+
 CREATE TABLE sokhach.cutover (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name text NOT NULL CHECK (btrim(name) <> ''),

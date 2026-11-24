@@ -405,7 +405,7 @@ def check_price_migration(pg):
                      "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
                      "2026-11-23-v7-audit-sql.sql",
                      "2026-11-23-v7-dieu-chinh-theo-gia.sql",
-                     "2026-11-23-v7-so-gon.sql"):
+                     "2026-11-23-v7-so-gon.sql", "2026-11-24-v7-khach-web.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for name, query, expected in zip(("functions", "columns", "constraints"), (catalog, cols, constraints), fresh, strict=True):
         got = pg.sql(query, database=db).stdout.strip()

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from v7_price_queue import DATE_WINDOW_DAYS, container_key, iso, targets
-from v7_sheet_queue import _name, read_snapshot
+from v7_sheet_queue import _name, read_snapshot, web_aliases
 from v7_sheet_task_keep import kept, ps_identity, ps_web_value, source_kept
 
 UNCLASSIFIED = ("other", "discount", "initial")
@@ -202,7 +202,9 @@ def message(status: str, row: dict, info: dict) -> str:
 def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the split button, review for "PS cần xem"."""
     customer = ledger.get("customer_id")
-    aliases = {_name(k): v for k, v in snapshot.get("customer_aliases", {}).items()}
+    # KHACH-WEB-01: tên booking gán trên web thắng bảng WEB_GHEP_KHACH như hàng chờ chuyến, để dòng PS của chuyến vào sổ theo tên web
+    # cũng gắn đúng sổ (máy tách phụ phí PS, khối "PS cần xem").
+    aliases = {**{_name(k): v for k, v in snapshot.get("customer_aliases", {}).items()}, **web_aliases(customers)}
     names = customer_names([c for c in customers if type(c.get("id")) is int])
     ids = fee_type_ids(fee_types)
     candidates = pool(ledger)

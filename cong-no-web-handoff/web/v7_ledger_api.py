@@ -26,6 +26,7 @@ import v7_access
 import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_doixe
+import v7_api_khach
 import v7_api_sheet
 import v7_api_zalo
 import v7_book_export
@@ -332,6 +333,8 @@ POST_HANDLERS = {
     "/api/v7/machine/office": v7_machine.handle_office,
     **v7_api_doixe.POST_HANDLERS,   # CHI-PHI-XE-01: đội xe
     "/api/v7/admin/users": v7_access.handle_users,   # QUYEN-02: trang Người dùng, chỉ quản lý (v7_role)
+    "/api/v7/admin/customers": v7_api_khach.handle_create,   # KHACH-WEB-01: trang Khách, chỉ quản lý (v7_role)
+    "/api/v7/admin/booking-names": v7_api_khach.handle_booking_name,   # KHACH-WEB-01
 }
 MACHINE_READS = {"/api/v7/machine": v7_machine.view, "/api/v7/machine/now": v7_machine.now_view, "/api/v7/machine/summary": v7_machine.summary}
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
@@ -449,6 +452,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, v7_access.view_users(actor)
+    elif parts.path == "/api/v7/admin/customers":
+        # KHACH-WEB-01: mọi sổ kèm tên chủ hàng booking và chủ hàng chưa có sổ; v7_role chặn người không phải quản lý trước khi tới đây.
+        if parts.query:
+            bad()
+        return 200, v7_api_khach.view(runner, actor)
     elif parts.path == "/api/v7/nhat-ky":
         # NHAT-KY-01: PR đã merge của repo do luồng nền đọc từ GitHub, ngoài DB; vẫn sau xác thực danh tính.
         if parts.query:
