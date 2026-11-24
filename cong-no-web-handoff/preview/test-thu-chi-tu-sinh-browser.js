@@ -391,3 +391,52 @@ test('Mỗi danh sách rỗng có chữ nói rõ; localStorage hỏng thì trang
   await fresh.locator('[data-act="next"]').click();
   assert.match(await fresh.locator('[data-progress]').innerText(), /Đã làm 1 \/ 11 bước/);
 }));
+
+test('Bàn phím: bấm Từ chối thì tiêu điểm vào ô lý do; duyệt xong thì tiêu điểm tới dòng báo kết quả, không rơi về đầu trang', () => withPage(async page => {
+  for (let step = 0; step < 3; step += 1) await next(page);
+  await role(page, 'Sếp');
+  await page.locator('[data-act="reject-open"]').focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.f), 'rejectReason');
+  await page.keyboard.type('Thiếu hóa đơn');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');   // Gửi từ chối
+  assert.match(clean(await page.locator('#note').innerText()), /Đã từ chối DC0456/);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'note');
+}));
+
+test('Sếp từ chối rồi bấm Tiếp: bước chuyển tiền được bỏ qua bằng một câu rõ, không có tiền ra', () => withPage(async page => {
+  for (let step = 0; step < 3; step += 1) await next(page);
+  await role(page, 'Sếp');
+  await page.locator('[data-act="reject-open"]').click();
+  await page.locator('[data-f="rejectReason"]').fill('Thiếu hóa đơn');
+  await page.locator('[data-act="reject-send"]').click();
+  await next(page);   // bước 4 đã xử lý
+  await next(page);   // bước 5: bỏ qua
+  assert.match(clean(await page.locator('#note').innerText()), /Bước 5: Đề nghị DC0456 đã bị từ chối nên không chuyển tiền\./);
+  await role(page, 'Sếp');
+  const value = await figs(page);
+  assert.deepEqual([value.vnd, value['can-sep']], ['942189000', '1']);
+}));
+
+test('"Cần sếp" bằng số thẻ đang hiện, kể cả cờ kiểm quỹ lệch', () => withPage(async page => {
+  for (let step = 0; step < 10; step += 1) await next(page);
+  await role(page, 'Kế toán');
+  await page.locator('[data-act="tab"][data-id="quy"]').click();
+  await page.locator('[data-f="counted"]').fill('1.000.000');
+  await page.locator('[data-act="count"]').click();
+  await role(page, 'Sếp');
+  const cards = await page.locator('[aria-label="Cần sếp"] .tcs-ask').count();
+  assert.equal(String(cards), (await figs(page))['can-sep']);
+  assert.match(clean(await page.locator('[data-fig="can-sep"]').locator('xpath=..').innerText()), /1 cờ khác/);
+}));
+
+test('Điện thoại 390px: mô tả bước nằm trong "Cả 11 bước", nội dung của vai bắt đầu trong nửa trên màn hình; có lối về Tổng quan', () => withPage(async page => {
+  assert.equal(await page.locator('.tcs-back').getAttribute('href'), '/dashboard-v7.html');
+  assert.equal(await page.locator('.tcs-step-text.wide-only').isVisible(), false);
+  await role(page, 'Sếp');
+  const top = await page.locator('#view').boundingBox();
+  assert.ok(top.y < 560, `nội dung vai bắt đầu ở ${Math.round(top.y)}px`);
+  await page.locator('summary').click();
+  assert.equal(await page.locator('.tcs-step-text.narrow-only').isVisible(), true);
+}, { viewport: PHONE }));

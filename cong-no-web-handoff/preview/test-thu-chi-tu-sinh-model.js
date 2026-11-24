@@ -148,7 +148,14 @@ test('R5: cùng số tiền trong cửa sổ ngày (vào theo phiếu, ra theo �
   other.state.receipts[1].date = '2026-11-18';
   put(other, tx('b1', 'tk1', '10:00', 'in', 40000000n, 'Ai đó', 'CK'));
   assert.equal(txnOf(other, 'b1').match, null);
-  assert.equal(M.MATCH_BEFORE_DAYS + M.MATCH_AFTER_DAYS, 6);
+  // Cửa sổ như web/v7_cash_chat.py: phiếu từ 3 ngày trước tới 7 ngày sau ngày tiền về.
+  assert.deepEqual([M.MATCH_BEFORE_DAYS, M.MATCH_AFTER_DAYS], [3, 7]);
+  for (const [date, matched] of [['2026-11-21', true], ['2026-11-20', false], ['2026-12-01', true], ['2026-12-02', false]]) {
+    const edge = fresh();
+    edge.state.receipts[1].date = date;
+    put(edge, tx('c1', 'tk1', '10:00', 'in', 40000000n, 'Ai đó', 'CK'));
+    assert.equal(Boolean(txnOf(edge, 'c1').match), matched, date);
+  }
 });
 
 test('R6: nhiều lệnh ra cho cùng người nhận cộng dồn vào một đề nghị; vượt số còn lại thì không nhận', () => {
@@ -444,4 +451,69 @@ test('Dữ liệu bịa: không có tên người thật, container chỉ tiền
   assert.doesNotMatch(text, /["'][0-9]{9,}["']/);   // không có chuỗi số dài kiểu số tài khoản
   assert.equal(FX.accounts.filter(item => item.owner === 'personal').length, 1);
   assert.equal(FX.accounts.length, 5);
+});
+
+// ---- Lỗi do review độc lập tìm ra (24/11/2026) ----
+test('Sếp từ chối ở bước 4, 8, 10 rồi bấm Tiếp: bước chuyển tiền bị bỏ qua, không có tiền ra, không cờ', () => {
+  const sim = fresh();
+  for (let step = 0; step < 3; step += 1) M.next(sim);
+  assert.equal(M.act(sim, 'rejectRequest', { id: 'DC0456', role: 'sep', reason: 'Thiếu hóa đơn', time: `${DAY} 09:10` }).ok, true);
+  M.next(sim);   // bước 4: đã xử lý
+  assert.match(M.skipReason(sim, M.stepNow(sim)), /Đề nghị DC0456 đã bị từ chối nên không chuyển tiền./);
+  const before = sumsOf(sim);
+  M.next(sim);   // bước 5: bỏ qua
+  assert.deepEqual(sumsOf(sim), before);
+  assert.equal(sim.state.requests[0].paid, 0n);
+  assert.equal(M.openFlags(sim.state).filter(flag => flag.type === 'chuyen_truoc_duyet').length, 0);
+  M.next(sim); M.next(sim);   // 6, 7
+  M.next(sim);   // bước 8: tạo, duyệt, chi hộ như thường
+  const second = sim.state.requests.find(item => item.tag === 'r2');
+  assert.equal(M.act(sim, 'rejectRequest', { id: second.id, role: 'sep', reason: 'x', time: `${DAY} 15:00` }).ok, false);   // đã duyệt rồi: không từ chối lại
+  assert.equal(second.status, 'da_khop');
+});
+
+test('Chi hộ ra tiền trước khi duyệt: ví chưa trừ; sếp duyệt thì đề nghị đóng, ví trừ một lần, cờ "chuyển trước giờ duyệt" gỡ', () => {
+  const sim = fresh();
+  const id = makeRequest(sim, { type: 'chi_ho', walletId: 'tq1', payeeId: 'nha-vuon-1', amount: 10000000n });
+  put(sim, tx('a1', 'tk1', '10:00', 'out', 10000000n, 'Nhà vườn 1', `${id} CK`));
+  assert.equal(M.walletBalance(sim.state, 'tq1'), 150000000n);   // chưa duyệt: chưa trừ ví
+  assert.equal(M.dongTien(sim.state).canSep.unapproved, 1);
+  approve(sim, id);
+  assert.deepEqual([sim.state.requests[0].status, M.walletBalance(sim.state, 'tq1'), M.dongTien(sim.state).canSep.unapproved], ['da_khop', 140000000n, 0]);
+  assert.equal(M.approvedWaiting(sim.state).length, 0);   // không còn hiện ở Chờ chuyển
+});
+
+test('Cần sếp đếm cả cờ khác: số trên Dòng tiền bằng số thẻ đang hiện (kiểm quỹ lệch, người nhận khác đề nghị)', () => {
+  const sim = fresh();
+  assert.equal(M.act(sim, 'countCash', { countedText: '49.000.000', time: `${DAY} 17:30` }).ok, true);
+  const d = M.dongTien(sim.state);
+  assert.deepEqual([d.canSep.flags, d.canSep.total, M.openFlags(sim.state).length], [1, 1, 1]);
+  const second = makeRequest(sim, { amount: 3000000n });
+  approve(sim, second);
+  put(sim, tx('a1', 'tk1', '10:00', 'out', 3000000n, 'Người khác', `${second} CK`));
+  assert.equal(M.dongTien(sim.state).canSep.total, M.openFlags(sim.state).length);
+});
+
+test('Cặp nội bộ khớp muộn (chân kia về ở lần nhập sau) gỡ cờ "chi chưa duyệt" của chân đến trước', () => {
+  const sim = fresh();
+  put(sim, tx('a1', 'tk1', '10:00', 'out', 7000000n, 'Công ty B', 'CK NOI BO'));
+  assert.equal(M.dongTien(sim.state).canSep.unapproved, 1);
+  put(sim, tx('a2', 'tk2', '10:05', 'in', 7000000n, 'Công ty A', 'CK NOI BO'));
+  assert.deepEqual([txnOf(sim, 'a1').match.kind, M.dongTien(sim.state).canSep.unapproved], ['chuyen_noi_bo', 0]);
+});
+
+test('Phiếu điền sẵn của giao dịch USD hiện đúng đơn vị; hai đề nghị cùng số tiền thì ghi rõ trong ngoại lệ', () => {
+  const sim = fresh();
+  put(sim, tx('a1', 'tk3', '10:00', 'in', 800000n, 'Ai đó', 'HTH0001K'));
+  assert.equal(M.draftRows(sim.state)[0].amountText, '8.000,00 USD');
+  const dup = fresh();
+  for (const name of ['a', 'b']) { const id = makeRequest(dup, { amount: 5000000n, payeeId: name === 'a' ? 'cang-y' : 'hang-tau-x' }); approve(dup, id); }
+  put(dup, tx('b1', 'tk1', '10:00', 'out', 5000000n, 'Người khác', 'CK'));
+  assert.match(M.exceptions(dup.state)[0].text, /Có 2 đề nghị cùng số tiền: kế toán chọn./);
+});
+
+test('Thao tác chỉ của sếp: thiếu vai cũng bị từ chối (không mở khi quên truyền role)', () => {
+  const sim = fresh();
+  const id = makeRequest(sim);
+  assert.deepEqual([M.run(sim.state, 'approveRequest', { id }).ok, sim.state.requests[0].status], [false, 'cho_duyet']);
 });

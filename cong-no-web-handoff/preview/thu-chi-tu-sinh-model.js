@@ -13,9 +13,9 @@ const ThuChiTuSinhModel = (() => {
     { id: 'tienhang', label: 'Tiền hàng', note: 'Ví khách Trung Quốc' },
     { id: 'nhanvien', label: 'Nhân viên', note: 'Đề nghị chi' },
   ];
-  // Cửa sổ ngày để ghép theo số tiền (R5): phiếu ghi trước hoặc sau ngày tiền về tối đa chừng này ngày (cùng ý với MATCH_BEFORE/MATCH_AFTER của cash chat).
+  // Cửa sổ ngày để ghép theo số tiền (R5), như MATCH_BEFORE/MATCH_AFTER của web/v7_cash_chat.py: phiếu ghi từ 3 ngày trước tới 7 ngày sau ngày tiền về.
   const MATCH_BEFORE_DAYS = 3;
-  const MATCH_AFTER_DAYS = 3;
+  const MATCH_AFTER_DAYS = 7;
   // Ngưỡng phí ngân hàng theo tiền tệ: số về hụt trong ngưỡng thì vẫn khớp, phần hụt là dòng phí (50.000 đồng; 40 USD).
   const FEE_LIMIT = { VND: 50000n, USD: 4000n };
   const WALLET_AGE_DAYS = 30;
@@ -93,7 +93,7 @@ const ThuChiTuSinhModel = (() => {
   const say = (state, time, to, text) => state.bot.push({ time, to, text });
   const ok = (extra = {}) => ({ ok: true, ...extra });
   const fail = (error, extra = {}) => ({ ok: false, error, ...extra });
-  const allowed = (op, role) => !ONLY[op] || !role || ONLY[op].includes(role);
+  const allowed = (op, role) => !ONLY[op] || ONLY[op].includes(role);
 
   // ---- Số dư ----
   const balanceOf = (state, accountId) => {
@@ -238,7 +238,7 @@ const ThuChiTuSinhModel = (() => {
     return flag;
   }
   function addDraft(state, customerId, txn) {
-    const draft = { id: `PD${String(state.seq.draft).padStart(3, '0')}`, customerId, amount: txn.amount, date: dayOf(txn.time), reference: txn.id, txnId: txn.id, status: 'cho_ghi' };
+    const draft = { id: `PD${String(state.seq.draft).padStart(3, '0')}`, customerId, amount: txn.amount, currency: txn.currency, date: dayOf(txn.time), reference: txn.id, txnId: txn.id, status: 'cho_ghi' };
     state.seq.draft += 1;
     state.drafts.push(draft);
     return draft;
@@ -263,8 +263,13 @@ const ThuChiTuSinhModel = (() => {
     const done = request.paid >= request.amount && (request.status === 'da_duyet' || request.status === 'da_chuyen');
     if (done) request.status = 'da_khop';
     request.events.push({ at: txn.time, what: 'khop', by: 'Ngân hàng', text: done ? `Ra ${money(txn.amount)}: khớp đủ đề nghị` : `Ra ${money(txn.amount)}: mới ${money(request.paid)} / ${money(request.amount)}` });
-    if (request.type !== 'chi_thuong') pushLine(state, request.walletId, { type: request.type === 'chi_ho' ? 'chi_ho' : 'ung', time: txn.time, vnd: txn.amount, txnId: txn.id, requestId: request.id });
+    if (request.status !== 'cho_duyet' && request.status !== 'tu_choi') postWalletLine(state, request, txn);
     if (done) say(state, txn.time, request.by, `${request.code} đã khớp với giao dịch ngân hàng.`);
+  }
+  /** Dòng ví của một lần chi hộ hoặc ứng. Chỉ ghi khi đề nghị đã được duyệt: chi trước khi duyệt thì ví chưa trừ, sếp duyệt bù mới trừ. */
+  function postWalletLine(state, request, txn) {
+    if (request.type === 'chi_thuong') return;
+    pushLine(state, request.walletId, { type: request.type === 'chi_ho' ? 'chi_ho' : 'ung', time: txn.time, vnd: txn.amount, txnId: txn.id, requestId: request.id });
   }
   function convertWalletLine(state, usdTxn) {
     const lines = state.wallets.flatMap(wallet => wallet.lines.map(line => ({ wallet, line }))).filter(({ line }) => line.type === 'vao' && !line.converted && line.usd === usdTxn.amount);
@@ -278,6 +283,7 @@ const ThuChiTuSinhModel = (() => {
     txn.hint = null;
     if (cand.kind === 'doi_tien' || cand.kind === 'chuyen_noi_bo') {
       const other = txnById(state, cand.pairId);
+      for (const side of [txn, other]) for (const flag of state.flags) if (flag.txnId === side.id && flag.type === 'chi_chua_duyet') flag.open = false;
       txn.match = { sheet: 'noi_bo', rule: 'R8', kind: cand.kind, pairId: other.id };
       other.match = { sheet: 'noi_bo', rule: 'R8', kind: cand.kind, pairId: txn.id };
       if (cand.kind === 'doi_tien') {
@@ -343,10 +349,11 @@ const ThuChiTuSinhModel = (() => {
       for (const txn of state.txns) {
         if (!unresolved(txn)) continue;
         if (isPrivate(state, txn)) { txn.match = { sheet: 'rieng', rule: 'R0' }; changed = true; continue; }
+        txn.hint = null;
         const found = findMatch(state, txn);
         if (found.candidate) { applyMatch(state, txn, found.candidate); changed = true; continue; }
         if (found.ambiguous) txn.hint = { kind: 'nhieu', ...found.ambiguous };
-        else txn.hint = txn.hint?.kind === 'goi_y' ? txn.hint : nearMiss(state, txn);
+        else txn.hint = txn.hint ?? nearMiss(state, txn);
         if (txn.dir === 'out' && !txn.match) {   // chi chưa có đề nghị: cờ đỏ chờ sếp duyệt bù
           txn.match = { sheet: 'chi', rule: null, category: 'Chưa có đề nghị' };
           addFlag(state, 'chi_chua_duyet', { txnId: txn.id });
@@ -414,7 +421,9 @@ const ThuChiTuSinhModel = (() => {
       const request = requestById(state, args.id);
       if (!request) return fail('Không thấy đề nghị.');
       if (request.status !== 'cho_duyet') return fail('Đề nghị này không còn chờ duyệt.');
-      request.status = 'da_duyet';
+      request.status = request.paid >= request.amount ? 'da_khop' : 'da_duyet';
+      for (const id of request.txnIds) postWalletLine(state, request, txnById(state, id));   // tiền đã ra trước khi duyệt: giờ mới vào ví
+      for (const flag of state.flags) if (flag.open && flag.requestId === request.id && flag.type === 'chuyen_truoc_duyet') { flag.open = false; flag.by = 'Sếp'; flag.at = args.time; }
       const check = walletCheck(state, request);
       request.events.push({ at: args.time, what: 'duyet', by: 'Sếp', text: check?.over ? `Duyệt, vượt số dư ví: ví ${money(check.balance)}, đề nghị ${money(request.amount)}` : 'Duyệt' });
       touch(state, args.time);
@@ -538,10 +547,11 @@ const ThuChiTuSinhModel = (() => {
     for (const wallet of state.wallets) { const balance = walletBalance(state, wallet.id); if (balance < 0n) owed -= balance; }
     const waiting = state.requests.filter(request => request.status === 'cho_duyet').length;
     const unapproved = state.flags.filter(flag => flag.open && UNAPPROVED_FLAGS.includes(flag.type)).length;
+    const otherFlags = state.flags.filter(flag => flag.open && !UNAPPROVED_FLAGS.includes(flag.type)).length;
     const unknown = exceptions(state).filter(item => item.kind === 'chua_ro').length;
     const personal = state.accounts.filter(item => item.owner === 'personal').map(item => ({ id: item.id, name: item.short, balance: balanceOf(state, item.id) }));
     return { accounts, vnd: sumOf('VND'), usd: sumOf('USD'), owed, today, personal,
-      canSep: { waiting, unapproved, unknown, total: waiting + unapproved + unknown } };
+      canSep: { waiting, unapproved, unknown, flags: otherFlags, total: waiting + unapproved + unknown + otherFlags } };
   }
 
   const valueForSort = (state, txn) => (txn.currency === 'USD' ? usdToVnd(txn.amount, state.rates.bank) : txn.amount);
@@ -565,7 +575,8 @@ const ThuChiTuSinhModel = (() => {
           out.push({ txn, amountText: money(txn.amount, txn.currency), kind: 'chua_ro', title: 'Tiền về chưa rõ của ai', text: `${what}. Nội dung: ${txn.content}.` });
         }
       } else if (txn.dir === 'out' && txn.match?.rule === null) {
-        out.push({ txn, amountText: money(txn.amount, txn.currency), kind: 'chi_chua_de_nghi', title: 'Chi chưa có đề nghị', text: `${what}. Nội dung: ${txn.content}.` });
+        out.push({ txn, amountText: money(txn.amount, txn.currency), kind: 'chi_chua_de_nghi', title: 'Chi chưa có đề nghị',
+          text: `${what}. Nội dung: ${txn.content}.${txn.hint?.kind === 'nhieu' ? ` Có ${txn.hint.count} đề nghị cùng số tiền: kế toán chọn.` : ''}` });
       }
     }
     return out.sort((a, b) => cmpDesc(valueForSort(state, a.txn), valueForSort(state, b.txn)));
@@ -677,7 +688,7 @@ const ThuChiTuSinhModel = (() => {
   const cashWaiting = state => state.requests.filter(request => request.status === 'da_duyet' && request.type === 'ung_tien_mat').map(request => requestView(state, request.id));
   const pendingApproval = state => state.requests.filter(request => request.status === 'cho_duyet').map(request => requestView(state, request.id));
   /** Phiếu thu điền sẵn cho team công nợ (chỉ xem trong bản thử, không ghi sổ nợ). */
-  const draftRows = state => state.drafts.map(draft => ({ id: draft.id, customer: customerById(state, draft.customerId).name, amountText: money(draft.amount), date: draft.date, reference: draft.reference }));
+  const draftRows = state => state.drafts.map(draft => ({ id: draft.id, customer: customerById(state, draft.customerId).name, amountText: money(draft.amount, draft.currency), date: draft.date, reference: draft.reference }));
   const cashView = state => ({ balance: balanceOf(state, 'quy'), balanceText: money(balanceOf(state, 'quy')),
     counts: state.counts.map(item => ({ clock: clock(item.time), countedText: money(item.counted), expectedText: money(item.expected), diff: item.diff,
       diffText: item.diff === 0n ? 'Khớp' : `Lệch ${money(item.diff)}` })) });
@@ -712,7 +723,8 @@ const ThuChiTuSinhModel = (() => {
     { n: 5, time: '10:40', role: 'ketoan', tab: 'cho-chuyen', title: 'Kế toán chuyển, ngân hàng khớp',
       text: '10:40 kế toán chép nội dung chuyển khoản (có mã đề nghị) và chuyển. 10:42 giao dịch ra về sao kê, máy khớp và đóng đề nghị.',
       human: 'Ở Chờ chuyển, bấm Chép nội dung rồi Đã chuyển (mô phỏng).',
-      done: state => byTag(state, 'r1')?.status === 'da_khop',
+      tag: 'r1',
+      done: state => ['da_khop', 'tu_choi'].includes(byTag(state, 'r1')?.status),
       auto: sim => {
         const request = byTag(sim.state, 'r1');
         if (request.status === 'da_duyet') act(sim, 'markTransferred', { id: request.id, time: at('10:40') });
@@ -737,7 +749,8 @@ const ThuChiTuSinhModel = (() => {
     { n: 8, time: '14:30', role: 'sep', tab: 'dong-tien', title: 'Chi hộ Khách TQ 1, ba lệnh một đề nghị',
       text: 'Đề nghị chi hộ Khách TQ 1 cho Nhà vườn 1; sếp duyệt. Ngân hàng chuyển ba lệnh, máy khớp cả ba vào một đề nghị; ví Khách TQ 1 trừ.',
       human: 'Tạo đề nghị chi hộ (Nhân viên) rồi sếp Duyệt; hoặc bấm Tiếp.',
-      done: state => byTag(state, 'r2')?.status === 'da_khop',
+      tag: 'r2',
+      done: state => ['da_khop', 'tu_choi'].includes(byTag(state, 'r2')?.status),
       auto: sim => {
         if (!byTag(sim.state, 'r2')) act(sim, 'createRequest', { ...FX.scenario.request2, tag: 'r2', time: at('14:30') });
         const request = byTag(sim.state, 'r2');
@@ -752,7 +765,8 @@ const ThuChiTuSinhModel = (() => {
     { n: 10, time: '16:00', role: 'ketoan', tab: 'quy', title: 'Ứng tiền mặt vượt số dư ví',
       text: 'Đề nghị ứng 30.000.000 đ tiền mặt cho người của Khách TQ 2, vượt số dư ví: thẻ ghi rõ; sếp duyệt; thủ quỹ giao kèm ảnh biên bản giả. Quỹ trừ, ví âm thêm, tổng đang ứng tăng.',
       human: 'Sếp duyệt; thủ quỹ chọn "Có ảnh biên bản" rồi bấm Giao tiền mặt.',
-      done: state => byTag(state, 'r3')?.status === 'da_khop',
+      tag: 'r3',
+      done: state => ['da_khop', 'tu_choi'].includes(byTag(state, 'r3')?.status),
       auto: sim => {
         if (!byTag(sim.state, 'r3')) act(sim, 'createRequest', { ...FX.scenario.request3, tag: 'r3', time: at('16:00') });
         const request = byTag(sim.state, 'r3');
@@ -777,6 +791,8 @@ const ThuChiTuSinhModel = (() => {
     return result;
   }
   const stepNow = sim => STEPS[sim.cursor] ?? null;
+  /** Bước chuyển tiền mà đề nghị của nó đã bị sếp từ chối: Tiếp bỏ qua bước, không chuyển tiền. Trả câu giải thích hoặc ''. */
+  const skipReason = (sim, step) => (step?.tag && byTag(sim.state, step.tag)?.status === 'tu_choi' ? `Đề nghị ${byTag(sim.state, step.tag).code} đã bị từ chối nên không chuyển tiền.` : '');
   /** Bấm Tiếp: làm nốt phần chưa làm của bước hiện tại rồi sang bước sau. */
   function next(sim) {
     const step = stepNow(sim);
@@ -814,6 +830,6 @@ const ThuChiTuSinhModel = (() => {
     money, usdText, parseAmount, parseDollars, parseCount, usdToVnd, daysBetween, clock,
     baseState, run, findMatch, autoMatch, balanceOf, walletBalance, walletCheck, walletView, walletStatement, exchangeNote, dongTien, exceptions, openFlags, walletAlerts,
     txnRows, accountsView, monthByCategory, expectationRows, requestView, requestList, approvedWaiting, cashWaiting, pendingApproval, draftRows, cashView, feeRows,
-    newSim, act, next, back, reset, stepNow, stepStatus, lastBot, botFor, directory, fixtureTag };
+    newSim, act, next, back, reset, stepNow, skipReason, stepStatus, lastBot, botFor, directory, fixtureTag };
 })();
 if (typeof module !== 'undefined') module.exports = ThuChiTuSinhModel;

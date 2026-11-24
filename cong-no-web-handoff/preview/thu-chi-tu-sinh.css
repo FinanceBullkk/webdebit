@@ -8,6 +8,9 @@ body.tcs{background:#f3f5f8;font-size:16px;line-height:1.5}
 .tcs-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:10px 16px;background:var(--nav);color:#fff}
 .tcs-head h1{margin:0;font-size:20px;font-weight:700}
 .tcs-sub{color:var(--nav-ink);font-size:14px}
+.tcs-back{display:inline-flex;align-items:center;min-height:44px;margin-left:auto;padding:0 12px;border:1px solid #3d5876;border-radius:8px;color:#fff;font-weight:600}
+.tcs-back:hover{background:#21405f}
+.tcs-head{align-items:center}
 .tcs-page{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;max-width:1280px;margin:0 auto;padding:12px 16px 32px}
 @media (min-width:1000px){.tcs-page{grid-template-columns:300px minmax(0,1fr);align-items:start;gap:16px;padding:16px 20px 32px}}
 .tcs-main{min-width:0;display:flex;flex-direction:column;gap:12px}
@@ -54,7 +57,8 @@ body.tcs{background:#f3f5f8;font-size:16px;line-height:1.5}
 .tcs-steps .t{flex:none;width:44px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .tcs-steps .s{margin-left:auto;flex:none;color:var(--ink-3)}
 .tcs-scenario details summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600;color:var(--accent-ink)}
-@media (min-width:1000px){.tcs-scenario{position:sticky;top:48px;max-height:calc(100vh - 64px);overflow:auto}.tcs-scenario details summary{display:none}}
+@media (max-width:999px){.tcs-roles b{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.tcs-roles{gap:6px}.tcs-role{padding:0 12px}.tcs-step-text.wide-only,.tcs-bot{display:none}.tcs-fig:first-child{grid-column:1/-1}.tcs-fig b{font-size:20px}}
+@media (min-width:1000px){.tcs-step-text.narrow-only{display:none}.tcs-scenario{position:sticky;top:48px;max-height:calc(100vh - 64px);overflow:auto}.tcs-scenario details summary{display:none}}
 .tcs-note{padding:10px 14px;border:1px solid #b9dcc4;border-radius:8px;background:var(--credit-soft);color:var(--credit);font-weight:700}
 .tcs-note.bad{border-color:#ebb7b4;background:var(--critical-soft);color:var(--critical)}
 

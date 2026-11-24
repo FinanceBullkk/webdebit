@@ -62,7 +62,7 @@
       return `<li${index === sim.cursor ? ' aria-current="step"' : ''}><span class="t">${esc(item.time)}</span><span>${esc(item.title)}</span><span class="s">${word}</span></li>`;
     }).join('');
     const head = step
-      ? `<p class="tcs-step-title" data-step="${step.n}">Bước ${step.n} · ${esc(step.time)} · ${esc(step.title)}</p><p class="tcs-step-text">${esc(step.text)}</p>
+      ? `<p class="tcs-step-title" data-step="${step.n}">Bước ${step.n} · ${esc(step.time)} · ${esc(step.title)}</p><p class="tcs-step-text wide-only">${esc(step.text)}</p>
          <p class="tcs-human">${doneByHand ? 'Bạn đã làm xong việc của bước này. Bấm Tiếp để sang bước sau.' : `Việc của bạn: ${esc(step.human)} Hoặc bấm Tiếp để máy làm thay.`}</p>`
       : '<p class="tcs-step-title" data-step="end">Hết ngày</p><p class="tcs-step-text">Đã chạy hết 11 bước. Bấm Đặt lại để chạy lại từ đầu ngày.</p>';
     const there = step && (ui.role !== step.role || (step.role === 'ketoan' && ui.tab.ketoan !== step.tab) || (step.role === 'nhanvien' && ui.tab.nhanvien !== (step.tab === 'tao' ? 'tao' : 'ds')))
@@ -71,7 +71,7 @@
       <div class="go">${button('back', 'Trước', { extra: sim.cursor === 0 ? 'disabled' : '' })}${button('next', step ? 'Tiếp' : 'Hết ngày', { cls: 'primary', extra: step ? '' : 'disabled' })}${button('reset', 'Đặt lại')}</div></div>
       ${head}${there ? `<div class="tcs-human">${there}</div>` : ''}
       ${bot ? `<p class="tcs-bot">Bot (mô phỏng) nhắn ${esc(bot.to)}: ${esc(bot.text)}</p>` : ''}
-      <details${ui.stepsOpen ? ' open' : ''}><summary>Cả 11 bước</summary><ol class="tcs-steps">${list}</ol></details>`;
+      <details${ui.stepsOpen ? ' open' : ''}><summary>Cả 11 bước</summary>${step ? `<p class="tcs-step-text narrow-only">${esc(step.text)}</p>` : ''}<ol class="tcs-steps">${list}</ol></details>`;
   }
 
   function renderRoles() {
@@ -107,7 +107,7 @@
       ${fig('vnd', 'Tiền đồng đang có', M.money(d.vnd), d.vnd)}
       ${fig('usd', 'Đô la đang có', M.money(d.usd, 'USD'), d.usd)}
       ${fig('owed', 'Đang ứng cho khách Trung Quốc', M.money(d.owed), d.owed, { cls: d.owed > 0n ? 'warn' : '' })}
-      ${fig('can-sep', 'Cần sếp', String(d.canSep.total), d.canSep.total, { cls: d.canSep.total > 0 ? 'need' : '', sub: `${d.canSep.waiting} chờ duyệt · ${d.canSep.unapproved} chi chưa duyệt · ${d.canSep.unknown} tiền về chưa rõ` })}
+      ${fig('can-sep', 'Cần sếp', String(d.canSep.total), d.canSep.total, { cls: d.canSep.total > 0 ? 'need' : '', sub: `${d.canSep.waiting} chờ duyệt · ${d.canSep.unapproved} chi chưa duyệt · ${d.canSep.unknown} tiền về chưa rõ${d.canSep.flags ? ` · ${d.canSep.flags} cờ khác` : ''}` })}
       ${fig('vao', 'Hôm nay vào (đồng)', M.money(d.today.vao), d.today.vao, { sub: `Đô la vào: ${esc(M.money(d.today.vaoUsd, 'USD'))}` })}
       ${fig('ra', 'Hôm nay ra (đồng)', M.money(d.today.ra), d.today.ra, { sub: `Đô la ra: ${esc(M.money(d.today.raUsd, 'USD'))}` })}</div></section>
       <section class="tcs-card" aria-label="Cần sếp"><h2>Cần sếp (${d.canSep.total})</h2>${askHtml || empty('Không có gì chờ sếp.')}</section>
@@ -264,7 +264,10 @@
     note.classList.toggle('bad', Boolean(ui.note?.bad));
     const target = [...document.querySelectorAll('[data-act],[data-f],[role=tab]')].find(element => keyOf(element) === focusKey);
     const invalid = $('#view [aria-invalid="true"]');
-    (invalid ?? target)?.focus();
+    const reason = ui.rejecting ? $('[data-f="rejectReason"]') : null;
+    (invalid ?? target ?? reason)?.focus();
+    // Nút vừa bấm đã biến mất khỏi màn (duyệt xong, gắn xong…): đưa tiêu điểm tới dòng báo kết quả để bàn phím không phải Tab lại từ đầu trang.
+    if (!document.activeElement || document.activeElement === document.body) { if (!note.hidden) { note.tabIndex = -1; note.focus({ preventScroll: true }); } }
     if (!invalid && target && caret !== null && target.setSelectionRange) { try { target.setSelectionRange(caret, caret); } catch { /* ô không có con trỏ */ } }
     remember();
   }
@@ -287,11 +290,11 @@
     goto() { jumpToStep(M.stepNow(ui.sim)); },
     next() {
       const step = M.stepNow(ui.sim);
+      const skip = M.skipReason(ui.sim, step);
       M.next(ui.sim);
       ui.errors = {};
       jumpToStep(step);
-      say(step ? `Đã làm bước ${step.n}: ${step.title}.` : '');
-      if (!step) ui.note = null;
+      if (step) say(skip ? `Bước ${step.n}: ${skip}` : `Đã làm bước ${step.n}: ${step.title}.`);
     },
     back() { M.back(ui.sim); ui.errors = {}; ui.openId = null; ui.rejecting = null; jumpToStep(M.stepNow(ui.sim)); say('Đã lùi một bước.'); },
     reset() { M.reset(ui.sim); ui.errors = {}; ui.openId = null; ui.rejecting = null; ui.f = { ...ui.f, ...blankForm(), counted: '', comment: '', rejectReason: '' }; say('Đã đặt lại về đầu ngày.'); },
