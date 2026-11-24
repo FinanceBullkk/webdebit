@@ -2432,7 +2432,9 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
    Lệnh in các mục được chấp nhận rồi lấy mốc mới. **Sau mỗi migration hay loader đổi dữ liệu sổ hoặc Lịch sử mà không qua lệnh:** ngay sau đợt nâng chạy `--dry-run`, danh sách phải đúng phạm vi migration, rồi `--accept`. Lượt máy canh lỡ chạy trước thì có một email; chấp nhận xong lượt kế báo ổn lại.
 6. **Tắt:** xóa drop-in rồi `daemon-reload`: kiểm 3, 4 nghỉ, kiểm 1, 2 vẫn chạy. Gỡ hẳn mục: quay release. Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerprints(), sokhach._safety_events(bigint,interval);` (không gì phụ thuộc, không đụng dữ liệu); `/var/lib/v7-watchdog` xóa được.
 
-## Khách mới và tên chủ hàng booking trên web (KHACH-WEB-01) — nâng DB đang có (CHƯA CHẠY)
+## Khách mới và tên chủ hàng booking trên web (KHACH-WEB-01) — nâng DB đang có (ĐÃ CHẠY trên hao 24/11/2026)
+
+Đã nâng DB và đổi release 24/11/2026, xem [nhật ký](deploys/2026-11-24-khach-web.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-24-v7-khach-web.sql` ([quyết định](decisions/khach-web-01.md), [spec](../specs/v7-khach-web.md)) chỉ THÊM bảng `booking_name`, hai lệnh `create_customer(text,text,text,jsonb,text)`, `set_booking_name(bigint,bigint,text,text,boolean)` cấp cho app, hàm phụ `_booking_names(bigint)` không cấp ai, và thay `list_customers()` (thêm trường `booking_names` và `archived`, quyền giữ nguyên). Không đổi tiền, phân bổ, dữ liệu cũ. Không tăng `schema_level`. Chạy lại được.
 
