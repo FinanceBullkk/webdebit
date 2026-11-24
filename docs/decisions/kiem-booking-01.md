@@ -79,7 +79,17 @@ Ba luật dưới đây là ĐỀ XUẤT của Claude. Như lần 16/11, chúng 
 - **Chuyến thật thiếu ngày thành nhóm "Booking thiếu ngày"** (`dong_thieu_ngay`): có số container mà ô ngày trống, không đọc được hoặc trước năm 2000. Nhóm nằm ở hàng không đổi tiền, liệt kê container, ô ngày, tab nguồn và dòng nguồn, booking hoặc số xe, chủ hàng. Với chuyến biển, tab nguồn là tab tháng của file booking mà `CONT_NGUON` chép từ đó. Đo: 23 dòng biển, 14 dòng bộ. Số "228 dòng lỗi" trước đây là tổng của loại này và loại trên.
 - **Chuyến "booking có, sổ chưa tính" kèm số đếm:** số chuyến booking và số dòng sổ (mọi tab) của cùng container trong 45 ngày quanh đó. Sổ có dòng mà ít hơn booking thì có thể sót một chuyến, hoặc booking ghi lặp. Sổ không có dòng nào thì chuyến chưa ở sổ nào. Chỉ là chữ giải thích, không đổi nhóm.
 
-KẾT_QUẢ_ĐO
+Đo trên `hao` 24/11/2026: mã `main` và mã mới chạy trên cùng một bản tải sổ gốc (09:07) và cùng hai bản chụp. Chỉ đọc, thư mục thử đã xóa.
+
+| | `main` | Mã mới |
+| --- | ---: | ---: |
+| Dòng chuyến của sổ khớp booking | 7.433/7.766 | 7.494/7.766 |
+| Booking có, sổ chưa tính | 106 | 48 |
+| Sổ thiếu ngày | 243 | 304 |
+| Dòng booking lỗi ("228") | 195 thiếu container hay ngày + 32 ngày sai | 37 booking thiếu ngày (23 biển, 14 bộ) + 190 dòng không phải chuyến |
+| Trước tháng đầu của tab (chỉ đếm) | 550 | 547 |
+
+Ba nhóm đụng tiền còn lại, lệch ngày và tháng này giữ nguyên số. Báo cáo tháng: tháng 5/2026 còn 13 chuyến "booking có, Sheet không có" (trước 70), tháng 6/2026 còn 11 dòng "Sheet không ngày" (trước 68); tháng 10 và 11 không đổi. Trong 48 chuyến còn lại, 27 chuyến sổ có dòng cùng container mà ít hơn số chuyến booking, 21 chuyến sổ không có dòng nào cùng container trong 45 ngày quanh đó. Đây là phần chủ nghiệp vụ phải quyết: sót tiền thật, booking ghi lặp, hay chuyến không phải tính.
 
 ## Ngày / nguồn
 

@@ -96,8 +96,9 @@ def snapshot_sources(sea: dict[str, Any], road: dict[str, Any]) -> tuple[list[di
     trong một bản chụp là một chuyến; dòng của bản chụp sau lặp chuyến (±3 ngày) của bản trước thì bỏ, như `load_sources`.
 
     Dòng không thành chuyến chia hai loại (lọc nhiễu 24/11/2026, KIEM-BOOKING-01):
-    - `dong_khong_phai_chuyen`: ô container trống hoặc không phải số container hay biển số. Đo 24/11/2026: 190 dòng CONT_NGUON, gần hết
-      là dòng cuối của từng tab tháng (container trống, ngày 1900) và dòng tiêu đề mặt hàng ("THANHLONG" ở cột container). Không phải lỗi.
+    - `dong_khong_phai_chuyen`: ô container trống, hoặc không phải số container hay biển số mà cũng không có ngày đọc được. Đo 24/11/2026:
+      190 dòng CONT_NGUON, là dòng cuối của từng tab tháng (container trống, ngày 1900) và dòng tiêu đề mặt hàng ("THANHLONG" ở cột
+      container, ngày trống hoặc 1900). Không phải lỗi. Ô container lạ mà có ngày vẫn là chuyến như trước (có thể là số gõ thiếu).
     - `dong_thieu_ngay`: có số container mà ô ngày trống, không đọc được hoặc trước năm 2000 (ô rác). Đây là chuyến thật không so được
       với sổ: trả về trong danh sách thứ ba kèm tab nguồn và dòng nguồn để người giữ booking sửa (đo 24/11/2026: 23 dòng biển, 14 dòng bộ).
     """
@@ -109,7 +110,7 @@ def snapshot_sources(sea: dict[str, Any], road: dict[str, Any]) -> tuple[list[di
         same: set[tuple[str, str]] = set()
         for item in data["rows"]:
             cont, day = match.container_key(item.get("container")), str(item.get("event_date") or "")
-            if not cont or not match.trip_like(cont):
+            if not cont or ((not day or day < "2000") and not match.trip_like(cont)):
                 stats["dong_khong_phai_chuyen"] += 1
                 continue
             if not day or day < "2000":
