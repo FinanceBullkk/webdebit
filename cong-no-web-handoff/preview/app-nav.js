@@ -15,7 +15,7 @@ globalThis.AppNav = (() => {
   // Chỉ máy chủ quyết vai trò; thiếu thuộc tính là quản lý (dev, test, bản cài chưa đặt danh sách quản lý).
   const isAdmin = () => document.documentElement.dataset.role !== 'user';
   const ADMIN_PAGES = ['/viec-can-lam.html', '/may-chay.html', '/doi-xe.html', '/doi-xe-bang-ke.html', '/thong-tin-cty.html',
-    '/nhat-ky-cong-viec.html', '/nguoi-dung.html', '/thu-chi.html', '/doi-no.html', '/sheet-trip-queue.html'];
+    '/nhat-ky-cong-viec.html', '/nguoi-dung.html', '/thu-chi.html', '/doi-no.html', '/sheet-trip-queue.html', '/khach.html'];
   const ICON_QUAN_TRI = '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"></path>';
   // QUYEN-02 (20/11/2026): năm trang làm sổ cho mọi người; quản lý có thêm một mục Quản trị (vào thẳng Việc cần làm, mang số
   // "sổ còn việc"), các màn quản lý chuyển nhau bằng dải thẻ ở đầu trang.
@@ -30,6 +30,7 @@ globalThis.AppNav = (() => {
   const ADMIN_TABS = [
     ['viec-can-lam', '/viec-can-lam.html', 'Việc cần làm'], ['may-chay', '/may-chay.html', 'Máy chạy'], ['doi-xe', '/doi-xe.html', 'Đội xe'],
     ['thong-tin-cty', '/thong-tin-cty.html', 'Thông tin cty'], ['thu-chi', '/thu-chi.html', 'Thu chi'], ['nhat-ky', '/nhat-ky-cong-viec.html', 'Nhật ký'], ['nguoi-dung', '/nguoi-dung.html', 'Người dùng'],
+    ['khach', '/khach.html', 'Khách'],   // KHACH-WEB-01: tạo sổ, gán tên chủ hàng booking
   ];
   const UNDER_ADMIN = new Set(ADMIN_TABS.map(([id]) => id));   // trang ẩn (Đòi nợ, Chuyến từ Sheet) không sáng mục nào
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;

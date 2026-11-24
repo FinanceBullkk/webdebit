@@ -137,6 +137,25 @@ def _pick_book(name: str, commodity: str, names: dict[str, list[dict[str, Any]]]
     return match, "COMMODITY_OK" if book == commodity else "COMMODITY_MISMATCH"
 
 
+def web_aliases(customers: list[dict[str, Any]]) -> dict[str, str]:
+    """Tên chủ hàng booking → tên sổ theo bảng tên booking quản lý gán trên web (KHACH-WEB-01).
+
+    Chỉ sổ đang hoạt động, chưa lưu trữ, không ghi là đi bộ: tên gán ở sổ bộ chỉ dẫn chuyến bộ (hàng chờ CONT_BO). Khóa chuẩn hóa như
+    `_name` (cùng cách bảng WEB_GHEP_KHACH được đọc), nên tên gán trên web thắng tên cùng chữ ở bảng đó. DB chặn một tên ứng hai sổ;
+    hai sổ vẫn ra cùng một khóa thì bỏ khóa đó (bảng WEB_GHEP_KHACH, nếu có, lại áp dụng); khách lỗi dạng thì bỏ qua.
+    """
+    aliases: dict[str, str | None] = {}
+    for customer in customers:
+        if not isinstance(customer, dict) or customer.get("status") != "active" or not isinstance(customer.get("name"), str) \
+                or customer.get("transport_mode") == "BO" or customer.get("archived"):
+            continue
+        for name in customer.get("booking_names") or ():
+            key = _name(name) if isinstance(name, str) else ""
+            if key:
+                aliases[key] = customer["name"] if aliases.get(key, customer["name"]) == customer["name"] else None
+    return {key: book for key, book in aliases.items() if book is not None}
+
+
 def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], baseline: dict[str, Any]) -> dict[str, Any]:
     names: dict[str, list[dict[str, Any]]] = {}
     owners: dict[str, list[dict[str, Any]]] = {}
@@ -145,7 +164,8 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             names.setdefault(_name(customer["name"]), []).append(customer)
             if isinstance(customer.get("display_name"), str) and _name(customer["display_name"]) != _name(customer["name"]):
                 owners.setdefault(_name(customer["display_name"]), []).append(customer)
-    aliases = snapshot.get("customer_aliases") or {}
+    # KHACH-WEB-01: tên booking gán trên web thắng bảng WEB_GHEP_KHACH của file booking khi cùng một tên.
+    aliases = {**(snapshot.get("customer_aliases") or {}), **web_aliases(customers)}
     items = []
     # GIA-BOOKING-01: chữ giá booking của dòng READY theo số dòng nguồn. Để ngoài `items`: `removed_identity` băm cả dòng hàng
     # chờ, nên thêm một trường vào dòng là đổi dấu vân mọi chuyến "Giữ" đã chốt (và mỗi lần ô giá trên Sheet đổi).

@@ -38,6 +38,7 @@ PAGES = {
     "/nhat-ky-cong-viec.html": "nhat-ky-cong-viec.html",   # NHAT-KY-01
     "/nguoi-dung.html": "nguoi-dung.html",   # QUYEN-02, chỉ quản lý
     "/thu-chi.html": "thu-chi.html",   # ZALO-THU-CHI-01, chỉ quản lý
+    "/khach.html": "khach.html",   # KHACH-WEB-01, chỉ quản lý
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }
 PAGE_FILE = re.compile(r'<script src="([a-z0-9-]+\.js)"></script>|<link rel="stylesheet" href="([a-z0-9-]+\.css)">')
@@ -91,7 +92,13 @@ COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd", "fees"}
 ERRORS = {
     "BOOK_EXISTS": (409, "Sổ tên này đã có."),
-    "INVALID_BOOK_NAME": (422, "Tên sổ không hợp lệ."),
+    # KHACH-WEB-01: tạo sổ và gán tên chủ hàng booking trên web.
+    "BOOKING_NAME_TAKEN": (409, "Tên chủ hàng này đã gán cho sổ khác. Bỏ ở sổ đó trước."),
+    "BOOKING_NAME_ROUTED": (409, "Tên này đang đưa chuyến vào sổ khác."),
+    "INVALID_BOOKING_NAME": (422, "Tên chủ hàng không hợp lệ."),
+    "INVALID_BOOK_NAME": (422, "Tên sổ không hợp lệ: không có ký tự lạ hay các dấu / \\ ? * [ ] : ', tối đa 200 ký tự."),
+    "INVALID_COMMODITY": (422, "Mặt hàng chưa có trong danh mục. Chọn một mặt hàng có sẵn."),
+    "CUSTOMER_ARCHIVED": (409, "Sổ đã lưu trữ, không gán thêm tên booking."),
     "INVALID_CUTOVER_INPUT": (422, "Dữ liệu sổ mới không hợp lệ."),
     "CUTOVER_CUSTOMER_TOTAL_MISMATCH": (422, "Tổng số dư đầu của sổ mới không khớp."),
     "CUTOVER_SOURCE_INCOMPLETE": (422, "Dữ liệu sổ mới thiếu tháng."),
@@ -351,6 +358,12 @@ SQL["get_marks"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
 # ZALO-THU-CHI-01 PR-3: xác nhận/sửa/loại khoản thu chi báo trong nhóm Zalo, ngoài đường tiền; v7_cash_chat kiểm thân lệnh.
 SQL["record_cash_review"] = "SELECT sokhach.record_cash_review(:'payload'::jsonb);"
 SQL["get_cash_reviews"] = "SELECT sokhach.get_cash_reviews(:'payload'::jsonb);"
+# KHACH-WEB-01: quản lý tạo sổ và gán tên chủ hàng booking (v7_api_khach kiểm thân lệnh, chuẩn hóa tên).
+SQL["create_customer"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.create_customer("
+                          "j->>'book_name', j->>'commodity_name', j->>'book_mode', j->'booking_names', j->>'idempotency_key') FROM b;")
+SQL["set_booking_name"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.set_booking_name("
+                           "(j->>'customer_id')::bigint, (j->>'expected_version')::bigint, j->>'idempotency_key', j->>'name', "
+                           "(j->>'remove')::boolean) FROM b;")
 # MAY-TAO-SO-01: máy đối soát tạo sổ khách mới; không có route, API không gọi.
 SQL["create_book_from_sheet"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.create_book_from_sheet("
                                  "j->>'book_name', j->>'commodity_name', j->>'book_mode', j->'openings', j->'legacy', j->'month_checks', "

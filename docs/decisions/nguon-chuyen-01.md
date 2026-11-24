@@ -63,6 +63,8 @@ Không đổi luật tiền, phân bổ, khóa tháng hay quyền. Mọi thay đ
 - Máy dán chưa có giá, bằng đúng đường dán của chuyến biển (P3b), chặn trùng y như vậy: đã có ở sổ này ±3 ngày thì bỏ, có ở sổ khác thì để người. Tháng khóa thì mở, dán, khóa lại (`MAY-KHOA-01`). Chỉ từ tháng 10/2026. Giá theo tab do máy ghi giá ([`MAY-GIA-01`](may-gia-01.md)).
 - Claude chọn các ô chữ theo nguồn: xe = SỐ XE, nơi đến = CỬA KHẨU, nơi đi = KHO, còn KHO trống (189/206 dòng) thì "—". Ghi chú "Chuyến bộ đồng bộ".
 
+**Tên chủ hàng gán trên web (24/11/2026, [`KHACH-WEB-01`](khach-web-01.md)).** Quản lý gán tên chủ hàng booking vào sổ ở thẻ Khách. Với chuyến biển, tên này thắng bảng `WEB_GHEP_KHACH`. Với chuyến bộ chưa ở tab nào, tên này cho sổ mà không cần đủ chuyến tab đã xếp như luật chủ hàng.
+
 CÒN MỞ, hỏi người dùng khi tới giai đoạn liên quan:
 - Người bấm "lấy ngày theo nguồn" ở tháng khóa: theo [`KHOA-CHU-01`](khoa-chu-01.md), ngày vẫn khóa với người.
 - Máy tự lấy ngày nguồn cho dòng **đã có ngày** mà lệch trong cùng tháng: `MAY-KHOA-01` hiện để người quyết.

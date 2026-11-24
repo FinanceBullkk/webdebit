@@ -56,6 +56,7 @@ READ.add('get_cash_reviews(jsonb)')  # ZALO-THU-CHI-01 PR-3: trạng thái xác 
 WRITE = {
     # Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md): giữ, lấy giá Sheet, gán mặt hàng, chọn sổ, hoàn tác lô.
     'create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text)',  # MAY-TAO-SO-01: máy đối soát tạo sổ khách mới
+    'create_customer(text,text,text,jsonb,text)', 'set_booking_name(bigint,bigint,text,text,boolean)',  # KHACH-WEB-01: quản lý trên web
     'keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)',
     'apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb)',
     'set_customer_commodity(bigint,bigint,text,text)',
@@ -137,6 +138,7 @@ KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_jso
                         'get_marks'})  # ZALO-GROUP-01
 KNOWN_FUNCTIONS.update({'_cash_review_state', '_cash_review_json', 'record_cash_review', 'get_cash_reviews'})  # ZALO-THU-CHI-01 PR-3
 KNOWN_FUNCTIONS.add('create_book_from_sheet')  # MAY-TAO-SO-01
+KNOWN_FUNCTIONS.update({'create_customer', 'set_booking_name', '_booking_names'})  # KHACH-WEB-01
 KNOWN_FUNCTIONS.add('get_activity')  # HOAT-DONG-01
 KNOWN_FUNCTIONS.add('get_read_stamp')  # HIEU-NANG-01
 KNOWN_FUNCTIONS.update({'get_safety_net', '_safety_fingerprints', '_safety_events'})  # LUOI-AN-TOAN-01
@@ -238,9 +240,11 @@ def check_api(pg):
         return result
     expected = json.loads(pg.value("SELECT jsonb_build_object('customers',coalesce(jsonb_agg("
         "jsonb_build_object('id',id,'name',name,'status',status,'commodity',commodity,"
-        "'transport_mode',transport_mode) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) "
+        "'transport_mode',transport_mode,'booking_names',booking_names,'archived',archived) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) "
         "FROM (SELECT c.id,c.name,CASE WHEN cc.status='active' AND co.status='active' THEN 'active' "
-        "ELSE 'NO_BASELINE' END AS status,m.name AS commodity,c.transport_mode FROM sokhach.customer c "
+        "ELSE 'NO_BASELINE' END AS status,m.name AS commodity,c.transport_mode,"
+        "(SELECT coalesce(jsonb_agg(b.name ORDER BY b.name COLLATE \"C\"),'[]'::jsonb) FROM sokhach.booking_name b "
+        "WHERE b.customer_id=c.id) AS booking_names,c.archived FROM sokhach.customer c "
         "LEFT JOIN sokhach.commodity m ON m.id=c.commodity_id LEFT JOIN sokhach.cutover_customer cc "
         "ON cc.customer_id=c.id LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q"))
     require(invoke('list_customers') == expected, 'customer JSON differs from original query')

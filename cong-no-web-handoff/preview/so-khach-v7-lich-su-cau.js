@@ -19,6 +19,8 @@ globalThis.LichSuCau = (() => {
     const labelOf = event => event.kind === 'month_lock' && typeof event.after?.locked === 'boolean' ? event.after.locked ? 'Khóa tháng' : 'Mở khóa tháng'
       : event.kind === 'receipt' && counterparty(event) != null ? 'Cấn trừ'
         : event.kind === 'rewrite_trip_fees' && event.after?.source?.kind === 'sheet_total' ? 'Bù phụ phí theo Sheet'
+        // KHACH-WEB-01: gán/bỏ tên chủ hàng booking cũng là customer_attr (đổi thông tin sổ, không đụng tiền).
+        : event.kind === 'customer_attr' && (event.after?.booking_name_added || event.after?.booking_name_removed) ? 'Tên trên booking'
         : Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác';
     // Lọc theo loại: Thu · Chuyến · Giá/phụ phí · Khóa tháng · Tất cả. Nhập số dư đầu và thao tác lạ chỉ ở Tất cả.
     const GROUPS = [['thu', 'Thu'], ['chuyen', 'Chuyến'], ['gia', 'Giá/phụ phí'], ['khoa', 'Khóa tháng'], ['all', 'Tất cả']];
@@ -146,6 +148,8 @@ globalThis.LichSuCau = (() => {
       const before = event.before ?? {}, after = event.after ?? {};
       if (event.kind === 'customer_attr' && after.commodity_name) return `Mặt hàng: ${after.commodity_name} · nợ không đổi`;
       if (event.kind === 'customer_attr' && after.transport_mode) return `Cảng/bộ: ${{ CANG: 'Cảng', BO: 'Bộ' }[after.transport_mode] ?? '—'} · nợ không đổi`;
+      if (event.kind === 'customer_attr' && after.booking_name_added) return `thêm ${after.booking_name_added} · nợ không đổi`;
+      if (event.kind === 'customer_attr' && after.booking_name_removed) return `bỏ ${after.booking_name_removed} · nợ không đổi`;
       if (event.kind === 'sheet_conflict_resolved') {
         if (after.field === 'task_assignment') return `Chọn sổ nhận chuyến · chưa giá, nợ không đổi`;
         if (after.field === 'task_price') return after.decision === 'use_sheet'

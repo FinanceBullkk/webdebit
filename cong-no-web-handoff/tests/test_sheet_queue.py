@@ -65,6 +65,30 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(queue["items"][-1]["review_status"], "NEEDS_CUSTOMER")
         self.assertEqual(queue["items"][1]["commodity"], "Dừa")
 
+    def test_booking_name_set_on_the_web_picks_the_book(self):
+        """KHACH-WEB-01: tên chủ hàng quản lý gán trên web thắng bảng WEB_GHEP_KHACH; sổ chưa hoạt động không nhận; khóa chuẩn hóa."""
+        rows = [{"source_row": 2, "container": "FAKU1000001", "event_date": "2026-11-02", "status": "READY",
+                 "customer_name": "chu  hang gia 413", "commodity": "Dừa"},
+                {"source_row": 3, "container": "FAKU1000002", "event_date": "2026-11-03", "status": "READY",
+                 "customer_name": "CHU HANG NHAP", "commodity": "Dừa"},
+                {"source_row": 4, "container": "FAKU1000003", "event_date": "2026-11-04", "status": "READY",
+                 "customer_name": "CHU HANG SO NHAP", "commodity": "Dừa"}]
+        books = [{"id": 9, "name": "KHACH GIA NONG+ 413", "status": "active", "commodity": "Dừa", "booking_names": ["CHU HANG GIA 413"]},
+                 {"id": 10, "name": "KHACH CU", "status": "active", "commodity": "Dừa", "booking_names": ["CHU HANG NHAP"]},
+                 {"id": 11, "name": "KHACH NHAP", "status": "draft", "commodity": "Dừa", "booking_names": ["CHU HANG SO NHAP"]}]
+        snapshot = {"sha256": "a" * 64, "row_count": 3, "rows": rows, "customer_aliases": {"CHU HANG NHAP": "KHACH KHAC"}}
+        items = build_queue(snapshot, books + [{"id": 12, "name": "KHACH KHAC", "status": "active", "commodity": "Dừa"}],
+                            BASELINE)["items"]
+        self.assertEqual([(row["customer_id"], row["review_status"], row["book_match"]) for row in items],
+                         [(9, "NEEDS_PRICE", "COMMODITY_OK"), (10, "NEEDS_PRICE", "COMMODITY_OK"), (None, "NEEDS_CUSTOMER", None)])
+        self.assertEqual(sheet_queue.web_aliases(books), {"CHU HANG GIA 413": "KHACH GIA NONG+ 413", "CHU HANG NHAP": "KHACH CU"})
+        # Review: tên ở sổ ghi đi bộ chỉ dẫn chuyến bộ, sổ lưu trữ không nhận, hai sổ cùng một khóa thì bỏ khóa (bảng WEB_GHEP_KHACH lại áp).
+        extra = [{"id": 13, "name": "KHACH BO", "status": "active", "transport_mode": "BO", "booking_names": ["CHU HANG BO"]},
+                 {"id": 14, "name": "KHACH LUU TRU", "status": "active", "archived": True, "booking_names": ["CHU HANG LUU"]},
+                 {"id": 15, "name": "KHACH TRUNG 1", "status": "active", "booking_names": ["CHU HANG TRUNG"]},
+                 {"id": 16, "name": "KHACH TRUNG 2", "status": "active", "booking_names": ["chu hang  trung"]}]
+        self.assertEqual(sheet_queue.web_aliases(books + extra), {"CHU HANG GIA 413": "KHACH GIA NONG+ 413", "CHU HANG NHAP": "KHACH CU"})
+
     def test_name_tied_to_one_book_still_picks_sibling_by_commodity(self):
         """Tên Sheet nối thẳng tới tên sổ sầu riêng (bí danh) vẫn tìm sổ mít cùng tên khách (đo trên hao 3/11/2026)."""
         books = [{"id": 1, "name": "KHÁCH H-SR", "display_name": "KHÁCH H", "status": "active", "commodity": "Sầu riêng"},
