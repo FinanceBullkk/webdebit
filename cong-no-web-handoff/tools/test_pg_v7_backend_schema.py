@@ -86,6 +86,7 @@ def check_roles(pg: Pg) -> None:
                        "get_receivables_matrix", "get_receivables_detail", "record_reminder", "get_reminders", "get_receipt_book", "get_trip_month", "get_activity", "get_safety_net", "schema_level",
                        "link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks",
                        "record_cash_review", "get_cash_reviews",   # ZALO-THU-CHI-01 PR-3
+                       "create_customer", "set_booking_name",   # KHACH-WEB-01
                        "attach_receipt_image", "remove_receipt_image", "list_receipt_images", "get_receipt_image", "find_receipt_image",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")

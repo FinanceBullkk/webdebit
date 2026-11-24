@@ -26,7 +26,9 @@ MAX_STREAMS_PER_ACTOR = 6
 MAX_ENTRIES = 200
 MAX_TABS_PER_ACTOR = 20
 COLORS = 8
-PAGES = ("dashboard", "cong-no-theo-thang", "so-khach", "sheet-queue", "viec-can-lam", "doi-no", "bang-thu", "bao-cao-thang", "zalo-chat", "may-chay", "thong-tin-cty")
+# Mỗi trang khai <body data-presence="…"> phải có ở đây, không thì API trả 400 và trang lặng lẽ không hiện ai (test_pages_cover_html).
+PAGES = ("dashboard", "cong-no-theo-thang", "so-khach", "sheet-queue", "viec-can-lam", "doi-no", "bang-thu", "bao-cao-thang", "zalo-chat", "may-chay",
+         "thong-tin-cty", "nguoi-dung", "khach", "doi-xe", "doi-xe-bang-ke")
 TAB = re.compile(r"[A-Za-z0-9_-]{8,64}")
 ROW = re.compile(r"[a-z_]{1,20}:[A-Za-z0-9_.:-]{1,40}")
 COL = re.compile(r"[a-z0-9_]{1,40}")

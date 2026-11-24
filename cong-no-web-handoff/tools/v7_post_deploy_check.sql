@@ -43,6 +43,8 @@ DECLARE
     expected text[] := ARRAY[
       -- Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md, năm migration 2026-11-02).
       'create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text)',
+      -- KHACH-WEB-01: quản lý tạo sổ và gán tên chủ hàng booking trên web.
+      'create_customer(text,text,text,jsonb,text)', 'set_booking_name(bigint,bigint,text,text,boolean)',
       'keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)', 'apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb)',
       'set_customer_commodity(bigint,bigint,text,text)', 'set_customer_transport(bigint,bigint,text,text)', 'assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb)',
       'undo_sheet_batch(bigint,bigint,text,jsonb)',
@@ -102,7 +104,8 @@ DECLARE
       '_safety_fingerprints()', '_safety_events(bigint,interval)',
       -- Audit SQL 23/11/2026 (F1, F8, F10)
       '_catalog_manifest()', '_catalog_view_text(text)', '_legacy_edited_date_match(text,date)',
-      '_trip_dup_reason(bigint,bigint,text,text,date,bigint,jsonb)', 'set_customer_archived(bigint,bigint,text,boolean)'];
+      '_trip_dup_reason(bigint,bigint,text,text,date,bigint,jsonb)', 'set_customer_archived(bigint,bigint,text,boolean)',
+      '_booking_names(bigint)'];  -- KHACH-WEB-01
     wanted text;
     n bigint;
     want jsonb;

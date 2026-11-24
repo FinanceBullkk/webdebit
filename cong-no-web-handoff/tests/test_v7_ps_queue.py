@@ -186,6 +186,18 @@ class QueueTest(unittest.TestCase):
                 self.assertEqual(result["ready_count"], 0)
                 self.assertEqual([(r["status"], r["message"]) for r in result["review"]], [(status, text)])
 
+    def test_owner_named_on_the_web_attaches_to_its_book(self):
+        """KHACH-WEB-01 (review M7): chủ hàng gán tên trên web thì dòng PS vào đúng sổ đó như chuyến; tên web thắng WEB_GHEP_KHACH."""
+        lines = [line(91, 1, 1500000)]
+        customers = [{"id": 7, "name": "KHACH A", "status": "active", "booking_names": ["CHU HANG WEB"]},
+                     {"id": 8, "name": "KHACH B", "status": "active", "booking_names": ["CHU HANG A 101"]}]
+
+        def ready(owner, book):
+            snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [ps_row(neo="1500000", owner=owner)], "customer_aliases": ALIASES}
+            return project_ps(snapshot, ledger([trip(lines=lines)], customer_id=book), customers, TYPES)["ready_count"]
+        self.assertEqual((ready("chu hang  web", 7), ready("chu hang  web", 8)), (1, 0))
+        self.assertEqual((ready("CHU HANG A 101", 8), ready("CHU HANG A 101", 7)), (1, 0))
+
     def test_matching_rules(self):
         lines = [line(91, 1, 1500000)]
         near = ledger([trip(date="2026-10-05", lines=lines)])

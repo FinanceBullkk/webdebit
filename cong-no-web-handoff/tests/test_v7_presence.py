@@ -2,6 +2,7 @@
 
 import http.client
 import json
+import re
 import sys
 import tempfile
 import threading
@@ -44,6 +45,13 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(report["cell"], CELL)
         self.assertEqual(report["pointer"], POINTER)
         self.assertEqual(presence.parse(body(TAB_A))["page"], None)
+
+    def test_pages_cover_html(self):
+        # Trang khai data-presence mà API không nhận thì POST trả 400, thanh "đang xem" của trang đó lặng lẽ trống.
+        declared = {m.group(1): page.name for page in sorted((ROOT / "preview").glob("*.html"))
+                    for m in re.finditer(r'data-presence="([^"]+)"', page.read_text(encoding="utf-8"))}
+        self.assertIn("khach", declared)
+        self.assertEqual(sorted(set(declared) - set(presence.PAGES)), [])
 
     def test_rejects_bad_reports(self):
         bad = [

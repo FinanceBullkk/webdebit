@@ -283,8 +283,8 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
                   and (c.get("display_name") or c.get("name")) == family]
     # Show an unmapped family row once, in its first book, for explicit human choice.
     if candidates and ledger["customer_id"] == min(c["id"] for c in candidates):
-        from v7_sheet_queue import _name
-        aliases = snapshot.get("customer_aliases") or {}
+        from v7_sheet_queue import _name, web_aliases
+        aliases = {**(snapshot.get("customer_aliases") or {}), **web_aliases(customers)}
         queue = {**queue, "items": [{**row, "customer_id": ledger["customer_id"], "review_status": "NEEDS_PRICE", "book_match": "COMMODITY_UNKNOWN"}
                  if row.get("customer_id") is None and row.get("review_status") == "NEEDS_CUSTOMER"
                  and _name(aliases.get(_name(row.get("customer_name")), row.get("customer_name"))) == _name(family)

@@ -20,6 +20,8 @@ Việc cần thì Claude tự làm, nhưng vẫn giữ rào chắn:
 
 **Vẫn hỏi người dùng trước:** force push, xóa nhánh hoặc dữ liệu không thuộc nhiệm vụ, và PR đổi quy tắc tiền hoặc quyết định chưa chốt.
 
+**Ngoại lệ từ 24/11/2026 ([`SO-TIEN-01`](so-tien-01.md) (5)):** dữ liệu nghiệp vụ của sổ tiền (schema `tien`: giao dịch, phân bổ, đề nghị và duyệt chi, ký đối chiếu) Claude không ghi, nạp hay sửa, kể cả khi làm việc vận hành; Claude chỉ triển khai schema và mã theo runbook.
+
 Các chỗ "hỏi người dùng trước" cũ trong spec và quyết định khác (ví dụ [`WECHAT-01`](wechat-01.md), [`ZALO-AGENT-01`](zalo-agent-01.md), [`ZALO-THU-CHI-01`](zalo-thu-chi-01.md)) đọc theo quyết định này khi việc đó thuộc bốn loại trên.
 
 ## Ngày / nguồn
