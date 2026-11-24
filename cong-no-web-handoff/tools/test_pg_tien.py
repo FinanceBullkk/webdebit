@@ -26,6 +26,7 @@ import unicodedata
 from pathlib import Path
 
 from pg_v7_harness import (
+    DATABASE,
     IMAGE,
     HarnessError,
     Pg,
@@ -34,6 +35,11 @@ from pg_v7_harness import (
     lit,
     require,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+from v7_api_tables import SQL, TIEN_COMMANDS
+from v7_api_validate import ApiError
+from v7_psql import Psql
 
 TOOLS = Path(__file__).resolve().parent
 MIGRATION = TOOLS / "migrations" / "2026-11-24-tien-p0a-lat1.sql"
@@ -1245,6 +1251,32 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
                  "trước, hết hạn khi sổ đổi, người xem không thấy mô tả/ô gốc/tên file, lô đã commit dòng → giao dịch; get_transaction "
                  "nguồn, lịch sử phân bổ có lý do; export_rows số dư đầu/cuối kỳ, giao dịch có mô tả, phân bổ, ngày; chỉ tien_review, "
                  "quá 366 ngày → INVALID_COMMAND")
+
+    # Qua đúng adapter của API (SQL cố định trong v7_api_tables, login thành viên tien_app): mọi câu đọc chạy thật, một lệnh ghi lấy
+    # người làm từ phiên, mã lỗi thành câu thông báo kèm DETAIL.
+    app = Psql(pg.name, DATABASE, APP)
+    reads = {"tien_my_access": {}, "tien_list_accounts": {}, "tien_get_account_card": {"account_id": c1},
+             "tien_get_coverage": {"account_id": c1, "from": str(d(1)), "to": str(d(6))}, "tien_get_day": {"account_id": c1, "date": str(d(2))},
+             "tien_list_imports": {"account_id": c1}, "tien_get_import": {"import_id": p2["import_id"]},
+             "tien_list_transactions": {"account_id": c1, "from": str(d(1)), "to": str(d(6))}, "tien_get_transaction": {"transaction_id": hai},
+             "tien_get_statement_file": {"file_id": p1["file_id"]}, "tien_export_rows": {"account_id": c1, "from": str(d(1)), "to": str(d(6))}}
+    require(set(reads) == {k for k in SQL if k.startswith("tien_") and k[5:] not in TIEN_COMMANDS}, "adapter phải thử mọi câu đọc của API")
+    got = {function: app.run(function, payload, KTR, consistent=True) for function, payload in reads.items()}
+    require(got["tien_my_access"]["actor"] == KTR and len(got["tien_list_accounts"]["accounts"]) == 4
+            and got["tien_get_day"]["date"] == str(d(2)) and len(got["tien_export_rows"]["transactions"]) == 7
+            and base64.b64decode(got["tien_get_statement_file"]["content_base64"]) == f1_bytes, "đọc qua adapter")
+    via = app.run("tien_record_balance_evidence", {"idempotency_key": "api-ev-1", "account_id": c1, "as_of_date": str(d(3)),
+                                                    "amount_minor": ledger(c1, d(3)), "source": "bank_app", "note": "qua adapter gia"}, RV2)
+    require(via["evidence_id"] and pg.value("SELECT actor FROM tien.event ORDER BY id DESC LIMIT 1") == RV2, "ghi qua adapter, người làm từ phiên")
+    try:
+        app.run("tien_sign_day_coverage", {"idempotency_key": "api-sign-9", "account_id": c1, "business_date": str(d(9)),
+                                           "expected_version": version(c1)}, RV2)
+        raise HarnessError("ngày thiếu lọt qua adapter")
+    except ApiError as exc:
+        require((exc.status, exc.code, exc.extra) == (409, "DAY_NOT_READY", {"detail": "DAY_MISSING,MISSING_DAYS_BEFORE,NO_EVIDENCE"}),
+                f"mã lỗi qua adapter: {exc.code} {exc.extra}")
+    cases.append("lát 2 qua adapter API (SQL cố định của v7_api_tables, login thành viên tien_app): mười một câu đọc chạy thật, ghi bằng "
+                 "chứng lấy người làm từ phiên, DAY_NOT_READY thành 409 kèm DETAIL lý do")
 
     # Bảng lát 2 chỉ thêm (chủ schema bị trigger chặn); hoàn tác lát 2 dừng khi đã có dữ liệu lát 2; bất biến của tài khoản mới.
     for stmt in ("UPDATE tien.statement_file SET file_name = 'x.csv'", "DELETE FROM tien.statement_file",

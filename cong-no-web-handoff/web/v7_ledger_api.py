@@ -28,6 +28,7 @@ import v7_api_doi_chieu
 import v7_api_doixe
 import v7_api_khach
 import v7_api_sheet
+import v7_api_tien
 import v7_api_zalo
 import v7_book_export
 import v7_booking_view
@@ -156,7 +157,10 @@ def declared_length(value: str, limit: int) -> int | None:
 
 
 def body_limit(path: str) -> int:
-    """Trần thân POST: ảnh chứng từ lớn nhất, lệnh lưu chặng đội xe (tới 200 dòng dán) lớn hơn lệnh thường."""
+    """Trần thân POST: ảnh chứng từ lớn nhất, lệnh lưu chặng đội xe (tới 200 dòng dán) lớn hơn lệnh thường; xem trước sao kê (SO-TIEN)
+    mang file gốc ≤ 4 MiB dạng base64."""
+    if path == v7_api_tien.PREVIEW_PATH:
+        return v7_api_tien.MAX_PREVIEW_BODY
     return MAX_IMAGE_BODY if path == IMAGE_PATH else v7_api_doixe.MAX_CHANG_BODY if path == v7_api_doixe.CHANG_PATH else MAX_BODY
 
 
@@ -255,6 +259,9 @@ def asset_versions(name: str, marked: bool = False) -> tuple[bytes, bytes, str]:
         if held is not None and held[0] == key:
             return held[1:]
     data = path.read_bytes()
+    if name.endswith(".html") and v7_api_tien.CONFIG.mode == "on":
+        # SO-TIEN: menu hiện mục Sổ tiền khi cờ on (shadow không có mục menu); cờ chỉ đổi khi khởi động lại nên bộ nhớ đệm vẫn đúng.
+        data = data.replace(b'<html lang="vi"', b'<html lang="vi" data-tien="on"', 1)
     if marked:
         data = v7_role.mark_html(data)
     packed = gzip.compress(data, compresslevel=6, mtime=0) if len(data) >= GZIP_MIN_BYTES else data
@@ -370,7 +377,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     if actor is None:
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                           behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins,
-                                          local_port=local_port, read_only_uids=read_only_uids, write=method != "GET")
+                                          local_port=local_port, read_only_uids=read_only_uids,
+                                          write=method != "GET" or v7_api_tien.under(parts.path))
+    if v7_api_tien.under(parts.path):
+        # SO-TIEN P0-a lát 2: sổ tiền sau cờ WEBDEBIT_TIEN, runner riêng; quyền thật ở access_grant trong hàm SQL.
+        return v7_api_tien.handle(method, parts.path, parts.query, raw, runner, actor)
     if method == "POST":
         if parts.path == "/api/v7/ai/explain":
             return v7_ai_explain.explain(raw, runner, actor)
@@ -723,6 +734,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.send_body(body)
 
+    def send_tien_file(self, actor: str, path: str, query: str) -> None:
+        """SO-TIEN P0-a lát 2: tải file sao kê gốc (vai nhập/review) hoặc file Excel cho kế toán (vai review); log trong v7_api_tien."""
+        kind, filename, body = v7_api_tien.binary(path, query, self.runner, actor)
+        self.send_response(200)
+        for name, field in (("Content-Type", kind), ("Content-Length", str(len(body))),
+                            ("Content-Disposition", v7_api_tien.disposition(filename)),
+                            ("Cache-Control", "private, no-store"), ("X-Content-Type-Options", "nosniff"),
+                            ("Referrer-Policy", "no-referrer")):
+            self.send_header(name, field)
+        self.end_headers()
+        self.send_body(body)
+
     def stream(self, actor: str, tab: str) -> None:
         """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
         presence = PRESENCE
@@ -853,10 +876,12 @@ class Handler(BaseHTTPRequestHandler):
                                             else (self.allowed_logins, self.admin_logins))
             actor = self.server.dev_actor
             if actor is None:
+                # SO-TIEN: bot chỉ-đọc không được đọc sổ tiền (F1 mục 2), nên đường dẫn này giải danh tính như lệnh ghi cả khi GET.
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
                                                   source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve,
                                                   allowed_logins=allowed_logins, local_port=self.connection.getsockname()[1],
-                                                  read_only_uids=self.read_only_uids, write=self.command != "GET")
+                                                  read_only_uids=self.read_only_uids,
+                                                  write=self.command != "GET" or v7_api_tien.under(urlsplit(self.path).path))
             self.actor = actor
             route = urlsplit(self.path)
             role = v7_role.role(actor, admin_logins)
@@ -895,6 +920,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.command == "GET" and route.path == v7_api_doixe.XLSX_PATH:
                 self.send_doixe_xlsx(actor, route.query)
+                return
+            if self.command == "GET" and v7_api_tien.binary_route(route.path):
+                self.send_tien_file(actor, route.path, route.query)   # SO-TIEN: file sao kê gốc, file Excel cho kế toán
                 return
             if self.command == "GET" and route.path == EXPORT_PATH:
                 # XUAT-SO-01: file cả sổ, sau xác thực danh tính như mọi /api/v7/*.
@@ -1047,6 +1075,8 @@ def main() -> None:
     parser.add_argument("--database")
     # ponytail: fake harness has no app EXECUTE grants; switch to v7_app after grants exist.
     parser.add_argument("--db-user")
+    parser.add_argument("--tien-db-user", default=os.getenv("WEBDEBIT_TIEN_DB_USER", "tien_api"),
+                        help="SO-TIEN: login DB của sổ tiền (thành viên tien_app), dùng khi WEBDEBIT_TIEN=shadow|on")
     # F8 (audit 23/11/2026): chỉ bật bằng cờ dòng lệnh, không bằng biến môi trường (dễ sót trong drop-in hay profile).
     parser.add_argument("--insecure-dev-actor")
     parser.add_argument(
@@ -1167,6 +1197,22 @@ def main() -> None:
         if args.direct_socket_dir
         else Psql(args.container, args.database, args.db_user)
     )
+    # SO-TIEN P0-a lát 2: cờ WEBDEBIT_TIEN (off | shadow | on, lạ coi như off) và runner login riêng; không kết nối được thì tắt
+    # module, sổ nợ vẫn chạy (NFR-02: thiếu cấu hình thì module tắt).
+    tien_env = os.getenv("WEBDEBIT_TIEN")
+    tien_mode = v7_api_tien.mode_from_env(tien_env)
+    if tien_env not in (None, "", *v7_api_tien.MODES):
+        print(f"SO-TIEN: WEBDEBIT_TIEN={tien_env!r} không hợp lệ, sổ tiền tắt", file=sys.stderr, flush=True)
+    tien_runner = None
+    if tien_mode != "off":
+        try:
+            tien_runner = (PsqlDirect(args.direct_socket_dir, args.database, args.tien_db_user,
+                                      required_function=("tien", "get_account_summary"))
+                           if args.direct_socket_dir else Psql(args.container, args.database, args.db_user))
+        except ValueError as exc:
+            print(f"SO-TIEN: tắt sổ tiền, login {args.tien_db_user} không qua kiểm trước: {exc}", file=sys.stderr, flush=True)
+            tien_mode = "off"
+    v7_api_tien.CONFIG = v7_api_tien.Config(tien_mode, tien_runner)
     Handler.bind_host, Handler.port = args.host, args.port
     Handler.default_actor = args.insecure_dev_actor
     Handler.dev_actor_mode = args.insecure_dev_actor is not None

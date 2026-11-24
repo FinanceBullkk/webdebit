@@ -36,6 +36,8 @@ DB_SLOTS = threading.BoundedSemaphore(12)
 DB_WAIT_SECONDS = 10.0
 _BUSY = ("DB_BUSY", "Sổ đang bận. Chờ vài giây rồi thử lại.")
 PAYLOAD_VAR = ":'payload'"
+# Mã lỗi sổ tiền (SO-TIEN) mà DETAIL được trả kèm cho giao diện: chuỗi mã lý do hoặc ngày, không chứa dữ liệu khách.
+DETAIL_CODES = frozenset({"BALANCE_CHAIN_BROKEN", "DAY_NOT_READY", "DAY_SIGNED"})
 
 
 def sql_literal(text: str) -> str:
@@ -226,7 +228,8 @@ class _PsqlRunner:
                 env=env,
             )
         except subprocess.TimeoutExpired as exc:
-            reading = read_only or function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status", "preview_price_table")
+            # consistent=True là giao dịch READ ONLY (lượt GET), không thể là lệnh ghi: hết giờ thì báo không đọc được, không "chưa rõ đã lưu".
+            reading = read_only or consistent or function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status", "preview_price_table")
             raise ApiError(
                 503,
                 "DB_UNAVAILABLE" if reading else "RESULT_UNKNOWN",
@@ -262,6 +265,11 @@ class _PsqlRunner:
                                 ]
                         except (ValueError, ApiError):
                             pass
+                elif match.group(1) in DETAIL_CODES:
+                    # SO-TIEN: DETAIL chỉ là chuỗi mã/ngày (lý do chưa ký, chỗ gãy, ngày đã ký); dạng khác thì bỏ, không lộ chữ lạ.
+                    detail = re.search(r"(?m)^DETAIL:\s+([A-Z0-9_,:-]{1,300})\s*$", result.stderr)
+                    if detail:
+                        extra["detail"] = detail.group(1)
                 raise ApiError(status, match.group(1), message, extra)
             log_psql_failure(function, result.stderr)
             raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.")
@@ -330,6 +338,7 @@ class PsqlDirect(_PsqlRunner):
         role: str,
         *,
         psql_command: list[str] | None = None,
+        required_function: tuple[str, str] = ("sokhach", "get_ledger"),
     ):
         if (
             not isinstance(socket_dir, str)
@@ -339,6 +348,10 @@ class PsqlDirect(_PsqlRunner):
             raise ValueError("invalid socket directory")
         if role == "postgres" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", role):
             raise ValueError("invalid role")
+        # Hàm phải có để biết đã tới đúng DB: sổ nợ kiểm sokhach.get_ledger; runner sổ tiền (login tien_api) kiểm hàm của tien.
+        schema, function = required_function
+        if not all(re.fullmatch(r"[a-z_][a-z0-9_]*", part) for part in required_function):
+            raise ValueError("invalid required function")
         if (
             not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database)
             or database == "webdebit_ledger"
@@ -372,7 +385,8 @@ class PsqlDirect(_PsqlRunner):
         check_sql = (
             "SELECT current_user='"
             + role
-            + "' AND current_user=(SELECT rolname FROM pg_roles WHERE rolname=current_user AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls), EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='get_ledger')"
+            + "' AND current_user=(SELECT rolname FROM pg_roles WHERE rolname=current_user AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls), EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='"
+            + schema + "'::regnamespace AND proname='" + function + "')"
         )
         env = {**os.environ, "PGOPTIONS": "-c statement_timeout=15000 -c lock_timeout=12000"}
         try:

@@ -243,6 +243,34 @@ ERRORS.update({
     "NGAY_GIA_CU": (409, "Ngày áp dụng trước tháng này: giá sẽ áp ngược cho chặng đang gom. Xem lại ngày rồi xác nhận."),
     "TUYEN_DOI": (409, "Tên gốc của tuyến vừa đổi ở máy khác. Tải lại rồi sửa."),
 })
+# SO-TIEN P0-a (lát 1 + 2): sổ tiền, schema tien. Mã do hàm SQL hoặc v7_api_tien raise; câu chữ nói việc cần làm tiếp.
+ERRORS.update({
+    "TIEN_OFF": (404, "Sổ tiền chưa bật."),
+    "TIEN_FORBIDDEN": (403, "Bạn chưa được cấp vai sổ tiền cho việc này."),
+    "ENTITY_SCOPE": (403, "Vai sổ tiền của bạn không gồm tài khoản này."),
+    "ACTOR_REQUIRED": (403, "Không xác định được người làm."),
+    "SELF_GRANT": (403, "Không tự cấp hay thu vai của chính mình."),
+    "DUPLICATE_ACCOUNT": (409, "Tài khoản này đã có."),
+    "NO_OPENING": (409, "Tài khoản chưa có số dư mở."),
+    "OPENING_EXISTS": (409, "Tài khoản đã có số dư mở."),
+    "TEMPLATE_UNKNOWN": (422, "Chưa có mẫu đọc cho loại file này."),
+    "IMPORT_PARSE_ERROR": (422, "File không đúng mẫu sao kê."),
+    "FILE_TOO_LARGE": (413, "File quá 4 MB."),
+    "IMPORT_HAS_ERRORS": (409, "Lô còn dòng lỗi nên chưa ghi vào sổ được. Sửa file rồi nhập lại."),
+    "IMPORT_SUSPECT_UNRESOLVED": (409, "Còn dòng nghi trùng chưa quyết."),
+    "IMPORT_PREVIEW_STALE": (409, "Sổ đã đổi từ lúc xem trước. Bỏ lô này rồi nhập lại file."),
+    "BALANCE_CHAIN_BROKEN": (409, "Số dư của file không liền với sổ. Xem chỗ gãy trong bảng xem trước."),
+    "DUPLICATE_TARGET_INVALID": (409, "Giao dịch chọn làm bản trùng không hợp lệ: phải cùng ngày, cùng chiều, cùng số tiền và chưa được dòng khác nhận."),
+    "VOID_WOULD_LOSE_ALLOCATED": (409, "Lô có giao dịch đang phân bổ. Gỡ phân bổ trước khi hủy lô."),
+    "OVER_ALLOCATION": (409, "Tổng phân bổ vượt số tiền giao dịch."),
+    "TRANSACTION_VOID": (409, "Giao dịch đã hủy."),
+    "STALE_VERSION": (409, "Dữ liệu vừa đổi ở máy khác. Tải lại rồi làm lại."),
+    "DAY_NOT_READY": (409, "Ngày này chưa ký được."),
+    "DAY_SIGNED": (409, "Ngày này đã ký số dư. Mở lại ngày (ghi lý do) trước khi đổi giao dịch của ngày đó."),
+    "ALLOCATION_INVARIANT": (500, "Sổ tiền báo lỗi kiểm cuối lệnh. Báo quản trị."),
+    "ALLOCATION_EVENT_INVARIANT": (500, "Sổ tiền báo lỗi kiểm cuối lệnh. Báo quản trị."),
+    "SOURCE_INVARIANT": (500, "Sổ tiền báo lỗi kiểm cuối lệnh. Báo quản trị."),
+})
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
               "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS", "INVALID_REVIEW"):
@@ -387,5 +415,21 @@ for _name in ("gui_bang_ke", "doi_chieu_xong", "ghi_dieu_chinh_bk", "ghi_tien_ve
 SQL["doixe_get_bang_ke"] = "SELECT doixe.get_bang_ke('hth', (:'payload'::jsonb->>'thang')::date);"
 SQL["doixe_get_bang_gia"] = "SELECT doixe.get_bang_gia('hth');"
 SQL["doixe_get_lich_su_thu"] = "SELECT doixe.get_lich_su_thu();"
+# SO-TIEN P0-a lát 2: sổ tiền (schema tien) qua runner riêng (login tien_api, thành viên tien_app). Mỗi câu đặt người làm cho tien
+# (tien.actor từ biến psql :actor, tien.actor_kind 'human'); lệnh nhận nguyên thân đã kiểm ở v7_api_tien, đọc nhận tham số đã kiểm.
+TIEN_ACTOR = "SET LOCAL tien.actor = :'actor';\nSET LOCAL tien.actor_kind = 'human';\n"
+TIEN_COMMANDS = ("preview_import", "commit_import", "reject_import", "void_import", "set_allocation", "record_balance_evidence",
+                 "sign_day_coverage", "sign_day_business", "reopen_day")
+for _name in TIEN_COMMANDS:
+    SQL["tien_" + _name] = TIEN_ACTOR + f"SELECT tien.{_name}(:'payload'::jsonb);"
+_TIEN_READ = TIEN_ACTOR + "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT tien.{}({}) FROM b;"
+for _name, _args in (("my_access", ""), ("list_accounts", ""), ("get_account_card", "(j->>'account_id')::bigint"),
+                     ("get_coverage", "(j->>'account_id')::bigint, (j->>'from')::date, (j->>'to')::date"),
+                     ("get_day", "(j->>'account_id')::bigint, (j->>'date')::date"), ("list_imports", "(j->>'account_id')::bigint"),
+                     ("get_import", "(j->>'import_id')::bigint"),
+                     ("list_transactions", "(j->>'account_id')::bigint, (j->>'from')::date, (j->>'to')::date"),
+                     ("get_transaction", "(j->>'transaction_id')::bigint"), ("get_statement_file", "(j->>'file_id')::bigint"),
+                     ("export_rows", "(j->>'account_id')::bigint, (j->>'from')::date, (j->>'to')::date")):
+    SQL["tien_" + _name] = _TIEN_READ.format(_name, _args)
 # /healthz: chỉ chứng minh đường psql của app tới DB còn chạy (audit DevOps 31/10, #6); không đọc sổ.
 SQL["healthz"] = "SELECT 1;"
