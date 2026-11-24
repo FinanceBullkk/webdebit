@@ -42,3 +42,5 @@ Giới hạn:
 - Chỉ xét chuyến biển trong hàng chờ Sheet. Chuyến bộ (`NGUON-CHUYEN-01`) có luật riêng.
 
 **Cập nhật 13/11/2026:** [`CHUYEN-KHONG-HOI-01`](chuyen-khong-hoi-01.md) thay vế "không đủ thì dòng vẫn chờ người xem": dòng vẫn bị giữ ngoài sổ theo đúng hai điều kiện trên, nhưng không còn là việc của người; nó là dòng "chờ tab Sheet", chỉ để xem ở Sổ khách.
+
+**Cập nhật 25/11/2026:** [`DU-CHUYEN-01`](du-chuyen-01.md) bỏ yêu cầu phải có tab Sheet với chuyến từ tháng 10/2026. Dòng nguồn cũng thành chuyến mới khi booking có nhiều dòng container đó hơn sổ (tính từ tháng đầu của sổ). Luật tab trong file này vẫn giữ: hai luật chỉ cần một luật đúng. Tháng cũ hơn vẫn chỉ theo tab.

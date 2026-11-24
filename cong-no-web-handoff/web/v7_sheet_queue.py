@@ -17,6 +17,8 @@ import v7_normalize as normalize
 QUEUE_FIRST_YEAR = 2026
 # Cột "Mặt hàng" của booking sheet ghi thế này thì không dùng để chọn sổ (đo trên hao 1/11/2026).
 UNKNOWN_COMMODITY = {"KHÁC", "(CHƯA GHI)"}
+# DU-CHUYEN-01: từ tháng này booking tự quyết container dùng lại là chuyến mới (như v7_inbox.AUTO_LOCKED_TRIPS_FROM); tháng cũ chủ sổ xem.
+BOOKING_COUNT_FROM = "2026-10"
 # GIA-BOOKING-01: một phần của ô "Giá + phí (gốc)", tính bằng triệu đồng; phẩy hay chấm là dấu thập phân, tối đa sáu số lẻ (tới
 # từng đồng). Cùng cách đọc với `price_vnd` của tools/v7_trip_source_match.py (web không import tools/, ARCH-02).
 _BOOKING_PART = re.compile(r"(\d+(?:[.,]\d{1,6})?)(?:TR|TRIEU|TRIỆU|M)?")
@@ -247,6 +249,24 @@ def _tab_has_own_row(tab_rows: list[dict[str, Any]] | None, container: str, date
     return any(abs((day - date).days) <= 3 and all(abs((day - old).days) > 3 for old in old_days) for day in days)
 
 
+def _booking_has_own_row(booked: int, date: dt.date, same_container: list[dict[str, Any]]) -> bool:
+    """DU-CHUYEN-01 (bỏ yêu cầu tab Sheet của CONTAINER-DUNG-LAI-01 từ tháng 10/2026): một dòng booking là một chuyến.
+
+    `booked` là số dòng booking của sổ này có container đó, từ tháng đầu của sổ; nhiều hơn số dòng container đó trong sổ thì sổ
+    thiếu chuyến, dòng chưa ghép được là chuyến mới. Đếm dòng, không so ngày, cùng lý do như luật tab: sổ có dòng ghi lệch ngày,
+    sai năm. Chỉ từ BOOKING_COUNT_FROM: tháng cũ đã tính tiền theo Sheet, chuyến booking web chưa có thì chủ sổ quyết.
+    """
+    return date.isoformat()[:7] >= BOOKING_COUNT_FROM and booked > len(same_container)
+
+
+def _first_month(ledger: dict[str, Any]) -> str:
+    """Tháng (yyyy-mm) sớm nhất có chuyến trong sổ; dòng booking trước đó nằm trong số dư đầu kỳ, không phải chuyến của sổ."""
+    months = [str(trip.get("month") or trip.get("event_date") or "")[:7] for trip in ledger.get("trips", [])]
+    months += [str(row.get("month") or (row.get("current") or {}).get("debt_month") or "")[:7]
+               for row in ledger.get("legacy_rows", []) if row.get("kind") == "trip"]
+    return min((month for month in months if re.fullmatch(r"\d{4}-\d{2}", month)), default="")
+
+
 def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None,
                      other_legacy: list[dict[str, Any]] | None = None,
                      family_ids: set[int] | None = None, tab_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -256,7 +276,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
     A row that is already one of them is not offered as new (docs/ux-luong-du-lieu.md 3.3: same customer, other commodity book).
     When that book is one of `family_ids` (same customer, e.g. the old Sheet kept durian in the dragon fruit book) the trip
     is already counted there: nothing to do, the row is not shown at all.
-    `tab_rows` holds the rows of this book's customer tab (price snapshot), which tell a reused container from the same trip.
+    A container already in this book is a new trip when booking has more rows of it than the book (DU-CHUYEN-01), or when
+    `tab_rows`, the rows of this book's customer tab (price snapshot), has a row of its own for it (CONTAINER-DUNG-LAI-01).
     """
     existing = []
     for trip in ledger.get("trips", []):
@@ -290,6 +311,10 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             resolved[(target["kind"], target["id"], field)] = (after.get("target_value"), after.get("sheet_value"))
     visible, waiting = [], []
     matched = []
+    first = _first_month(ledger)
+    booked = Counter(_container(row.get("container")) for row in queue["items"]
+                     if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"
+                     and str(row.get("event_date") or "")[:7] >= first)
     for row in queue["items"]:
         if row.get("customer_id") != ledger.get("customer_id"):
             continue
@@ -360,9 +385,10 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             state = "CONFLICT"
             reason = "AMBIGUOUS_MATCH"
             changed = []
-        elif same_container and not _tab_has_own_row(tab_rows, container, date, same_container):
-            # CHUYEN-KHONG-HOI-01: container đã có trong sổ, tab khách chưa có dòng riêng. Không có gì để làm trên web: cùng một
-            # chuyến ghi khác ngày thì đã tính, chuyến mới thì tab có dòng là thành NEW. Chỉ để xem, không vào `items`.
+        elif same_container and not (_booking_has_own_row(booked[container], date, same_container)
+                                     or _tab_has_own_row(tab_rows, container, date, same_container)):
+            # CHUYEN-KHONG-HOI-01: container đã có trong sổ, booking và tab khách đều chưa cho thấy chuyến riêng. Không có gì để làm
+            # trên web: cùng một chuyến ghi khác ngày thì đã tính. Chỉ để xem, không vào `items`.
             waiting.append({**row, "sync_state": "WAITING", "sync_reason": "CONTAINER_REUSED_OR_CHANGED", "changed_fields": [],
                             "existing_kind": None, "existing_id": None, "existing_debt_month": None, "existing_values": None})
             continue

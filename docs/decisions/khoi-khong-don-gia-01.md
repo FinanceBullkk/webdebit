@@ -23,4 +23,4 @@
 
 ## Trạng thái
 
-ĐÃ CHỐT 24/11/2026 (người dùng). Triển khai và kiểm chứng ghi ở nhật ký triển khai khi lên `hao`.
+ĐÃ CHỐT 24/11/2026 (người dùng). ĐÃ TRIỂN KHAI trên `hao` 24/11/2026 15:49 (release tay `be9b1c9d`, FinanceBullkk/webdebit#636). ĐÃ KIỂM CHỨNG: lượt đối soát 16:05 đọc được tab của sổ 123 và sổ về `KHOP`; chi tiết ở [nhật ký triển khai](../deploys/2026-11-24-lien-ket-khach.md).
