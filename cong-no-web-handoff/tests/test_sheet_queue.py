@@ -149,7 +149,8 @@ class SheetQueueTests(unittest.TestCase):
         with patch.object(sheet_queue, "_container", side_effect=bounded_container):
             result = project_customer(queue, ledger)
 
-        self.assertEqual(calls, 2)
+        # Một lần đếm dòng booking theo container (DU-CHUYEN-01), rồi container và booking của dòng.
+        self.assertEqual(calls, 3)
         self.assertEqual(result["items"][0]["existing_id"], 9)
         self.assertEqual(result["items"][0]["changed_fields"], ["carrier"])
 
@@ -460,6 +461,41 @@ class ReusedContainerTests(unittest.TestCase):
         item = self.item("2026-10-31", ["2026-02-01"], tab, other_customer_containers={"REUSE1"})
         self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", "OTHER_CUSTOMER"))
 
+
+
+class BookingCountTests(unittest.TestCase):
+    """DU-CHUYEN-01: container đã có trong sổ là chuyến mới khi booking có nhiều dòng container đó hơn sổ, không cần tab Sheet."""
+
+    def states(self, booking_dates, book_dates, other_rows=()):
+        rows = [{"source_row": n, "customer_id": 7, "container": "REUSE1", "event_date": day, "review_status": "NEEDS_PRICE"}
+                for n, day in enumerate(booking_dates, 500)]
+        rows += [{"source_row": 900 + n, "review_status": "NEEDS_PRICE", **row} for n, row in enumerate(other_rows)]
+        trips = [{"id": n, "container": "REUSE1", "event_date": day, "month": day[:7] + "-01"} for n, day in enumerate(book_dates, 1)]
+        result = project_customer({"snapshot_sha256": "a" * 64, "items": rows}, {"customer_id": 7, "trips": trips, "legacy_rows": []})
+        return {row["event_date"]: row["sync_state"] for row in result["items"] + result["waiting_items"]}
+
+    def test_booking_row_the_book_lacks_is_a_new_trip_without_the_tab(self):
+        """Đo trên `hao` 25/11/2026: hai chuyến tháng 11 chờ tab Sheet, booking có số booking và nơi đóng hàng riêng."""
+        self.assertEqual(self.states(["2026-04-20", "2026-07-19", "2026-11-04"], ["2026-04-20", "2026-07-19"]),
+                         {"2026-11-04": "NEW"})
+
+    def test_same_count_is_the_same_trip_with_another_date(self):
+        self.assertEqual(self.states(["2026-10-20"], ["2026-10-02"]), {"2026-10-20": "WAITING"})
+        self.assertEqual(self.states(["2026-02-01", "2026-10-20"], ["2026-02-01", "2026-10-02"]), {"2026-10-20": "WAITING"})
+
+    def test_old_months_still_wait_for_the_owner(self):
+        """Tháng trước BOOKING_COUNT_FROM đã tính tiền theo Sheet: booking không tự thêm, chủ sổ quyết (DU-CHUYEN-01 (3))."""
+        self.assertEqual(self.states(["2026-03-01", "2026-07-20"], ["2026-03-01"]), {"2026-07-20": "WAITING"})
+
+    def test_booking_rows_before_the_book_starts_do_not_count(self):
+        """Dòng booking trước tháng đầu của sổ nằm trong số dư đầu kỳ, không phải chuyến sổ còn thiếu."""
+        self.assertEqual(self.states(["2026-02-01", "2026-11-04"], ["2026-06-10"]), {"2026-02-01": "WAITING", "2026-11-04": "WAITING"})
+        self.assertEqual(self.states(["2026-06-10", "2026-11-04"], ["2026-06-10"]), {"2026-11-04": "NEW"})
+
+    def test_rows_of_other_books_and_containers_do_not_count(self):
+        other = [{"customer_id": 8, "container": "REUSE1", "event_date": "2026-09-01"},
+                 {"customer_id": 7, "container": "KHAC1", "event_date": "2026-09-01"}]
+        self.assertEqual(self.states(["2026-11-04"], ["2026-04-20"], other)["2026-11-04"], "WAITING")
 
 PROJECTION_SNAPSHOT = {"sha256": "c" * 64, "row_count": 1, "rows": [
     {"source_row": 500, "container": "REUSE1", "event_date": "2026-10-31", "status": "READY", "customer_name": "Khách mẫu",
