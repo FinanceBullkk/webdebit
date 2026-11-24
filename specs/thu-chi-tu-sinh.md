@@ -147,14 +147,14 @@ Mọi route chỉ quản lý, trừ tạo và xem đề nghị của chính mìn
 
 Đợt 0:
 
-- [ ] `/thu-chi-tu-sinh.html` phục vụ cho quản lý; người dùng thường bị chặn như các trang quản lý khác.
-- [ ] Trang không gửi yêu cầu nào tới `/api/` (test browser chặn và đếm).
-- [ ] Dải "Bản thử · số bịa · không nối ngân hàng" luôn hiện ở mọi vai.
-- [ ] Bốn vai: Sếp và Nhân viên vừa 390×844 không cuộn ngang; Kế toán và Tiền hàng vừa 1280×720.
-- [ ] Kịch bản 11 bước chạy hết bằng nút Tiếp; sau mỗi bước, số trên Dòng tiền (tiền đang có, đang ứng, vào/ra hôm nay, Cần sếp) bằng bảng kỳ vọng trong test model.
-- [ ] Unit model: mỗi luật R1–R9 ít nhất một ca; phí trong và ngoài ngưỡng; ba lệnh ↔ một đề nghị; cặp đổi tiền; ví âm và hạn mức; chỉ vai người duyệt gỡ cờ; dòng việc riêng không vào tổng và chỉ chủ tài khoản thấy; số nguyên, không số thực.
-- [ ] Từ chối không lý do, số tiền không hợp lệ, thiếu người nhận bị chặn, báo dưới ô.
-- [ ] Bàn phím: mọi nút với tới bằng Tab, bấm bằng Enter/Space, focus thấy rõ; chữ thân ≥ 16px, vùng bấm ≥ 40px; trạng thái có chữ, không chỉ màu ([UX](../docs/ux-guidelines.md)).
+- [x] `/thu-chi-tu-sinh.html` phục vụ cho quản lý; người dùng thường bị chặn như các trang quản lý khác.
+- [x] Trang không gửi yêu cầu nào tới `/api/` (test browser chặn và đếm).
+- [x] Dải "Bản thử · số bịa · không nối ngân hàng" luôn hiện ở mọi vai.
+- [x] Bốn vai: Sếp và Nhân viên vừa 390×844 không cuộn ngang; Kế toán và Tiền hàng vừa 1280×720.
+- [x] Kịch bản 11 bước chạy hết bằng nút Tiếp; sau mỗi bước, số trên Dòng tiền (tiền đang có, đang ứng, vào/ra hôm nay, Cần sếp) bằng bảng kỳ vọng trong test model.
+- [x] Unit model: mỗi luật R1–R9 ít nhất một ca; phí trong và ngoài ngưỡng; ba lệnh ↔ một đề nghị; cặp đổi tiền; ví âm và hạn mức; chỉ vai người duyệt gỡ cờ; dòng việc riêng không vào tổng và chỉ chủ tài khoản thấy; số nguyên, không số thực.
+- [x] Từ chối không lý do, số tiền không hợp lệ, thiếu người nhận bị chặn, báo dưới ô.
+- [x] Bàn phím: mọi nút với tới bằng Tab, bấm bằng Enter/Space, focus thấy rõ; chữ thân ≥ 16px, vùng bấm ≥ 40px; trạng thái có chữ, không chỉ màu ([UX](../docs/ux-guidelines.md)).
 - [ ] `npm run check` và `node scripts/check-secrets.js` xanh; Deploy hao xanh; mở được trên `hao` từ máy tính và iPhone.
 - [ ] Người dùng tự đi hết kịch bản và xác nhận.
 
@@ -190,7 +190,7 @@ Chuyển tiền hay duyệt lệnh qua web; tự ghi phiếu thu từ sao kê (q
 
 ## Bằng chứng
 
-Số đo ở đầu spec: lượt đọc chỉ đọc ngày 24/11/2026 (`GET /api/v7/receipt-book`, `GET /api/v7/cash-chat`, `GET /api/v7/doixe` trên `hao`; đếm gói chat `/srv/v7/zalo-bundle` và kết quả đọc ảnh tại máy đọc chat; tin và ảnh nhóm WeChat 20–24/11). Chỉ số đếm; nội dung tin, ảnh, tên và số tiền không vào repo. Đợt 0: chưa có (phiên code ghi vào đây).
+Số đo ở đầu spec: lượt đọc chỉ đọc ngày 24/11/2026 (`GET /api/v7/receipt-book`, `GET /api/v7/cash-chat`, `GET /api/v7/doixe` trên `hao`; đếm gói chat `/srv/v7/zalo-bundle` và kết quả đọc ảnh tại máy đọc chat; tin và ảnh nhóm WeChat 20–24/11). Chỉ số đếm; nội dung tin, ảnh, tên và số tiền không vào repo. Đợt 0 (24/11/2026, chạy tại máy, chưa lên `hao`): `node --test test-thu-chi-tu-sinh-model.js` 32 ca xanh (mỗi luật R1–R9 một ca, phí trong và ngoài ngưỡng cả đồng lẫn USD, ba lệnh ↔ một đề nghị, cặp đổi tiền, ví âm và hạn mức, chỉ vai Sếp gỡ cờ, việc riêng không vào tổng, số lớn hơn 2^53, bảng kỳ vọng 12 dòng cho Dòng tiền sau từng bước kể cả khi người bấm tay trước và khi lùi bằng nút Trước); `test-thu-chi-tu-sinh-browser.js` 16 ca xanh (390×844 Sếp và Nhân viên, 1280×720 Kế toán và Tiền hàng mọi tab, không cuộn ngang, chữ không dưới 13px, vùng bấm không dưới 40px, không request nào tới `/api/`, đi hết 11 bước bằng nút Tiếp và bằng Enter/Space, danh sách rỗng có chữ, localStorage hỏng vẫn chạy); `v7_role.allowed` trả sai cho vai người dùng và đúng cho quản lý (trang không nằm trong `USER_PAGES`). Kịch bản không có việc nào ghi vào sổ nợ: phiếu thu điền sẵn chỉ hiện trong trang.
 
 ## Câu hỏi mở
 

@@ -38,6 +38,7 @@ PAGES = {
     "/nhat-ky-cong-viec.html": "nhat-ky-cong-viec.html",   # NHAT-KY-01
     "/nguoi-dung.html": "nguoi-dung.html",   # QUYEN-02, chỉ quản lý
     "/thu-chi.html": "thu-chi.html",   # ZALO-THU-CHI-01, chỉ quản lý
+    "/thu-chi-tu-sinh.html": "thu-chi-tu-sinh.html",   # THU-CHI-02 đợt 0, bản bấm thử số bịa, chỉ quản lý
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }
 PAGE_FILE = re.compile(r'<script src="([a-z0-9-]+\.js)"></script>|<link rel="stylesheet" href="([a-z0-9-]+\.css)">')

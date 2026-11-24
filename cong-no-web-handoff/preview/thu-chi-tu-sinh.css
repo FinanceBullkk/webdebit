@@ -1,0 +1,161 @@
+/* THU-CHI-02 đợt 0: bản bấm thử "Thu chi tự sinh". Hai cột từ 1000px (kịch bản bên trái, màn của vai bên phải); dưới đó một cột:
+   kịch bản trên cùng, gọn. Chữ thân 16px, chữ phụ không dưới 13px, nút và ô nhập cao tối thiểu 44px. Màu theo cong-no-theme.css;
+   trạng thái luôn kèm chữ, không chỉ màu. */
+html:has(body.tcs){background:#f3f5f8}
+body.tcs{background:#f3f5f8;font-size:16px;line-height:1.5}
+.tcs [hidden]{display:none!important}
+.tcs-banner{position:sticky;top:0;z-index:30;padding:6px 12px;background:#fff1c2;border-bottom:1px solid #ecd58a;color:#5c4300;text-align:center;font-weight:700;font-size:15px}
+.tcs-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;padding:10px 16px;background:var(--nav);color:#fff}
+.tcs-head h1{margin:0;font-size:20px;font-weight:700}
+.tcs-sub{color:var(--nav-ink);font-size:14px}
+.tcs-page{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;max-width:1280px;margin:0 auto;padding:12px 16px 32px}
+@media (min-width:1000px){.tcs-page{grid-template-columns:300px minmax(0,1fr);align-items:start;gap:16px;padding:16px 20px 32px}}
+.tcs-main{min-width:0;display:flex;flex-direction:column;gap:12px}
+.tcs h2{margin:0 0 8px;font-size:17px;font-weight:700}
+.tcs h3{margin:0;font-size:16px;font-weight:700}
+.tcs p{margin:0}
+.tcs svg{flex:none}
+
+/* Nút và ô nhập */
+.tcs button,.tcs select,.tcs input[type=text],.tcs textarea{font:inherit;color:var(--ink)}
+.tcs-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border:1px solid #b8c1cc;border-radius:8px;background:#fff;font-weight:700;cursor:pointer;text-align:center}
+.tcs-btn:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent)}
+.tcs-btn.primary{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
+.tcs-btn.primary:hover:not(:disabled){background:#174c8f}
+.tcs-btn.danger{color:var(--critical);border-color:#e0a9a7}
+.tcs-btn:disabled{opacity:.55;cursor:not-allowed}
+.tcs :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.tcs-field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.tcs-field > span{font-weight:600;color:var(--ink-2)}
+.tcs-field input[type=text],.tcs-field select,.tcs-field textarea{min-height:44px;width:100%;padding:8px 10px;border:1px solid #b8c1cc;border-radius:8px;background:#fff}
+.tcs-field textarea{resize:vertical}
+.tcs-field.bad input,.tcs-field.bad select,.tcs-field.bad textarea{border-color:var(--critical);background:var(--critical-soft)}
+.tcs-err{color:var(--critical);font-weight:600}
+.tcs-check{display:flex;align-items:center;gap:10px;min-height:44px;font-weight:600}
+.tcs-check input{width:22px;height:22px;flex:none}
+
+/* Vai và kịch bản */
+.tcs-roles{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tcs-roles b{margin-right:4px;color:var(--ink-2)}
+.tcs-role{min-height:44px;padding:0 16px;border:1px solid #b8c1cc;border-radius:22px;background:#fff;font-weight:700;cursor:pointer}
+.tcs-role[aria-pressed="true"]{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
+.tcs-scenario{padding:12px 14px;border:1px solid #cfd8e3;border-radius:12px;background:#fff;box-shadow:var(--shadow)}
+.tcs-scenario .top{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tcs-scenario .top h2{margin:0;flex:1 1 140px}
+.tcs-scenario .go{display:flex;gap:8px;flex:1 1 100%}
+.tcs-scenario .go .tcs-btn{flex:1}
+.tcs-step-title{margin:8px 0 2px;font-weight:700}
+.tcs-step-text{color:var(--ink-2)}
+.tcs-human{margin-top:6px;padding:8px 10px;border-radius:8px;background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.tcs-bot{margin-top:8px;color:var(--ink-2);font-size:14px}
+.tcs-steps{margin:10px 0 0;padding:0;list-style:none}
+.tcs-steps li{display:flex;gap:8px;align-items:baseline;padding:4px 0;border-top:1px solid var(--line-soft);font-size:14px}
+.tcs-steps li[aria-current="step"]{font-weight:700;color:var(--accent-ink)}
+.tcs-steps .t{flex:none;width:44px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.tcs-steps .s{margin-left:auto;flex:none;color:var(--ink-3)}
+.tcs-scenario details summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600;color:var(--accent-ink)}
+@media (min-width:1000px){.tcs-scenario{position:sticky;top:48px;max-height:calc(100vh - 64px);overflow:auto}.tcs-scenario details summary{display:none}}
+.tcs-note{padding:10px 14px;border:1px solid #b9dcc4;border-radius:8px;background:var(--credit-soft);color:var(--credit);font-weight:700}
+.tcs-note.bad{border-color:#ebb7b4;background:var(--critical-soft);color:var(--critical)}
+
+/* Thẻ và khối */
+.tcs-view{display:flex;flex-direction:column;gap:12px;min-width:0}
+.tcs-card{min-width:0;padding:12px 14px;border:1px solid #d7dce3;border-radius:12px;background:#fff;box-shadow:var(--shadow)}
+.tcs-empty{padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--ink-2)}
+.tcs-figs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+@media (min-width:700px){.tcs-figs{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.tcs-fig{min-width:0}
+.tcs-fig small{display:block;color:var(--ink-2);font-size:14px}
+.tcs-fig b{display:block;font-size:22px;line-height:1.25;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.tcs-fig.warn b{color:var(--warning)}
+.tcs-fig.need b{color:var(--critical)}
+.tcs-fig span{display:block;color:var(--ink-3);font-size:14px;font-variant-numeric:tabular-nums}
+.tag{font-size:13px}
+.tcs-ask{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid #e6cf9e;border-radius:10px;background:var(--warning-soft)}
+.tcs-ask.red{border-color:#ebb7b4;background:var(--critical-soft)}
+.tcs-ask + .tcs-ask{margin-top:8px}
+.tcs-ask .head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.tcs-ask .amt{margin-left:auto;font-weight:800;font-size:18px;font-variant-numeric:tabular-nums}
+.tcs-ask .meta{color:var(--ink-2);overflow-wrap:anywhere}
+.tcs-ask .warnline{color:var(--critical);font-weight:700}
+.tcs-ask .acts{display:flex;flex-wrap:wrap;gap:8px}
+.tcs-ask .acts .tcs-btn{flex:1 1 130px}
+.tcs-ask .why{display:flex;flex-direction:column;gap:8px}
+.tcs-list{list-style:none;margin:0;padding:0}
+.tcs-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;padding:8px 0;border-top:1px solid var(--line-soft)}
+.tcs-list li:first-child{border-top:0}
+.tcs-list .name{flex:1 1 140px;min-width:0;overflow-wrap:anywhere}
+.tcs-list .val{font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+.tcs-list .sub{flex:1 1 100%;color:var(--ink-3);font-size:14px}
+.tcs-bars{list-style:none;margin:0 0 10px;padding:0}
+.tcs-bars li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:4px 0}
+.tcs-bars .bar{grid-column:1/-1;height:10px;border-radius:5px;background:var(--line-soft)}
+.tcs-bars .bar i{display:block;height:100%;border-radius:5px;background:var(--age-1)}
+.tcs-bars .val{font-weight:700;font-variant-numeric:tabular-nums}
+.tcs-bars.out .bar i{background:var(--warning)}
+
+/* Thanh phụ (tab) trong một vai */
+.tcs-tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tcs-tab{min-height:44px;padding:0 14px;border:1px solid #b8c1cc;border-radius:8px;background:#fff;font-weight:700;cursor:pointer}
+.tcs-tab[aria-selected="true"]{background:#e4eefb;border-color:var(--accent);color:var(--accent-ink)}
+.tcs-tab b{margin-left:4px;font-variant-numeric:tabular-nums}
+
+/* Sổ tiền */
+.tcs-ledger{display:flex;flex-direction:column}
+.tcs-row{display:grid;grid-template-columns:48px 150px minmax(0,1fr) 140px 200px;gap:2px 12px;align-items:start;padding:8px 0;border-top:1px solid var(--line-soft)}
+.tcs-row.head{border-top:0;color:var(--ink-2);font-weight:700;font-size:14px}
+.tcs-row .time{color:var(--ink-3);font-variant-numeric:tabular-nums}
+.tcs-row .acc{color:var(--ink-2);overflow-wrap:anywhere}
+.tcs-row .who{min-width:0;overflow-wrap:anywhere}
+.tcs-row .who small{display:block;color:var(--ink-3);font-size:13px}
+.tcs-row .amt{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tcs-row .amt.in{color:var(--credit)}
+.tcs-row .amt.out{color:var(--critical)}
+.tcs-row .to{min-width:0;overflow-wrap:anywhere}
+.tcs-row .to small{display:block;color:var(--ink-3);font-size:13px}
+.tcs-row.bad{background:var(--critical-soft)}
+@media (max-width:999px){
+  .tcs-row{grid-template-columns:48px minmax(0,1fr) auto;grid-template-areas:"time who amt" "acc acc acc" "to to to"}
+  .tcs-row .time{grid-area:time}.tcs-row .who{grid-area:who}.tcs-row .amt{grid-area:amt}.tcs-row .acc{grid-area:acc}.tcs-row .to{grid-area:to}
+  .tcs-row.head{display:none}
+}
+.tcs-inline{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 12px;margin-top:8px}
+.tcs-inline .tcs-field{flex:1 1 200px}
+.tcs-copy{margin:0;padding:10px;border:1px dashed #b8c1cc;border-radius:8px;background:#f8f9fb;font-family:Consolas,"Cascadia Mono",monospace;font-size:15px;overflow-wrap:anywhere}
+
+/* Ví khách TQ */
+.tcs-wallets{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+@media (min-width:1000px){.tcs-wallets{grid-template-columns:270px minmax(0,1fr);align-items:start}}
+.tcs-wlist{display:flex;flex-direction:column;gap:8px}
+.tcs-wbtn{display:flex;flex-direction:column;gap:2px;width:100%;min-height:44px;padding:10px 12px;border:1px solid #b8c1cc;border-radius:10px;background:#fff;text-align:left;cursor:pointer}
+.tcs-wbtn[aria-pressed="true"]{border-color:var(--accent);background:#e4eefb}
+.tcs-wbtn b{font-size:18px;font-variant-numeric:tabular-nums}
+.tcs-wbtn.neg b{color:var(--critical)}
+.tcs-wbtn small{color:var(--ink-2);font-size:14px}
+.tcs-stmt .tcs-row{grid-template-columns:48px minmax(0,1fr) 190px}
+.tcs-stmt .tcs-row .amt small{display:block;color:var(--ink-2);font-size:13px;font-weight:600}
+.tcs-stmt .tcs-row .amt{white-space:normal}
+@media (max-width:999px){.tcs-stmt .tcs-row{grid-template-columns:48px minmax(0,1fr) auto;grid-template-areas:"time who amt"}}
+
+/* Nhân viên */
+.tcs-kinds{display:flex;flex-wrap:wrap;gap:8px}
+.tcs-kind{flex:1 1 120px;min-height:44px;padding:0 10px;border:1px solid #b8c1cc;border-radius:8px;background:#fff;font-weight:700;cursor:pointer}
+.tcs-kind[aria-pressed="true"]{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
+.tcs-form{display:flex;flex-direction:column;gap:12px}
+.tcs-req{display:flex;flex-direction:column;gap:2px;width:100%;min-height:44px;padding:10px 12px;border:1px solid #b8c1cc;border-radius:10px;background:#fff;text-align:left;cursor:pointer}
+.tcs-req .head{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline}
+.tcs-req .head b:last-child{margin-left:auto;font-variant-numeric:tabular-nums}
+.tcs-req small{color:var(--ink-2);font-size:14px}
+.tcs-time-line{list-style:none;margin:8px 0 0;padding:0}
+.tcs-time-line li{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line-soft)}
+.tcs-time-line li:first-child{border-top:0}
+.tcs-time-line .mark{flex:none;width:24px;font-weight:800}
+.tcs-time-line .done .mark{color:var(--credit)}
+.tcs-time-line .todo{color:var(--ink-3)}
+.tcs-time-line .at{color:var(--ink-3);font-size:14px;margin-left:auto}
+.tcs-time-line .tx{flex:1 1 100%;margin-left:32px;color:var(--ink-2);font-size:14px}
+.tcs-chat{list-style:none;margin:8px 0;padding:0}
+.tcs-chat li{padding:6px 0;border-top:1px solid var(--line-soft)}
+.tcs-chat li:first-child{border-top:0}
+.tcs-chat small{color:var(--ink-3);font-size:13px}
+.tcs-botmsg{margin-top:8px;padding:8px 10px;border-radius:8px;background:#f1f3f6;color:var(--ink-2);font-size:14px}
