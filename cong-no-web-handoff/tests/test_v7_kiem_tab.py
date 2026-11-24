@@ -320,5 +320,42 @@ class MachineTests(unittest.TestCase):
         self.assertEqual(db.calls, ["get_ledger"])
 
 
+class NoPriceColumnTests(unittest.TestCase):
+    """KHOI-KHONG-DON-GIA-01: khối tính tiền kiểu hóa đơn dịch vụ (cước + VAT, phí dịch vụ + VAT), không có cột đơn giá.
+
+    Ca thật 24/11/2026 (sổ 123): cả tab bị `broken` vì thiếu tiêu đề UNIT PRICE nên máy không ghi tiền. Số và container bịa.
+    """
+
+    HEAD: ClassVar[dict[str, str]] = {"A": "Marks & Nos", "B": "CONTAINER NO", "D": "DATE", "E": "FROM", "F": "TO", "G": "CƯỚC VẬN CHUYỂN NỘI ĐỊA",
+            "I": "PHÍ DỊCH VỤ HẢI QUAN", "K": "TOTAL(VND)", "L": "NGAY TT(STK)", "M": "SỐ ĐÃ ỨNG TRƯỚC/ĐÃ THU TRONG THÁNG",
+            "N": "SỐ CÒN PHẢI THU CUỐI THÁNG"}
+
+    def rows(self, head=None):
+        line = {"E": "FAKE FROM", "F": "FAKE TO", "G": "1000000", "H": "80000", "I": "2000000", "J": "160000", "K": "3240000"}
+        return [(1, {"A": "THÁNG 11/2026"}), (2, head or self.HEAD),
+                (3, {"G": "KHÁCH TT THEO HĐ", "H": "VAT", "I": "KHÁCH TT THEO HĐ", "J": "VAT"}),
+                (4, {"A": "1", "B": "MAUU0000001", "D": "02/11/2026", **line, "L": "20/11/2026", "M": "4000000"}),
+                (5, {"A": "2", "B": "MAUU0000002", "D": "05/11/2026", **line}),
+                (6, {"A": "2", "K": "6480000", "M": "4000000", "N": "2480000"})]
+
+    def test_trips_read_as_total_only_rows_and_the_tab_is_not_broken(self):
+        tabs = [(TAB, self.rows())]
+        data = loader.scan_tabs(tabs)[TAB]
+        self.assertEqual(dict(data["issues"]), {})
+        self.assertEqual(tab_health.scan_health({TAB: data}, tabs)[TAB]["status"], "ok")
+        block = data["blocks"]["2026-11"]
+        trips = [r for r in block["records"] if r["kind"] == "trip"]
+        self.assertEqual([(r["container"], r["amount"], r["price"]) for r in trips],
+                         [("MAUU0000001", 3240000, ""), ("MAUU0000002", 3240000, "")])
+        self.assertTrue(all("MISSING_PRICE" in r["flags"] for r in trips))   # TỔNG của Sheet là số tiền chuyến, như dòng chỉ có TỔNG
+        self.assertEqual([r["amount"] for r in block["records"] if r["kind"] == "receipt"], [4000000])
+        self.assertEqual((block["anchor"], block["flags"] >= {"NO_PRICE_COLUMN"}), (2480000, True))
+
+    def test_a_header_without_the_received_column_is_still_unsupported(self):
+        head = {col: value for col, value in self.HEAD.items() if col != "M"}
+        data = loader.scan_tabs([(TAB, self.rows(head))])[TAB]
+        self.assertEqual((data["issues"]["SOURCE_LAYOUT_UNSUPPORTED"], data["issues"]["LAYOUT_HEADER_MISSING_receipt"]), (1, 1))
+
+
 if __name__ == "__main__":
     unittest.main()
