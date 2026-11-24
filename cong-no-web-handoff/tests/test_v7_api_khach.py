@@ -43,10 +43,13 @@ class Snapshots:
     def __init__(self, test):
         folder = tempfile.TemporaryDirectory()
         test.addCleanup(folder.cleanup)
-        self.dir = Path(folder.name)
+        self.dir, self.count = Path(folder.name), 0
 
     def write(self, name, payload):
-        path = self.dir / name
+        # Mỗi lần ghi một file mới: bộ nhớ đệm bản chụp khóa theo (mtime, cỡ, inode), mà Windows CI ghi đè hai lần cùng cỡ trong một nhịp
+        # đồng hồ file thì khóa trùng và test đọc lại bản cũ.
+        self.count += 1
+        path = self.dir / f"{self.count}-{name}"
         path.write_text(payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         return str(path)
 
