@@ -66,7 +66,8 @@ test('Kiểm booking: lượt đạt hiện giờ, số dòng khớp, nhóm đ�
   assert.ok((await page.locator('#bk-scope').innerText()).includes('chuyến biển từ 12/2025, chuyến bộ từ 8/2025'));
   const groups = await page.locator('.bk-group').allInnerTexts();
   assert.deepEqual(groups.map(text => text.replace(/\s+/g, ' ')), ['Nghi tính hai lần 3', 'Booking có, sổ chưa tính 1', 'Sổ khác khách booking 0', 'Trên sổ, booking không có 1',
-    'Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này chưa lên sổ 0', 'Booking thiếu ngày 0']);
+    'Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này chưa lên sổ 0']);
+  assert.equal(await page.locator('[data-group="fix"]').count(), 0, 'lượt chưa có booking_fix: không hiện nhóm như thể 0 dòng lỗi');
   assert.equal(await page.locator('[data-group="other"]').isDisabled(), true);
   assert.equal(await page.locator('#bk-list').isVisible(), false);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
@@ -113,7 +114,7 @@ test('Kiểm booking: tháng này tách "web chưa có" với "web có, Sheet ch
   counts: RECENT_COUNTS, rows: [...ROWS, ...RECENT], recent_web: 'checked',
 }), async page => {
   const info = (await page.locator('.bk-info .bk-group').allInnerTexts()).map(text => text.replace(/\s+/g, ' '));
-  assert.deepEqual(info, ['Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này, web chưa có 1', 'Web có, Sheet chưa ghi 2', 'Booking thiếu ngày 0']);
+  assert.deepEqual(info, ['Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này, web chưa có 1', 'Web có, Sheet chưa ghi 2']);
   await page.locator('[data-group="recent"]').click();
   const row = await page.locator('#bk-body tr').innerText();
   assert.ok(row.includes('NEWU3333333') && row.includes('gợi ý') && row.includes('Web chưa có'), row);
@@ -131,7 +132,7 @@ test('Kiểm booking: đọc sổ web lỗi thì nhóm tháng này giữ một n
   counts: RECENT_COUNTS, rows: [...ROWS, ...RECENT.map(({ web: _web, ...row }) => row)], recent_web: 'unavailable',
 }), async page => {
   const info = (await page.locator('.bk-info .bk-group').allInnerTexts()).map(text => text.replace(/\s+/g, ' '));
-  assert.deepEqual(info, ['Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này chưa lên sổ 3', 'Booking thiếu ngày 0']);
+  assert.deepEqual(info, ['Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này chưa lên sổ 3']);
   await page.locator('[data-group="recent"]').click();
   assert.ok((await page.locator('#bk-body').innerText()).includes('Tháng này, sổ có thể chưa ghi'));
   assert.equal(await page.locator('#bk-body a', { hasText: 'xem lý do' }).count(), 0);

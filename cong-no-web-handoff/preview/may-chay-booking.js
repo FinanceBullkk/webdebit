@@ -41,7 +41,9 @@
   const nameKey = name => String(name ?? '').trim().split(/\s+/).join(' ');
   const split = () => state.data?.recent_web === 'checked';
   const groupOf = row => (row.group === 'recent' && row.web && split() ? 'recent_web' : row.group);
-  const groups = () => (split() ? GROUPS.flatMap(group => (group.key === 'recent' ? [SPLIT.recent, SPLIT.recent_web] : [group])) : GROUPS);
+  // Kết quả của lượt trước khi có `booking_fix` thì không hiện nhóm đó: hiện "0" sẽ thành "không có dòng lỗi" dù chưa kiểm.
+  const groups = () => GROUPS.filter(group => !group.booking || Array.isArray(state.data?.booking_fix))
+    .flatMap(group => (split() && group.key === 'recent' ? [SPLIT.recent, SPLIT.recent_web] : [group]));
   // Dòng booking cần sửa (`booking_fix`) có hình khác dòng sổ: cột riêng, lọc theo tab nguồn thay vì theo sổ.
   const countOf = group => (group.booking ? (state.data?.booking_fix ?? []).length
     : split() && group.key in SPLIT ? state.data.rows.filter(row => groupOf(row) === group.key).length : state.data.counts?.[group.key] ?? 0);
