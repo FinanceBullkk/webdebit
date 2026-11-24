@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Sổ tiền: nhập sao kê ngân hàng có xem trước, quyết dòng nghi trùng, số dư theo sao kê, giao dịch.">
+  <title>Công nợ HTH · Sổ tiền</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="nguoi-dung.css">
+  <link rel="stylesheet" href="so-tien.css">
+  <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
+</head>
+<body class="nd st" data-presence="so-tien">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="so-tien"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Sổ tiền</h1>
+      <div class="live-controls">
+        <span id="st-account"></span>
+        <a class="nd-btn" href="/doi-soat-ngay.html" id="st-to-days">Đối soát ngày</a>
+        <button id="refresh-data" class="nd-icon" type="button" aria-label="Đọc lại"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+      </div>
+    </div>
+    <div class="nd-main st-main">
+      <div id="error" role="alert" hidden></div>
+      <div id="st-root"><p class="nd-empty">Đang tải…</p></div>
+    </div>
+  </main>
+  <dialog id="st-reason" class="nd-dialog" aria-labelledby="st-reason-title">
+    <form method="dialog">
+      <div class="nd-dialog-head"><h2 id="st-reason-title"></h2></div>
+      <div class="nd-dialog-body">
+        <p id="st-reason-text"></p>
+        <label class="nd-field">Lý do<textarea id="st-reason-input" maxlength="500" required></textarea></label>
+      </div>
+      <div class="nd-acts st-dialog-acts"><button type="button" class="nd-btn" data-act="reason-cancel">Thôi</button><button type="button" class="nd-btn primary" data-act="reason-ok" id="st-reason-ok"></button></div>
+    </form>
+  </dialog>
+  <div id="st-toast" class="dx-toast" role="status" hidden></div>
+  <script src="cong-no-format.js"></script>
+  <script src="doi-xe-chung.js"></script>
+  <script src="so-tien-model.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="so-tien-ui.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

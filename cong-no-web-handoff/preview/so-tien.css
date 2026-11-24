@@ -1,0 +1,128 @@
+/* SO-TIEN P0-a lát 2: hai trang Sổ tiền và Đối soát ngày (specs/so-tien-p0a-lat2.md, mục Màn hình). Dùng khuôn của trang Người
+   dùng (nguoi-dung.css: thẻ, nút, hộp thoại, báo lỗi) và token cong-no-theme.css; file này chỉ thêm thẻ số dư, hộp xem trước lô,
+   câu cần quyết, bảng giao dịch, cột ngày và hộp phân bổ. Màu có nghĩa: xanh lục = khớp/đã ký, cam = cần quyết, đỏ = chặn thật
+   (dòng lỗi, gãy số dư, lệch ngân hàng); trạng thái luôn có chữ. Tiền căn phải, chữ số đều. */
+.st .st-main{max-width:1120px}
+.st #st-root{display:flex;flex-direction:column;gap:20px}
+.st .live-controls a.nd-btn{text-decoration:none}
+.st-account{font-weight:600;color:#fff}
+.st-account select{height:40px;padding:0 10px;border:1px solid #c3cbd4;border-radius:8px;font:inherit;color:var(--ink);background:#fff}
+.st-money{font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.st-muted{color:#5f6b78}
+.st-small{font-size:14px}
+
+/* Trạng thái bằng chữ: nhãn tròn. */
+.st-tag{display:inline-flex;align-items:center;min-height:26px;padding:0 10px;border-radius:999px;background:#edf0f4;color:#4a5562;font-size:14px;font-weight:600;white-space:nowrap}
+.st-tag.ok{background:var(--credit-soft);color:var(--credit)}
+.st-tag.warn{background:var(--warning-soft);color:var(--warning)}
+.st-tag.bad{background:var(--critical-soft);color:var(--critical)}
+
+/* Thẻ số dư. */
+.st-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px 32px;align-items:center;padding:18px 20px}
+.st-label{color:#5f6b78;font-size:14px;font-weight:600}
+.st-amount{margin:2px 0;color:var(--nav);font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+.st-facts{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.st-facts li{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.st-facts a{color:var(--accent-ink);font-weight:600}
+
+/* Nhập sao kê và xem trước lô. */
+.st-pad{padding:16px 20px}
+.st-file{position:relative;overflow:hidden}
+.st-file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.st-file input:disabled{cursor:default}
+.st-hint{margin:8px 0 0;color:#5f6b78;font-size:14px}
+.st-pending{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 20px;border-top:1px solid #edf0f4}
+.st-review{border-top:1px solid #dde2e8}
+.st-review h3{margin:0;font-size:16px;color:var(--nav)}
+.st-review-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 20px 0}
+.st-counts{margin:8px 20px 0}
+.st-counts b{font-variant-numeric:tabular-nums}
+.st-check{margin:8px 20px 0;font-weight:600}
+.st-check.ok{color:var(--credit)}
+.st-block{margin:10px 20px 0;padding:10px 14px;border-radius:10px;background:var(--critical-soft);color:#8f1f1c}
+.st-block p{margin:0}
+.st-block p + p{margin-top:6px}
+.st-questions{display:flex;flex-direction:column;gap:10px;margin:12px 20px 0;padding:0;list-style:none}
+.st-q{padding:12px 14px;border:1px solid #ecd58a;border-radius:10px;background:var(--warning-soft)}
+.st-q.done{border-color:#cfe5df;background:#f4faf8}
+.st-q-line{font-weight:600;overflow-wrap:anywhere}
+.st-q-why{margin:2px 0 6px;color:#5f4a1a;font-size:14px}
+.st-q label{display:flex;align-items:center;gap:10px;min-height:40px;cursor:pointer;overflow-wrap:anywhere}
+.st-q input[type=radio],.st-q input[type=checkbox]{width:20px;height:20px;flex:none}
+.st-q textarea{width:100%;min-height:60px;margin-top:4px;padding:8px 10px;border:1px solid #c3cbd4;border-radius:8px;font:inherit;resize:vertical}
+.st-ro{margin:12px 20px 0;color:var(--warning);font-weight:600}
+.st-acts{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;padding:14px 20px 16px}
+.st-more{margin:12px 20px 0}
+.st-more summary{min-height:40px;display:flex;align-items:center;color:var(--accent-ink);font-weight:600;cursor:pointer}
+
+/* Bảng. */
+.st-table{width:100%;border-collapse:collapse;font-size:15px}
+.st-table th{padding:8px 10px;background:#f7f9fb;border-bottom:1px solid #dde2e8;color:#5f6b78;font-size:13px;font-weight:600;text-align:left;white-space:nowrap}
+.st-table th.st-money{text-align:right}
+.st-table td{height:44px;padding:6px 10px;border-top:1px solid #edf0f4;vertical-align:middle}
+.st-table td.st-desc{max-width:360px;overflow-wrap:anywhere}
+.st-table tr.st-row{cursor:pointer}
+.st-table tr.st-row:hover td{background:#f7f9fb}
+.st-table tr.st-row[aria-expanded=true] td{background:#f4f8fd}
+.st-table tr.st-detail td{padding:12px 16px 16px;background:#f9fbfd}
+.st-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.st-filter input,.st-filter select,.st-form input,.st-form select{height:40px;padding:0 10px;border:1px solid #c3cbd4;border-radius:8px;font:inherit;color:var(--ink);background:#fff}
+.st-scroll{overflow-x:auto}
+.st-empty{padding:16px 20px;color:#5f6b78}
+.st-lines{margin:4px 0 0;padding-left:18px}
+.st-lines li{margin:2px 0}
+
+/* Đối soát ngày: cột ngày + ngày đang chọn. */
+.st-days-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;align-items:start}
+.st-days{position:sticky;top:76px;max-height:calc(100vh - 100px);overflow:auto}
+.st-days ul{margin:0;padding:6px;list-style:none}
+.st-days button{display:grid;grid-template-columns:1fr auto;gap:2px 8px;width:100%;min-height:56px;padding:8px 10px;border:0;border-radius:8px;background:transparent;
+  font:inherit;text-align:left;cursor:pointer;color:var(--ink)}
+.st-days button:hover{background:#f3f5f8}
+.st-days button[aria-current=true]{background:#e6effa;box-shadow:inset 3px 0 0 var(--accent-ink)}
+.st-days .d{font-weight:700}
+.st-days .n{color:#5f6b78;font-size:13px;text-align:right}
+.st-days .s{grid-column:1 / -1;font-size:13px;color:#4a5562}
+.st-days .s b{font-weight:600}
+.st-days .s b.ok{color:var(--credit)}
+.st-days .s b.bad{color:var(--critical)}
+.st-day{display:flex;flex-direction:column;gap:16px;min-width:0}
+.st-step{display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:50%;background:#e6effa;color:var(--accent-ink);font-weight:800}
+.st-evidence td:first-child{width:46%}
+.st-reasons{margin:10px 20px 0;padding:10px 14px 10px 32px;border-radius:10px;background:#f7f9fb}
+.st-reasons.bad{background:var(--critical-soft);color:#8f1f1c}
+.st-reasons li{margin:2px 0}
+.st-signed{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 20px 0}
+.st-form{display:grid;grid-template-columns:180px 170px minmax(0,1fr) auto;gap:10px;align-items:end;margin:12px 20px 0;padding:12px;border-radius:10px;background:#f7f9fb}
+.st-form label{display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:600}
+.st-hist{margin:0;padding:0 20px 14px;list-style:none}
+.st-hist li{padding:8px 0;border-top:1px solid #edf0f4;font-size:14px}
+
+/* Hộp phân bổ. */
+.st-alloc-dialog{width:min(860px,calc(100vw - 32px))}
+.st-alloc-tx{margin:0 0 10px;font-weight:600;overflow-wrap:anywhere}
+.st-alloc-row{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr) 150px minmax(0,1fr) 40px;gap:8px;align-items:center;margin-bottom:8px}
+.st-alloc-row select,.st-alloc-row input{width:100%;height:40px;padding:0 8px;border:1px solid #c3cbd4;border-radius:8px;font:inherit;color:var(--ink);background:#fff}
+.st-alloc-row .none{color:#5f6b78;font-size:14px}
+.st-alloc-head{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1.2fr) 150px minmax(0,1fr) 40px;gap:8px;color:#5f6b78;font-size:13px;font-weight:600;margin-bottom:4px}
+.st-alloc-dialog [data-act=alloc-add]{width:auto}
+.st-left{margin:8px 0;font-weight:700}
+.st-left.bad{color:var(--critical)}
+.st-dialog-acts{padding:12px 20px 16px;justify-content:flex-end}
+
+/* Thông báo nổi (khung DoiXeChung.drawToast dùng class dx-toast). */
+.dx-toast{position:fixed;left:50%;bottom:24px;z-index:70;transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:min(760px,calc(100% - 32px));
+  padding:8px 8px 8px 16px;border-radius:10px;box-shadow:0 8px 24px #0f172a40;background:#0f4d48;color:#fff;font-size:15px}
+.dx-toast[hidden]{display:none}
+.dx-toast.warn{background:#5c3d00}
+.dx-toast.err{background:#8a1f1f}
+.dx-toast button{width:36px;height:36px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer}
+
+@media (max-width:760px){
+  .st-hero{grid-template-columns:1fr}
+  .st-days-layout{grid-template-columns:1fr}
+  .st-days{position:static;max-height:240px}
+  .st-form{grid-template-columns:1fr}
+  .st-alloc-row,.st-alloc-head{grid-template-columns:1fr 1fr}
+  .st-table td.st-desc{max-width:none}
+}

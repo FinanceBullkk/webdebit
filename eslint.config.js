@@ -63,6 +63,7 @@ module.exports = [
         DoiXeChung: "readonly",
         DoiXeModel: "readonly",
         DoiXeThuModel: "readonly",
+        SoTienModel: "readonly",
         DebitNoteXlsx: "readonly",
         DebitNotePrint: "readonly",
         DebitNoteV4: "readonly",

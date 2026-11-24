@@ -360,6 +360,30 @@ class ReadOnlyPeerTest(unittest.TestCase):
         self.assertEqual(get("/api/v7/tien/accounts", 0)[0], 200)
 
 
+class PageMarkerTest(unittest.TestCase):
+    """Menu hiện mục Sổ tiền khi cờ on (máy chủ gắn data-tien vào <html>); shadow, off không gắn. Hai trang mở cho cả vai người dùng."""
+
+    def setUp(self):
+        saved = tien.CONFIG
+        self.addCleanup(setattr, tien, "CONFIG", saved)
+        self.addCleanup(api._ASSET_CACHE.clear)
+
+    def test_marker_follows_flag(self):
+        for mode, marked in (("on", True), ("shadow", False), ("off", False)):
+            tien.CONFIG = tien.Config(mode, None)
+            api._ASSET_CACHE.clear()
+            for page in ("so-tien.html", "doi-soat-ngay.html", "dashboard-v7.html"):
+                data = api.asset_versions(page)[0]
+                self.assertEqual(b'data-tien="on"' in data, marked, (mode, page))
+        tien.CONFIG = tien.Config("on", None)
+        api._ASSET_CACHE.clear()
+        self.assertIn(b'<html lang="vi" data-role="user" data-tien="on"', api.asset_versions("so-tien.html", marked=True)[0])
+        for route in ("/so-tien.html", "/doi-soat-ngay.html"):
+            self.assertIn(route, tables.PAGES)
+            self.assertTrue(api.v7_role.allowed(route, api.v7_role.USER, tables.PAGES), route)
+        self.assertTrue(api.v7_role.allowed("/api/v7/tien/accounts", api.v7_role.USER, tables.PAGES), "quyền sổ tiền ở vai sổ tiền, không ở QUYEN-01")
+
+
 class DateDefaultsTest(unittest.TestCase):
     def test_range_defaults_to_vn_today(self):
         today = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
