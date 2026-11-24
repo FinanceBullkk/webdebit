@@ -57,6 +57,17 @@ Claude chọn phần cách làm (ĐỀ XUẤT, áp dụng trong phạm vi trên)
 
 11 dòng phí chuyển sang chỉ đếm. Còn lại để người dùng trả lời: hai cặp tab chép của nhau, và một cặp tên chưa rõ là một hay hai khách.
 
+### Nhóm "tháng này" tách theo sổ web (24/11/2026)
+
+24/11/2026, chat. Người dùng hỏi vì sao máy chưa xử lý các dòng "Tháng này chưa lên sổ". Đo chỉ đọc trên `hao` (lượt 08:05): 119/122 dòng máy đã đưa vào sổ web, đúng sổ, đúng ngày. Phép kiểm so tab khách trên Sheet, nên các dòng này vẫn hiện tới khi Sheet ghi. 3 dòng còn lại máy cố ý giữ: 2 dòng container dùng lại mà tab chưa có dòng riêng (`CONTAINER-DUNG-LAI-01`), 1 dòng chủ hàng chưa có sổ web. Người dùng chọn "Sửa ở đây".
+
+Khi trang đọc kết quả, API gắn chuyến web cho mỗi dòng `THANG_CUOI`: cùng container, lệch không quá 3 ngày, sổ nào cũng được. Hàm đọc là `get_trip_month`, dùng chung bộ nhớ đọc với Báo cáo tháng. Một chuyến web chỉ ghép một dòng. Chuyến "chờ kiểm" tính là đã có. Nhóm tách hai:
+
+- **"Tháng này, web chưa có"**: dòng cần xem. Mỗi dòng có link "xem lý do" sang danh sách web chưa có của Báo cáo tháng (BAO-CAO-THANG-02), nơi nêu lý do máy giữ.
+- **"Web có, Sheet chưa ghi"**: link mở sổ web. Chuyến chưa có giá cho tới khi Sheet ghi (`MAY-GIA-01`).
+
+Đọc sổ web lỗi thì giữ một nhóm như cũ. File job và cách job phân nhóm không đổi. ĐỀ XUẤT của Claude trong phạm vi "sửa ở đây". Không đổi luật tiền.
+
 ## Ngày / nguồn
 
 13/11/2026, chat. Phiên điều phối giao việc A6/F5. Claude viết bài toán của màn (chủ sổ hỏi gì, theo thứ tự) rồi hỏi bằng ba câu chọn. Người dùng chọn:

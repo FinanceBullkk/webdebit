@@ -1,4 +1,8 @@
-"""Kết quả kiểm Sheet sổ nợ so với booking (KIEM-BOOKING-01) cho khối "Kiểm booking" của tab Máy chạy. Chỉ đọc file job ghi, không vào DB.
+"""Kết quả kiểm Sheet sổ nợ so với booking (KIEM-BOOKING-01) cho khối "Kiểm booking" của tab Máy chạy.
+
+Số của file job ghi. Riêng nhóm "tháng này chưa lên sổ" (`THANG_CUOI`), `with_web` đọc thêm sổ web (`get_trip_month`, hàm đọc của
+Báo cáo tháng): phép kiểm so tab khách trên Sheet, nên chuyến máy đã đưa vào sổ web vẫn nằm trong nhóm tới khi Sheet ghi (đo
+24/11/2026: 119/122 dòng).
 
 `state` nói trang được tin số tới đâu, để không bao giờ hiện "không có gì lệch" khi thật ra chưa kiểm:
 - `none`: chưa có lượt nào ghi được kết quả (kể cả khi chỉ có lỗi);
@@ -12,13 +16,16 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import v7_machine
+import v7_normalize as normalize
+from v7_api_validate import ApiError
 
 FIRST_HOUR, LAST_HOUR, MINUTE = 7, 22, 5      # lịch timer v7-reconcile-auto
+PAIR_DAYS = 3   # cùng luật ghép của NGUON-CHUYEN-01 (1) và Báo cáo tháng
 
 
 def path() -> Path:
@@ -68,3 +75,58 @@ def view(now: datetime | None = None) -> dict[str, Any]:
     else:
         state = "ok"
     return {**data, "state": state, "now": now.isoformat(timespec="seconds")}
+
+
+def _cont(raw: Any) -> str:
+    return normalize.container_code(raw) or "".join(ch for ch in str(raw or "").upper() if ch.isalnum())
+
+
+def _day(text: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(text)[:10])
+    except ValueError:
+        return None
+
+
+def with_web(body: dict[str, Any], runner, reads, actor: str) -> dict[str, Any]:
+    """Gắn `web` (sổ, ngày của chuyến web cùng container, lệch không quá 3 ngày, sổ nào cũng được) cho dòng `THANG_CUOI`.
+
+    `recent_web`: `checked` khi đã so; `unavailable` khi đọc sổ web lỗi, trang giữ một nhóm như trước. Một chuyến web chỉ ghép
+    một dòng, cặp lệch ít ngày nhất trước. Chuyến web "chờ kiểm" cũng tính là đã có (hàm đọc chỉ bỏ chuyến đã xóa và bị từ chối).
+    Không sửa kết quả đọc (có thể là bản của bộ nhớ đọc).
+    """
+    rows = [row for row in body.get("rows") or () if isinstance(row, dict) and row.get("code") == "THANG_CUOI"]
+    if body.get("state") == "none" or not rows:
+        return body
+    days = [_day((row.get("source") or {}).get("date")) for row in rows]
+    trips: dict[tuple[int, str, date], None] = {}   # khóa (sổ, container, ngày): hai tháng liền kề cùng trả chuyến ở mép tháng
+    names: dict[int, Any] = {}
+    try:
+        for month in sorted({day.isoformat()[:7] for day in days if day}):
+            web = reads.run(runner, "get_trip_month", {"month": f"{month}-01"}, actor)
+            web = web if isinstance(web, dict) else {}
+            names.update({book["id"]: book.get("name") for book in web.get("books") or ()})
+            for trip in web.get("trips") or ():
+                if (day := _day(trip.get("date"))) is not None:
+                    trips[(trip["customer_id"], _cont(trip.get("container")), day)] = None
+    except (ApiError, ValueError):
+        return {**body, "recent_web": "unavailable"}
+    by_cont: dict[str, list[tuple[int, date]]] = {}
+    for book, cont, day in trips:
+        by_cont.setdefault(cont, []).append((book, day))
+    pairs = []
+    for index, (row, day) in enumerate(zip(rows, days, strict=True)):
+        for book, web_day in by_cont.get(_cont(row.get("container")), ()) if day else ():
+            gap = abs((web_day - day).days)
+            if gap <= PAIR_DAYS:
+                pairs.append((gap, index, book, web_day))
+    used_rows: set[int] = set()
+    used_trips: set[tuple[int, str, date]] = set()
+    for _gap, index, book, web_day in sorted(pairs):
+        trip = (book, _cont(rows[index].get("container")), web_day)
+        if index in used_rows or trip in used_trips:
+            continue
+        used_rows.add(index)
+        used_trips.add(trip)
+        rows[index]["web"] = {"customer_id": book, "name": names.get(book), "date": web_day.isoformat()}
+    return {**body, "recent_web": "checked"}

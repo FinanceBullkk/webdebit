@@ -98,6 +98,45 @@ test('Kiểm booking: mở nhóm thấy từng dòng, link mở sổ đúng thá
   assert.equal(await page.locator('#bk-list').isVisible(), false);
 }));
 
+// Nhóm "tháng này" đã so với sổ web (đo 24/11/2026: 119/122 dòng máy đã đưa vào web): tách dòng web chưa có ra để xem.
+const RECENT = [
+  { group: 'recent', code: 'THANG_CUOI', tab: null, row: null, month: '2026-11', date: null, container: 'WEBU1111111', amount_vnd: null,
+    source: src('2026-11-10'), suggest: { tab: 'KHACH BAY', from: '2025-12' }, web: { customer_id: 9, name: 'KHACH CHIN', date: '2026-11-11' } },
+  { group: 'recent', code: 'THANG_CUOI', tab: null, row: null, month: '2026-11', date: null, container: 'WEBU2222222', amount_vnd: null,
+    source: src('2026-11-12', 'BO', 'KHO GIA'), suggest: null, web: { customer_id: 7, name: 'KHACH BAY', date: '2026-11-12' } },
+  { group: 'recent', code: 'THANG_CUOI', tab: null, row: null, month: '2026-11', date: null, container: 'NEWU3333333', amount_vnd: null,
+    source: src('2026-11-04'), suggest: { tab: 'KHACH BAY', from: '2025-12' } },
+];
+const RECENT_COUNTS = { ...COUNTS, recent: 3 };
+
+test('Kiểm booking: tháng này tách "web chưa có" với "web có, Sheet chưa ghi"; dòng web có link tới sổ web', () => withPage(ok({
+  counts: RECENT_COUNTS, rows: [...ROWS, ...RECENT], recent_web: 'checked',
+}), async page => {
+  const info = (await page.locator('.bk-info .bk-group').allInnerTexts()).map(text => text.replace(/\s+/g, ' '));
+  assert.deepEqual(info, ['Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này, web chưa có 1', 'Web có, Sheet chưa ghi 2']);
+  await page.locator('[data-group="recent"]').click();
+  const row = await page.locator('#bk-body tr').innerText();
+  assert.ok(row.includes('NEWU3333333') && row.includes('gợi ý') && row.includes('Web chưa có'), row);
+  assert.equal(await page.locator('#bk-body tr a', { hasText: 'xem lý do' }).getAttribute('href'), '/bao-cao-thang.html?month=2026-11&webchua=1');
+  await page.locator('[data-group="recent_web"]').click();
+  assert.equal(await page.locator('#bk-list-name').innerText(), 'Web có, Sheet chưa ghi · 2');
+  const rows = await page.locator('#bk-body tr').allInnerTexts();
+  assert.ok(rows[0].includes('KHACH CHIN') && rows[0].includes('Đã vào sổ web ngày 11/11/2026, chờ Sheet ghi giá') && !rows[0].includes('gợi ý'), rows[0]);
+  assert.equal(await page.locator('#bk-body tr').first().locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=9&month=2026-11');
+  await page.locator('#bk-book').selectOption('KHACH BAY');
+  assert.deepEqual((await page.locator('#bk-body tr').allInnerTexts()).map(text => text.includes('WEBU2222222')), [true]);
+}));
+
+test('Kiểm booking: đọc sổ web lỗi thì nhóm tháng này giữ một nút như trước', () => withPage(ok({
+  counts: RECENT_COUNTS, rows: [...ROWS, ...RECENT.map(({ web: _web, ...row }) => row)], recent_web: 'unavailable',
+}), async page => {
+  const info = (await page.locator('.bk-info .bk-group').allInnerTexts()).map(text => text.replace(/\s+/g, ' '));
+  assert.deepEqual(info, ['Lệch ngày 0', 'Sổ thiếu ngày 1', 'Tháng này chưa lên sổ 3']);
+  await page.locator('[data-group="recent"]').click();
+  assert.ok((await page.locator('#bk-body').innerText()).includes('Tháng này, sổ có thể chưa ghi'));
+  assert.equal(await page.locator('#bk-body a', { hasText: 'xem lý do' }).count(), 0);
+}));
+
 test('Kiểm booking: chưa có lượt, lượt lỗi, kết quả cũ, không tải được đều không hiện như "không có gì lệch"', async () => {
   await withPage({ state: 'none', now: NOW }, async page => {
     assert.ok((await status(page)).startsWith('Chưa có lượt kiểm nào'));
