@@ -83,6 +83,11 @@ Quyết định: [`KIEM-BOOKING-01`](../docs/decisions/kiem-booking-01.md). Đâ
   - `stale`: lỡ hai lượt theo lịch;
   - `ok`.
 - **Màn:** khối "Kiểm Sheet sổ nợ với booking" ở cuối tab Máy chạy. Trên cùng là dòng trạng thái, rồi nút bốn nhóm đụng tiền, rồi ba nhóm để biết. Bấm nhóm thì mở bảng có lọc theo sổ và link mở sổ đúng tháng. Chưa có nút xử lý.
+- **Lọc nhiễu lần hai (24/11/2026, [quyết định](../docs/decisions/kiem-booking-01.md#lọc-nhiễu-lần-hai-dòng-booking-cần-sửa-24112026)):**
+  - dòng sổ không ngày của khối tháng M ghép được chuyến booking từ ngày 16 tháng M−1, sau mọi cặp cùng tháng;
+  - dòng booking không có số container hay biển số chỉ được đếm (`dong_khong_phai_chuyen`);
+  - chuyến có số container mà thiếu ngày vào `booking_fix` (tab nguồn, dòng nguồn), hiện ở nhóm "Booking thiếu ngày" để người giữ booking sửa;
+  - dòng "booking có, sổ chưa tính" mang `near`: số chuyến booking và số dòng sổ cùng container trong 45 ngày.
 
 ### GĐ2 — Bản chụp nguồn trên `hao`
 
@@ -182,6 +187,13 @@ GĐ1b (kiểm mỗi giờ):
 - [x] Chạy chỉ đọc trên dữ liệu thật ở `hao` 13/11/2026 (số đếm ở quyết định).
 - [x] Sau `Deploy hao`: một lượt timer ghi `booking-check.json`, có số đo ghi trong `docs/deploys/` ([16/11/2026](../docs/deploys/2026-11-16-kiem-booking.md)).
 - [ ] Người dùng tự đi hết khối trên `hao`.
+
+Lọc nhiễu lần hai (24/11/2026):
+- [x] Unit `test_v7_trip_source_match`: dòng không ngày khối tháng 6 ghép chuyến 29/5, không ghép chuyến 10/5; chuyến cùng tháng thắng chuyến cuối tháng trước; ghi chú "khối tháng sau".
+- [x] Unit `test_v7_booking_check`: dòng tổng và dòng tiêu đề mặt hàng chỉ đếm; chuyến có số container mà thiếu ngày hay ngày rác vào `booking_fix` với tab nguồn, dòng nguồn, xếp theo tab rồi dòng; `near` đếm chuyến booking và dòng sổ cùng container.
+- [x] Trình duyệt `test-may-chay-booking-browser.js`: nhóm "Booking thiếu ngày" ở hàng không đổi tiền, cột riêng, lọc theo tab nguồn; chữ "sổ có mấy dòng" ở chuyến chưa tính; "ghi ở khối tháng sau".
+- [x] Chạy chỉ đọc trên dữ liệu thật ở `hao`, mã `main` và mã mới trên cùng bản tải và hai bản chụp (số ở quyết định).
+- [ ] Sau `Deploy hao`: lượt timer đầu có `booking_fix`, số nhóm như lúc đo.
 
 GĐ2:
 - [x] Test bộ đọc `CONT_BO` theo tên cột: đảo cột vẫn đọc được, thiếu cột thì dừng. `road.json` có `runner.created_at` và mode 600 (`test_webdebit_export_connector`, `test_sheet_sync_runner`).
