@@ -31,6 +31,7 @@ Trạng thái: ĐÃ CHỐT (người dùng, 24/11/2026): quản lý tạo sổ v
 - người không phải quản lý: trang và API trả 403 (`v7_role`);
 - tên đã gán cho sổ khác (`BOOKING_NAME_TAKEN`);
 - tên sổ đã có, không phân biệt hoa thường (`BOOK_EXISTS`);
+- tên sổ trùng tab Sheet đã có dòng từ tháng trước (`SHEET_TAB_HAS_HISTORY`): để máy tạo sổ theo Sheet, giữ đúng số dư cũ;
 - sổ vừa đổi (`STALE_LEDGER`): trang đọc phiên bản ngay trước khi gửi;
 - bản chụp booking đọc lỗi: khối đầu nói rõ, không hiện như "không có ai".
 
@@ -55,7 +56,7 @@ Số đo 24/11/2026 (chỉ đọc, báo cáo tháng 11 trên `hao`): booking 220
 ## Giao tiếp frontend–backend
 
 - `GET /api/v7/admin/customers` → `{customers: [...list_customers...], unmapped: {state, road_state, snapshot_created_at, owners: [{name, family, trips, first, last, commodities, containers, sheet_tabs: [{tab, trips, customer_id}], suggest_customer_id}]}}`. `state: "unavailable"` khi bản chụp `CONT_NGUON`/giá đọc lỗi, `road_state` riêng cho `CONT_BO`.
-- `POST /api/v7/admin/customers` `{book_name, commodity, transport_mode: CANG|BO, booking_names: [≤20], idempotency_key}` → `{customer_id, cutover_id, booking_names, version}`. Lỗi: `INVALID_BOOK_NAME`, `INVALID_BOOKING_NAME`, `BOOK_EXISTS`, `BOOKING_NAME_TAKEN`, `IDEMPOTENCY_CONFLICT`.
+- `POST /api/v7/admin/customers` `{book_name, commodity, transport_mode: CANG|BO, booking_names: [≤20], idempotency_key}` → `{customer_id, cutover_id, booking_names, version}`. Lỗi: `INVALID_BOOK_NAME`, `INVALID_BOOKING_NAME`, `BOOK_EXISTS`, `BOOKING_NAME_TAKEN`, `IDEMPOTENCY_CONFLICT`, `SHEET_TAB_HAS_HISTORY` (409), `SHEET_SNAPSHOT_UNAVAILABLE` (503, bản chụp giá có mà đọc lỗi).
 - `POST /api/v7/admin/booking-names` `{customer_id, expected_version, idempotency_key, name, remove}` → `{booking_names, version}`. Lỗi thêm: `NO_CHANGE`, `STALE_LEDGER`. Trang đọc `version` bằng `GET /api/v7/ledger/events?customer=` ngay trước khi gửi.
 - Tên chuẩn hóa ở API (NFC, viết hoa, gộp khoảng trắng), DB kiểm lại bằng ràng buộc bảng. Mất mạng: trang giữ khóa và bấm lại cùng khóa; máy chủ trả kết quả lần đầu, không ghi hai lần.
 
@@ -88,7 +89,7 @@ Số đo 24/11/2026 (chỉ đọc, báo cáo tháng 11 trên `hao`): booking 220
 - [x] Unit:
   - `test_sheet_queue`: tên web thắng `WEB_GHEP_KHACH`, sổ chưa hoạt động không nhận, khóa chuẩn hóa;
   - `test_v7_road_queue`: tên web xếp chuyến bộ chưa ở tab, `TAB_FAR` vẫn chờ, hai dòng cách 2 ngày không thành hai chuyến;
-  - `test_v7_api_khach`: kiểm thân lệnh, chuẩn hóa, chủ hàng chưa có sổ kèm tab Sheet, bản chụp lỗi; route chỉ quản lý.
+  - `test_v7_api_khach`: kiểm thân lệnh, chuẩn hóa, chủ hàng chưa có sổ kèm tab Sheet, bản chụp lỗi; route chỉ quản lý; chặn tạo tay tab Sheet có nợ tháng trước.
 - [x] Trình duyệt `test-khach-browser.js`:
   - thẻ sáng, gợi ý chọn sẵn, nút chính đổi theo gợi ý;
   - gán phải chọn sổ, hỏi lại, gửi phiên bản vừa đọc;

@@ -10,13 +10,16 @@ vẫn chạy song song. Chỉ đọc bản chụp; ghi chỉ qua hai lệnh SQL 
 from __future__ import annotations
 
 import json
+import os
 import unicodedata
 from collections import Counter
+from datetime import datetime
 from typing import Any
 
 import v7_api_sheet as sheet
 from v7_api_tables import ERRORS
-from v7_api_validate import bad, no_duplicates, positive_int
+from v7_api_validate import ApiError, bad, no_duplicates, positive_int
+from v7_machine import VN
 from v7_price_queue import container_key, iso, name_key, owners
 
 FROM_MONTH = "2026-10"   # như AUTO_LOCKED_TRIPS_FROM / ROAD_FROM: máy chỉ đưa chuyến vào sổ từ tháng nạp V7
@@ -52,6 +55,25 @@ def _key(value: Any) -> str:
     return value
 
 
+def sheet_history(book: str, today_month: str) -> None:
+    """Chặn tạo tay một sổ trùng tên tab khách trên Sheet đã có dòng từ tháng trước: sổ web bắt đầu từ nợ 0 thì mất số dư cũ.
+
+    Khi Sheet còn là sổ chính thức (SONG-SONG-01), tab đó phải để máy tạo sổ theo Sheet (MAY-TAO-SO-01, qua đủ số dư từng tháng).
+    Tab chỉ có dòng tháng này (khách mới tháng này) thì cho tạo: chuyến, giá, phiếu về sau đi theo các máy như mọi sổ. Chưa có file
+    bản chụp giá (đã thôi đọc Sheet) thì không chặn; file có mà đọc lỗi thì không đoán, từ chối để thử lại sau.
+    """
+    if not os.path.exists(sheet.PRICE_SNAPSHOT_PATH):
+        return
+    try:
+        prices = sheet.cached_load(sheet.load_price_snapshot, sheet.PRICE_SNAPSHOT_PATH)
+    except (OSError, ValueError) as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", "Chưa đọc được bản chụp Sheet để kiểm tên sổ. Thử lại sau ít phút.") from exc
+    key = name_key(book).casefold()   # như BOOK_EXISTS của DB: không phân biệt hoa thường
+    if any(name_key(row.get("customer_tab")).casefold() == key and str(row.get("debt_month") or "")[:7] < today_month for row in prices.get("rows") or []):
+        raise ApiError(409, "SHEET_TAB_HAS_HISTORY", "Sheet đã có tab tên này với nợ từ tháng trước. Để máy tạo sổ theo Sheet (giữ đúng số dư cũ); "
+                                                       "chỉ tạo ở đây khi khách chưa có trên Sheet hoặc mới từ tháng này.")
+
+
 def handle_create(raw: bytes, runner, actor: str) -> tuple[int, dict]:
     """POST /api/v7/admin/customers: `{book_name, commodity, transport_mode, booking_names, idempotency_key}` → sổ mới, nợ 0.
 
@@ -77,6 +99,7 @@ def handle_create(raw: bytes, runner, actor: str) -> tuple[int, dict]:
             bad("INVALID_BOOKING_NAME", ERRORS["INVALID_BOOKING_NAME"][1])
         if name not in names:
             names.append(name)
+    sheet_history(book.strip(), datetime.now(VN).date().isoformat()[:7])
     payload = {"book_name": book.strip(), "commodity_name": commodity.strip() if isinstance(commodity, str) and commodity.strip() else None,
                "book_mode": mode, "booking_names": names, "idempotency_key": _key(body.get("idempotency_key"))}
     return 200, runner.run("create_customer", payload, actor)

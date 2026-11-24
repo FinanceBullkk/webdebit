@@ -71,6 +71,7 @@ from test_pg_v7_backend_jit_off import (
     check_dashboard_debt_jit_off,
     check_ledger_jit_off,
 )
+from test_pg_v7_backend_khach_web import check_khach_web
 from test_pg_v7_backend_khoa_chu import check_khoa_chu
 from test_pg_v7_backend_kiem_tab import check_kiem_tab
 from test_pg_v7_backend_ledger_events import check_ledger_events
@@ -147,7 +148,6 @@ from test_pg_v7_backend_sheet_fee import (
 )
 from test_pg_v7_backend_sheet_keep import check_sheet_keep
 from test_pg_v7_backend_tao_so import check_tao_so
-from test_pg_v7_backend_khach_web import check_khach_web
 from test_pg_v7_backend_trips import (
     check_adjustment_source,
     check_dedup,

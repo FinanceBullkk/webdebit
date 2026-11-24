@@ -26,10 +26,10 @@ import v7_access
 import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_doixe
+import v7_api_khach
 import v7_api_sheet
 import v7_api_zalo
 import v7_book_export
-import v7_api_khach
 import v7_booking_view
 import v7_cash_chat
 import v7_company_info

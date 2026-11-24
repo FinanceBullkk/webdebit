@@ -58,6 +58,27 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(runner.calls[0][1]["commodity_name"], None)
         self.assertEqual(runner.calls[0][1]["booking_names"], [])
 
+    def test_create_refuses_a_sheet_tab_that_already_has_older_debt(self):
+        """Khi chạy song song: tab Sheet có dòng tháng trước thì để máy tạo sổ theo Sheet, không tạo tay sổ nợ 0."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "prices.json"
+            rows = [{"customer_tab": "KHACH CU  TAB", "source_row": 3, "debt_month": "2026-10", "container": "FAKU1000001", "date": "2026-10-02"},
+                    {"customer_tab": "KHACH MOI TAB", "source_row": 4, "debt_month": "2026-11", "container": "FAKU1000002", "date": "2026-11-02"}]
+            path.write_text(json.dumps({"sha256": SHA, "row_count": len(rows), "rows": rows, "runner": {"created_at": "2026-11-24T01:00:00+00:00"}}),
+                            encoding="utf-8")
+            ok = {"transport_mode": "CANG", "booking_names": [], "idempotency_key": "k"}
+            with patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(path)),                     patch.object(khach, "datetime", wraps=khach.datetime) as clock:
+                clock.now.return_value = khach.datetime(2026, 11, 24, 9, 0, tzinfo=khach.VN)
+                self.error(khach.handle_create, body(book_name="khach cu tab", **ok), "SHEET_TAB_HAS_HISTORY")
+                runner = FakeRunner()
+                khach.handle_create(body(book_name="KHACH MOI TAB", **ok), runner, "quan-ly")   # khách mới tháng này trên Sheet
+                khach.handle_create(body(book_name="KHACH CHUA CO TAB", **ok), runner, "quan-ly")
+                self.assertEqual([call[1]["book_name"] for call in runner.calls], ["KHACH MOI TAB", "KHACH CHUA CO TAB"])
+                path.write_text("{", encoding="utf-8")
+                self.error(khach.handle_create, body(book_name="KHACH X", **ok), "SHEET_SNAPSHOT_UNAVAILABLE")
+            with patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(Path(folder) / "none.json")):
+                khach.handle_create(body(book_name="KHACH CU TAB", **ok), FakeRunner(), "quan-ly")   # đã thôi đọc Sheet: không chặn
+
     def test_create_rejects_bad_bodies(self):
         ok = {"book_name": "KHACH", "transport_mode": "CANG", "booking_names": [], "idempotency_key": "k"}
         self.error(khach.handle_create, b"{", "INVALID_REQUEST")

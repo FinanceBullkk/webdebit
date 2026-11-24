@@ -46,7 +46,7 @@ def check_khach_web(pg):
     listed = _listed(pg, customer)
     require((listed["status"], listed["commodity"], listed["transport_mode"], listed["booking_names"])
             == ("active", "Dừa", "CANG", ["KHACH GIA 413", "KHACH GIA 413 B"]), f"list_customers {listed}")
-    events = [row for row in call(pg, "get_ledger_events", customer)["events"]]
+    events = call(pg, "get_ledger_events", customer)["events"]
     added = [row["after"].get("booking_name_added") for row in events if row["kind"] == "customer_attr"]
     require(sorted(added) == ["KHACH GIA 413", "KHACH GIA 413 B"], f"one history line per name: {added}")
     require(all(row["actor"] == "quan-ly-thu" for row in events), "history not under the manager")
