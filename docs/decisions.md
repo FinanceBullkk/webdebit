@@ -158,6 +158,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="tu-lam-01"></a>[TU-LAM-01](decisions/tu-lam-01.md) | Claude tự nạp dữ liệu, ghi Google Sheet, thao tác DB legacy và đổi quyền ngoài runbook, không hỏi trước | Thay một phần danh sách "vẫn hỏi" của [DEPLOY-CLAUDE-01](#deploy-claude-01) |
 | <a id="zalo-bot-01"></a>[ZALO-BOT-01](decisions/zalo-bot-01.md) | Bot hỏi đáp công nợ qua Zalo: người dùng hỏi tự do bằng AI qua chat riêng với một nick phụ chạy zca-js trên hao; bot đọc API web bằng công cụ chỉ đọc, số tiền điền bằng tham chiếu và kiểm trước khi gửi; thu tin vẫn qua zalo-agent | Chốt hướng làm 22/11/2026 (Q1, Q2, Q6–Q8); Q4 (trần 3 USD/ngày) và Q5 (chỉ trường cần, không SĐT/STK/ảnh/tin chat/ghi chú) chốt 24/11/2026; mã đã merge, chưa cài, chưa bật. [Spec](../specs/zalo-bot.md) |
 | <a id="gia-don-vi-01"></a>[GIA-DON-VI-01](decisions/gia-don-vi-01.md) | Mọi đường nhập đơn giá hỏi lại tại chỗ khi ngoài 1 triệu đến 1 tỷ đ; đọc số tiền bằng một bộ đọc chặt chung | Chốt 23/11/2026 |
+| <a id="so-tien-01"></a>[SO-TIEN-01](decisions/so-tien-01.md) | Sổ tiền P0-a theo blueprint vận hành tài chính v3: 11 câu chặn chốt theo phương án đề xuất (chia P0-a/b/c, tài khoản thí điểm VND, tải sao kê 17h, tiền chưa rõ chỉ ở sổ tiền, chia vai, file gốc, bảo vệ dữ liệu, sổ quản trị, số dư mở, danh mục, ký đối chiếu) | Chốt 24/11/2026; sửa phạm vi V7-CSM (1) và TU-LAM-01 (dữ liệu sổ tiền); chưa code; dữ kiện kế toán còn mở |
 
 ## Cập nhật khóa tháng 24/10/2026
 

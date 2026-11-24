@@ -1,6 +1,6 @@
 # Vận hành tài chính v3.0 — đánh giá kiến trúc và thiết kế P0
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 24/11/2026). Vòng đánh giá đầu: **không** code, không migration, không đổi dữ liệu, không tắt tính năng, không kết nối ngân hàng. Mọi quy tắc, ADR, phạm vi P0 chờ chủ doanh nghiệp và kế toán duyệt; câu đã chốt mới thành `docs/decisions/<id>.md`.
+Trạng thái: **ĐỀ XUẤT** (Claude, 24/11/2026); **cập nhật cùng ngày: 11 câu chặn P0-a đã chốt** theo phương án đề xuất ([`SO-TIEN-01`](../../docs/decisions/so-tien-01.md)), kế toán còn xác nhận dữ kiện ở Discovery. Vòng đánh giá đầu: **không** code, không migration, không đổi dữ liệu, không tắt tính năng, không kết nối ngân hàng. Mọi quy tắc, ADR, phạm vi P0 chờ chủ doanh nghiệp và kế toán duyệt; câu đã chốt mới thành `docs/decisions/<id>.md`.
 
 Đầu vào: blueprint **v3.0** `webdebit-financial-operations-v3.md` (24/11/2026, ngoài repo; ưu tiên cao nhất), v2.0 và "Thu chi tự sinh" (lịch sử); mã trên `main` tại `3c75c094`; sổ quyết định; tài liệu chính thức SAP, Oracle, Microsoft, Odoo, APQC, COSO đọc ngày 24/11/2026. Ràng buộc đã xác nhận: không API/webhook/RPA/dịch vụ đọc ngân hàng, không lưu mật khẩu/OTP, không chuyển tiền từ webdebit; kế toán tải Excel sao kê gốc và upload mỗi cuối ngày làm việc.
 
@@ -35,7 +35,7 @@ Trạng thái: **ĐỀ XUẤT** (Claude, 24/11/2026). Vòng đánh giá đầu: 
 
 ### 4. Cần chủ doanh nghiệp và kế toán làm rõ
 
-26 quyết định ở [I](I-decision-register.md); **11 câu chặn P0-a**: hướng v3 và cách chia (QD-01), tài khoản thí điểm (QD-02), cutoff (QD-04), phạm vi "không tiền chưa rõ chủ trên web" (QD-05), tách nhiệm vụ và agent (QD-06), định dạng file (QD-07), bảo vệ dữ liệu ngân hàng (QD-08), sổ kế toán chính thức (QD-09), số dư mở (QD-10), danh mục phân loại (QD-11), người ký review ngày (QD-24).
+26 quyết định ở [I](I-decision-register.md); **11 câu chặn P0-a** (đã chốt 24/11/2026 theo phương án A, [`SO-TIEN-01`](../../docs/decisions/so-tien-01.md)): hướng v3 và cách chia (QD-01), tài khoản thí điểm (QD-02), cutoff (QD-04), phạm vi "không tiền chưa rõ chủ trên web" (QD-05), tách nhiệm vụ và agent (QD-06), định dạng file (QD-07), bảo vệ dữ liệu ngân hàng (QD-08), sổ kế toán chính thức (QD-09), số dư mở (QD-10), danh mục phân loại (QD-11), người ký review ngày (QD-24).
 
 ### 5. Kiến trúc đích khuyến nghị
 
@@ -64,7 +64,7 @@ Schema `tien` riêng cùng DB, không khóa ngoại sang `sokhach`, login DB ri�
 
 ### 6. Thứ tự triển khai
 
-1. **Discovery** (không code): chốt 11 câu P0-a; nhận 1 tháng sao kê thật ngoài repo; đo cột, định dạng, mã giao dịch ổn định, tỷ lệ cước về USD, thời gian thao tác hiện tại.
+1. **Discovery** (không code): 11 câu P0-a đã chốt ([`SO-TIEN-01`](../../docs/decisions/so-tien-01.md)); nhận 1 tháng sao kê thật ngoài repo; đo cột, định dạng, mã giao dịch ổn định, tỷ lệ cước về USD, thời gian thao tác hiện tại.
 2. **P0-a Sổ tiền nền:** nhập, xem trước, chống trùng, coverage, phân bổ thủ công, ngoại lệ, review ngày, thẻ số dư, vai, vết — shadow 1 tháng lịch sử rồi 4 tuần vận hành.
 3. **P0-b Kiểm soát chi:** đề nghị, duyệt, báo thực hiện, ghép chi, ước tính thận trọng.
 4. **P0-c Nối sổ nợ:** báo thu, đối chiếu chỉ đọc, luật shadow; ghi phiếu chỉ sau QD-16, từng sổ.
