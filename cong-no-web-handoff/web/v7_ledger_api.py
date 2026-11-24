@@ -390,10 +390,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == "/api/v7/todo-badge":   # số đệm menu Quản trị: ba nguồn của Việc cần làm, chỉ phần hàm đếm cần
         return 200, v7_todo_badge.handle_get(parts.query, runner, READS, INBOX, actor)
     elif parts.path == "/api/v7/machine/booking":
-        # KIEM-BOOKING-01: kết quả kiểm Sheet sổ nợ so với booking; file của lượt đối soát, không qua DB, sau xác thực danh tính.
+        # KIEM-BOOKING-01: kết quả kiểm Sheet sổ nợ so với booking (file của lượt đối soát), sau xác thực danh tính. Dòng
+        # "tháng này chưa lên sổ" được gắn chuyến web qua get_trip_month (bộ nhớ đọc), để tách chuyến máy đã đưa vào sổ web.
         if parts.query:
             bad()
-        return 200, v7_booking_view.view()
+        return 200, v7_booking_view.with_web(v7_booking_view.view(), runner, READS, actor)
     elif parts.path == "/api/v7/cash-chat":
         # ZALO-THU-CHI-01: khoản thu/chi/ứng báo trong nhóm Zalo đã chọn, đối chiếu chỉ đọc với phiếu thu và Đội xe; tin chat không vào model.
         return 200, v7_cash_chat.handle_get(parts.query, runner, actor)
