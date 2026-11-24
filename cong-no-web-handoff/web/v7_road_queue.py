@@ -99,6 +99,12 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
                           if tab_row and date.isoformat()[:7] >= ROAD_FROM)
     near_any = {(row.get("customer_tab"), row.get("source_row")) for source, date, *_ in placed
                 for row in by_container.get(container_key(source.get("container")), []) if _near(row, date)}
+    # KHACH-WEB-01: CHỦ HÀNG quản lý đã gán tên booking cho một sổ thì vào sổ đó, không cần đủ OWNER_MIN_TRIPS chuyến tab đã xếp.
+    named: dict[str, int] = {}
+    for customer in active:
+        for name in customer.get("booking_names") or ():
+            if isinstance(name, str) and _owner_key(name):
+                named[_owner_key(name)] = customer["id"]
     learned: dict[str, Counter] = {}
     for source, _date, reason, book, tab_row in placed:
         if not reason and claimed[(tab_row.get("customer_tab"), tab_row.get("source_row"))] == 1 and _owner_key(source.get("owner")):
@@ -113,7 +119,8 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
         if date.isoformat()[:7] < ROAD_FROM:
             continue
         if reason == "NO_TAB":
-            books = learned.get(_owner_key(source.get("owner"))) or Counter()
+            by_name = named.get(_owner_key(source.get("owner")))
+            books = Counter({by_name: OWNER_MIN_TRIPS}) if by_name else learned.get(_owner_key(source.get("owner"))) or Counter()
             if len(books) != 1 or sum(books.values()) < OWNER_MIN_TRIPS:
                 skip(source, date, "NO_TAB")   # chủ hàng chưa rõ sổ (kho, khách mới): chờ tab
                 continue
@@ -122,8 +129,8 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
             if far:
                 skip(source, date, "TAB_FAR")   # tab có dòng lệch ngày chưa ai nhận: nhiều khả năng là chính chuyến này
                 continue
-            stats["OWNER"] += 1
-            items.append(_item(road, source, date, next(iter(books)), None))
+            stats["BOOKING_NAME" if by_name else "OWNER"] += 1
+            items.append({**_item(road, source, date, next(iter(books)), None), **({"book_basis": "booking_name"} if by_name else {})})
         elif reason:
             skip(source, date, reason)
         elif claimed_new[(tab_row.get("customer_tab"), tab_row.get("source_row"))] > 1:
@@ -133,11 +140,13 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
             stats["BOOK"] += 1
             items.append(_item(road, source, date, book, tab_row))
     # Hai dòng CONT_BO cùng container, cách không quá 3 ngày, cùng vào một sổ theo chủ hàng: có thể là một chuyến ghi hai lần.
-    by_owner = [item for item in items if item["book_basis"] == "owner"]
+    by_owner = [item for item in items if item["book_basis"] != "tab"]
     twin = {id(a) for a in by_owner for b in by_owner if a is not b and (a["customer_id"], a["container"]) == (b["customer_id"], b["container"])
             and abs((dt.date.fromisoformat(a["event_date"]) - dt.date.fromisoformat(b["event_date"])).days) <= DATE_WINDOW_DAYS}
     if twin:
-        stats["OWNER"] -= len(twin)
+        for item in items:
+            if id(item) in twin:
+                stats["BOOKING_NAME" if item["book_basis"] == "booking_name" else "OWNER"] -= 1
         stats["AMBIGUOUS_SOURCE"] += len(twin)
         skipped += [{"container": item["container"], "event_date": item["event_date"], "reason": "AMBIGUOUS_SOURCE"}
                     for item in items if id(item) in twin]

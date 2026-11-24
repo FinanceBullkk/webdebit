@@ -123,6 +123,20 @@ class OwnerBookTests(unittest.TestCase):
         self.assertEqual(queue["stats"], {"TAB_FAR": 2, "OWNER": 1})
         self.assertEqual([i["container"] for i in queue["items"]], ["FARU0000003"])
 
+    def test_booking_name_set_on_the_web_places_an_owner_without_tab_history(self):
+        """KHACH-WEB-01: chủ hàng quản lý đã gán tên booking cho sổ thì vào sổ đó dù chưa đủ chuyến tab đã xếp; tab có dòng lệch ngày
+        chưa ai nhận thì vẫn chờ tab; hai dòng cùng container cách 2 ngày không thành hai chuyến."""
+        customers = [{**CUSTOMERS[0], "booking_names": ["KHÁCH MỚI 401"]}, *CUSTOMERS[1:]]
+        queue = build_road_queue({"sha256": SHA, "rows": [
+            road_row(2, "NEWU1000001", "2026-11-05", owner="khách mới  401"),
+            road_row(3, "NEWU1000002", "2026-11-06", owner="KHÁCH MỚI 401"),
+            road_row(4, "NEWU1000003", "2026-11-07", owner="KHÁCH MỚI 401"), road_row(5, "NEWU1000003", "2026-11-09", owner="KHÁCH MỚI 401"),
+            road_row(6, "NEWU1000004", "2026-11-08", owner="KHO LẠ")]},
+            {"rows": [tab_row("KHACH B", 77, "NEWU1000002", "2026-11-20", month="2026-11")]}, customers)
+        self.assertEqual([(item["container"], item["customer_id"], item["book_basis"]) for item in queue["items"]],
+                         [("NEWU1000001", 7, "booking_name")])
+        self.assertEqual(queue["stats"], {"BOOKING_NAME": 1, "TAB_FAR": 1, "AMBIGUOUS_SOURCE": 2, "NO_TAB": 1})
+
     def test_same_container_twice_within_three_days_is_not_two_trips(self):
         queue = self.build([road_row(2, "TWIN0000001", "2026-10-11", owner="CHU HANG X 379"),
                             road_row(3, "TWIN0000001", "2026-10-13", owner="CHU HANG X 379"),

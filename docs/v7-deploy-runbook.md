@@ -2432,6 +2432,19 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
    Lệnh in các mục được chấp nhận rồi lấy mốc mới. **Sau mỗi migration hay loader đổi dữ liệu sổ hoặc Lịch sử mà không qua lệnh:** ngay sau đợt nâng chạy `--dry-run`, danh sách phải đúng phạm vi migration, rồi `--accept`. Lượt máy canh lỡ chạy trước thì có một email; chấp nhận xong lượt kế báo ổn lại.
 6. **Tắt:** xóa drop-in rồi `daemon-reload`: kiểm 3, 4 nghỉ, kiểm 1, 2 vẫn chạy. Gỡ hẳn mục: quay release. Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerprints(), sokhach._safety_events(bigint,interval);` (không gì phụ thuộc, không đụng dữ liệu); `/var/lib/v7-watchdog` xóa được.
 
+## Khách mới và tên chủ hàng booking trên web (KHACH-WEB-01) — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-24-v7-khach-web.sql` ([quyết định](decisions/khach-web-01.md), [spec](../specs/v7-khach-web.md)) chỉ THÊM bảng `booking_name`, hai lệnh `create_customer(text,text,text,jsonb,text)`, `set_booking_name(bigint,bigint,text,text,boolean)` cấp cho app, hàm phụ `_booking_names(bigint)` không cấp ai, và thay `list_customers()` (thêm trường `booking_names`, quyền giữ nguyên). Không đổi tiền, phân bổ, dữ liệu cũ. Không tăng `schema_level`. Chạy lại được.
+
+Thứ tự với release: chạy migration trước. Release mới mà DB chưa có bảng thì `list_customers` cũ không có `booking_names` (hàng chờ coi như chưa có tên nào), còn trang Khách gửi lệnh thì lỗi hàm không có; không ghi gì sai.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt, `v7_post_deploy_check.sql` với bảng băm của release mới đạt. Gọi thử `create_customer` và `set_booking_name` dưới `SET ROLE v7_app` trên DB thử: sổ nợ 0, tên gán và bỏ được, tổng nợ các sổ khác không đổi.
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau (phải bằng nhau), checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** `GET /api/v7/admin/customers` trả `unmapped.state: ok` và số tên khớp số đo trước khi triển khai; mở trang Khách. Ghi nhật ký trong `docs/deploys/`.
+
+Rollback: revert PR (bỏ route và trang). Bảng và hai lệnh không đụng tiền nên để lại được; bỏ hẳn thì `DROP FUNCTION` hai lệnh, `_booking_names`, rồi chạy lại `2026-10-23-v7-mat-hang.sql` để `list_customers` về bản cũ, sau cùng `DROP TABLE sokhach.booking_name`, dưới `sokhach_owner`.
+
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 
 Đã nâng DB, đổi release và cho máy tạo sổ 4/11/2026, xem [nhật ký](deploys/2026-11-04-may-tao-so.md).

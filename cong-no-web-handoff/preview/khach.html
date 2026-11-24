@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Khách: chủ hàng trên booking chưa có sổ, gán tên booking vào sổ, tạo sổ khách mới. Chỉ quản lý.">
+  <title>Công nợ HTH · Khách</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="nguoi-dung.css">
+  <link rel="stylesheet" href="khach.css">
+  <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
+</head>
+<body class="nd kh" data-presence="khach">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="khach"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Khách</h1>
+      <div class="live-controls"><button id="refresh-data" class="nd-icon" type="button" aria-label="Đọc lại"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
+    </div>
+    <div class="nd-main kh-main">
+      <div id="error" role="alert" hidden></div>
+      <section class="nd-card" aria-labelledby="owners-title">
+        <div class="nd-card-head"><h2 id="owners-title">Chủ hàng trên booking chưa có sổ <span class="nd-count" id="owner-count"></span></h2></div>
+        <p class="kh-lead">Chuyến của các tên này chưa vào sổ nào. Gán tên vào sổ của khách đó, hoặc tạo sổ mới. Máy đưa chuyến vào sổ ở lượt sau (khoảng 15 phút), chưa có giá.</p>
+        <div id="owners"><p class="nd-empty">Đang tải…</p></div>
+      </section>
+      <section class="nd-card" aria-labelledby="books-title">
+        <div class="nd-card-head kh-books-head">
+          <h2 id="books-title">Sổ và tên trên booking <span class="nd-count" id="book-count"></span></h2>
+          <input id="book-search" class="kh-search" type="search" placeholder="Tìm sổ hoặc tên booking" aria-label="Tìm sổ hoặc tên booking" autocomplete="off">
+          <button type="button" class="nd-btn primary" id="create-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Thêm khách mới</button>
+        </div>
+        <div class="kh-grid kh-cols" aria-hidden="true"><span>Sổ</span><span>Mặt hàng</span><span>Tên trên booking</span></div>
+        <div id="books"></div>
+      </section>
+    </div>
+  </main>
+  <dialog id="create-dialog" class="nd-dialog kh-dialog" aria-labelledby="create-title">
+    <form id="create-form" novalidate>
+      <div class="nd-dialog-head">
+        <h2 id="create-title">Thêm khách mới</h2>
+        <button type="button" class="nd-icon" data-close aria-label="Đóng"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
+      </div>
+      <div class="nd-dialog-body">
+        <label class="nd-field">Tên sổ
+          <input id="create-name" type="text" autocomplete="off" maxlength="200" required aria-describedby="create-name-hint create-error">
+          <span id="create-name-hint" class="kh-hint">Sheet cũng có tab của khách này thì đặt đúng tên tab, để máy đối soát ghép đúng sổ.</span>
+        </label>
+        <fieldset class="nd-roles kh-mode"><legend>Đi đường</legend>
+          <label class="nd-role-opt"><input type="radio" name="create-mode" value="CANG" checked><span><b>Biển</b><span>Chuyến từ CONT_NGUON</span></span></label>
+          <label class="nd-role-opt"><input type="radio" name="create-mode" value="BO"><span><b>Bộ</b><span>Chuyến từ CONT_BO</span></span></label>
+        </fieldset>
+        <label class="nd-field"><span>Mặt hàng <span class="nd-optional">(chuyến biển chỉ tự vào sổ khi trùng mặt hàng booking)</span></span>
+          <input id="create-commodity" type="text" list="commodity-list" autocomplete="off" maxlength="80">
+          <datalist id="commodity-list"></datalist>
+        </label>
+        <label class="nd-field"><span>Tên trên booking <span class="nd-optional">(mỗi dòng một tên, đúng như cột chủ hàng)</span></span>
+          <textarea id="create-booking" rows="3" spellcheck="false"></textarea>
+        </label>
+        <p id="create-error" class="nd-field-error" role="alert" hidden></p>
+      </div>
+      <div class="nd-dialog-foot">
+        <button type="button" class="nd-btn" data-close>Thôi</button>
+        <button type="submit" class="nd-btn primary" id="create-submit">Tạo sổ</button>
+      </div>
+    </form>
+  </dialog>
+  <p id="flash" class="nd-toast" role="status" hidden></p>
+  <script src="cong-no-format.js"></script>
+  <script src="cong-no-net.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="khach-ui.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

@@ -112,6 +112,22 @@ def _pick_book(name: str, commodity: str, names: dict[str, list[dict[str, Any]]]
     return match, "COMMODITY_OK" if book == commodity else "COMMODITY_MISMATCH"
 
 
+def web_aliases(customers: list[dict[str, Any]]) -> dict[str, str]:
+    """Tên chủ hàng booking → tên sổ theo bảng tên booking quản lý gán trên web (KHACH-WEB-01), chỉ sổ đang hoạt động.
+
+    Khóa chuẩn hóa như `_name` (cùng cách bảng WEB_GHEP_KHACH được đọc), nên tên gán trên web thắng tên cùng chữ ở bảng đó.
+    DB chặn một tên ứng hai sổ; danh sách khách lỗi dạng thì bỏ qua dòng đó.
+    """
+    aliases: dict[str, str] = {}
+    for customer in customers:
+        if not isinstance(customer, dict) or customer.get("status") != "active" or not isinstance(customer.get("name"), str):
+            continue
+        for name in customer.get("booking_names") or ():
+            if isinstance(name, str) and _name(name):
+                aliases[_name(name)] = customer["name"]
+    return aliases
+
+
 def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], baseline: dict[str, Any]) -> dict[str, Any]:
     names: dict[str, list[dict[str, Any]]] = {}
     owners: dict[str, list[dict[str, Any]]] = {}
@@ -120,7 +136,8 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             names.setdefault(_name(customer["name"]), []).append(customer)
             if isinstance(customer.get("display_name"), str) and _name(customer["display_name"]) != _name(customer["name"]):
                 owners.setdefault(_name(customer["display_name"]), []).append(customer)
-    aliases = snapshot.get("customer_aliases") or {}
+    # KHACH-WEB-01: tên booking gán trên web thắng bảng WEB_GHEP_KHACH của file booking khi cùng một tên.
+    aliases = {**(snapshot.get("customer_aliases") or {}), **web_aliases(customers)}
     items = []
     skipped_out_of_scope = 0
     for source in snapshot["rows"]:
