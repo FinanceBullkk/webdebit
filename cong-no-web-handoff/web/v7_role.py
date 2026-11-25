@@ -14,6 +14,8 @@ USER = "user"
 USER_PAGES = frozenset({
     "/", "/dashboard-v7.html", "/cong-no-theo-thang.html", "/so-khach-v7-live.html",
     "/bang-thu.html", "/bao-cao-thang.html", "/zalo-chat.html",
+    # SO-TIEN P0-a lát 2: vai sổ tiền (access_grant) không theo vai QUYEN-01; người không có vai thấy câu "chưa được cấp vai".
+    "/so-tien.html", "/doi-soat-ngay.html",
 })
 # API chỉ trang quản lý gọi: Máy chạy, Đội xe, Nhật ký công việc. API mà trang người dùng cần (company-info cho
 # debit note, inbox cho việc Sheet trong Sổ khách…) vẫn mở cho mọi login được vào.

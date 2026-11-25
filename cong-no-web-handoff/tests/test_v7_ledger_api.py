@@ -2189,6 +2189,30 @@ class DebianWrapperTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
 
 
+class TienPsqlAdapterTest(unittest.TestCase):
+    """SO-TIEN P0-a lát 2: câu SQL sổ tiền đặt tien.actor/tien.actor_kind từ biến psql, DETAIL dạng mã trả kèm, DETAIL lạ bị bỏ."""
+
+    TIEN_ACTOR = "ketoan@gia.test"
+
+    def test_psql_sets_tien_actor_and_passes_detail(self):
+        class Runner(v7_psql._PsqlRunner):
+            def _argv(self):
+                return ["psql"]
+
+        stderr = "psql:<stdin>:6: ERROR:  P0001: DAY_NOT_READY\nDETAIL:  DAY_INCOMPLETE,NO_EVIDENCE\nCONTEXT:  PL/pgSQL\n"
+        done = subprocess.CompletedProcess(["psql"], 3, "", stderr)
+        with patch.object(v7_psql.subprocess, "run", return_value=done) as run, self.assertRaises(api.ApiError) as caught:
+            Runner().run("tien_sign_day_coverage", {"idempotency_key": "k"}, self.TIEN_ACTOR)
+        self.assertEqual((caught.exception.status, caught.exception.extra), (409, {"detail": "DAY_INCOMPLETE,NO_EVIDENCE"}))
+        sql = run.call_args.kwargs["input"]
+        self.assertIn("SET LOCAL tien.actor = :'actor';\nSET LOCAL tien.actor_kind = 'human';\nSELECT tien.sign_day_coverage(", sql)
+        self.assertIn(["-v", f"actor={self.TIEN_ACTOR}"], [run.call_args.args[0][i:i + 2] for i in range(len(run.call_args.args[0]))])
+        odd = subprocess.CompletedProcess(["psql"], 3, "", "psql:<stdin>:6: ERROR:  P0001: DAY_SIGNED\nDETAIL:  Ngày <b>lạ</b>\n")
+        with patch.object(v7_psql.subprocess, "run", return_value=odd), self.assertRaises(api.ApiError) as caught:
+            Runner().run("tien_commit_import", {"idempotency_key": "k"}, self.TIEN_ACTOR)
+        self.assertEqual((caught.exception.code, caught.exception.extra), ("DAY_SIGNED", {}), "DETAIL lạ không được trả ra")
+
+
 if __name__ == "__main__":
     unittest.main()
 

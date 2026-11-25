@@ -235,8 +235,9 @@ jobs:
       # DOI-XE-SAU-KHOA-01 (audit DX-05): ứng, đợt hoàn và hủy vào tháng đã khóa vẫn ghi, gắn cờ sau khóa.
       - name: Doi xe sau khoa on isolated PostgreSQL
         run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_doixe_sau_khoa.py
-      # Sổ tiền P0-a lát 1 (specs/so-tien-p0a.md): schema tien riêng; nhập lô có xem trước, chống trùng, phân bổ, vai theo pháp nhân.
-      - name: So tien P0-a lat 1 on isolated PostgreSQL
+      # Sổ tiền P0-a lát 1 + 2 (specs/so-tien-p0a.md, specs/so-tien-p0a-lat2.md): schema tien riêng; nhập lô có xem trước, chống trùng,
+      # phân bổ, vai theo pháp nhân; file gốc, độ phủ, ký ngày; mọi câu SQL của API chạy qua đúng adapter psql.
+      - name: So tien P0-a lat 1-2 on isolated PostgreSQL
         run: uv run --python 3.14 python cong-no-web-handoff/tools/test_pg_tien.py
 
   # Bản xuất cả sổ (specs/v7-xuat-ca-so.md): sổ giả qua lệnh ghi thật, xuất trong một giao dịch chỉ đọc, tự kiểm khớp;

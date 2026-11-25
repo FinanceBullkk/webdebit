@@ -25,6 +25,8 @@ globalThis.AppNav = (() => {
     ['so-khach', '/so-khach-v7-live.html', 'Sổ khách', '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M5 17a3 3 0 0 1 3-3h11"></path>'],
     ['bang-thu', '/bang-thu.html', 'Bảng thu', '<rect x="3" y="6" width="18" height="12" rx="2"></rect><circle cx="12" cy="12" r="2.5"></circle><path d="M6.5 9.5v.01M17.5 14.5v.01"></path>'],
     ['bao-cao-thang', '/bao-cao-thang.html', 'Báo cáo tháng', '<path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v4h4M8 17v-3M12 17v-6M16 17v-4"></path>'],
+    // SO-TIEN P0-a lát 2: máy chủ gắn data-tien="on" khi cờ WEBDEBIT_TIEN=on (shadow không có mục menu); quyền thật ở vai sổ tiền.
+    ...(document.documentElement.dataset.tien === 'on' ? [['so-tien', '/so-tien.html', 'Sổ tiền', '<rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M3 10h18M7 15h4"></path>']] : []),
     ...(isAdmin() ? [['quan-tri', '/viec-can-lam.html', 'Quản trị', ICON_QUAN_TRI]] : []),
   ];
   const ADMIN_TABS = [
