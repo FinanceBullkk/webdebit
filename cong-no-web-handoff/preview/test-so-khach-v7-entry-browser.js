@@ -144,6 +144,58 @@ test('Chặn tại ô trước khi gửi: ngày sai, ngày sau hôm nay, thiếu
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-open')), true);
 }));
 
+test('PHIEU-WEB-01: không rõ ngày trả → chọn tháng, ghi ngày cuối tháng (không sau hôm nay) và tham chiếu "(ngày tượng trưng)"', async () => withPage(async ({ page, world, shot }) => {
+  const n = Number(clock.slice(0, 4)) * 12 + Number(clock.slice(5, 7)) - 2;
+  const prev = `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, '0')}`;
+  const prevEnd = `${prev}-${String(new Date(Date.UTC(Number(prev.slice(0, 4)), Number(prev.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
+  const shown = iso => `${iso.slice(8)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+  await page.locator('.entry-open').click();
+  await drawer(page).locator('.receipt-unknown').check();
+  assert.equal(await drawer(page).locator('.receipt-date').isDisabled(), true, 'ô ngày tắt khi không rõ ngày');
+  assert.equal(await drawer(page).locator('.receipt-month').inputValue(), '', 'tháng chưa chọn sẵn');
+  assert.equal(await drawer(page).locator('.receipt-month option').count(), 13);
+  // Chưa chọn tháng: chặn tại ô, không gửi.
+  await drawer(page).locator('.receipt-amount').fill('2.000.000');
+  await drawer(page).locator('.receipt-amount').press('Enter');
+  assert.equal(await drawer(page).locator('.receipt-month-error').innerText(), 'Chọn tháng khách trả.');
+  // Tháng trước: ngày cuối tháng đó.
+  await drawer(page).locator('.receipt-month').selectOption(prev);
+  assert.equal(await drawer(page).locator('.entry-symbolic-hint').innerText(), `Ghi ngày ${shown(prevEnd)} (ngày tượng trưng).`);
+  await drawer(page).locator('.receipt-reference').fill('CK qua Zalo');
+  await drawer(page).locator('.receipt-reference').press('Enter');
+  const review = drawer(page).locator('.entry-review');
+  await review.waitFor();
+  assert.match(await review.innerText(), new RegExp(`ngày ${shown(prevEnd).replace(/\//g, '\\/')} \\(ngày tượng trưng\\), nằm ở tháng`));
+  assert.match(await review.innerText(), /Không rõ ngày trả: ghi ngày cuối tháng/);
+  await shot('entry-khong-ro-ngay');
+  // Tháng hiện tại: ngày cuối tháng sau hôm nay nên lấy hôm nay (cùng luật máy Sheet).
+  await drawer(page).locator('.entry-back').click();
+  await drawer(page).locator('.receipt-month').selectOption(clock.slice(0, 7));
+  assert.equal(await drawer(page).locator('.entry-symbolic-hint').innerText(), `Ghi ngày ${today} (ngày tượng trưng).`);
+  await drawer(page).locator('.receipt-month').selectOption(prev);
+  await drawer(page).locator('.receipt-amount').press('Enter');
+  await drawer(page).locator('.receipt-save').click();
+  await page.locator('.saved-strip').waitFor();
+  await settled(page);
+  assert.equal(receiptPosts(world).length, 1);
+  const sent = receiptPosts(world)[0][1];
+  assert.equal(sent.date, prevEnd);
+  assert.equal(sent.reference, 'CK qua Zalo (ngày tượng trưng)');
+  assert.equal(sent.amount_vnd, '2000000');
+  // Khung về trống: bỏ đánh dấu, ô ngày bật lại.
+  await page.locator('.entry-open').click();
+  assert.equal(await drawer(page).locator('.receipt-unknown').isChecked(), false);
+  assert.equal(await drawer(page).locator('.receipt-date').isDisabled(), false);
+  assert.equal(await drawer(page).locator('.entry-month').isHidden(), true);
+  // Cấn trừ cần ngày cụ thể.
+  await drawer(page).locator('.receipt-unknown').check();
+  await drawer(page).locator('.receipt-method').selectOption('CẤN TRỪ');
+  await drawer(page).locator('.receipt-amount').fill('1000');
+  await drawer(page).locator('.receipt-amount').press('Enter');
+  assert.match(await drawer(page).locator('.receipt-month-error').innerText(), /Cấn trừ cần ngày cụ thể/);
+  assert.equal(receiptPosts(world).length, 1);
+}, world => { world.total = '10000000'; }));
+
 test('Server báo ngày sau hôm nay: về ô Ngày, không kẹt lệnh; sổ đổi dưới tay: xem lại số mới rồi ghi lại', async () => withPage(async ({ page, world }) => {
   world.failNext = { error: 'FUTURE_RECEIPT_DATE', message: 'Ngày trả không được sau hôm nay.' };
   await fill(page, today, '1000');
