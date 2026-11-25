@@ -13,6 +13,8 @@ Skill này bổ sung cho [quy trình frontend](../../../docs/development.md#quy-
 - Người dùng và số đo thật: [Nền UX](../../../docs/ux-nen-nguoi-dung.md), [luồng dữ liệu](../../../docs/ux-luong-du-lieu.md), [luồng thao tác](../../../docs/ux-buoc-03-luong-thao-tac.md).
 - Hệ thị giác: [hướng dẫn UX](../../../docs/ux-guidelines.md), `cong-no-web-handoff/preview/mockups/DESIGN.md`, token ở `cong-no-web-handoff/preview/cong-no-theme.css`, mục 4.4–4.5 của [audit UX](../../../docs/ux-audit-2026-10-31.md). Repo chưa có design system đầy đủ: nói rõ chỗ nào đang theo token, chỗ nào tự đặt.
 - Quyết định của màn đang sửa trong [`docs/decisions.md`](../../../docs/decisions.md) (ví dụ `SO-GON-*`, `TRANG-KHACH-01`, `HANG-CHO-01`, `DASH-03`).
+- [Chống giao diện "trông như AI làm"](reference/chong-giao-dien-ai.md): những thứ phải bỏ, checklist tương tác, cách kiểm bản render (tóm từ Impeccable, Anthropic frontend-design, Vercel, design-review).
+- [Nền tảng học thuật](reference/nen-tang-hoc-thuat.md): chặn lỗi người dùng, heuristic, tải nhận thức, Fitts/Hick, Gestalt, biểu đồ, người dùng lớn tuổi, WCAG 2.2, kèm nguồn để tra. Phương án nào cũng phải nêu được nguyên lý làm căn cứ.
 
 ## Ràng buộc riêng của dự án
 
@@ -43,6 +45,8 @@ Thay đổi nhỏ thì phân tích tương xứng, không cần hai phương án
 
 **3. Căn cứ cho quyết định thị giác.** Đọc token và component đang có. Xem reference nếu được cung cấp, nói học được gì và điều gì không hợp. Chốt cỡ chữ, mật độ, khoảng cách, màu trạng thái, cách nhóm; giữ nhất quán với các trang khác. Không mặc định mỗi nhóm một card; không thêm KPI, biểu đồ, gradient, icon hay hiệu ứng khi không có mục đích. Chưa có reference thì nói rõ, dựng phương án kiểm được; không giả vờ đã nghiên cứu.
 
+Màu, cỡ chữ, bo góc lấy từ token có sẵn: `npm run check` có bước `lint:tok` (`scripts/check-css-tokens.js`) chặn màu viết thẳng, cỡ chữ ngoài thang 13/14/15/16/18/22/28, bo góc không qua `var(--radius)` và viền màu một bên vượt mức trần của từng file. Sửa màn cũ thì dọn luôn giá trị tự đặt ở chỗ đụng tới rồi chạy `--update` để hạ mức trần. Cần màu mới thì khai biến trước, không viết mã màu thẳng.
+
 **4. Hành vi và trạng thái.** Ngoài màn đủ dữ liệu, xét:
 - đang tải, trống, thiếu dữ liệu (NULL hiện `—`, không như 0), lỗi, mất mạng;
 - chữ dài, tên khách có chữ Hán, sổ nhiều dòng, màn hẹp;
@@ -57,7 +61,8 @@ Dùng từ nghiệp vụ người dùng quen; không để thuật ngữ kỹ th
 - chữ dễ đọc, tương phản đạt, trạng thái tương tác rõ;
 - dữ liệu dài và thiếu dữ liệu có làm vỡ bố cục không;
 - có theo token và hướng đã chọn không;
-- có thông tin lặp hay trang trí gây nhiễu không.
+- có thông tin lặp hay trang trí gây nhiễu không;
+- có dấu hiệu "AI làm" trong danh sách bỏ của [tài liệu chống giao diện AI](reference/chong-giao-dien-ai.md) không, và checklist tương tác ở đó đã đạt chưa.
 
 Thấy lỗi thì sửa rồi kiểm lại. Không render được thì nói rõ phần chưa xác minh. Bước cuối của `UX-NEN-01` là người dùng thật đi hết luồng (xong việc, thời gian, số lỗi): Claude tự xem không thay bước đó.
 

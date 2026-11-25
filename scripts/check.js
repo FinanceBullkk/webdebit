@@ -138,6 +138,14 @@ const steps = [
     cwd: ROOT,
   },
   {
+    // Màu, cỡ chữ, bo góc tự đặt và viền màu một bên trong CSS giao diện: mỗi file có mức trần, chỉ được giảm
+    // (25/11/2026, người dùng chê giao diện "lộn xộn, trông như AI"). Lý do và bốn loại ở đầu file script.
+    name: "lint:tok  token CSS chỉ được giảm",
+    cmd: process.execPath,
+    args: [path.join(__dirname, "check-css-tokens.js")],
+    cwd: ROOT,
+  },
+  {
     // Secrets và dữ liệu nghiệp vụ thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số
     // container, tên khách theo danh sách ngoài repo) trên mọi file đã theo dõi. Trước 18/11/2026 lệnh
     // này chỉ chạy tay trước commit, và nhật ký triển khai đã lọt tổng nợ thật vào repo public; chạy ở

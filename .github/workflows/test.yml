@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Merge queue: hàng đợi chạy CI trên commit ghép PR lên main mới nhất; `ci-ok` phải báo cả ở sự kiện này
+  # thì PR mới ra khỏi hàng (MERGE-QUEUE-01).
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -22,7 +25,8 @@ concurrency:
 
 jobs:
   # Lọc theo file đổi bằng git diff (không dùng action ngoài). Push lên main và chạy tay luôn chạy đủ.
-  # PR chỉ đổi tài liệu bỏ qua các job Postgres; ba job sổ cũ trước V7 chỉ chạy khi đổi file của chúng.
+  # PR và lượt merge queue chỉ đổi tài liệu bỏ qua các job Postgres; ba job sổ cũ trước V7 chỉ chạy khi đổi file của chúng.
+  # Lượt merge queue so main (base_sha) với commit ghép (head_sha), gồm mọi PR cùng một nhóm.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -36,10 +40,10 @@ jobs:
       - id: f
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: |
-          if [ "$EVENT" != "pull_request" ]; then
+          if [ "$EVENT" != "pull_request" ] && [ "$EVENT" != "merge_group" ]; then
             echo "pg_v7=true" >> "$GITHUB_OUTPUT"; echo "pg_old=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           git diff --name-only "$BASE...$HEAD" > changed.txt

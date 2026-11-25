@@ -25,7 +25,7 @@ from urllib.request import Request, urlopen
 
 import v7_ai_explain
 
-REPO = "FinanceBullkk/webdebit"
+REPO = "ThienThanhLogs/webdebit"
 API = f"https://api.github.com/repos/{REPO}"
 DEFAULT_DIR = "/var/lib/webdebit-sheet-sync/nhat-ky"
 SEED = Path(__file__).with_name("nhat-ky-seed.json")

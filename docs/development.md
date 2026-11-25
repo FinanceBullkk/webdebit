@@ -24,7 +24,7 @@ Nghiệp vụ chia sẻ ở `docs/`, spec ở `specs/`. Hồ sơ ngoài repo là
 Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/agent làm cùng lúc:
 
 1. **Mỗi việc một worktree mới từ `origin/main`**, PR nhỏ, merge trong ngày. Một nhóm file chỉ một người/agent giữ tại một thời điểm.
-2. **PR lỗi thời** (main đã có commit mới): bấm *Update branch* trên GitHub hoặc `gh pr update-branch <số>`; conflict thì rebase ở máy. Repo chỉ cho **squash merge**, lịch sử `main` thẳng; required check duy nhất là `ci-ok` ([CI](#ci-trên-runner-github)). PR xếp chồng: retarget PR con về `main` trước khi merge PR cha, rồi rebase PR con.
+2. **Merge qua hàng đợi** (từ 25/11/2026, [`MERGE-QUEUE-01`](decisions/merge-queue-01.md)): PR xanh thì `gh pr merge <số> --squash` (hoặc *Merge when ready*) đưa vào merge queue; hàng đợi tự ghép lên `main` mới nhất và chạy lại CI, không cần update-branch. Conflict văn bản thì gộp `origin/main` ở máy. Repo chỉ cho **squash merge**, lịch sử `main` thẳng; required check duy nhất là `ci-ok` ([CI](#ci-trên-runner-github)). PR xếp chồng: retarget PR con về `main` trước khi merge PR cha, rồi rebase PR con.
 3. **Quyết định** ghi trong đúng file `docs/decisions/<id>.md` của nó; quyết định mới tạo file mới và thêm một dòng vào bảng của [`decisions.md`](decisions.md). Hai PR sửa hai quyết định khác nhau không còn đụng nhau.
 4. **Triển khai app không cần PR tài liệu riêng.** Merge vào `main` là tự triển khai lên `hao`; bằng chứng là lượt `Deploy hao` (bảng *Tóm tắt triển khai*: kết quả, SHA trước/sau, commit trong đợt) và tab *Environments → hao* trên GitHub. Trong PR của tính năng, file quyết định ghi "triển khai tự động khi merge qua `Deploy hao`", không ghi trước "ĐÃ TRIỂN KHAI". Lượt đỏ thì sửa và báo lại, không ghi là đã triển khai.
 5. **Triển khai tay** (gate SQL/migration/loader dừng `Deploy hao`; từ 29/10/2026 Claude tự chạy phần SQL/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md), loader/nạp dữ liệu vẫn hỏi): nhật ký mỗi đợt là một file mới trong [`docs/deploys/`](deploys/README.md), không chèn thêm mục vào [runbook](v7-deploy-runbook.md); runbook chỉ giữ quy trình. Đợt đó cập nhật trạng thái trong file quyết định liên quan ở cùng PR. Trong lúc `main` có migration chưa chạy trên `hao`, mọi lượt `Deploy hao` sau đó cũng dừng ở bước kiểm diff (so với bản đang chạy) cho tới đợt triển khai tay.
@@ -102,21 +102,29 @@ giữ đường riêng ("chưa rõ đã ghi"), không đi qua module này.
 
 ## Lint và lệnh check
 
-`npm run check` ở gốc repo chạy chín bước theo thứ tự: `ruff check`, luật nghiệp vụ
+`npm run check` ở gốc repo chạy mười bước theo thứ tự: `ruff check`, luật nghiệp vụ
 (`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), cỡ chữ tối thiểu
-(`scripts/check-font-size.js`), secrets và dữ liệu thật (`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
+(`scripts/check-font-size.js`), token CSS (`scripts/check-css-tokens.js`), secrets và dữ liệu thật (`scripts/check-secrets.js --all`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
 `node --test` cho model JS, rồi bộ test trình duyệt Playwright (`test:browser`; bộ `test:viewer` của viewer M1 đã bỏ 18/11/2026).
 Từ 19/11/2026 (audit kiến trúc, A11) thiếu Python hoặc chưa tải Chromium là **FAIL** kèm câu thiếu gì và cách cài theo
 README, không còn SKIP: trước đó máy thiếu công cụ vẫn thoát 0 dù không chạy tầng test. Cố ý chạy thiếu thì bỏ bằng
 `--skip=<mã bước>` (`test:py`, `test:browser`...): bước đó in SKIP, mã thoát vẫn 0 nhưng tổng kết in dòng `CHƯA ĐỦ` kèm
 các mã đã bỏ — xanh khi đó chỉ nói về các bước đã chạy, không dùng làm bằng chứng đủ kiểm.
-`npm run lint` chạy riêng sáu bước lint khi đang sửa dở.
+`npm run lint` chạy riêng bảy bước lint khi đang sửa dở.
 
 **Cỡ chữ** (từ 23/11/2026, audit giao diện F6): `check-font-size.js` đỏ khi CSS hay HTML giao diện trong
 `cong-no-web-handoff/preview/` có `font-size`/`font:` dưới 13px (px hoặc rem; pt của bản in debit note không xét). Thang chữ
 theo mục 4.4 của [audit UX](ux-audit-2026-10-31.md#44-hệ-thống-thiết-kế-dùng-chung-mở-rộng-designmd-cho-cả-sáu-trang): chú thích 13px
 là tối thiểu, chữ trong bảng và cạnh số 14px — mức 14 máy không phân biệt được nên vẫn do người review. Chỗ còn nợ của file
 phiên khác đang sửa ghi ở `PENDING` trong script; dòng nợ đã sửa mà chưa bỏ cũng làm bước đỏ.
+
+**Token CSS chỉ được giảm** (từ 25/11/2026, người dùng chê giao diện "lộn xộn, trông như AI"): `check-css-tokens.js` đếm
+trong cùng phạm vi với bước cỡ chữ bốn loại giá trị tự đặt: màu viết thẳng ngoài khai báo biến `--ten:` (trắng, đen không
+tính), cỡ chữ ngoài thang 13/14/15/16/18/22/28, bo góc bằng số ngoài `var(--radius)` (0, 50%, viên thuốc không tính), viền màu
+một bên dày từ 2px. Mỗi file có mức trần trong `scripts/css-tokens-baseline.json`; file mới có trần 0. Vượt trần thì đỏ kèm
+dòng; dưới trần cũng đỏ, kèm lời nhắc chạy `node scripts/check-css-tokens.js --update` để hạ mức (lệnh này không nâng mức).
+Hai PR cùng hạ một file thì gộp `main` rồi chạy lại `--update`. Cách chọn token và những gì nên bỏ: skill
+[`thiet-ke-ux`](../.claude/skills/thiet-ke-ux/reference/chong-giao-dien-ai.md).
 
 **Dữ liệu thật trong tài liệu** (từ 18/11/2026, sau khi gỡ tổng nợ, số tiền khách, tên khách và số container thật khỏi
 nhật ký triển khai và spec): `check-secrets.js` bắt số tiền nhóm chấm từ 7 chữ số (dạng `x.xxx.xxx` trở lên, trừ cỡ file ghi
@@ -171,10 +179,11 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 | `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.14 qua `uv` (bản `hao` chạy). Bản ubuntu gọi `--skip=test:py` vì job `python` đã chạy unittest trên ubuntu; bản Windows chạy đủ để giữ unittest trên Windows. Không test JS nào gọi Python (đo 18/11/2026), nên một bản Python là đủ |
 | `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
 
-**Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, vẫn bắt nhánh cập nhật theo `main`
-trước khi merge (`strict`), bật nút Update branch, chỉ cho squash merge và lịch sử thẳng. Thêm job mới vào
-workflow thì thêm vào `needs` của `ci-ok`; không cần sửa luật nhánh. PR lỗi thời bấm Update branch hoặc chạy
-`gh pr update-branch <số>` (dùng `--rebase` nếu muốn rebase).
+**Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, chỉ cho squash merge và lịch sử thẳng.
+Từ 25/11/2026 ([`MERGE-QUEUE-01`](decisions/merge-queue-01.md)) repo thuộc org `ThienThanhLogs` và merge qua
+merge queue thay cho luật bắt nhánh theo kịp `main` (`strict`): workflow `Tests` chạy cả ở sự kiện `merge_group`,
+`ci-ok` của lượt hàng đợi quyết PR có vào `main` hay không. Thêm job mới vào workflow thì thêm vào `needs` của
+`ci-ok`; không cần sửa luật nhánh.
 
 Lý do bỏ runner tự host: `hao` là máy chạy DB thật `webdebit_ledger` và web xem sổ; với repo public,
 PR từ fork có thể đưa mã lạ chạy trên chính máy đó. Máy GitHub sạch mỗi lượt, không chạm `hao`, nên
