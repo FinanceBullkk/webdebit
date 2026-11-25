@@ -211,6 +211,17 @@ const SoKhachV7Model = (() => {
     return field === "container" ? value.replace(/\s+/g, "").toUpperCase() : value;
   }
 
+  // SK-N10: ô Số tiền của khung Ghi phiếu thu. Câu lỗi nói dạng đúng; số đã hiểu hiện có nhóm nghìn khi gõ và khi rời ô.
+  // Cùng luật đọc với parseVnd (readVnd), không đoán thêm; chỉ trình bày, số ghi đi vẫn do moneyText của trang quyết.
+  const MONEY_INPUT_HELP = "Số tiền không hợp lệ. Chỉ gõ chữ số, có hoặc không có dấu chấm ngăn nghìn (45.000.000); không gõ chữ như tr, k, không gõ số lẻ.";
+  /** Số đã hiểu có nhóm nghìn ("1234567" → "1.234.567"); null khi chưa đọc được, bằng 0 hay vượt giới hạn bigint của sổ. */
+  function readMoneyInput(text) {
+    try {
+      const amount = parseVnd(String(text ?? ""));
+      return amount > 0n && amount <= 9223372036854775807n ? formatVnd(amount) : null;
+    } catch { return null; }
+  }
+
   // Total of server adjustment rows (digit strings, signed) shown as one line per month; null when none.
   function sumAdjustments(rows) {
     if (!rows.length) return null;
@@ -1131,7 +1142,7 @@ const SoKhachV7Model = (() => {
     return done ? copy : null;
   }
 
-  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, MONEY_INPUT_HELP, readMoneyInput, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
