@@ -85,12 +85,16 @@
   }
   function pasteRow(row) {
     const marks = [
-      row.duplicate ? `<label class="paste-flag"><input type="checkbox" class="paste-dup" data-line="${row.line}"${pasteDup.has(row.line) ? ' checked' : ''}> Vẫn ghi: có thể đã ghi rồi (${escape(row.duplicate.pid ?? 'phiếu')} cùng số tiền, ngày ${escape(dateText(row.duplicate.date))})</label>` : '',
+      row.duplicate ? `<label class="paste-flag"><input type="checkbox" class="paste-dup" data-line="${row.line}"${pasteDup.has(row.line) ? ' checked' : ''}> Vẫn ghi: ${row.duplicate.line
+        ? `giống dòng ${row.duplicate.line} trong bảng này (cùng số tiền, tham chiếu, ngày gần nhau)`
+        : `có thể đã ghi rồi (${escape(row.duplicate.pid ?? 'phiếu')} cùng số tiền, ngày ${escape(dateText(row.duplicate.date))})`}</label>` : '',
       row.doubt && (!row.duplicate || pasteDup.has(row.line)) ? `<label class="paste-flag"><input type="checkbox" class="paste-ok" data-line="${row.line}"${pasteOk.has(row.line) ? ' checked' : ''}> Đúng số này. ${escape(row.doubtText)}</label>` : '',
       row.locked ? '<small>Tháng đang khóa; phiếu vẫn ghi được.</small>' : '',
     ].filter(Boolean).join('');
     const skipped = row.duplicate && !pasteDup.has(row.line);
-    return `<li${skipped ? ' class="paste-skip"' : ''}>Dòng ${row.line}: ${escape(dateText(row.date))}${row.maybeSwapped ? ' <b class="paste-date-mark">(kiểm ngày/tháng)</b>' : ''} · <b>${fmt(row.amountVnd.toString())} đ</b> · ${escape(row.method)}${row.reference ? ` · ${escape(row.reference)}` : ''}${skipped ? ' · <b>không ghi</b>' : ''}${marks}</li>`;
+    // Ngày bằng chữ cạnh ngày số (review #676 lần 2): bảng ghi tháng/ngày mà cả hai phần ≤ 12 máy không nhận ra, người nhìn chữ thì thấy.
+    const day = `${Number(row.date.slice(8))} tháng ${Number(row.date.slice(5, 7))}`;
+    return `<li${skipped ? ' class="paste-skip"' : ''}>Dòng ${row.line}: ${escape(dateText(row.date))} <span class="paste-day">(${day})</span>${row.maybeSwapped ? ' <b class="paste-date-mark">(kiểm ngày/tháng)</b>' : ''} · <b>${fmt(row.amountVnd.toString())} đ</b> · ${escape(row.method)}${row.reference ? ` · ${escape(row.reference)}` : ''}${skipped ? ' · <b>không ghi</b>' : ''}${marks}</li>`;
   }
   function paintPaste() {
     const plan = pastePlan(), box = $('.paste-preview'), save = $('.paste-save');
@@ -104,14 +108,25 @@
     box.innerHTML = (plan.errors.length ? `<ul class="paste-errors">${plan.errors.map(text => `<li>${escape(text)}</li>`).join('')}</ul><p class="entry-note">Sửa các dòng lỗi trên Sheet rồi chép, dán lại. Còn dòng lỗi thì chưa ghi phiếu nào.</p>` : '')
       + plan.warnings.map(text => `<p class="entry-note paste-warn">${escape(text)}</p>`).join('')
       + (plan.rows.length ? `<p class="paste-sum">${plan.send.length} phiếu, tổng <b>${fmt(total.toString())} đ</b>. Tổng còn nợ: ${model.formatVnd(money.beforeVnd)} đ → <b>${model.formatVnd(money.afterVnd)} đ</b>.</p><ol class="paste-rows">${plan.rows.map(pasteRow).join('')}</ol>` : '')
-      + (plan.unchecked.length ? `<p class="entry-note">Bấm "Đúng số này" ở dòng ${plan.unchecked.map(row => row.line).join(', ')} rồi mới ghi được.</p>` : '');
+      + (plan.unchecked.length ? `<p class="entry-note">Bấm "Đúng số này" ở dòng ${plan.unchecked.map(row => row.line).join(', ')} rồi mới ghi được.`
+        + (plan.unchecked.length > 1 ? ' <button type="button" class="paste-ok-all">Đúng cả bảng</button>' : '') + '</p>' : '');
+    // Khóa bản xem trước: lúc bấm Ghi, danh sách và sổ phải đúng như bản người đang nhìn (review #676 lần 2).
+    pasteShown = { sig: pasteSig(plan), version: ctx.snapshot?.version ?? null };
     save.disabled = Boolean(plan.errors.length) || !plan.send.length || Boolean(plan.unchecked.length) || pasteBusy;
     save.textContent = plan.send.length ? `Ghi ${plan.send.length} phiếu` : 'Ghi phiếu';
   }
+  let pasteShown = null;
+  const pasteSig = plan => JSON.stringify(plan.send.map(row => [row.line, row.date, row.method, row.amountVnd.toString(), row.reference]));
   async function savePaste() {
     if (pasteBusy) return;
     const plan = pastePlan();
     if (plan.errors.length || !plan.send.length || plan.unchecked.length) return;
+    if (!pasteShown || pasteShown.sig !== pasteSig(plan) || pasteShown.version !== (ctx.snapshot?.version ?? null)) {
+      // Sổ hay bảng đổi sau bản xem trước: không ghi theo danh sách khác cái người đã đọc. Vẽ lại bản xem trước, người bấm lại.
+      paintPaste();
+      $('.paste-error').textContent = 'Sổ vừa thay đổi sau bản xem trước. Xem lại danh sách và số trước → sau rồi bấm Ghi lần nữa.';
+      return;
+    }
     if (api.hasPending()) { $('.paste-error').textContent = 'Còn thao tác khác chưa xong hoặc chưa rõ đã lưu. Xong việc đó (nút Thử lại ở đầu sổ) rồi bấm Ghi.'; return; }
     const lines = $('.paste-receipts').value.replace(/\r\n?/g, '\n').split('\n');
     pasteBusy = true;
@@ -282,6 +297,8 @@
       + (locked ? `<p class="entry-note">Tháng ${monthLabel(key)} đang khóa; phiếu vẫn ghi được.</p>` : '')
       + (review.reference ? `<p>Tham chiếu: ${escape(review.reference)}</p>` : '')
       + (images ? `<p>Kèm ${images} ảnh chứng từ.</p>` : '')
+      // Cùng luật hỏi lại số nghi nhầm đơn vị với dán nhiều phiếu (receiptDoubt): phải bấm "Đúng số này" mới ghi.
+      + (model.receiptDoubt(review.amount) ? `<label class="paste-flag entry-doubt"><input type="checkbox" class="entry-doubt-ok"${review.doubtOk ? ' checked' : ''}> Đúng số này. ${escape(model.receiptDoubtText(review.amount))}</label>` : '')
       + '<p class="entry-hint">Phần trừ nợ từng tháng hiện ngay sau khi ghi.</p><p class="cell-error entry-error" role="alert"></p>'
       + '<div class="entry-actions"><button type="button" class="entry-back">Sửa lại</button><button type="button" class="receipt-save">Ghi phiếu</button></div>';
   }
@@ -316,6 +333,13 @@
     if (own) {
       if (api.pendingKey() !== own.key) await resolveOwn();
       else $('.entry-error').innerHTML = ownWaiting;
+      return;
+    }
+    // Số nghi nhầm đơn vị (receiptDoubt, cùng luật dán nhiều phiếu): phải bấm "Đúng số này" mới gửi. Xác nhận giữ trong phiếu đang
+    // xem lại, sổ đổi rồi vẽ lại bước xem lại thì không phải bấm lại.
+    if (model.receiptDoubt(review.amount) && !review.doubtOk) {
+      $('.entry-error').textContent = 'Số tiền nằm ngoài khoảng thường gặp. Kiểm lại rồi bấm "Đúng số này" trước khi ghi.';
+      $('.entry-doubt-ok')?.focus();
       return;
     }
     // Còn lệnh khác chưa rõ kết quả (hay chuỗi giá đang ghi): không gửi phiếu. Gửi thì sổ từ chối, mà khung này lại tưởng
@@ -419,6 +443,7 @@
       else if (button.matches('.entry-paste-open')) { showStep('paste'); paintPaste(); $('.paste-receipts').focus(); }
       else if (button.matches('.paste-back')) { showStep('form'); $('.entry-paste-open').focus(); }
       else if (button.matches('.paste-save')) await savePaste();
+      else if (button.matches('.paste-ok-all')) { for (const row of pastePlan().unchecked) pasteOk.add(row.line); paintPaste(); $('.paste-save').focus(); }
       else if (button.matches('.paste-retry')) await retryPaste();
       else if (button.matches('.entry-split')) {
         // PHIEU-WEB-01 mục 2: một lần chuyển cho nhiều sổ mở khung riêng, mang theo chữ đang gõ; khung này về trống và đóng.
@@ -468,6 +493,7 @@
     drawer.addEventListener('input', event => {
       // Sửa ô thì lỗi cũ của ô đó tắt ngay (không đợi lần Xem lại sau); số tiền hiện số đã hiểu có nhóm nghìn.
       if (event.target.matches('.paste-receipts')) { pasteOk.clear(); pasteDup.clear(); paintPaste(); return; }
+      if (event.target.matches('.entry-doubt-ok') && review) { review.doubtOk = event.target.checked; $('.entry-error').textContent = ''; return; }
       if (event.target.matches('.paste-ok,.paste-dup')) {
         const set = event.target.matches('.paste-ok') ? pasteOk : pasteDup, line = Number(event.target.dataset.line);
         if (event.target.checked) set.add(line); else set.delete(line);

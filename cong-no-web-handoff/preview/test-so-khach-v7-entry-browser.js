@@ -7,6 +7,8 @@ const { clock, todayMonth, withPage, posts, viewMonth, settled } = require('./so
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const thisMonth = `${Number(clock.slice(5, 7))}/${clock.slice(0, 4)}`;
 const drawer = page => page.locator('.entry-drawer');
+// Số dưới 100.000 đ phải bấm "Đúng số này" ở bước xem lại (PHIEU-WEB-01, review #676 lần 2); các test này dùng số nhỏ cho gọn.
+const confirmSmall = async page => { const ok = page.locator('.entry-drawer .entry-review .entry-doubt-ok'); if (await ok.count()) await ok.check(); };
 const receiptPosts = world => posts(world).filter(([path]) => path === '/api/v7/receipts');
 // Mở khung, gõ ngày và số tiền, Enter ở ô Số tiền: sang bước xem lại.
 async function fill(page, date, amount) {
@@ -14,6 +16,7 @@ async function fill(page, date, amount) {
   await drawer(page).locator('.receipt-date').fill(date);
   await drawer(page).locator('.receipt-amount').fill(amount);
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await confirmSmall(page);
 }
 
 test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (chưa gửi), Enter nữa mới ghi đúng một lệnh', async () => withPage(async ({ page, world, shot }) => {
@@ -204,6 +207,7 @@ test('Server báo ngày sau hôm nay: về ô Ngày, không kẹt lệnh; sổ �
   assert.equal(await drawer(page).locator('.entry-form').isVisible(), true);
   // Sổ đổi giữa lúc xem lại: lệnh bị từ chối vì phiên bản, sổ tải lại, khung vẫn ở bước xem lại với số mới.
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await confirmSmall(page);
   world.version += 1;
   world.total = '7000';
   await drawer(page).locator('.receipt-save').click();

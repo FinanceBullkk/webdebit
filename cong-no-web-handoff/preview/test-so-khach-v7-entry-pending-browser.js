@@ -6,12 +6,15 @@ const { clock, withPage, posts, settled } = require('./so-khach-v7-browser-world
 
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const drawer = page => page.locator('.entry-drawer');
+// Số dưới 100.000 đ phải bấm "Đúng số này" ở bước xem lại (PHIEU-WEB-01, review #676 lần 2); các test này dùng số nhỏ cho gọn.
+const confirmSmall = async page => { const ok = page.locator('.entry-drawer .entry-review .entry-doubt-ok'); if (await ok.count()) await ok.check(); };
 const receiptPosts = world => posts(world).filter(([path]) => path === '/api/v7/receipts');
 async function fill(page, date, amount) {
   if (await drawer(page).isHidden()) await page.locator('.entry-open').click();
   await drawer(page).locator('.receipt-date').fill(date);
   await drawer(page).locator('.receipt-amount').fill(amount);
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await confirmSmall(page);
 }
 async function unknownReceipt(page, amount) {
   await fill(page, today, amount);

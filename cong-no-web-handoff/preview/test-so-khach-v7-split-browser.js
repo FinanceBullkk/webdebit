@@ -3,7 +3,7 @@
  * ở sổ khác. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts, settled } = require('./so-khach-v7-browser-world');
+const { clock, withPage, reload, posts, settled } = require('./so-khach-v7-browser-world');
 
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const split = page => page.locator('.split-drawer');
@@ -208,4 +208,54 @@ test('Chặn tại chỗ: ngày sau hôm nay, thiếu tổng, chỉ một sổ, 
   assert.equal(await split(page).isHidden(), true);
   await settled(page);
   assert.equal(receiptPosts(world).length, 0);
+}, setup));
+
+test('Review #675 lần 2: tải lại trang giữa lần chia (có hỏi khi rời trang) thì mở lại về đúng bước kết quả, khóa cũ, sổ đã ghi không ghi lần hai', async () => withPage(async ({ page, world }) => {
+  await openWithTwo(page);
+  await split(page).locator('.split-amount[data-index="0"]').fill('30.000.000');
+  await split(page).locator('.split-amount[data-index="1"]').fill('20.000.000');
+  await split(page).locator('.split-next').click();
+  await split(page).locator('.split-review').waitFor();
+  world.books[2].dropNext = true;   // máy chủ lưu mà trang không nhận được kết quả
+  await split(page).locator('.split-save').click();
+  await split(page).locator('.split-review .split-st-unknown').waitFor();
+  const dialogs = [];
+  page.on('dialog', dialog => { dialogs.push(dialog.type()); dialog.accept(); });
+  await reload(page);
+  assert.deepEqual(dialogs, ['beforeunload'], 'còn phiếu chưa rõ thì trình duyệt hỏi trước khi rời trang');
+  await page.locator('.entry-open').click();
+  await page.locator('.entry-drawer .entry-split').click();
+  const text = await split(page).locator('.split-review').innerText();
+  assert.match(text, /Khách Thử Sửa: 30\.000\.000[^\n]*Đã ghi PH-001/);
+  assert.match(text, /Khách Hai: 20\.000\.000[^\n]*Chưa rõ đã lưu/);
+  await split(page).locator('.split-save').click();
+  await split(page).waitFor({ state: 'hidden' });
+  await settled(page);
+  const sent = receiptPosts(world);
+  assert.deepEqual(sent.map(body => body.customer_id), [1, 2, 2], 'sổ đã ghi không gửi lại');
+  assert.equal(sent[1].idempotency_key, sent[2].idempotency_key, 'gửi lại đúng khóa cũ sau khi tải lại trang');
+  assert.deepEqual([world.receipts.length, world.books[2].receipts.length], [1, 1]);
+  assert.equal(await page.evaluate(() => localStorage.getItem('webdebit:chia-do')), null, 'xong hết thì xóa trạng thái lưu ở máy');
+}, setup));
+
+test('Review #675 lần 2: sổ trong lần chia đã có phiếu cùng tham chiếu và số tiền thì phần đó mặc định không ghi; "Vẫn ghi" mới ghi', async () => withPage(async ({ page, world }) => {
+  world.receiptBook = { days: [{ date: clock, rows: [{ source: 'web', pid: 'PH-B7', customer_id: 2, name: 'Khách Hai', amount_vnd: '20000000', date: clock, note: 'UNC 777' }] }], undated: [] };
+  await openWithTwo(page);
+  await split(page).locator('.split-amount[data-index="0"]').fill('30.000.000');
+  await split(page).locator('.split-amount[data-index="1"]').fill('20.000.000');
+  await split(page).locator('.split-next').click();
+  const review = split(page).locator('.split-review');
+  await review.waitFor();
+  let text = await review.innerText();
+  assert.match(text, /Ghi 1 phiếu, tổng 30\.000\.000 đ/);
+  assert.match(text, /Khách Hai: 20\.000\.000[^\n]*Không ghi/);
+  assert.match(text, /Vẫn ghi: sổ này đã có PH-B7 cùng tham chiếu và số tiền/);
+  await review.locator('.split-dup').check();
+  text = await review.innerText();
+  assert.match(text, /Ghi 2 phiếu, tổng 50\.000\.000 đ/);
+  await review.locator('.split-dup').uncheck();
+  await review.locator('.split-save').click();
+  await split(page).waitFor({ state: 'hidden' });
+  await settled(page);
+  assert.deepEqual(receiptPosts(world).map(body => body.customer_id), [1]);
 }, setup));

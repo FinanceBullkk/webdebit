@@ -20,15 +20,20 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
    - **Đóng khi còn phiếu chưa ghi thì hỏi trước, không bỏ lần chia dở** (review độc lập 25/11/2026: bỏ rồi chia lại với khóa mới sẽ ghi lần hai các sổ đã lưu). "Đóng, ghi sau" giữ nguyên các khóa, bấm lại "Chia cho nhiều sổ…" là về đúng bước kết quả. Nút "Bỏ N phiếu chưa ghi" chỉ có khi không còn phiếu "chưa rõ đã lưu".
    - Phần bị từ chối hay chưa gửi sửa được số tiền ngay ở bước kết quả. Tổng mọi phần vẫn phải bằng tổng chuyển. Phần đổi số nhận khóa mới, phần đã ghi giữ nguyên. Phần "chưa rõ đã lưu" không sửa được, chỉ gửi lại đúng lệnh cũ.
    - Thiếu tham chiếu thì bước xem lại nhắc ghi mã giao dịch ngân hàng (không chặn).
+   - **Lần chia dở lưu ở máy** (localStorage của trình duyệt, từ lúc gửi lệnh đầu tới khi mọi phần xong hay người bỏ). Tải lại trang hay sang sổ khác rồi mở lại "Chia cho nhiều sổ…" thì về đúng bước kết quả với các khóa cũ. Trước khi gửi mỗi lệnh, phần đó được lưu là "chưa rõ" cùng khóa của nó. Trang không biết login (danh tính chỉ ở máy chủ, qua Tailscale), nên trạng thái gắn với trình duyệt của máy. Còn phần chưa xong thì trình duyệt hỏi trước khi rời trang.
+   - Sổ trong lần chia đã có phiếu web chưa hủy cùng tham chiếu và cùng số tiền (Bảng thu của tháng): phần đó mặc định **không ghi**, người bấm "Vẫn ghi" mới ghi.
    - Phiếu không rõ ngày không đi đường này: chia nhiều sổ cần ngày cụ thể.
 
 3. **Dán nhiều phiếu vào một sổ.** Nút "Dán nhiều phiếu…" của khung mở ô dán. Người chép từ Sheet các cột theo thứ tự **Ngày trả · Số tiền · Hình thức · Tham chiếu**, cột cố định theo Tab, ô trống giữ chỗ (Hình thức trống là THU TIỀN; ghi được THU TIỀN, ỨNG TRƯỚC, KHÁC; chữ khác là lỗi, không đoán). Dòng đầu không có chữ số ở ô ngày là dòng tiêu đề.
    - Trang đọc bảng ở model (`parseReceiptPaste`) và xem trước từng dòng, tổng tiền, tổng còn nợ trước → sau.
    - **Còn dòng lỗi thì không ghi phiếu nào**: ngày sai, ngày sau hôm nay, số tiền không đọc được, hình thức không hiểu. CẤN TRỪ phải ghi từng phiếu vì cần chọn sổ lấy tiền.
    - Theo review độc lập 25/11/2026:
-     - **Số nghi nhầm đơn vị** (dưới 1.000.000 đ hay trên 1 tỷ đ, cùng luật hỏi lại của ô giá; số đọc bằng bộ đọc chung, "1,500" là 1.500 đ) phải bấm "Đúng số này" từng dòng mới ghi được.
-     - **Dòng có thể đã ghi** (sổ đã có phiếu chưa hủy cùng số tiền, ngày cách không quá 3 ngày, như hàng chờ phiếu Sheet) mặc định **không ghi**; người bấm "Vẫn ghi" mới ghi.
-     - Bản xem trước nhắc khi bảng có dòng ghi ngày kiểu tháng/ngày (phần sau lớn hơn 12), và đánh dấu các dòng có cả ngày và tháng đều ≤ 12 để kiểm. Cũng nhắc khi lô trải nhiều tháng, hay có dòng nằm ở tháng đang khóa. Các nhắc này không chặn.
+     - **Số nghi nhầm đơn vị**: dưới 100.000 đ hay trên 1 tỷ đ. Khoản trả lẻ dưới 1 triệu là thật nên không hỏi (review lần 2 đổi ngưỡng từ luật ô giá sang luật riêng của phiếu thu, `receiptDoubt`). Số đọc bằng bộ đọc chung: "1,500" là 1.500 đ. Phải bấm "Đúng số này" từng dòng, hoặc "Đúng cả bảng" một lần, mới ghi được. **Khung một phiếu dùng cùng luật**: số ngoài khoảng đó phải bấm "Đúng số này" ở bước xem lại.
+     - **Dòng có thể đã ghi** mặc định **không ghi**, người bấm "Vẫn ghi" mới ghi. Hai trường hợp:
+       - sổ đã có phiếu chưa hủy cùng số tiền, ngày cách không quá 3 ngày (như hàng chờ phiếu Sheet);
+       - một dòng trước trong cùng bảng cùng số tiền, cùng tham chiếu, ngày cách không quá 3 ngày.
+     - Bản xem trước ghi ngày bằng chữ cạnh ngày số ("1 tháng 11"): bảng ghi tháng trước ngày mà cả hai phần ≤ 12 thì máy không nhận ra, người nhìn chữ thì thấy. Bản xem trước còn nhắc khi bảng có dòng kiểu tháng/ngày (phần sau lớn hơn 12), khi lô trải nhiều tháng, hay khi có dòng nằm ở tháng đang khóa. Các nhắc này không chặn.
+     - **Ghi đúng bản đã xem trước**: lúc bấm Ghi, nếu danh sách dòng sẽ ghi hay phiên bản sổ khác lúc vẽ bản xem trước, trang dừng, vẽ lại bản xem trước, người bấm lại.
    - Ghi bằng chuỗi lệnh của sổ như dán cột giá (`submitSeries`): mỗi dòng một lệnh `record_receipt` theo thứ tự, lệnh sau dùng phiên bản lệnh trước. Máy chủ từ chối thì dừng: dòng đã ghi rời khỏi ô, dòng lỗi và các dòng sau ở lại để sửa. Mất mạng thì ô dán được xóa (bấm Ghi lần nữa sẽ thành hai phiếu). Nút Thử lại ngay trong khung gửi lại đúng lệnh đó rồi ghi nốt, không ghi hai lần; Thử lại vẫn mất kết nối thì nút vẫn còn.
 4. **Ghi phiếu từ trang Thu chi.** Khoản thu "Chờ vào sổ" hay "Chưa vào sổ" đã gắn một sổ khách và có số tiền thì có nút **Ghi phiếu**. Nút mở Sổ khách của sổ đó với khung Ghi phiếu thu điền sẵn ngày của khoản, số tiền và tham chiếu: ảnh thì "CK <ngân hàng> <giờ> (ảnh Zalo)", tin thì "Zalo: <chữ tin>". Khung ghi rõ là điền sẵn từ Thu chi.
    - **Người vẫn xem lại và tự bấm ghi.** Tin hay ảnh không tự ghi tiền ([`ZALO-THU-CHI-01`](zalo-thu-chi-01.md)).
@@ -44,4 +49,4 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
 
 ĐỀ XUẤT của Claude trong phạm vi việc được giao; cả bốn mục không đổi DB, API hay quyền. ĐÃ KIỂM CHỨNG bằng test trang (`test-cong-no-format.js`, `test-so-khach-v7-model.js`, `test-thu-chi-model.js`, `test-so-khach-v7-entry-browser.js`, `test-so-khach-v7-split-browser.js`, `test-so-khach-v7-paste-receipts-browser.js`, `test-thu-chi-browser.js`) và unittest `test_v7_sheet_fix.py`. Người nhập đi thử trên `hao` là bước còn lại.
 
-<!-- du-lieu-gia: 1.000.000 -->
+<!-- du-lieu-gia: 1.000.000 100.000 -->

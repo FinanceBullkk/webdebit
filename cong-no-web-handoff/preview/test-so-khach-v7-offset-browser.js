@@ -67,6 +67,7 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
     await page.locator('.entry-drawer .receipt-reference').fill(reference);
     await page.locator('.entry-drawer .receipt-amount').fill('10');
     await page.locator('.entry-drawer .receipt-amount').press('Enter');
+    await page.locator('.entry-drawer .entry-doubt-ok').check();   // số dưới 100.000 đ phải xác nhận (PHIEU-WEB-01)
     await page.locator('.entry-drawer .receipt-save').click();
     await page.waitForFunction(count => document.querySelectorAll('[data-field="reference"]').length === count, expected);
     await page.waitForFunction(() => /Đã ghi phiếu PH-/.test(document.querySelector('.saved-strip')?.textContent ?? ''));
