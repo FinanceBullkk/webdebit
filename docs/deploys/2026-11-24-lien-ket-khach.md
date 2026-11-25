@@ -62,5 +62,5 @@
 - Ô tên khách trên TONG của sổ 123 khác tên tab một dấu cách. Phép kiểm TONG vẫn ghép được nên không chặn gì; sửa thì cho gọn.
 - Sổ 85: một container ghi ở hai tab khách (cùng xe, lệch một ngày), máy không chọn được sổ. Chờ kế toán xác nhận.
 - Hai chủ hàng mới chưa có sổ web (Sheet chưa có tab).
-- Cùng gốc, ngoài 13 dòng ban đầu: một chuyến đã gán tay vào sổ 148 ngày 4/11, nay kế toán tách sang tab riêng chưa có sổ (TONG lệch nên máy không tự tạo). Sổ 148 đi trước Sheet đúng bằng chuyến đó, máy đã gợi ý `ahead_other_book`. Chờ người dùng chọn cách xử lý.
+- Cùng gốc, ngoài 13 dòng ban đầu: một chuyến đã gán tay vào sổ 148 ngày 4/11, nay kế toán tách sang tab riêng chưa có sổ (TONG lệch nên máy không tự tạo). Sổ 148 đi trước Sheet đúng bằng chuyến đó, máy đã gợi ý `ahead_other_book`. Đã xử lý 25/11: tách sang sổ mới 247 ([nhật ký](2026-11-25-tach-so-148.md)).
 - `WEB_GHEP_KHACH` là bảng tĩnh lập 24/10: tên chủ hàng mới không tự thêm dòng nên chuyến của tên mới cứ chờ mà không ai được báo. Thuộc đề xuất kiến trúc liên kết khách (ĐỀ XUẤT, chưa có spec).
