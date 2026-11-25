@@ -44,10 +44,11 @@
   const tight = false;
   let showShipper = true;
   const shipperCell = html => showShipper ? html : '';
-  function useLiveColumns(ownNames, shipper = true, ownUsed = ownNames.map(() => true)) {
+  // SK-N5: sổ chuyến bộ (transport_mode BO của khách) ghi biển số ở ô carrier nên cột tên "Xe"; chưa biết loại sổ thì giữ "Hãng tàu".
+  function useLiveColumns(ownNames, shipper = true, ownUsed = ownNames.map(() => true), carrier = 'Hãng tàu') {
     showShipper = shipper;
     ownCount = ownNames.length;
-    labels = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
+    labels = ['STT', 'Số container', carrier, ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
     // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên; cột riêng chưa có khoản nào trong sổ chỉ cần chỗ cho
     // tên loại (xuống hai dòng) và dấu "–" (COT-PHU-PHI-01). Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
     ownEmpty = ownNames.map((_, index) => !ownUsed[index]);
@@ -209,6 +210,8 @@
 
   function renderShell(view) {
     const scrollY = window.scrollY;
+    // SK-N1: vẽ lại (sau mỗi lần sửa) giữ chỗ cuộn ngang của bảng chuyến rộng, không nhảy về cột đầu.
+    const scrollX = new Map([...root.querySelectorAll?.('.trip-body-scroll') ?? []].map(box => [box.closest('section')?.id, box.scrollLeft]));
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách, Lịch sử, tổng còn nợ.
     // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = Sổ khách / tên khách ▾, thanh bốn thẻ
     // (so-khach-v7-tabs-ui.js, phần đó cũng dời ô tìm khách lên thanh trên), Tổng còn nợ, nút chính "Ghi phiếu thu" và nút phụ
@@ -282,8 +285,24 @@
         section.append(trips);
         const bar = section.querySelector('.trip-toolbar');
         if (bar) trips.append(bar);
-        if (columnTable) trips.append(columnTable);
-        trips.append(table);
+        // SK-N1: bảng rộng hơn khung (feeOver) thì thân bảng cuộn ngang trong khung riêng, hàng tiêu đề ở khung riêng dính theo
+        // trang; hai khung cuộn ngang theo nhau. Điện thoại (DIEN-THOAI-CHUYEN-01) vẽ bảng thành thẻ nên không bọc.
+        const wrap = feeOver && columnTable && !(typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches);
+        if (wrap) {
+          const headBox = document.createElement('div'), bodyBox = document.createElement('div');
+          headBox.className = 'trip-head-scroll';
+          bodyBox.className = 'trip-body-scroll';
+          headBox.append(columnTable);
+          bodyBox.append(table);
+          trips.append(headBox, bodyBox);
+          const follow = (from, to) => from.addEventListener('scroll', () => { if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft; }, { passive: true });
+          follow(bodyBox, headBox);
+          follow(headBox, bodyBox);
+          bodyBox.scrollLeft = scrollX.get(section.id) ?? 0;
+        } else {
+          if (columnTable) trips.append(columnTable);
+          trips.append(table);
+        }
         for (const row of trips.querySelectorAll('.trip-list tr[data-row]')) {
           row.cells[columns.unitPrice()]?.classList.add('unit-price');
           row.lastElementChild?.classList.add('trip-amount');
@@ -307,10 +326,8 @@
   function pinReceipts() {
     if (typeof root.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
     const columnHead = live ? root.querySelector('.ledger-head') : null;
+    for (const td of root.querySelectorAll('.trip-list td')) cutTitle(td);
     for (const table of root.querySelectorAll('section > table.ledger')) {
-      for (const td of table.querySelectorAll('.trip-list td')) {
-        if (td.scrollWidth > td.clientWidth && !td.title) td.title = td.textContent.trim();
-      }
       // Bản live (SO-GON-06) không còn danh sách phiếu bên phải để dính.
       const head = columnHead ?? table.querySelector('tr.month th'), stick = table.querySelector('.pay-stick');
       if (!head || !stick) continue;
@@ -321,6 +338,24 @@
     }
   }
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', pinReceipts);
+  // SK-N5: ô chữ bị cắt "…" (Tuyến, Shipper, Hãng tàu…) có chữ rê chuột đủ chữ; ô đã có chữ rê chuột riêng thì giữ. Tính lại khi
+  // vẽ, đổi cỡ và lúc rê chuột vào ô (sửa tại ô đổi chữ mà không vẽ lại cả sổ). Tuyến ghép "nơi đi → nơi đến".
+  function cutTitle(td) {
+    if (td.title && !td.dataset.cutTitle) return;
+    const text = [...td.childNodes].map(node => node.textContent.trim()).filter(Boolean).join(' ');
+    // Tuyến cắt ở từng phần (nơi đi, nơi đến) nên xét cả ô con.
+    const cut = [td, ...td.children].some(box => box.scrollWidth > box.clientWidth);
+    if (cut && text && !td.querySelector('input')) {
+      td.title = text;
+      td.dataset.cutTitle = '1';
+    } else if (td.dataset.cutTitle) {
+      td.removeAttribute('title');
+      delete td.dataset.cutTitle;
+    }
+  }
+  if (typeof root.addEventListener === 'function') {
+    root.addEventListener('mouseover', event => { const td = event.target.closest?.('.trip-list td'); if (td) cutTitle(td); });
+  }
 
   function render() {
     const chain = model.monthChain(book);
@@ -473,8 +508,10 @@
       const used = feeColumnIds.filter(id => usedTypes.has(id));
       feeHidden = feeColumnIds.length - used.length;
       shownFeeIds = feeShowAll ? feeColumnIds : used;
+      const road = live.customerRow?.(customerId)?.transport_mode === 'BO';
+      fieldNames.carrier = road ? 'xe' : 'hãng tàu';
       useLiveColumns(shownFeeIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''),
-        shownFeeIds.map(id => usedTypes.has(id)));
+        shownFeeIds.map(id => usedTypes.has(id)), road ? 'Xe' : 'Hãng tàu');
       const updated = document.querySelector('#updated-at');
       const time = new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${time} · tự tải mỗi 60 giây`;

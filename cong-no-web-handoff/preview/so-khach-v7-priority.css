@@ -3,6 +3,8 @@
   /* Token cùng tên, cùng giá trị với cong-no-theme.css (trang này chưa nạp file đó, SK-N13): dùng dần khi đụng tới. */
   --surface:#fff;--line:#d7dce3;--line-soft:#e9ecf0;--ink:#1a1a19;--ink-2:#52514e;--accent-ink:#1c5cab;--accent-soft:#eaf2fc;
   --warning-soft:#fdf3e1;--radius:10px;
+  /* Nền hàng tiêu đề và dòng Tổng tháng của bảng chuyến (--head của cong-no-theme.css, ở đây --head là chiều cao); viền cột ghim phải. */
+  --col-head:#f3f5f8;--pin-line:#c9d3de;
   /* Nền tô vàng của dòng ?loc= (so-khach-v7.css .loc-hit) và của chuyến mới chờ duyệt: mục tương ứng trên thanh việc cùng màu. */
   --hit:#fff1c2;--hit-line:#e3c98f;--new:#fff1ad;--new-line:#d9b84a}
 body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
@@ -61,12 +63,17 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 .trip-tools button{margin:0;display:inline-flex;align-items:center;justify-content:center;min-width:36px;width:36px;min-height:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink-2);cursor:pointer}.trip-tools button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.trip-tools .month-lock[aria-pressed=true]{border-color:#a7d8cf;background:#e3f4f1;color:#0f766e}
 #refresh-data{font-size:0}
 .month-lock-text{display:none}.ledger-head{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:30;width:100%}
-.ledger{color:var(--ink)}.ledger th,.ledger td{border-right:0;border-color:var(--line-soft)}.ledger .columns th{height:34px;padding:0 5px;background:#f3f5f8;color:var(--ink-2);font-size:14px;font-weight:600;line-height:1.2;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.ledger .columns th.num{text-align:right}.ledger td{height:34px;min-height:34px;padding:4px 5px;font-size:14px}.ledger td.num{font-size:14px}.ledger-book.tight .ledger td.num{font-size:14px}.ledger .month-body>.trip-side{padding:0;border:0}.ledger-inner td{background:#fff}.ledger tr.subtotal td{height:40px;background:#f3f5f8;border:0;font-size:14px}
+.ledger{color:var(--ink)}.ledger th,.ledger td{border-right:0;border-color:var(--line-soft)}.ledger .columns th{height:34px;padding:0 5px;background:var(--col-head);color:var(--ink-2);font-size:14px;font-weight:600;line-height:1.2;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.ledger .columns th.num{text-align:right}.ledger td{height:34px;min-height:34px;padding:4px 5px;font-size:14px}.ledger td.num{font-size:14px}.ledger-book.tight .ledger td.num{font-size:14px}.ledger .month-body>.trip-side{padding:0;border:0}.ledger-inner td{background:#fff}.ledger tr.subtotal td{height:40px;background:var(--col-head);border:0;font-size:14px}
 .subtotal td:first-child{position:relative}.add-month-adjustment{margin:0 0 0 8px;min-height:30px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font-size:13px}
 .trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}.trip-list .row-delete{color:#6f6d67}.fee-pick{position:absolute;width:1px;height:1px;opacity:0}.trip-list tr:hover .fee-pick,.fee-pick:focus{position:static;width:auto;height:auto;opacity:1}
 .ledger td.missing{background:var(--warning-soft);color:#6b4000;font-size:14px;font-weight:600}
-.route-cell{white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis}.route-cell .info-edit{display:inline;padding:0;cursor:pointer}.route-cell .info-edit:focus-visible{outline:2px solid #2a78d6}.route-cell input.info-input{display:inline-block;width:45%;min-width:70px}.route-arrow{color:var(--ink-2)}
+.route-cell{white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis}.route-cell .info-edit{display:inline;padding:0;cursor:pointer}.route-cell .info-edit:focus-visible{outline:2px solid #2a78d6}.route-cell input.info-input{display:inline-block;width:100%;min-width:70px}.route-arrow{color:var(--ink-2)}
+/* SK-N5: Tuyến không vừa thì cắt nơi đi trước (còn một hai chữ và "…"), giữ nơi đến; chữ đủ ở chữ rê chuột (so-khach-v7-ui.js).
+   Ô là hộp flex (con: nơi đi, mũi tên, nơi đến — so-khach-v7-trips-ui.js route()), cao như ô khác của dòng. */
+.trip-list td.route-cell{display:flex;align-items:center;box-sizing:border-box}
+.route-cell>*{flex:none;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.route-cell>.route-arrow{padding:0 4px}.route-cell>:first-child{flex:0 1000 auto;min-width:2em}.route-cell>:last-child{flex:0 1 auto}.route-cell>:has(>.info-input){flex:1 1 auto}
 .ledger tr.spacer{display:none}.ledger .fee-other{background:#fff}.ledger .fee-h{color:var(--ink-2)}
 @media(max-width:1100px){.month-stats{flex-basis:100%;max-width:none;border-right:0}.month-pay-slot{overflow-x:auto}.pay-list{min-width:760px}.book-head{height:auto;min-height:61px;flex-wrap:wrap}.page-more{margin-left:auto}#the-so .layout{overflow-x:auto}.ledger-book section{min-width:0}.trip-card{overflow-x:auto}.trip-card>.ledger{min-width:980px}.ledger-head{position:static}.month-chips{position:static}.month-summary-layout{flex-direction:column}.month-card{width:100%}.month-stats{min-width:0}.book-head{position:static}.page-tabs{order:3;width:100%;margin-left:0}}
 @media(max-width:700px){body{padding-left:76px}.topbar{width:76px;padding:8px 0}.topbar>nav{width:auto;gap:2px;min-height:0}.topbar>nav a{padding:6px 2px}body:has(#demo-banner:not([hidden])){--banner:0px}#demo-banner:not([hidden]){position:static}.month-stats{padding:12px 10px}.month-end{flex-wrap:wrap}.month-pay-slot{padding:10px}.pay-head{flex-wrap:wrap}.book-head .page-name{font-size:16px}}
@@ -77,11 +84,18 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 /* COT-PHU-PHI-01: cột riêng chưa có khoản nào hẹp, tên loại chữ nhỏ hai dòng. Vẫn không vừa (bảy cột ở màn 1280 có Shipper):
    bảng chuyến cuộn ngang trong khung như màn hẹp, tiêu đề cột cuộn cùng bảng, không cắt mất cột Khác/Thành tiền. */
 .ledger .columns th.fee-narrow{padding:1px 3px;font-size:14px;line-height:1.1;overflow-wrap:normal}
-.ledger-book.fee-over .trip-card{overflow-x:auto}.ledger-book.fee-over .ledger-head{position:static}
+/* SK-N1 (25/11/2026, người dùng chọn cuộn trang): bảng rộng hơn khung thì chỉ thân bảng cuộn ngang (.trip-body-scroll); hàng
+   tiêu đề nằm ở khung riêng dính theo trang như sổ vừa màn và cuộn ngang theo thân (so-khach-v7-ui.js đồng bộ hai chiều).
+   Khung tiêu đề không hiện thanh cuộn: Shift + lăn chuột trên tiêu đề vẫn cuộn ngang. Điện thoại không bọc (so-khach-v7-phone.css). */
+.ledger-book.fee-over .trip-card{overflow:clip}
+.trip-head-scroll{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:30;overflow-x:auto;scrollbar-width:none;background:var(--col-head)}
+.trip-head-scroll>.ledger-head{position:static}.trip-body-scroll{overflow-x:auto}
+.trip-head-scroll>.ledger-head,.trip-body-scroll>.ledger{width:calc(100% - 28px);margin:0 14px}
+.trip-card:has(.detail-table) .trip-head-scroll{display:none}
 /* SO-GON-07 (23/11/2026, người dùng chọn A): bảng vẫn rộng hơn khung (nhiều cột phí có khoản trong tháng) thì chỉ phần giữa
    cuộn ngang; cột Thành tiền ghim phải, luôn thấy. */
 .ledger-book.fee-over .trip-card .ledger-head th.amount-h,.ledger-book.fee-over .trip-card .trip-list tr>td:last-child,
-.ledger-book.fee-over .trip-card tr.subtotal>td.amount-total{position:sticky;right:0;z-index:2;box-shadow:-2px 0 0 #c9d3de}
+.ledger-book.fee-over .trip-card tr.subtotal>td.amount-total{position:sticky;right:0;z-index:2;box-shadow:-2px 0 0 var(--pin-line)}
 .ledger-book.fee-over .trip-card .trip-list tr>td:last-child{background:#fff}
 .fee-cols-toggle{min-height:36px;padding:0 12px;border:1px solid #8daac9;border-radius:6px;background:#fff;color:#173d65;font:inherit;font-size:14px;cursor:pointer}
 .fee-cols-toggle:hover{background:#eef4fb}
@@ -94,7 +108,7 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 
 #refresh-data{height:36px;min-height:36px;padding:0;border-color:var(--line);border-radius:8px;color:var(--ink-2)}
 #refresh-data svg{flex:none;width:18px;height:18px}.month-stats{align-items:stretch}
-.ledger .columns th.fee-h{background:#f3f5f8;color:var(--ink-2)}.ledger td.fee,.ledger.locked td.fee{background:#fff}
+.ledger .columns th.fee-h{background:var(--col-head);color:var(--ink-2)}.ledger td.fee,.ledger.locked td.fee{background:#fff}
 .book-bar{min-height:0;padding:0;border:0;background:transparent}
 .pay-list .receipt-ref.empty{visibility:visible;opacity:0}.pay-list tr:hover .receipt-ref.empty,.pay-list .receipt-ref.empty:focus{opacity:1}
 
@@ -105,8 +119,8 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 .page-tab{min-width:40px}.month-card{overflow:visible}
 
 .trip-card>.ledger{width:calc(100% - 28px);margin:0 14px}.trip-card .trip-list{width:100%;margin:0}
-.ledger-head{background:#f3f5f8;box-shadow:-14px 0 #f3f5f8,14px 0 #f3f5f8}
-.subtotal{background:#f3f5f8;box-shadow:-14px 0 #f3f5f8,14px 0 #f3f5f8}.subtotal td:last-child{padding-right:0}.add-month-adjustment{margin-left:0}
+.ledger-head{background:var(--col-head);box-shadow:-14px 0 var(--col-head),14px 0 var(--col-head)}
+.subtotal{background:var(--col-head);box-shadow:-14px 0 var(--col-head),14px 0 var(--col-head)}.subtotal td:last-child{padding-right:0}.add-month-adjustment{margin-left:0}
 .pay-list td.receipt{position:relative}.pay-list .receipt>.image-clip{position:absolute;right:0;top:0;z-index:1;background:#fff}
 @media(max-width:1100px){.month-stats,.month-pay-slot{flex:none;width:100%}.month-pay-slot{overflow-x:auto}}
 @media(max-width:700px){.month-stats{grid-template-rows:34px 34px 34px auto}.month-stats .month-end{min-height:66px;flex-direction:column;align-items:flex-start;justify-content:center;gap:0}.month-pay-slot .pay-head{min-width:250px}}
