@@ -58,7 +58,13 @@ test('lý do máy chưa đưa chuyến booking vào web: câu nghiệp vụ và 
   assert.match(M.reasonOf('NO_BOOK').text, /chưa gắn sổ web/);
   assert.equal(M.reasonOf('NO_BOOK').who, 'person');
   assert.equal(M.reasonOf('COMMODITY_MISMATCH').who, 'person');
-  assert.equal(M.reasonOf('ROAD_NO_TAB').who, 'sheet');
+  // WEB-CHINH-01: chuyến bộ không chờ Sheet nữa; người gán tên chủ hàng hoặc chọn sổ trên web.
+  for (const code of ['ROAD_NO_TAB', 'ROAD_TAB_FAR', 'ROAD_AMBIGUOUS_TAB']) {
+    assert.equal(M.reasonOf(code).who, 'person');
+    assert.doesNotMatch(M.reasonOf(code).text, /sửa Sheet|chờ tab/);
+  }
+  assert.match(M.reasonOf('ROAD_NO_TAB').text, /thẻ Khách/);
+  assert.match(M.reasonOf('ROAD_TAB_FAR').text, /chọn sổ ở Việc cần làm/);
   assert.equal(M.reasonOf('NEXT_RUN').whoText, 'Máy tự làm');
   assert.deepEqual(M.reasonOf('UNKNOWN'), { text: 'Chưa đọc được lý do', who: null, whoText: '—' }, 'mã lạ không đoán');
 });

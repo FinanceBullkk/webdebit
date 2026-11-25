@@ -915,17 +915,21 @@
     if (button.hasAttribute('data-assign-trip')) {
       if (inbox.action || inbox.review) return;
       const ledger = inbox.details.get(inbox.open), source = button.dataset.assignTrip;
-      const row = ledger?.sheet_sync?.items?.find(r => r.source_fingerprint === source && r.sync_state === 'NEW');
+      // Chuyến biển chưa rõ sổ (`sheet_sync`, NEW) hoặc chuyến bộ máy giữ lại (`sheet_road`, NEEDS_BOOK, WEB-CHINH-01): cùng ô chọn sổ.
+      const sea = ledger?.sheet_sync?.items?.find(r => r.source_fingerprint === source && r.sync_state === 'NEW');
+      const road = sea ? null : ledger?.sheet_road?.items?.find(r => r.source_fingerprint === source && r.sync_reason === 'NEEDS_BOOK');
+      const row = sea ?? road;
       const targetId = Number(inboxRoot.querySelector(`[data-trip-book="${source}"]`)?.value);
       const choice = row?.candidate_books?.find(c => c.id === targetId);
       if (!choice) return;
+      const where = road ? choice.name : choice.commodity ?? choice.name;   // chuyến bộ: sổ ứng viên có thể của khách khác nhau
       button.disabled = true;
       try {
         const target = targetId === inbox.open ? ledger : await json(`/api/v7/ledger?customer=${targetId}`);
         if (!Number.isInteger(target.version)) throw Error();
-        inbox.action = { id: inbox.open, title: `Đưa chuyến ${row.container} vào ${choice.commodity ?? choice.name}`, rowKey: `assignment:${source}`,
+        inbox.action = { id: inbox.open, title: `Đưa chuyến ${row.container} vào ${where}`, rowKey: `assignment:${source}`,
           text: 'Chỉ đưa chuyến này vào sổ được chọn, chưa có giá, nợ không đổi. Chuyến nghi trùng sẽ chờ kiểm.',
-          inlineText: `Vào sổ ${choice.commodity ?? choice.name} · chưa giá, nợ không đổi`, path: '/api/v7/sheet/trips/assign',
+          inlineText: `Vào sổ ${where} · chưa giá, nợ không đổi`, path: road ? '/api/v7/sheet/road/assign' : '/api/v7/sheet/trips/assign',
           body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID(),
             target_customer_id: targetId, target_version: target.version, source_fingerprint: source } };
         paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();

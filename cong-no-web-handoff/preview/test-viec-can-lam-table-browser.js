@@ -469,6 +469,22 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await page.locator('[data-trip-book]').count(), 0);
       assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 3);
     });
+    // WEB-CHINH-01: chuyến bộ máy giữ lại (tab nhiều dòng hay lệch ngày) có ô chọn sổ; sổ ứng viên có thể của khách khác nên ghi tên sổ.
+    const choosePosts = [];
+    const chooseRoad = { ...ledger, sheet_road: { snapshot_sha256: sha, items: [
+      { sync_state: 'CONFLICT', sync_reason: 'NEEDS_BOOK', source_fingerprint: 'd'.repeat(64), container: 'MAUU0000031', event_date: '2026-10-05',
+        message: 'Tab Sheet ghi container này ở nhiều dòng hoặc nhiều sổ · chọn sổ nhận chuyến',
+        candidate_books: [{ id: 2, name: 'Công ty Mẫu Minh Châu', commodity: 'Sầu riêng' }, { id: 3, name: 'Công ty Mẫu Phú Gia', commodity: 'Sầu riêng' }] }] } };
+    await withPage({ posted: choosePosts, ledger: chooseRoad, unsorted: [{ customer_id: 2 }] }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-trip-book]').waitFor();
+      assert.deepEqual(await page.locator('[data-trip-book] option').allTextContents(), ['Chọn sổ', 'Công ty Mẫu Minh Châu', 'Công ty Mẫu Phú Gia']);
+      await page.locator('[data-trip-book]').selectOption('3'); await page.locator('[data-assign-trip]').click();
+      assert.match(await page.locator('.action-description').innerText(), /Vào sổ Công ty Mẫu Phú Gia.*nợ không đổi/);
+      await page.locator('[data-action-write]').click(); await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(choosePosts[0].route, '/api/v7/sheet/road/assign');
+      assert.deepEqual([choosePosts[0].body.target_customer_id, choosePosts[0].body.source_fingerprint], [3, 'd'.repeat(64)]);
+    });
     const undoPosts = [];
     await withPage({ posted: undoPosts, post: route => ({ status: 200, json: route.endsWith('/undo')
       ? { complete: true, undone: 1, version: 5 } : { complete: true, written: 1, version: 4, undo_keys: [sha] } }) }, async page => {
