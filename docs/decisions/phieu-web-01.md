@@ -22,10 +22,14 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
    - Thiếu tham chiếu thì bước xem lại nhắc ghi mã giao dịch ngân hàng (không chặn).
    - Phiếu không rõ ngày không đi đường này: chia nhiều sổ cần ngày cụ thể.
 
-3. **Dán nhiều phiếu vào một sổ.** Nút "Dán nhiều phiếu…" của khung mở ô dán. Người chép từ Sheet các cột ngày trả, số tiền, thêm hình thức (THU TIỀN, ỨNG TRƯỚC, KHÁC; trống là THU TIỀN) và tham chiếu nếu có. Dòng đầu không có ngày là dòng tiêu đề.
-   - Trang đọc bảng ở model (`parseReceiptPaste`, cùng cách đọc bảng dán Tab của cột giá) và xem trước từng dòng, tổng tiền, tổng còn nợ trước → sau.
-   - **Còn dòng lỗi thì không ghi phiếu nào**: ngày sai, ngày sau hôm nay, số tiền không đọc được. CẤN TRỪ phải ghi từng phiếu vì cần chọn sổ lấy tiền.
-   - Ghi bằng chuỗi lệnh của sổ như dán cột giá (`submitSeries`): mỗi dòng một lệnh `record_receipt` theo thứ tự, lệnh sau dùng phiên bản lệnh trước. Máy chủ từ chối thì dừng: dòng đã ghi rời khỏi ô, dòng lỗi và các dòng sau ở lại để sửa. Mất mạng thì ô dán được xóa (bấm Ghi lần nữa sẽ thành hai phiếu) và nút Thử lại ngay trong khung gửi lại đúng lệnh đó rồi ghi nốt, không ghi hai lần.
+3. **Dán nhiều phiếu vào một sổ.** Nút "Dán nhiều phiếu…" của khung mở ô dán. Người chép từ Sheet các cột theo thứ tự **Ngày trả · Số tiền · Hình thức · Tham chiếu**, cột cố định theo Tab, ô trống giữ chỗ (Hình thức trống là THU TIỀN; ghi được THU TIỀN, ỨNG TRƯỚC, KHÁC; chữ khác là lỗi, không đoán). Dòng đầu không có chữ số ở ô ngày là dòng tiêu đề.
+   - Trang đọc bảng ở model (`parseReceiptPaste`) và xem trước từng dòng, tổng tiền, tổng còn nợ trước → sau.
+   - **Còn dòng lỗi thì không ghi phiếu nào**: ngày sai, ngày sau hôm nay, số tiền không đọc được, hình thức không hiểu. CẤN TRỪ phải ghi từng phiếu vì cần chọn sổ lấy tiền.
+   - Theo review độc lập 25/11/2026:
+     - **Số nghi nhầm đơn vị** (dưới 1.000.000 đ hay trên 1 tỷ đ, cùng luật hỏi lại của ô giá; số đọc bằng bộ đọc chung, "1,500" là 1.500 đ) phải bấm "Đúng số này" từng dòng mới ghi được.
+     - **Dòng có thể đã ghi** (sổ đã có phiếu chưa hủy cùng số tiền, ngày cách không quá 3 ngày, như hàng chờ phiếu Sheet) mặc định **không ghi**; người bấm "Vẫn ghi" mới ghi.
+     - Bản xem trước nhắc khi bảng có dòng ghi ngày kiểu tháng/ngày (phần sau lớn hơn 12), và đánh dấu các dòng có cả ngày và tháng đều ≤ 12 để kiểm. Cũng nhắc khi lô trải nhiều tháng, hay có dòng nằm ở tháng đang khóa. Các nhắc này không chặn.
+   - Ghi bằng chuỗi lệnh của sổ như dán cột giá (`submitSeries`): mỗi dòng một lệnh `record_receipt` theo thứ tự, lệnh sau dùng phiên bản lệnh trước. Máy chủ từ chối thì dừng: dòng đã ghi rời khỏi ô, dòng lỗi và các dòng sau ở lại để sửa. Mất mạng thì ô dán được xóa (bấm Ghi lần nữa sẽ thành hai phiếu). Nút Thử lại ngay trong khung gửi lại đúng lệnh đó rồi ghi nốt, không ghi hai lần; Thử lại vẫn mất kết nối thì nút vẫn còn.
 4. **Ghi phiếu từ trang Thu chi.** Khoản thu "Chờ vào sổ" hay "Chưa vào sổ" đã gắn một sổ khách và có số tiền thì có nút **Ghi phiếu**. Nút mở Sổ khách của sổ đó với khung Ghi phiếu thu điền sẵn ngày của khoản, số tiền và tham chiếu: ảnh thì "CK <ngân hàng> <giờ> (ảnh Zalo)", tin thì "Zalo: <chữ tin>". Khung ghi rõ là điền sẵn từ Thu chi.
    - **Người vẫn xem lại và tự bấm ghi.** Tin hay ảnh không tự ghi tiền ([`ZALO-THU-CHI-01`](zalo-thu-chi-01.md)).
    - Phiếu nháp sang trang sổ qua `sessionStorage` (không đưa số tiền lên địa chỉ trang), dùng một lần, hết hạn sau 15 phút, chỉ nhận ở đúng sổ.
@@ -39,3 +43,5 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
 ## Hiệu lực và giới hạn
 
 ĐỀ XUẤT của Claude trong phạm vi việc được giao; cả bốn mục không đổi DB, API hay quyền. ĐÃ KIỂM CHỨNG bằng test trang (`test-cong-no-format.js`, `test-so-khach-v7-model.js`, `test-thu-chi-model.js`, `test-so-khach-v7-entry-browser.js`, `test-so-khach-v7-split-browser.js`, `test-so-khach-v7-paste-receipts-browser.js`, `test-thu-chi-browser.js`) và unittest `test_v7_sheet_fix.py`. Người nhập đi thử trên `hao` là bước còn lại.
+
+<!-- du-lieu-gia: 1.000.000 -->

@@ -48,7 +48,7 @@
       <div class="entry-actions"><button type="button" class="entry-next">Xem lại</button></div>
     </div><div class="entry-review" role="region" aria-label="Xem lại phiếu thu trước khi ghi" hidden></div>
     <div class="entry-paste" role="region" aria-label="Dán nhiều phiếu thu" hidden>
-      <p class="entry-hint">Chép từ Sheet các cột <b>Ngày trả · Số tiền</b>, thêm Hình thức và Tham chiếu nếu có, rồi dán vào ô dưới. Mỗi dòng một phiếu của sổ này.</p>
+      <p class="entry-hint">Chép từ Sheet các cột theo thứ tự <b>Ngày trả · Số tiền · Hình thức · Tham chiếu</b> (Hình thức để trống là THU TIỀN; hai cột sau không bắt buộc), rồi dán vào ô dưới. Mỗi dòng một phiếu của sổ này.</p>
       <textarea class="paste-receipts" aria-label="Bảng phiếu thu dán vào" rows="6" spellcheck="false"></textarea>
       <div class="paste-preview" role="status"></div>
       <p class="cell-error paste-error" role="alert"></p>
@@ -67,34 +67,63 @@
   // record_receipt, lệnh sau dùng phiên bản lệnh trước; lỗi thì dừng, các dòng chưa ghi ở lại trong ô; mất mạng thì Thử lại ở
   // khung (hay ở đầu sổ) gửi lại đúng lệnh đó (không ghi hai lần).
   let pasteBusy = false;
-  function pastePlan() { return model.parseReceiptPaste($('.paste-receipts').value, ctx.todayIso()); }
+  // Xác nhận theo số dòng của bảng đang dán: số nghi nhầm đơn vị đã kiểm (`pasteOk`), dòng có thể đã ghi mà người vẫn muốn ghi
+  // (`pasteDup`). Dán lại hay sửa ô thì xóa, hỏi lại từ đầu.
+  const pasteOk = new Set(), pasteDup = new Set();
+  // Tháng khóa như bước xem lại của phiếu đơn: theo ổ khóa của sổ, chưa có dòng khóa thì chỉ tháng hiện tại mở.
+  const monthLocked = key => {
+    const data = ctx.snapshot ?? {};
+    const lock = (data.month_locks ?? []).find(row => monthKey(row.month) === key);
+    return lock ? lock.locked : key !== (monthKey(data.today_month) || liveOpenMonth);
+  };
+  function pastePlan() {
+    const plan = model.parseReceiptPaste($('.paste-receipts').value, ctx.todayIso(), { receipts: ctx.snapshot?.receipts ?? [], isLocked: monthLocked });
+    // Dòng có thể đã ghi: mặc định không ghi (người bấm "Vẫn ghi" mới ghi). Số nghi nhầm đơn vị: phải bấm "Đúng số này".
+    plan.send = plan.rows.filter(row => !row.duplicate || pasteDup.has(row.line));
+    plan.unchecked = plan.send.filter(row => row.doubt && !pasteOk.has(row.line));
+    return plan;
+  }
+  function pasteRow(row) {
+    const marks = [
+      row.duplicate ? `<label class="paste-flag"><input type="checkbox" class="paste-dup" data-line="${row.line}"${pasteDup.has(row.line) ? ' checked' : ''}> Vẫn ghi: có thể đã ghi rồi (${escape(row.duplicate.pid ?? 'phiếu')} cùng số tiền, ngày ${escape(dateText(row.duplicate.date))})</label>` : '',
+      row.doubt && (!row.duplicate || pasteDup.has(row.line)) ? `<label class="paste-flag"><input type="checkbox" class="paste-ok" data-line="${row.line}"${pasteOk.has(row.line) ? ' checked' : ''}> Đúng số này. ${escape(row.doubtText)}</label>` : '',
+      row.locked ? '<small>Tháng đang khóa; phiếu vẫn ghi được.</small>' : '',
+    ].filter(Boolean).join('');
+    const skipped = row.duplicate && !pasteDup.has(row.line);
+    return `<li${skipped ? ' class="paste-skip"' : ''}>Dòng ${row.line}: ${escape(dateText(row.date))}${row.maybeSwapped ? ' <b class="paste-date-mark">(kiểm ngày/tháng)</b>' : ''} · <b>${fmt(row.amountVnd.toString())} đ</b> · ${escape(row.method)}${row.reference ? ` · ${escape(row.reference)}` : ''}${skipped ? ' · <b>không ghi</b>' : ''}${marks}</li>`;
+  }
   function paintPaste() {
     const plan = pastePlan(), box = $('.paste-preview'), save = $('.paste-save');
     $('.paste-error').textContent = '';
     if (!$('.paste-receipts').value.trim()) { box.innerHTML = ''; save.disabled = true; save.textContent = 'Ghi phiếu'; return; }
-    const total = plan.rows.reduce((sum, row) => sum + row.amountVnd, 0n);
+    const total = plan.send.reduce((sum, row) => sum + row.amountVnd, 0n);
     const money = model.planReceiptPreview(ctx.snapshot.total_outstanding_vnd, total.toString());
-    const rows = plan.rows.map(row => `<li>Dòng ${row.line}: ${escape(dateText(row.date))} · <b>${fmt(row.amountVnd.toString())} đ</b> · ${escape(row.method)}${row.reference ? ` · ${escape(row.reference)}` : ''}</li>`).join('');
+    // Cảnh báo ngày chỉ hiện khi bảng có dấu hiệu tháng/ngày; không có thì bỏ dấu "(kiểm ngày/tháng)" ở từng dòng cho đỡ rối.
+    const swapped = plan.warnings.some(text => text.includes('tháng/ngày'));
+    for (const row of plan.rows) row.maybeSwapped &&= swapped;
     box.innerHTML = (plan.errors.length ? `<ul class="paste-errors">${plan.errors.map(text => `<li>${escape(text)}</li>`).join('')}</ul><p class="entry-note">Sửa các dòng lỗi trên Sheet rồi chép, dán lại. Còn dòng lỗi thì chưa ghi phiếu nào.</p>` : '')
-      + (plan.rows.length ? `<p class="paste-sum">${plan.rows.length} phiếu, tổng <b>${fmt(total.toString())} đ</b>. Tổng còn nợ: ${model.formatVnd(money.beforeVnd)} đ → <b>${model.formatVnd(money.afterVnd)} đ</b>.</p><ol class="paste-rows">${rows}</ol>` : '');
-    save.disabled = Boolean(plan.errors.length) || !plan.rows.length || pasteBusy;
-    save.textContent = plan.rows.length ? `Ghi ${plan.rows.length} phiếu` : 'Ghi phiếu';
+      + plan.warnings.map(text => `<p class="entry-note paste-warn">${escape(text)}</p>`).join('')
+      + (plan.rows.length ? `<p class="paste-sum">${plan.send.length} phiếu, tổng <b>${fmt(total.toString())} đ</b>. Tổng còn nợ: ${model.formatVnd(money.beforeVnd)} đ → <b>${model.formatVnd(money.afterVnd)} đ</b>.</p><ol class="paste-rows">${plan.rows.map(pasteRow).join('')}</ol>` : '')
+      + (plan.unchecked.length ? `<p class="entry-note">Bấm "Đúng số này" ở dòng ${plan.unchecked.map(row => row.line).join(', ')} rồi mới ghi được.</p>` : '');
+    save.disabled = Boolean(plan.errors.length) || !plan.send.length || Boolean(plan.unchecked.length) || pasteBusy;
+    save.textContent = plan.send.length ? `Ghi ${plan.send.length} phiếu` : 'Ghi phiếu';
   }
   async function savePaste() {
     if (pasteBusy) return;
     const plan = pastePlan();
-    if (plan.errors.length || !plan.rows.length) return;
+    if (plan.errors.length || !plan.send.length || plan.unchecked.length) return;
     if (api.hasPending()) { $('.paste-error').textContent = 'Còn thao tác khác chưa xong hoặc chưa rõ đã lưu. Xong việc đó (nút Thử lại ở đầu sổ) rồi bấm Ghi.'; return; }
     const lines = $('.paste-receipts').value.replace(/\r\n?/g, '\n').split('\n');
     pasteBusy = true;
     $('.paste-save').disabled = true;
     let outcome;
     try {
-      outcome = await api.submitSeries('receipt', plan.rows.map(row => ({ date: row.date, method: row.method, amount_vnd: row.amountVnd.toString(),
+      outcome = await api.submitSeries('receipt', plan.send.map(row => ({ date: row.date, method: row.method, amount_vnd: row.amountVnd.toString(),
         ...(row.reference ? { reference: row.reference } : {}) })), 'phiếu');
     } catch (error) { $('.paste-error').textContent = error.message; $('.paste-save').disabled = false; return; }
     finally { pasteBusy = false; }
-    settlePaste(outcome, plan.rows, lines);
+    pasteOk.clear(); pasteDup.clear();
+    settlePaste(outcome, plan.send, lines);
   }
   // Kết quả chuỗi ghi: xong thì đóng khung; bị từ chối thì để lại dòng chưa ghi; chưa rõ thì xóa ô dán (chuỗi còn giữ ở sổ) và
   // cho Thử lại ngay trong khung: gửi lại đúng lệnh chưa rõ rồi ghi nốt các dòng sau, không ghi hai lần.
@@ -129,7 +158,16 @@
     const rows = pasteRetry;
     pasteBusy = true;
     $('.paste-retry').disabled = true;
-    try { await api.retry(); } catch (error) { $('.paste-error').textContent = error.message; return; } finally { pasteBusy = false; }
+    try { await api.retry(); } catch (error) {
+      // Thử lại lỗi (lệnh khác đang chạy, mất mạng nữa): giữ nút Thử lại, chuỗi vẫn chưa rõ.
+      $('.paste-error').innerHTML = `${escape(error.message)} Phiếu tiếp theo vẫn chưa rõ đã lưu. <button type="button" class="paste-retry">Thử lại</button>`;
+      return;
+    } finally { pasteBusy = false; }
+    if (api.lastOutcome()?.status === 'unknown') {
+      $('.paste-error').innerHTML = 'Vẫn chưa rõ phiếu đã lưu chưa (mất kết nối). Bấm Thử lại lần nữa: phiếu không bị ghi hai lần. <button type="button" class="paste-retry">Thử lại</button>';
+      $('.paste-retry').focus();
+      return;
+    }
     pasteRetry = null;
     settlePaste(api.lastOutcome(), rows, null);
   }
@@ -429,7 +467,14 @@
     });
     drawer.addEventListener('input', event => {
       // Sửa ô thì lỗi cũ của ô đó tắt ngay (không đợi lần Xem lại sau); số tiền hiện số đã hiểu có nhóm nghìn.
-      if (event.target.matches('.paste-receipts')) { paintPaste(); return; }
+      if (event.target.matches('.paste-receipts')) { pasteOk.clear(); pasteDup.clear(); paintPaste(); return; }
+      if (event.target.matches('.paste-ok,.paste-dup')) {
+        const set = event.target.matches('.paste-ok') ? pasteOk : pasteDup, line = Number(event.target.dataset.line);
+        if (event.target.checked) set.add(line); else set.delete(line);
+        paintPaste();
+        drawer.querySelector(`.${event.target.className}[data-line="${line}"]`)?.focus();
+        return;
+      }
       if (event.target.matches('.receipt-date')) $('.receipt-date-error').textContent = '';
       if (event.target.matches('.receipt-amount')) { $('.receipt-amount-error').textContent = ''; paintAmountHint(); }
       if (event.target.matches('.receipt-date') && event.target.value.length === 10) $('.receipt-amount').focus();

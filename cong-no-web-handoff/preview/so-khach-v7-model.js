@@ -639,22 +639,29 @@ const SoKhachV7Model = (() => {
     return { ...base, ok: true, parts: parts.map((part, index) => ({ customerId: part.customerId, amountVnd: amounts[index] })) };
   }
 
-  /** Dán nhiều phiếu thu vào một sổ (PHIEU-WEB-01 mục 3), cùng cách đọc bảng dán của cột giá: mỗi dòng một phiếu, ô cách nhau
-   *  bằng Tab (chép từ Sheet/Excel). Cột: ngày trả (d/m/yyyy), số tiền, rồi tùy chọn hình thức (THU TIỀN, ỨNG TRƯỚC, KHÁC; không
-   *  ghi thì THU TIỀN) và tham chiếu (các ô còn lại nối bằng " · "). Dòng đầu không có ngày thì coi là dòng tiêu đề.
-   *  CẤN TRỪ không dán được (cần sổ lấy tiền). Trả { rows: [{ line, date, method, amountVnd, reference }], errors: [câu có số dòng] }. */
+  /** Dán nhiều phiếu thu vào một sổ (PHIEU-WEB-01 mục 3), cùng cách đọc bảng dán Tab của cột giá: mỗi dòng một phiếu. Cột cố
+   *  định theo Tab, ô trống giữ chỗ: 1 ngày trả (d/m/yyyy), 2 số tiền, 3 hình thức (trống là THU TIỀN; THU TIỀN, ỨNG TRƯỚC, KHÁC),
+   *  4 trở đi tham chiếu (nối bằng " · "). Dòng đầu không có chữ số ở ô ngày là dòng tiêu đề. CẤN TRỪ không dán được.
+   *  `receipts`: phiếu đang có trong sổ (bản GET), để đánh dấu dòng có thể đã ghi (cùng số tiền, ngày cách ≤ 3 ngày, như hàng chờ
+   *  phiếu Sheet); `isLocked(yyyy-mm)`: tháng đang khóa (phiếu vẫn ghi được, chỉ nhắc).
+   *  Trả { rows: [{ line, date, method, amountVnd, reference, doubt, doubtText, maybeSwapped, locked, duplicate }], errors, warnings }.
+   *  `doubt` theo cùng luật hỏi lại nhầm đơn vị của ô giá (priceDoubt): dưới 1.000.000 đ hay trên 1 tỷ đ thì người xác nhận. */
   const PASTE_METHODS = ["THU TIỀN", "ỨNG TRƯỚC", "KHÁC"];
-  function parseReceiptPaste(text, todayIso) {
+  const PASTE_DUPLICATE_DAYS = 3;
+  function parseReceiptPaste(text, todayIso, { receipts = [], isLocked = null } = {}) {
     const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-    const rows = [], errors = [];
+    const rows = [], errors = [], warnings = [];
+    let monthFirst = null;   // dòng ghi ngày kiểu tháng/ngày (phần sau > 12): dấu hiệu cả bảng có thể đảo
     for (const [index, raw] of lines.entries()) {
       const line = index + 1;
       const cells = raw.split("\t").map(cell => cell.trim());
       if (!cells.some(Boolean)) continue;
+      const parts = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(cells[0]);
       let date;
       try { date = parseCellEdit("event_date", cells[0], null); } catch {
         if (!rows.length && !errors.length && !/\d/.test(cells[0])) continue;   // dòng tiêu đề
+        if (parts && Number(parts[1]) <= 12 && Number(parts[2]) > 12) monthFirst ??= line;
         errors.push(`Dòng ${line}: ngày “${cells[0]}” phải dạng dd/mm/yyyy.`);
         continue;
       }
@@ -662,14 +669,28 @@ const SoKhachV7Model = (() => {
       let amount;
       try { amount = parseVnd(String(cells[1] ?? "").replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { amount = null; }
       if (amount === null || amount <= 0n || amount > 9223372036854775807n) { errors.push(`Dòng ${line}: “${cells[1] ?? ""}” không đọc được thành số tiền.`); continue; }
-      const rest = cells.slice(2).filter(Boolean);
-      const named = rest.length ? PASTE_METHODS.find(method => method.localeCompare(rest[0], "vi", { sensitivity: "base" }) === 0) : null;
-      if (!named && rest.length && rest[0].localeCompare("CẤN TRỪ", "vi", { sensitivity: "base" }) === 0) { errors.push(`Dòng ${line}: cấn trừ phải ghi từng phiếu (chọn sổ lấy tiền).`); continue; }
-      const reference = (named ? rest.slice(1) : rest).join(" · ").slice(0, 500) || null;
-      rows.push({ line, date, method: named ?? "THU TIỀN", amountVnd: amount, reference });
+      const kind = cells[2] ?? "";
+      const method = kind ? PASTE_METHODS.find(name => name.localeCompare(kind, "vi", { sensitivity: "base" }) === 0) : "THU TIỀN";
+      if (!method && kind.localeCompare("CẤN TRỪ", "vi", { sensitivity: "base" }) === 0) { errors.push(`Dòng ${line}: cấn trừ phải ghi từng phiếu (chọn sổ lấy tiền).`); continue; }
+      if (!method) { errors.push(`Dòng ${line}: hình thức “${kind}” không hiểu. Cột 3 để trống (THU TIỀN) hoặc ghi THU TIỀN, ỨNG TRƯỚC, KHÁC.`); continue; }
+      const reference = cells.slice(3).filter(Boolean).join(" · ").slice(0, 500) || null;
+      const day = Number(parts?.[1] ?? 0), month = Number(parts?.[2] ?? 0);
+      const near = (receipts ?? []).find(item => item.voided == null && item.voided_by_event == null && String(item.amount_vnd) === amount.toString()
+        && Math.abs(Date.parse(`${item.date}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) <= PASTE_DUPLICATE_DAYS * 86400000);
+      rows.push({ line, date, method, amountVnd: amount, reference, doubt: priceDoubt(amount), doubtText: priceDoubt(amount) ? priceDoubtText(amount) : "",
+        maybeSwapped: day <= 12 && month <= 12 && day !== month, locked: Boolean(isLocked?.(date.slice(0, 7))),
+        duplicate: near ? { pid: near.pid ?? null, date: near.date } : null });
     }
     if (!rows.length && !errors.length) errors.push("Chưa có dòng nào. Chép các cột ngày, số tiền (và hình thức, tham chiếu nếu có) rồi dán.");
-    return { rows, errors };
+    const swapped = rows.filter(row => row.maybeSwapped);
+    if (monthFirst && swapped.length) {
+      warnings.push(`Dòng ${monthFirst} ghi ngày kiểu tháng/ngày: bảng có thể đang ghi tháng trước ngày. Kiểm ngày của dòng ${swapped.map(row => row.line).join(", ")} (cả ngày và tháng đều ≤ 12, máy đọc là ngày/tháng).`);
+    }
+    const months = [...new Set(rows.map(row => row.date.slice(0, 7)))].sort();
+    if (months.length > 1) warnings.push(`Các phiếu nằm ở ${months.length} tháng: ${months.map(key => `${Number(key.slice(5))}/${key.slice(0, 4)}`).join(", ")}. Kiểm lại nếu đây là một lần chép.`);
+    const locked = rows.filter(row => row.locked);
+    if (locked.length) warnings.push(`Dòng ${locked.map(row => row.line).join(", ")} nằm ở tháng đang khóa; phiếu vẫn ghi được.`);
+    return { rows, errors, warnings };
   }
 
   function offsetErrorMessage(code, detail) {
