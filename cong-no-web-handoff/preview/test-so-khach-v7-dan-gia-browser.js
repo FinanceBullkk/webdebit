@@ -192,3 +192,65 @@ test('đang đọc lại sổ sau lệnh giá cuối: Ghi phiếu thu bị chặ
     assert.equal(await page.locator('.paste-review').count(), 0, 'khung đóng, không kẹt ở "Đang ghi…"');
   }, world);
 });
+
+// WEB-CHINH-01 mục 4: dán cả cột phụ phí riêng (PHU-PHI-01), cùng khung xem lại và cùng luật bỏ qua như dán giá.
+const own = (page, id, type) => page.locator(`td.fee.own.fee-edit[data-fee-target="trip:${id}"][data-fee-type="${type}"]`);
+const feePosts = w => posts(w).filter(([path]) => path === '/api/v7/trips/fees/set').map(([, body]) => body);
+test('dán cột phụ phí: xem lại cũ → mới, chuyến chưa giá không cộng nợ, chờ kiểm bỏ qua; Ghi gửi từng lệnh đặt loại', async () => withPage(async ({ page, world: w }) => {
+  await own(page, 11, 1).focus();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '1.200.000\n300000\n5000\n800000');
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  const review = page.locator('.paste-review');
+  await review.waitFor();
+  const text = await review.innerText();
+  assert.match(text, /Ghi Neo cho 3 chuyến\?/);
+  // Chuyến 11 (50 triệu) +1,2 triệu; chuyến 15 (40 triệu) +5.000; chuyến 13 chưa giá thì chưa tính nợ.
+  assert.match(text, /Tổng còn nợ 100\.000\.000 đ → 101\.205\.000 đ/);
+  assert.match(text, /DEMU0000013 · 20\/09\/2026 · trống → 300\.000 đ\s*chuyến chưa có giá: chưa cộng vào nợ/);
+  assert.match(text, /5\.000 đ\s*dưới 10\.000 đ: nghi sai đơn vị/);
+  assert.match(text, /Dòng 4 · DEMU0000014 · không ghi: chờ kiểm/);
+  assert.equal(feePosts(w).length, 0);
+  await page.locator('.paste-write').click();
+  await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:15"][data-fee-type="1"]')?.textContent === '5.000');
+  assert.deepEqual(feePosts(w).map(body => [body.target.trip_id, body.fee_type_id, body.amount_vnd, body.expected_version]),
+    [[11, 1, '1200000', 1], [13, 1, '300000', 2], [15, 1, '5000', 3]]);
+  assert.match(await toast(page).innerText(), /Đã ghi 3 ô phụ phí\./);
+}, wb => { world(wb); wb.feeColumns = [1]; }));
+
+test('dán cột Giảm trừ: số dương bị chặn kèm dòng, không gửi lệnh', async () => withPage(async ({ page, world: w }) => {
+  await own(page, 11, 8).focus();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '200000');
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  assert.match(await page.locator('.paste-review .price-panel.err').innerText(), /Dòng 1: “200000” không đọc được[\s\S]*Giảm trừ nhập số âm\./);
+  assert.equal(feePosts(w).length, 0);
+}, wb => { world(wb); wb.feeColumns = [8]; }));
+
+// GIA-BOOKING-01 trong ô giá Sổ khách: ô chưa giá ghi "chưa có giá" kèm giá booking; mở ô là điền sẵn, chỉ Enter mới ghi.
+test('ô chưa giá có giá booking: mở ô điền sẵn, rời ô không ghi, Enter ghi đúng giá booking', async () => withPage(async ({ page, world: w }) => {
+  const cell = price(page, 13);
+  assert.match(await cell.innerText(), /chưa có giá\s*booking 45 tr/);
+  assert.match(await cell.getAttribute('aria-label'), /giá booking 45\.000\.000 đồng/);
+  await cell.click();
+  const input = cell.locator('input.money-input');
+  assert.equal(await input.inputValue(), '45.000.000');
+  assert.match(await cell.locator('.booking-note').innerText(), /giá booking, đồng · Enter để ghi · phụ phí 1\.500\.000 gõ ở cột phụ phí/);
+  await input.evaluate(el => el.blur());   // rời ô mà chưa sửa: không ghi
+  await page.waitForTimeout(50);
+  assert.equal(pricePosts(w).length, 0);
+  await cell.click();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('td.editable[data-trip="13"]')?.textContent.startsWith('45.000.000'));
+  assert.deepEqual(pricePosts(w).map(body => [body.trip_id, body.unit_price_vnd, body.other_fee_vnd]), [[13, '45000000', null]]);
+  // Gõ chữ số khi đứng ở ô: thay giá gợi ý như gõ đè.
+  assert.equal(await price(page, 11).innerText(), '50.000.000');
+}, wb => { world(wb); wb.sheetSync.booking_prices = { 13: { text: '45tr + 1tr5', unit_price_vnd: '45000000', other_fee_vnd: '1500000' } }; }));
+
+test('ô chưa giá luôn ghi "chưa có giá", kể cả chuyến máy dán từ booking (trước đây để trống)', async () => withPage(async ({ page }) => {
+  assert.equal((await price(page, 13).innerText()).trim(), 'chưa có giá');
+}, wb => { world(wb); wb.trips.find(trip => trip.id === 13).note = 'Chuyến đồng bộ'; }));
