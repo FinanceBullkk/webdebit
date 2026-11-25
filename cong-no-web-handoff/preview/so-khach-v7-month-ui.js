@@ -7,10 +7,15 @@
 (window.SoKhachV7LiveParts ??= {}).month = ctx => {
   'use strict';
   const { root, model, escape, fmt, num, dateText, monthKey, monthLabel, liveOpenMonth, columns, ghosts, redraw, showNotice,
-    legacyTripRow, webTripRow, sheetPendingRows, payRows } = ctx;
+    legacyTripRow, webTripRow, sheetPendingRows, bookingMissingRows, payRows } = ctx;
   const { short, monthTag } = CongNoFormat;
   // Chuyến Sheet chưa vào sổ: dòng mới, hoặc lệch mà chưa nối được dòng nào trong sổ.
   const sheetPending = row => row.sync_state === 'NEW' || !row.existing_id;
+  // DONG-MO-BOOKING-01: chuyến booking sổ chưa có; bỏ chuyến đã hiện thành dòng Sheet chờ (cùng container, lệch không quá 3 ngày).
+  const contKey = value => String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const near = (a, b) => Math.abs(Date.parse(String(a).slice(0, 10)) - Date.parse(String(b).slice(0, 10))) <= 3 * 86400000;
+  const bookingMissing = (data, key, sheetRows) => (data.booking_missing?.items ?? []).filter(row => monthKey(row.date) === key
+    && !sheetRows.some(other => contKey(other.container) === contKey(row.container) && near(other.event_date, row.date)));
   // Xuống dòng giữa các hàng của bảng tháng, giữ đúng như trước khi tách file để DOM không đổi.
   const GAP = '\n          ';
 
@@ -45,7 +50,8 @@
     // Đổi ngày sang tháng khác: chuyến/dòng sổ gốc tự sang bảng tháng đó, chưa có bảng thì bảng tự hiện.
     for (const row of [...(data.trips ?? []), ...(data.legacy_rows ?? []), ...ghosts,
       ...(data.receipts ?? []).map(item => ({ month: item.date })),
-      ...(data.sheet_sync?.items ?? []).filter(sheetPending).map(item => ({ month: item.event_date }))]) {
+      ...(data.sheet_sync?.items ?? []).filter(sheetPending).map(item => ({ month: item.event_date })),
+      ...(data.booking_missing?.items ?? []).map(item => ({ month: item.date }))]) {
       const key = monthKey(row.month);
       if (key && !groups.some(group => monthKey(group.month) === key)) groups.push({ month: `${key}-01`, placeholder: true });
     }
@@ -203,7 +209,7 @@
     return [`<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}">`
       + `<colgroup>${columns.all()}</colgroup><tbody>`,
     monthBar(item, key, { locked, active, debit, totals }).replace('Phát sinh <b>', `Phát sinh ${badge}<b>`),
-    detailed ? body : `${body}${sheetPendingRows(sheetRows)}${adjustmentRows(adjustments, openHere)}${ghostRows(key)}`,
+    detailed ? body : `${body}${sheetPendingRows(sheetRows)}${bookingMissingRows(bookingMissing(data, key, sheetRows))}${adjustmentRows(adjustments, openHere)}${ghostRows(key)}`,
     `${detailed ? '' : subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table>${toolbar}</section>`].join(GAP);
   }
 

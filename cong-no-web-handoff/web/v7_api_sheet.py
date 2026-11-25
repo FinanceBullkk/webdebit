@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
+import v7_booking_view
 import v7_sheet_refresh
 from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
@@ -1013,6 +1014,11 @@ def detail_projection(_runner: Psql, ledger: dict, _actor: str) -> dict:
     return project_details(cached_load(load_detail_snapshot, DETAIL_SNAPSHOT_PATH), ledger)
 
 
+def booking_projection(_runner: Psql, ledger: dict, _actor: str) -> dict:
+    """DONG-MO-BOOKING-01: chuyến booking sổ này chưa có, theo lượt so sổ web gần nhất (file của job, đọc lại khi file đổi)."""
+    return v7_booking_view.book_missing(ledger, cached_load(v7_booking_view.load_web, v7_booking_view.web_path()))
+
+
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
     """`GET /api/v7/ledger`: gắn các hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
 
@@ -1029,6 +1035,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
         ("insurance", insurance_projection, {"unavailable": True, "review": [], "done": [], "review_count": 0}),
         ("sheet_road", road_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}),
         ("sheet_details", detail_projection, {"unavailable": True, "rows": [], "months": {}}),
+        ("booking_missing", booking_projection, {"unavailable": True, "items": []}),
     )
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         futures = [(key, pool.submit(project, shared, ledger, actor), empty) for key, project, empty in parts]
