@@ -214,7 +214,8 @@
     const rows = [...(book?.days ?? []).flatMap(day => day.rows ?? []), ...(book?.undated ?? [])]
       .filter(row => row.source === 'web' && F.fold(row.note ?? '') === key);
     if (!rows.length) return none;
-    const one = row => `sổ ${escape(row.name)} (${escape(row.pid ?? '')}, ${F.full(row.amount_vnd)}${row.date ? `, ngày ${escape(dateText(row.date))}` : ''})`;
+    // Chữ thường (không HTML): trang thoát khi vẽ, kể cả khi lần chia dở khôi phục từ localStorage.
+    const one = row => `sổ ${row.name} (${row.pid ?? ''}, ${F.full(row.amount_vnd)}${row.date ? `, ngày ${dateText(row.date)}` : ''})`;
     return { rows, warn: `Tham chiếu này đã có ở ${rows.slice(0, 3).map(one).join('; ')}${rows.length > 3 ? ` và ${rows.length - 3} phiếu khác` : ''}. Kiểm lại có phải cùng một lần chuyển đã ghi rồi không.` };
   }
   const STATUS = { saved: 'Đã ghi', new: '', error: 'Không ghi được', unknown: 'Chưa rõ đã lưu', stale: 'Sổ vừa thay đổi', waiting: 'Chưa ghi' };
@@ -227,7 +228,7 @@
     const lines = review.parts.map((part, index) => {
       const plan = model.planReceiptPreview(part.beforeVnd, part.amountVnd.toString());
       const status = part.skip && part.status !== 'saved' ? ' <b class="split-status split-st-skip">Không ghi</b>'
-        : STATUS[part.status] ? ` <b class="split-status split-st-${part.status}">${STATUS[part.status]}${part.pid ? ` ${escape(part.pid)}` : ''}</b>` : '';
+        : Object.hasOwn(STATUS, part.status) && STATUS[part.status] ? ` <b class="split-status split-st-${escape(part.status)}">${escape(STATUS[part.status])}${part.pid ? ` ${escape(part.pid)}` : ''}</b>` : '';
       const dup = part.dup && part.status !== 'saved'
         ? `<label class="paste-flag"><input type="checkbox" class="split-dup" data-index="${index}"${part.skip ? '' : ' checked'}${part.status === 'unknown' ? ' disabled' : ''}> Vẫn ghi: sổ này đã có ${escape(part.dup.pid ?? 'phiếu')} cùng tham chiếu và số tiền${part.dup.date ? `, ngày ${escape(dateText(part.dup.date))}` : ''}</label>` : '';
       const amount = step === 'result' && fixable(part)
@@ -247,10 +248,10 @@
       ? `<div class="entry-actions"><button type="button" class="split-close">Đóng</button><button type="button" class="split-save receipt-save">Ghi tiếp ${left} phiếu</button></div>`
       : step === 'result' ? '<div class="entry-actions"><button type="button" class="split-close">Đóng</button></div>'
         : `<div class="entry-actions"><button type="button" class="split-back">Sửa lại</button><button type="button" class="split-save receipt-save">Ghi ${count} phiếu</button></div>`;
-    $('.split-review').innerHTML = `<p class="entry-sum" tabindex="-1">Ghi <b>${count} phiếu</b>, tổng <b>${money(total)} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}, nằm ở tháng ${monthLabel(review.date.slice(0, 7))}.</p>`
+    $('.split-review').innerHTML = `<p class="entry-sum" tabindex="-1">Ghi <b>${count} phiếu</b>, tổng <b>${escape(money(total))} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}, nằm ở tháng ${escape(monthLabel(String(review.date).slice(0, 7)))}.</p>`
       + `<ul class="split-lines">${lines}</ul>`
       + (review.reference ? `<p>Tham chiếu (cả ${count} phiếu): ${escape(review.reference)}</p>` : '')
-      + (review.warn ? `<p class="entry-note">${review.warn}</p>` : '')
+      + (review.warn ? `<p class="entry-note">${escape(review.warn)}</p>` : '')
       + (review.reference ? '' : '<p class="entry-note">Chưa có tham chiếu. Nên ghi mã giao dịch ngân hàng cho lần chia nhiều sổ: sau này đối chiếu và nhận ra ghi trùng dễ hơn.</p>')
       + (step === 'result' && left ? `<p class="entry-note">Còn ${left} phiếu chưa ghi. Bấm Ghi tiếp: phiếu đã lưu không bị ghi lại.${review.parts.some(fixable) ? ' Phiếu bị từ chối hay chưa gửi sửa được số tiền; tổng các phần vẫn phải bằng tổng chuyển.' : ''}</p><p class="cell-error split-fix-error" role="alert"></p>` : '')
       + '<p class="entry-hint">Mỗi sổ một phiếu riêng, trừ nợ cũ trước ở sổ đó.</p>' + actions;
