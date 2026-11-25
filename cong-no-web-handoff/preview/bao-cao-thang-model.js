@@ -71,9 +71,10 @@ const BaoCaoThangModel = (() => {
     COMMODITY_MISMATCH: ['Mặt hàng trên booking khác mặt hàng của sổ', 'person'],
     COMMODITY_UNKNOWN: ['Booking chưa ghi mặt hàng', 'person'],
     ROAD_BOOK: ['Tên trên booking biển trùng một sổ đường bộ', 'person'],
-    ROAD_NO_TAB: ['Chưa tab khách nào ghi, chủ hàng chưa rõ sổ', 'sheet'],
-    ROAD_TAB_FAR: ['Tab khách có dòng cùng container nhưng lệch ngày', 'sheet'],
-    ROAD_AMBIGUOUS_TAB: ['Nhiều tab khách cùng ghi container này', 'sheet'],
+    // WEB-CHINH-01: Sheet sổ nợ thôi dùng từ 1/12/2026 nên ba ca chuyến bộ dưới không tự hết nữa; người gán tên hoặc chọn sổ trên web.
+    ROAD_NO_TAB: ['Chủ hàng chưa gắn sổ web: gán tên chủ hàng cho sổ ở thẻ Khách (Quản trị)', 'person'],
+    ROAD_TAB_FAR: ['Tab khách có dòng cùng container nhưng lệch ngày: chọn sổ ở Việc cần làm', 'person'],
+    ROAD_AMBIGUOUS_TAB: ['Nhiều tab khách cùng ghi container này: chọn sổ ở Việc cần làm', 'person'],
     ROAD_NO_BOOK: ['Tab khách ghi chuyến này chưa có sổ web', 'person'],
     ROAD_AMBIGUOUS_SOURCE: ['Booking bộ ghi container này hai lần', 'person'],
     ROAD_EARLY: ['Trước tháng 10/2026: chuyến bộ theo sổ gốc', 'sheet'],
