@@ -4,12 +4,12 @@
 # nền tảng (Windows/Linux, x86_64/arm64), nên --require-hashes sẽ cần một danh
 # sách hash dài và phải sửa mỗi lần nâng cấp. Ghim đúng phiên bản là đủ: ruff
 # không chạy trong đường ghi tiền, nó chỉ đọc mã nguồn.
-ruff==0.17.5
+ruff==0.17.6
 # Sinh chuỗi lệnh ngẫu nhiên cho harness `cong-no-web-handoff/tools/test_pg_v7_fifo_ngau_nhien.py`
 # (specs/v7-fifo-ngau-nhien.md). Chỉ chạy trong container DB dùng một lần, không nằm trong đường ghi tiền;
 # mô hình tham chiếu và test đơn vị của nó không cần gói này.
-hypothesis==6.170.15
+hypothesis==6.170.17
 sortedcontainers==2.4.0  # phụ thuộc duy nhất của hypothesis trên Python 3.11+, ghim cùng để lượt cài lặp lại được
 # Test che ảnh của máy Zalo (`cong-no-web-handoff/tests/test_zalo_agent_money_external.py`) vẽ điểm ảnh thật; thiếu gói này thì các ca đó tự bỏ qua.
 # Máy có Zalo dùng Pillow có sẵn của Python 3.13 ở đó, không cài từ file này.
-pillow==12.3.0
+pillow==13.0.0
