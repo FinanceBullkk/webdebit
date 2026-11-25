@@ -165,7 +165,7 @@ test('PHIEU-WEB-01: không rõ ngày trả → chọn tháng, ghi ngày cuối t
   await drawer(page).locator('.receipt-reference').press('Enter');
   const review = drawer(page).locator('.entry-review');
   await review.waitFor();
-  assert.match(await review.innerText(), new RegExp(`ngày ${shown(prevEnd).replace(/\//g, '\\/')} \\(ngày tượng trưng\\), nằm ở tháng`));
+  assert.ok((await review.innerText()).includes(`ngày ${shown(prevEnd)} (ngày tượng trưng), nằm ở tháng`));
   assert.match(await review.innerText(), /Không rõ ngày trả: ghi ngày cuối tháng/);
   await shot('entry-khong-ro-ngay');
   // Tháng hiện tại: ngày cuối tháng sau hôm nay nên lấy hôm nay (cùng luật máy Sheet).
