@@ -127,6 +127,18 @@ test('Thu chi: Mở tin sang đúng tin của Chat Zalo, Mở sổ sang đúng s
   await page.waitForURL(/zalo-chat\.html\?c=1{64}&m=t1&from=thu-chi/);
 }));
 
+test('PHIEU-WEB-01 mục 4: khoản thu chưa vào sổ đã gắn sổ có nút Ghi phiếu, mở sổ đó và để phiếu nháp (không đưa số lên địa chỉ)', () => withPage(ok(ITEMS), async page => {
+  await ready(page);
+  const links = page.locator('.tc-write');
+  assert.equal(await links.count(), 1, 'chỉ khoản thu chưa vào sổ, đã gắn sổ, có số (đã vào sổ, lệch, chưa rõ đối tượng, khoản chi: không)');
+  assert.equal(await links.first().getAttribute('href'), '/so-khach-v7-live.html?customer=3&ghi-phieu=1');
+  await page.route('**/so-khach-v7-live.html*', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Sổ</title><p id="so">sổ</p>' }));
+  await links.first().click();
+  await page.waitForURL(/so-khach-v7-live\.html\?customer=3&ghi-phieu=1$/);
+  const draft = JSON.parse(await page.evaluate(() => sessionStorage.getItem('webdebit:phieu-nhap')));
+  assert.deepEqual({ ...draft, at: typeof draft.at }, { customerId: 3, date: '2026-11-15', amount: '40000000', reference: 'Zalo: thu 40000000 thử', at: 'number' });
+}));
+
 test('Thu chi: lọc Chưa vào sổ, Lệch số, Chưa rõ đối tượng ghi số đúng với danh sách; bàn phím bấm được', () => withPage(ok(ITEMS), async page => {
   await ready(page);
   assert.deepEqual((await page.locator('.tc-chip').allInnerTexts()).map(clean), ['Tất cả9', 'Chưa vào sổ1', 'Lệch số1', 'Chưa rõ đối tượng2', 'Không đọc được số1']);

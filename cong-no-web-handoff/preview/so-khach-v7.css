@@ -226,11 +226,19 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .split-status{margin-left:6px}
 .entry-form .cell-error{min-height:0;font-size:14px}
 .entry-images .image-entry{margin-top:10px}.entry-review b{white-space:nowrap}
-.entry-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}.entry-actions .entry-split{margin-right:auto}
-:is(.entry-drawer,.split-drawer) .entry-next,:is(.entry-drawer,.split-drawer) .receipt-save{padding:0 22px;border-color:#145fa9;background:#145fa9;color:#fff;font-weight:700}
-:is(.entry-drawer,.split-drawer) .receipt-save:disabled{opacity:.6;cursor:default}
+.entry-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+/* PHIEU-WEB-01 mục 2–3: hai đường nhập khác của khung (chia nhiều sổ, dán nhiều phiếu), nút phụ dưới ô Tham chiếu. */
+.entry-more{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.entry-paste[hidden]{display:none}.entry-paste .entry-hint{margin:0 0 8px;font-size:15px;line-height:1.45}
+.paste-receipts{width:100%;box-sizing:border-box;min-height:140px;padding:8px 10px;border-radius:var(--radius);font:inherit;font-size:15px;font-variant-numeric:tabular-nums;resize:vertical}
+.paste-preview p,.paste-preview ul,.paste-preview ol{margin:8px 0;line-height:1.45}.paste-rows,.paste-errors{padding-left:20px;font-size:15px}
+.paste-flag{display:flex;align-items:flex-start;gap:8px;margin:4px 0;font-size:15px;cursor:pointer}.paste-flag input{width:20px;height:20px;margin:2px 0 0;flex:none}
+.paste-rows small{display:block}.paste-skip{opacity:.7}
+.paste-sum{font-size:16px}.entry-paste .paste-error:empty{display:none}
+:is(.entry-drawer,.split-drawer) .entry-next,:is(.entry-drawer,.split-drawer) .receipt-save,.entry-drawer .paste-save{padding:0 22px;border-color:#145fa9;background:#145fa9;color:#fff;font-weight:700}
+:is(.entry-drawer,.split-drawer) .receipt-save:disabled,.entry-drawer .paste-save:disabled{opacity:.6;cursor:default}
 .entry-review p{margin:0 0 10px;line-height:1.45}.entry-review .entry-sum{font-size:17px}
-.entry-review .entry-note{padding:6px 10px;border-radius:4px;background:#fff3d6;color:#5a3a00}
+.entry-review .entry-note,.entry-form .entry-from,.entry-paste .entry-note{padding:6px 10px;border-radius:4px;background:#fff3d6;color:#5a3a00}
 .entry-review .entry-hint,.entry-amount-hint{color:#3e5871;font-size:14px}
 .entry-amount-hint{min-height:20px;text-align:right;font-variant-numeric:tabular-nums}
 .entry-review .entry-error:empty{display:none}.entry-review .entry-error button{margin-left:6px}
