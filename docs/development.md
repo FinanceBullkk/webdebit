@@ -24,7 +24,7 @@ Nghiệp vụ chia sẻ ở `docs/`, spec ở `specs/`. Hồ sơ ngoài repo là
 Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/agent làm cùng lúc:
 
 1. **Mỗi việc một worktree mới từ `origin/main`**, PR nhỏ, merge trong ngày. Một nhóm file chỉ một người/agent giữ tại một thời điểm.
-2. **PR lỗi thời** (main đã có commit mới): bấm *Update branch* trên GitHub hoặc `gh pr update-branch <số>`; conflict thì rebase ở máy. Repo chỉ cho **squash merge**, lịch sử `main` thẳng; required check duy nhất là `ci-ok` ([CI](#ci-trên-runner-github)). PR xếp chồng: retarget PR con về `main` trước khi merge PR cha, rồi rebase PR con.
+2. **Merge qua hàng đợi** (từ 25/11/2026, [`MERGE-QUEUE-01`](decisions/merge-queue-01.md)): PR xanh thì `gh pr merge <số> --squash` (hoặc *Merge when ready*) đưa vào merge queue; hàng đợi tự ghép lên `main` mới nhất và chạy lại CI, không cần update-branch. Conflict văn bản thì gộp `origin/main` ở máy. Repo chỉ cho **squash merge**, lịch sử `main` thẳng; required check duy nhất là `ci-ok` ([CI](#ci-trên-runner-github)). PR xếp chồng: retarget PR con về `main` trước khi merge PR cha, rồi rebase PR con.
 3. **Quyết định** ghi trong đúng file `docs/decisions/<id>.md` của nó; quyết định mới tạo file mới và thêm một dòng vào bảng của [`decisions.md`](decisions.md). Hai PR sửa hai quyết định khác nhau không còn đụng nhau.
 4. **Triển khai app không cần PR tài liệu riêng.** Merge vào `main` là tự triển khai lên `hao`; bằng chứng là lượt `Deploy hao` (bảng *Tóm tắt triển khai*: kết quả, SHA trước/sau, commit trong đợt) và tab *Environments → hao* trên GitHub. Trong PR của tính năng, file quyết định ghi "triển khai tự động khi merge qua `Deploy hao`", không ghi trước "ĐÃ TRIỂN KHAI". Lượt đỏ thì sửa và báo lại, không ghi là đã triển khai.
 5. **Triển khai tay** (gate SQL/migration/loader dừng `Deploy hao`; từ 29/10/2026 Claude tự chạy phần SQL/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md), loader/nạp dữ liệu vẫn hỏi): nhật ký mỗi đợt là một file mới trong [`docs/deploys/`](deploys/README.md), không chèn thêm mục vào [runbook](v7-deploy-runbook.md); runbook chỉ giữ quy trình. Đợt đó cập nhật trạng thái trong file quyết định liên quan ở cùng PR. Trong lúc `main` có migration chưa chạy trên `hao`, mọi lượt `Deploy hao` sau đó cũng dừng ở bước kiểm diff (so với bản đang chạy) cho tới đợt triển khai tay.
@@ -179,10 +179,11 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 | `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.14 qua `uv` (bản `hao` chạy). Bản ubuntu gọi `--skip=test:py` vì job `python` đã chạy unittest trên ubuntu; bản Windows chạy đủ để giữ unittest trên Windows. Không test JS nào gọi Python (đo 18/11/2026), nên một bản Python là đủ |
 | `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
 
-**Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, vẫn bắt nhánh cập nhật theo `main`
-trước khi merge (`strict`), bật nút Update branch, chỉ cho squash merge và lịch sử thẳng. Thêm job mới vào
-workflow thì thêm vào `needs` của `ci-ok`; không cần sửa luật nhánh. PR lỗi thời bấm Update branch hoặc chạy
-`gh pr update-branch <số>` (dùng `--rebase` nếu muốn rebase).
+**Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, chỉ cho squash merge và lịch sử thẳng.
+Từ 25/11/2026 ([`MERGE-QUEUE-01`](decisions/merge-queue-01.md)) repo thuộc org `ThienThanhLogs` và merge qua
+merge queue thay cho luật bắt nhánh theo kịp `main` (`strict`): workflow `Tests` chạy cả ở sự kiện `merge_group`,
+`ci-ok` của lượt hàng đợi quyết PR có vào `main` hay không. Thêm job mới vào workflow thì thêm vào `needs` của
+`ci-ok`; không cần sửa luật nhánh.
 
 Lý do bỏ runner tự host: `hao` là máy chạy DB thật `webdebit_ledger` và web xem sổ; với repo public,
 PR từ fork có thể đưa mã lạ chạy trên chính máy đó. Máy GitHub sạch mỗi lượt, không chạm `hao`, nên
