@@ -16,7 +16,8 @@ globalThis.AppNav = (() => {
   const isAdmin = () => document.documentElement.dataset.role !== 'user';
   const ADMIN_PAGES = ['/viec-can-lam.html', '/may-chay.html', '/doi-xe.html', '/doi-xe-bang-ke.html', '/thong-tin-cty.html',
     '/nhat-ky-cong-viec.html', '/nguoi-dung.html', '/thu-chi.html', '/doi-no.html', '/sheet-trip-queue.html', '/khach.html'];
-  const ICON_QUAN_TRI = '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"></path>';
+  // Bánh răng (25/11/2026, nét theo bộ Lucide, giấy phép ISC): hình mặt trời cũ khó nhận ra là Quản trị.
+  const ICON_QUAN_TRI = '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle>';
   // QUYEN-02 (20/11/2026): năm trang làm sổ cho mọi người; quản lý có thêm một mục Quản trị (vào thẳng Việc cần làm, mang số
   // "sổ còn việc"), các màn quản lý chuyển nhau bằng dải thẻ ở đầu trang.
   const PAGES = [
@@ -37,13 +38,19 @@ globalThis.AppNav = (() => {
   const root = document.querySelector('aside.app-nav');
   let customers = null, loadingCustomers = null;
 
+  // Quản trị mang lớp nav-admin để xuống đáy dải menu (app-nav.css), tách khỏi năm trang làm sổ.
+  const navClass = (id, active) => {
+    const names = [id === active && 'active', id === 'quan-tri' && 'nav-admin'].filter(Boolean);
+    return (names.length ? ` class="${names.join(' ')}"` : '') + (id === active ? ' aria-current="page"' : '');
+  };
+
   function mount() {
     const active = UNDER_ADMIN.has(root.dataset.active) ? 'quan-tri' : root.dataset.active;
     root.innerHTML = `<button type="button" id="nav-toggle" aria-label="Mở menu" aria-expanded="false">${svg('<path d="M4 6h16M4 12h16M4 18h16"></path>')}</button>`
       + `<label class="search">${svg('<circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path>')}<span class="search-label">Tìm khách</span>`
       + '<input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off">'
       + '<div id="customer-results" role="listbox" hidden></div></label>'
-      + `<nav aria-label="Điều hướng chính">${PAGES.map(([id, href, label, paths]) => `<a${id === active ? ' class="active" aria-current="page"' : ''} href="${href}">`
+      + `<nav aria-label="Điều hướng chính">${PAGES.map(([id, href, label, paths]) => `<a${navClass(id, active)} href="${href}">`
         + `${svg(paths)}${label}${id === 'quan-tri' ? '<span class="badge" id="todo-badge" data-todo-badge hidden></span>' : ''}</a>`).join('')}</nav>`;
     mountTabs(root.dataset.active);
     root.querySelector('#nav-toggle').addEventListener('click', event => {
