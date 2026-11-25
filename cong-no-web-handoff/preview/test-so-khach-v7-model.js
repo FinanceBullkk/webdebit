@@ -896,10 +896,11 @@ test('parseReceiptPaste: cột cố định theo Tab (ô trống giữ chỗ), d
 
 test('parseReceiptPaste: số nghi nhầm đơn vị cùng luật ô giá; ngày có thể đảo; lô nhiều tháng; tháng khóa; dòng có thể đã ghi (review #676)', () => {
   const T = '\t';
-  const small = model.parseReceiptPaste(`1/11/2026${T}50\n2/11/2026${T}1,500\n3/11/2026${T}2.000.000.000\n4/11/2026${T}5.000.000`, '2026-11-25').rows;
-  assert.deepEqual(small.map(row => [row.amountVnd, row.doubt]), [[50n, 'small'], [1500n, 'small'], [2000000000n, 'large'], [5000000n, null]],
-    '"1,500" đọc theo bộ đọc chung là 1.500 đ, và bị hỏi lại như số nhỏ');
-  assert.match(small[0].doubtText, /dưới 1\.000\.000 đ/);
+  const small = model.parseReceiptPaste(`1/11/2026${T}50\n2/11/2026${T}1,500\n3/11/2026${T}2.000.000.000\n4/11/2026${T}5.000.000\n5/11/2026${T}500.000\n6/11/2026${T}100.000`, '2026-11-25').rows;
+  assert.deepEqual(small.map(row => [row.amountVnd, row.doubt]), [[50n, 'small'], [1500n, 'small'], [2000000000n, 'large'], [5000000n, null], [500000n, null], [100000n, null]],
+    '"1,500" đọc theo bộ đọc chung là 1.500 đ và bị hỏi lại; khoản trả lẻ từ 100.000 đ không hỏi (review #676 lần 2)');
+  assert.match(small[0].doubtText, /dưới 100\.000 đ/);
+  assert.deepEqual([model.receiptDoubt(99999n), model.receiptDoubt('100000'), model.receiptDoubt(1000000001n)], ['small', null, 'large']);
   // Bảng có dòng kiểu tháng/ngày (3/13) thì các dòng ngày ≤ 12 cả hai phần bị nhắc kiểm; 13/11 không mơ hồ.
   const swap = model.parseReceiptPaste(`11/1/2026${T}5.000.000\n3/13/2026${T}5.000.000\n13/11/2026${T}5.000.000\n5/5/2026${T}5.000.000`, '2026-11-25');
   assert.deepEqual(swap.rows.map(row => [row.line, row.maybeSwapped]), [[1, true], [3, false], [4, false]]);
@@ -912,5 +913,10 @@ test('parseReceiptPaste: số nghi nhầm đơn vị cùng luật ô giá; ngày
   const receipts = [{ pid: 'PH-001', date: '2026-11-18', amount_vnd: '5000000', voided_by_event: null },
     { pid: 'PH-002', date: '2026-11-20', amount_vnd: '7000000', voided_by_event: 9 }];
   const dup = model.parseReceiptPaste(`20/11/2026${T}5.000.000\n22/11/2026${T}5.000.000\n20/11/2026${T}7.000.000`, '2026-11-25', { receipts });
-  assert.deepEqual(dup.rows.map(row => row.duplicate), [{ pid: 'PH-001', date: '2026-11-18' }, null, null], '±3 ngày, cùng số; phiếu đã hủy không tính');
+  assert.deepEqual(dup.rows.map(row => row.duplicate), [{ pid: 'PH-001', date: '2026-11-18' }, { line: 1, date: '2026-11-20' }, null],
+    '±3 ngày, cùng số; phiếu đã hủy không tính; dòng 2 giống dòng 1 của chính bảng');
+  // Hai dòng giống nhau trong cùng bảng (cùng số tiền, tham chiếu, ngày cách ≤ 3): dòng sau là "có thể trùng"; khác tham chiếu thì không.
+  const twin = model.parseReceiptPaste([`20/11/2026${T}3.000.000${T}${T}UNC 9`, `21/11/2026${T}3.000.000${T}${T}UNC 9`, `21/11/2026${T}3.000.000${T}${T}UNC 8`,
+    `24/11/2026${T}3.000.000${T}${T}UNC 9`].join('\n'), '2026-11-25');
+  assert.deepEqual(twin.rows.map(row => row.duplicate), [null, { line: 1, date: '2026-11-20' }, null, { line: 2, date: '2026-11-21' }], 'dòng 4 cách dòng 1 bốn ngày, cách dòng 2 ba ngày');
 });
