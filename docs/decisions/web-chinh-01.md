@@ -55,7 +55,10 @@ Sửa 25/11/2026 theo phiên kiểm toàn bộ website, Claude đã đối chi�
 4. **Máy canh ([`CANH-BAO-01`](canh-bao-01.md)):** sửa cùng lúc danh sách timer tiền, danh sách bản chụp và cờ phải có, không thì báo động giả.
 5. **Trước 1/12:**
    - ghi các cặp chủ hàng → sổ mà máy đã học từ tab thành tên booking trên web ([`KHACH-WEB-01`](khach-web-01.md));
-   - chuyến bộ `AMBIGUOUS_TAB` / `TAB_FAR` cần nút chọn sổ như chuyến biển.
+   - chuyến bộ `AMBIGUOUS_TAB` / `TAB_FAR` cần nút chọn sổ như chuyến biển;
+   - **tháng 11 tự khóa ngày 1/12** (mặc định chỉ tháng hiện tại mở). Đo 25/11: còn nhiều chuyến tháng 11 chưa giá ở hơn 20 sổ. Mấy tuần gần đây, gần như mọi lần mở–ghi–khóa là máy làm; sau 1/12, người nhập phải tự mở khóa từng sổ mới gõ được giá hay phụ phí. Cách xử lý CÒN MỞ, chờ người dùng chọn;
+   - gợi ý giá booking ([`GIA-BOOKING-01`](gia-booking-01.md)) và danh sách "Chưa giá" mọi sổ hiện chỉ có ở trang Việc cần làm, mà login người dùng ([`QUYEN-01`](quyen-01.md)) không vào được trang này. Phải đưa gợi ý vào ô giá của Sổ khách, hoặc mở trang cho người dùng;
+   - chữ còn coi Sheet là nơi ghi giá ("chờ Sheet ghi giá", "Lấy giá Sheet", "Máy tự tách ở lượt chạy sau") phải đổi; ô giá trống nên ghi rõ là chưa có giá.
 6. **Phiếu chỉ ghi trên web:** máy đối soát coi đó là sổ lệch, quá ngưỡng thì dừng ghi cả lượt và gửi email. Từ nay tới 30/11, phiếu người nhập thử trên web làm lệch là đúng dự kiến, không phải lỗi.
 
 CÒN MỞ:
