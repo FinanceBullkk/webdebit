@@ -139,6 +139,25 @@ class PullTests(unittest.TestCase):
         self.assertEqual(self.main(keep="2"), 2)  # config archives alone: the DB copy is what matters
         self.assertIn("FAIL no sealed backup in the outbox", self.log()[-1])
 
+    def test_hourly_pulls_only_hourly_pairs_into_its_own_window(self):
+        # RPO 25/11/2026: task riêng, thư mục riêng; không đụng bản ngày/cấu hình, không xóa .partial của họ khác.
+        daily = self.seal("20200101-030000")
+        self.seal("20200101-025000", family="v7-config-")
+        hourly = [self.seal(f"20200102-{hour}0000", family="v7-hourly-") for hour in ("09", "10", "11")]
+        foreign = self.dest / f"{daily}.partial"
+        foreign.write_bytes(b"daily run in progress")
+        (self.dest / f"{hourly[0]}.partial").write_bytes(b"killed hourly run")
+        self.assertEqual(self.main("--hourly", keep="2"), 0)
+        self.assertEqual(self.names(), sorted([foreign.name, *hourly[1:], *(f"{n}.sha256" for n in hourly[1:])]))
+        self.assertRegex(self.log()[-1], rf"PASS pulled=2 newest={hourly[-1]} kept=2 pruned=0$")
+        self.assertEqual(self.main(keep="2"), 0)  # the daily run in the same folder ignores hourly pairs
+        self.assertIn(daily, self.names())
+        self.assertEqual(len([name for name in self.names() if name.startswith("v7-hourly-")]), 4)
+        for name in hourly:
+            (self.remote / name).unlink()
+        self.assertEqual(self.main("--hourly", keep="2"), 2)
+        self.assertIn("FAIL no sealed backup in the outbox", self.log()[-1])
+
     def test_connection_failure_logs_fail_and_touches_nothing(self):
         kept = self.seal("20200101-030000", folder=self.dest)
         self.sftp.down = True
