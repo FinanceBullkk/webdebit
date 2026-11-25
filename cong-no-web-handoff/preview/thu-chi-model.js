@@ -178,8 +178,22 @@ const ThuChiModel = (() => {
     return { what, by: review.last_by ?? null, at: review.last_at ?? null, times: Number(review.reviews) || 1 };
   }
 
+  /** PHIEU-WEB-01 mục 4: khoản thu chưa vào sổ (chờ hay quá 3 ngày) đã gắn một sổ khách và có số → phiếu nháp để mở khung Ghi phiếu
+   *  thu của sổ đó, điền sẵn ngày, số tiền, tham chiếu. Người vẫn xem lại và tự bấm ghi (tin chat không tự ghi tiền, ZALO-THU-CHI-01).
+   *  Ngày là ngày của khoản (ngày giao dịch đọc từ ảnh khi ảnh cũ gửi lại, còn lại ngày tin). Không đủ điều kiện thì null. */
+  function receiptDraft(item) {
+    if (item?.direction !== 'thu' || !['WAITING', 'MISSING'].includes(item.status) || item.old_txn) return null;
+    if (item.target?.kind !== 'so' || item.target.id == null || !/^[1-9][0-9]*$/.test(String(item.amount_vnd ?? ''))) return null;
+    if (!/^\d{4}-\d\d-\d\d$/.test(String(item.day ?? ''))) return null;
+    const time = /T(\d{2}):(\d{2})(?::\d{2})?$/.exec(item.image?.txn_time ?? '');   // giờ có múi giờ thì bỏ, không đổi giờ ở đây
+    const reference = item.source === 'anh'
+      ? ['CK', item.image?.bank, time ? `${time[1]}:${time[2]}` : '', '(ảnh Zalo)'].filter(Boolean).join(' ')
+      : `Zalo: ${String(item.text ?? '').replace(/\s+/g, ' ').trim()}`.slice(0, 120).trim();
+    return { customerId: item.target.id, date: item.day, amount: String(item.amount_vnd), reference };
+  }
+
   const api = { STATUSES, FILTERS, KIND_LABEL, summarize, counts, filterItems, groupByDay, range, dayShift, keyOf, newKeys, statusText, imageDiff, money,
-    reviewable, actions, ACTION_LABEL, targetKinds, TARGET_LABEL, parseAmount, searchTargets, reviewSummary };
+    reviewable, actions, ACTION_LABEL, targetKinds, TARGET_LABEL, parseAmount, searchTargets, reviewSummary, receiptDraft };
   return api;
 })();
 if (typeof module !== 'undefined') module.exports = ThuChiModel;

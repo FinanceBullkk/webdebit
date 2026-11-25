@@ -85,8 +85,8 @@ body.tc{background:#f3f5f8;font-size:14px}
 .tc-open:hover{background:var(--accent-soft)}
 
 /* Luồng 3: nút Xử lý ở dòng, khung xử lý ngay dưới dòng (không hộp nổi: khoản đang sửa luôn thấy ngay trên). */
-.tc-act{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer}
-.tc-act:hover{background:var(--accent-soft)}
+.tc-act,.tc-write{display:inline-flex;text-decoration:none;align-items:center;min-height:40px;padding:0 12px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;color:var(--ink);font-weight:700;white-space:nowrap;cursor:pointer}
+.tc-act:hover,.tc-write:hover{background:var(--accent-soft)}
 .tc-act[aria-expanded="true"]{background:#e4eefb;border-color:var(--accent);color:var(--accent-ink)}
 .tc-row.is-open{background:#f6f9fd;border-bottom-color:transparent}
 .tc-rev{color:var(--ink-2)!important;font-weight:600}

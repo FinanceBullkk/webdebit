@@ -184,3 +184,13 @@ test('Luồng 4: cùng giao dịch gửi lại thì ghi chú "gửi lại thêm 
   for (const none of [0, undefined, null, '2']) assert.equal(M.statusText(item('d', 'thu', 1, 'RECORDED', { resent: none })).note, '', String(none));
   assert.deepEqual(M.summarize([twice]).thu, { n: 1, img: 0, vnd: '7000000' });   // tổng không đổi: một khoản
 });
+
+test('PHIEU-WEB-01 mục 4: receiptDraft chỉ cho khoản thu chưa vào sổ, đã gắn sổ, có số; điền ngày, số, tham chiếu', () => {
+  const base = { direction: 'thu', status: 'MISSING', day: '2026-11-20', amount_vnd: '5000000', target: { kind: 'so', id: 12, label: 'Sổ thử' } };
+  assert.deepEqual(M.receiptDraft({ ...base, source: 'chat', text: 'đã  chuyển\n5tr' }),
+    { customerId: 12, date: '2026-11-20', amount: '5000000', reference: 'Zalo: đã chuyển 5tr' });
+  assert.deepEqual(M.receiptDraft({ ...base, status: 'WAITING', source: 'anh', image: { bank: 'NH thử', txn_time: '2026-11-20T14:32:00' } }).reference, 'CK NH thử 14:32 (ảnh Zalo)');
+  assert.equal(M.receiptDraft({ ...base, source: 'anh', image: { txn_time: '2026-11-20T07:32:00Z' } }).reference, 'CK (ảnh Zalo)', 'giờ có múi giờ không đổi ở đây');
+  for (const bad of [{ status: 'RECORDED' }, { status: 'AMOUNT_DIFF' }, { direction: 'chi' }, { amount_vnd: null }, { target: { kind: null, id: null } },
+    { target: { kind: 'xe', id: 3 } }, { old_txn: true }, { day: '' }]) assert.equal(M.receiptDraft({ ...base, source: 'chat', text: '', ...bad }), null, JSON.stringify(bad));
+});

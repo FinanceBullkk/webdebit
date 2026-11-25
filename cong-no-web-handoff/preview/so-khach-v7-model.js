@@ -628,6 +628,39 @@ const SoKhachV7Model = (() => {
     return { ...base, ok: true, parts: parts.map((part, index) => ({ customerId: part.customerId, amountVnd: amounts[index] })) };
   }
 
+  /** Dán nhiều phiếu thu vào một sổ (PHIEU-WEB-01 mục 3), cùng cách đọc bảng dán của cột giá: mỗi dòng một phiếu, ô cách nhau
+   *  bằng Tab (chép từ Sheet/Excel). Cột: ngày trả (d/m/yyyy), số tiền, rồi tùy chọn hình thức (THU TIỀN, ỨNG TRƯỚC, KHÁC; không
+   *  ghi thì THU TIỀN) và tham chiếu (các ô còn lại nối bằng " · "). Dòng đầu không có ngày thì coi là dòng tiêu đề.
+   *  CẤN TRỪ không dán được (cần sổ lấy tiền). Trả { rows: [{ line, date, method, amountVnd, reference }], errors: [câu có số dòng] }. */
+  const PASTE_METHODS = ["THU TIỀN", "ỨNG TRƯỚC", "KHÁC"];
+  function parseReceiptPaste(text, todayIso) {
+    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    const rows = [], errors = [];
+    for (const [index, raw] of lines.entries()) {
+      const line = index + 1;
+      const cells = raw.split("\t").map(cell => cell.trim());
+      if (!cells.some(Boolean)) continue;
+      let date;
+      try { date = parseCellEdit("event_date", cells[0], null); } catch {
+        if (!rows.length && !errors.length && !/\d/.test(cells[0])) continue;   // dòng tiêu đề
+        errors.push(`Dòng ${line}: ngày “${cells[0]}” phải dạng dd/mm/yyyy.`);
+        continue;
+      }
+      if (todayIso && date > todayIso) { errors.push(`Dòng ${line}: ngày ${cells[0]} sau hôm nay.`); continue; }
+      let amount;
+      try { amount = parseVnd(String(cells[1] ?? "").replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { amount = null; }
+      if (amount === null || amount <= 0n || amount > 9223372036854775807n) { errors.push(`Dòng ${line}: “${cells[1] ?? ""}” không đọc được thành số tiền.`); continue; }
+      const rest = cells.slice(2).filter(Boolean);
+      const named = rest.length ? PASTE_METHODS.find(method => method.localeCompare(rest[0], "vi", { sensitivity: "base" }) === 0) : null;
+      if (!named && rest.length && rest[0].localeCompare("CẤN TRỪ", "vi", { sensitivity: "base" }) === 0) { errors.push(`Dòng ${line}: cấn trừ phải ghi từng phiếu (chọn sổ lấy tiền).`); continue; }
+      const reference = (named ? rest.slice(1) : rest).join(" · ").slice(0, 500) || null;
+      rows.push({ line, date, method: named ?? "THU TIỀN", amountVnd: amount, reference });
+    }
+    if (!rows.length && !errors.length) errors.push("Chưa có dòng nào. Chép các cột ngày, số tiền (và hình thức, tham chiếu nếu có) rồi dán.");
+    return { rows, errors };
+  }
+
   function offsetErrorMessage(code, detail) {
     if (code === "OFFSET_EXCEEDS_CREDIT") {
       const credit = detail && typeof detail.available_credit_vnd === "string" ? vnd(detail.available_credit_vnd) : null;
@@ -1173,7 +1206,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, planReceiptSplit, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, planReceiptSplit, parseReceiptPaste, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();

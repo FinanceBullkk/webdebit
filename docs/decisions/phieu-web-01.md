@@ -19,7 +19,15 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
    - Bước xem lại hiện còn nợ trước → sau của từng sổ, và **cảnh báo** (không chặn) khi tham chiếu đã có ở phiếu web khác trong tháng của ngày trả, đọc từ Bảng thu. Hai lần chuyển cùng chữ "CK" là thường, nên chỉ hỏi người.
    - Phiếu không rõ ngày không đi đường này: chia nhiều sổ cần ngày cụ thể.
 
-Các mục sau (dán nhiều phiếu một lần, ghi phiếu từ ảnh Thu chi) thêm vào file này theo từng PR.
+3. **Dán nhiều phiếu vào một sổ.** Nút "Dán nhiều phiếu…" của khung mở ô dán. Người chép từ Sheet các cột ngày trả, số tiền, thêm hình thức (THU TIỀN, ỨNG TRƯỚC, KHÁC; trống là THU TIỀN) và tham chiếu nếu có. Dòng đầu không có ngày là dòng tiêu đề.
+   - Trang đọc bảng ở model (`parseReceiptPaste`, cùng cách đọc bảng dán Tab của cột giá) và xem trước từng dòng, tổng tiền, tổng còn nợ trước → sau.
+   - **Còn dòng lỗi thì không ghi phiếu nào**: ngày sai, ngày sau hôm nay, số tiền không đọc được. CẤN TRỪ phải ghi từng phiếu vì cần chọn sổ lấy tiền.
+   - Ghi bằng chuỗi lệnh của sổ như dán cột giá (`submitSeries`): mỗi dòng một lệnh `record_receipt` theo thứ tự, lệnh sau dùng phiên bản lệnh trước. Máy chủ từ chối thì dừng: dòng đã ghi rời khỏi ô, dòng lỗi và các dòng sau ở lại để sửa. Mất mạng thì ô dán được xóa (bấm Ghi lần nữa sẽ thành hai phiếu) và nút Thử lại ngay trong khung gửi lại đúng lệnh đó rồi ghi nốt, không ghi hai lần.
+4. **Ghi phiếu từ trang Thu chi.** Khoản thu "Chờ vào sổ" hay "Chưa vào sổ" đã gắn một sổ khách và có số tiền thì có nút **Ghi phiếu**. Nút mở Sổ khách của sổ đó với khung Ghi phiếu thu điền sẵn ngày của khoản, số tiền và tham chiếu: ảnh thì "CK <ngân hàng> <giờ> (ảnh Zalo)", tin thì "Zalo: <chữ tin>". Khung ghi rõ là điền sẵn từ Thu chi.
+   - **Người vẫn xem lại và tự bấm ghi.** Tin hay ảnh không tự ghi tiền ([`ZALO-THU-CHI-01`](zalo-thu-chi-01.md)).
+   - Phiếu nháp sang trang sổ qua `sessionStorage` (không đưa số tiền lên địa chỉ trang), dùng một lần, hết hạn sau 15 phút, chỉ nhận ở đúng sổ.
+   - Ảnh ghi ngày quá cũ (`old_txn`) không có nút.
+   - **Trang Thu chi hiện chỉ quản lý vào được** ([`QUYEN-01`](quyen-01.md): API `/api/v7/cash-chat` có số chi, ứng của Đội xe). Nút này không đổi quyền. Có mở Thu chi, hay một phần thu của nó, cho login người dùng hay không là CÒN MỞ, chờ phiên điều phối hoặc người dùng quyết.
 
 ## Ngày / nguồn
 
@@ -27,4 +35,4 @@ Các mục sau (dán nhiều phiếu một lần, ghi phiếu từ ảnh Thu chi
 
 ## Hiệu lực và giới hạn
 
-ĐỀ XUẤT của Claude trong phạm vi việc được giao; mục 1 và 2 không đổi DB, API hay quyền. ĐÃ KIỂM CHỨNG bằng test trang (`test-cong-no-format.js`, `test-so-khach-v7-model.js`, `test-so-khach-v7-entry-browser.js`, `test-so-khach-v7-split-browser.js`) và unittest `test_v7_sheet_fix.py`. Người nhập đi thử trên `hao` là bước còn lại.
+ĐỀ XUẤT của Claude trong phạm vi việc được giao; cả bốn mục không đổi DB, API hay quyền. ĐÃ KIỂM CHỨNG bằng test trang (`test-cong-no-format.js`, `test-so-khach-v7-model.js`, `test-thu-chi-model.js`, `test-so-khach-v7-entry-browser.js`, `test-so-khach-v7-split-browser.js`, `test-so-khach-v7-paste-receipts-browser.js`, `test-thu-chi-browser.js`) và unittest `test_v7_sheet_fix.py`. Người nhập đi thử trên `hao` là bước còn lại.

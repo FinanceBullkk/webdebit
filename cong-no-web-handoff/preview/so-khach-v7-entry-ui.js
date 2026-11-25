@@ -11,7 +11,7 @@
   // Khóa nháp ảnh chứng từ của khung (so-khach-v7-images-ui.js giữ ảnh theo khóa này tới khi phiếu ghi xong).
   const KEY = 'phieu-moi';
   const VOID_REASON = 'Ghi nhầm, hủy ngay sau khi ghi';
-  let step = 'form';     // 'form' | 'review'
+  let step = 'form';     // 'form' | 'review' | 'paste'
   let review = null;     // { date, method, amount, reference } đã kiểm, chờ bấm Ghi phiếu
   let saving = false;
   let lastSaved = null;  // { pid, date, amount, duplicate, imageText } cho băng kết quả
@@ -30,6 +30,7 @@
 
   const formHtml = () => `<header><h2>Ghi phiếu thu<small class="entry-customer"></small></h2><button type="button" class="entry-close">Đóng</button></header>
     <div class="entry-body"><div class="entry-form">
+      <p class="entry-note entry-from" hidden></p>
       <label class="entry-field"><span>Ngày trả</span><span class="entry-date"><input class="receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off"><button type="button" class="entry-today">Hôm nay</button></span></label>
       <span class="cell-error receipt-date-error" role="status"></span>
       <label class="entry-unknown"><input type="checkbox" class="receipt-unknown"> Không rõ ngày trả</label>
@@ -43,13 +44,94 @@
       <span class="cell-error receipt-amount-error" role="status"></span>
       <label class="entry-field"><span>Tham chiếu</span><input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn" autocomplete="off"></label>
       <div class="entry-images"></div>
-      <div class="entry-actions"><button type="button" class="entry-split">Chia cho nhiều sổ…</button><button type="button" class="entry-next">Xem lại</button></div>
-    </div><div class="entry-review" role="region" aria-label="Xem lại phiếu thu trước khi ghi" hidden></div></div>`;
+      <div class="entry-more"><button type="button" class="entry-split">Chia cho nhiều sổ…</button><button type="button" class="entry-paste-open">Dán nhiều phiếu…</button></div>
+      <div class="entry-actions"><button type="button" class="entry-next">Xem lại</button></div>
+    </div><div class="entry-review" role="region" aria-label="Xem lại phiếu thu trước khi ghi" hidden></div>
+    <div class="entry-paste" role="region" aria-label="Dán nhiều phiếu thu" hidden>
+      <p class="entry-hint">Chép từ Sheet các cột <b>Ngày trả · Số tiền</b>, thêm Hình thức và Tham chiếu nếu có, rồi dán vào ô dưới. Mỗi dòng một phiếu của sổ này.</p>
+      <textarea class="paste-receipts" aria-label="Bảng phiếu thu dán vào" rows="6" spellcheck="false"></textarea>
+      <div class="paste-preview" role="status"></div>
+      <p class="cell-error paste-error" role="alert"></p>
+      <div class="entry-actions"><button type="button" class="paste-back">Quay lại</button><button type="button" class="paste-save" disabled>Ghi phiếu</button></div>
+    </div></div>`;
   const paintImages = () => { if (drawer?.firstChild) $('.entry-images').innerHTML = ctx.imageEntryBox?.(KEY) ?? ''; };
   function showStep(next) {
     step = next;
     $('.entry-form').hidden = next !== 'form';
     $('.entry-review').hidden = next !== 'review';
+    $('.entry-paste').hidden = next !== 'paste';
+  }
+
+  // PHIEU-WEB-01 mục 3: dán nhiều phiếu vào sổ này. Đọc bảng ở model (parseReceiptPaste), xem trước từng dòng và tổng còn nợ
+  // trước → sau; còn dòng lỗi thì không ghi. Ghi bằng chuỗi lệnh của sổ (api.submitSeries, như dán cột giá): mỗi phiếu một lệnh
+  // record_receipt, lệnh sau dùng phiên bản lệnh trước; lỗi thì dừng, các dòng chưa ghi ở lại trong ô; mất mạng thì Thử lại ở
+  // khung (hay ở đầu sổ) gửi lại đúng lệnh đó (không ghi hai lần).
+  let pasteBusy = false;
+  function pastePlan() { return model.parseReceiptPaste($('.paste-receipts').value, ctx.todayIso()); }
+  function paintPaste() {
+    const plan = pastePlan(), box = $('.paste-preview'), save = $('.paste-save');
+    $('.paste-error').textContent = '';
+    if (!$('.paste-receipts').value.trim()) { box.innerHTML = ''; save.disabled = true; save.textContent = 'Ghi phiếu'; return; }
+    const total = plan.rows.reduce((sum, row) => sum + row.amountVnd, 0n);
+    const money = model.planReceiptPreview(ctx.snapshot.total_outstanding_vnd, total.toString());
+    const rows = plan.rows.map(row => `<li>Dòng ${row.line}: ${escape(dateText(row.date))} · <b>${fmt(row.amountVnd.toString())} đ</b> · ${escape(row.method)}${row.reference ? ` · ${escape(row.reference)}` : ''}</li>`).join('');
+    box.innerHTML = (plan.errors.length ? `<ul class="paste-errors">${plan.errors.map(text => `<li>${escape(text)}</li>`).join('')}</ul><p class="entry-note">Sửa các dòng lỗi trên Sheet rồi chép, dán lại. Còn dòng lỗi thì chưa ghi phiếu nào.</p>` : '')
+      + (plan.rows.length ? `<p class="paste-sum">${plan.rows.length} phiếu, tổng <b>${fmt(total.toString())} đ</b>. Tổng còn nợ: ${model.formatVnd(money.beforeVnd)} đ → <b>${model.formatVnd(money.afterVnd)} đ</b>.</p><ol class="paste-rows">${rows}</ol>` : '');
+    save.disabled = Boolean(plan.errors.length) || !plan.rows.length || pasteBusy;
+    save.textContent = plan.rows.length ? `Ghi ${plan.rows.length} phiếu` : 'Ghi phiếu';
+  }
+  async function savePaste() {
+    if (pasteBusy) return;
+    const plan = pastePlan();
+    if (plan.errors.length || !plan.rows.length) return;
+    if (api.hasPending()) { $('.paste-error').textContent = 'Còn thao tác khác chưa xong hoặc chưa rõ đã lưu. Xong việc đó (nút Thử lại ở đầu sổ) rồi bấm Ghi.'; return; }
+    const lines = $('.paste-receipts').value.replace(/\r\n?/g, '\n').split('\n');
+    pasteBusy = true;
+    $('.paste-save').disabled = true;
+    let outcome;
+    try {
+      outcome = await api.submitSeries('receipt', plan.rows.map(row => ({ date: row.date, method: row.method, amount_vnd: row.amountVnd.toString(),
+        ...(row.reference ? { reference: row.reference } : {}) })), 'phiếu');
+    } catch (error) { $('.paste-error').textContent = error.message; $('.paste-save').disabled = false; return; }
+    finally { pasteBusy = false; }
+    settlePaste(outcome, plan.rows, lines);
+  }
+  // Kết quả chuỗi ghi: xong thì đóng khung; bị từ chối thì để lại dòng chưa ghi; chưa rõ thì xóa ô dán (chuỗi còn giữ ở sổ) và
+  // cho Thử lại ngay trong khung: gửi lại đúng lệnh chưa rõ rồi ghi nốt các dòng sau, không ghi hai lần.
+  function settlePaste(outcome, rows, lines) {
+    if (outcome?.status === 'saved') {
+      $('.paste-receipts').value = '';
+      paintPaste();
+      showStep('form');
+      drawer.hidden = true;
+      ctx.showMonth(monthKey(rows[rows.length - 1].date));
+      root.querySelector('.entry-open')?.focus({ preventScroll: true });
+      return;
+    }
+    if (outcome?.status === 'stopped') {
+      // Dòng đã ghi rời khỏi ô; dòng lỗi và các dòng sau ở lại để sửa rồi ghi tiếp (không ghi lại dòng đã lưu).
+      const failed = rows[outcome.done];
+      $('.paste-receipts').value = lines ? rows.slice(outcome.done).map(row => lines[row.line - 1]).join('\n') : '';
+      paintPaste();
+      $('.paste-error').textContent = `Đã ghi ${outcome.done}/${outcome.total} phiếu. Dòng ${failed.line} (${dateText(failed.date)}, ${fmt(failed.amountVnd.toString())} đ) không ghi được: ${String(outcome.result?.message || 'máy chủ từ chối').replace(/\.$/, '')}.${lines ? ' Các dòng chưa ghi còn trong ô.' : ' Dán lại từ dòng này.'}`;
+      $('.paste-receipts').focus();
+      return;
+    }
+    pasteRetry = rows;
+    $('.paste-receipts').value = '';
+    paintPaste();
+    $('.paste-error').innerHTML = `Đã ghi ${outcome?.done ?? 0}/${rows.length} phiếu; phiếu tiếp theo chưa rõ đã lưu (mất kết nối). Bấm Thử lại: máy ghi nốt các dòng còn lại, không ghi hai lần. Đừng dán lại. <button type="button" class="paste-retry">Thử lại</button>`;
+    $('.paste-retry').focus();
+  }
+  let pasteRetry = null;   // các dòng của chuỗi chưa rõ, để báo kết quả sau Thử lại
+  async function retryPaste() {
+    if (!pasteRetry || pasteBusy) return;
+    const rows = pasteRetry;
+    pasteBusy = true;
+    $('.paste-retry').disabled = true;
+    try { await api.retry(); } catch (error) { $('.paste-error').textContent = error.message; return; } finally { pasteBusy = false; }
+    pasteRetry = null;
+    settlePaste(api.lastOutcome(), rows, null);
   }
   async function open() {
     if (!drawer || !active()) return;
@@ -62,7 +144,8 @@
     drawer.hidden = false;
     paintImages();
     showStep(step);
-    (step === 'review' ? $('.entry-sum') : $(`.${$('.receipt-date').value || $('.receipt-unknown').checked ? 'receipt-amount' : 'receipt-date'}`)).focus();
+    (step === 'review' ? $('.entry-review .entry-sum') : step === 'paste' ? $('.paste-receipts')
+      : $(`.${$('.receipt-date').value || $('.receipt-unknown').checked ? 'receipt-amount' : 'receipt-date'}`)).focus();
   }
   // SK-C2: sang bước xem lại thì tiêu điểm vào câu tóm tắt, không vào nút Ghi phiếu: Enter, Enter theo thói quen Sheet không
   // ghi tiền khi người gõ chưa đọc dòng trước → sau. Muốn ghi phải Tab tới Ghi phiếu (hay bấm), rồi Enter.
@@ -104,6 +187,7 @@
   function resetForm() {
     for (const box of drawer.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference')) box.value = '';
     for (const box of drawer.querySelectorAll('.cell-error,.entry-amount-hint')) box.textContent = '';
+    $('.entry-from').hidden = true;
     $('.receipt-unknown').checked = false;
     paintUnknown();
     const method = $('.receipt-method');
@@ -294,6 +378,10 @@
       if (button.matches('.entry-close')) close();
       else if (button.matches('.entry-today')) { $('.receipt-date').value = dateText(ctx.todayIso()); $('.receipt-amount').focus(); }
       else if (button.matches('.entry-next')) await next();
+      else if (button.matches('.entry-paste-open')) { showStep('paste'); paintPaste(); $('.paste-receipts').focus(); }
+      else if (button.matches('.paste-back')) { showStep('form'); $('.entry-paste-open').focus(); }
+      else if (button.matches('.paste-save')) await savePaste();
+      else if (button.matches('.paste-retry')) await retryPaste();
       else if (button.matches('.entry-split')) {
         // PHIEU-WEB-01 mục 2: một lần chuyển cho nhiều sổ mở khung riêng, mang theo chữ đang gõ; khung này về trống và đóng.
         // Phiếu chưa rõ đã lưu thì xử lý trước, như nút Sửa lại.
@@ -330,7 +418,9 @@
           if (api.pendingKey() !== own.key) await resolveOwn(); else $('.entry-error').innerHTML = ownWaiting;
           return;
         }
-        if (step === 'review') { review = null; showStep('form'); $('.receipt-amount').focus(); } else close();
+        if (step === 'review') { review = null; showStep('form'); $('.receipt-amount').focus(); }
+        else if (step === 'paste') { showStep('form'); $('.entry-paste-open').focus(); }
+        else close();
         return;
       }
       if (event.key !== 'Enter') return;
@@ -339,6 +429,7 @@
     });
     drawer.addEventListener('input', event => {
       // Sửa ô thì lỗi cũ của ô đó tắt ngay (không đợi lần Xem lại sau); số tiền hiện số đã hiểu có nhóm nghìn.
+      if (event.target.matches('.paste-receipts')) { paintPaste(); return; }
       if (event.target.matches('.receipt-date')) $('.receipt-date-error').textContent = '';
       if (event.target.matches('.receipt-amount')) { $('.receipt-amount-error').textContent = ''; paintAmountHint(); }
       if (event.target.matches('.receipt-date') && event.target.value.length === 10) $('.receipt-amount').focus();
@@ -357,7 +448,34 @@
   }
 
   const entryButton = on => `<button type="button" class="entry-open" ${on ? '' : 'disabled'}>+ Ghi phiếu thu</button>`;
-  function entryAfterRender() { paintStrip(); paintImages(); }
+  // PHIEU-WEB-01 mục 4: trang Thu chi mở sổ với ?ghi-phieu=1 và để phiếu nháp (ngày, số tiền, tham chiếu đọc từ tin/ảnh) trong
+  // sessionStorage. Lần vẽ đầu: đúng sổ, nháp còn mới (dưới 15 phút) thì mở khung và điền sẵn; người xem lại rồi tự bấm ghi.
+  // Nháp dùng một lần; ngày sau hôm nay thì không điền ngày.
+  let fromThuChi = typeof location !== 'undefined' && new URLSearchParams(location.search).get('ghi-phieu') === '1';
+  function takeDraft() {
+    let draft;
+    try { draft = JSON.parse(sessionStorage.getItem('webdebit:phieu-nhap') ?? 'null'); sessionStorage.removeItem('webdebit:phieu-nhap'); } catch { draft = null; }
+    try { const url = new URL(location.href); url.searchParams.delete('ghi-phieu'); history.replaceState(history.state, '', url); } catch { /* giữ địa chỉ */ }
+    if (!draft || String(draft.customerId) !== String(customerId) || !(Date.now() - draft.at < 15 * 60 * 1000)) return null;
+    return draft;
+  }
+  async function openFromThuChi() {
+    fromThuChi = false;
+    const draft = takeDraft();
+    if (!draft || !active() || isOpen()) return;
+    await open();
+    if (step !== 'form' || own) return;
+    resetForm();
+    if (/^\d{4}-\d\d-\d\d$/.test(draft.date ?? '') && draft.date <= ctx.todayIso()) $('.receipt-date').value = dateText(draft.date);
+    if (/^[1-9][0-9]*$/.test(draft.amount ?? '')) $('.receipt-amount').value = fmt(draft.amount);
+    $('.receipt-reference').value = String(draft.reference ?? '').slice(0, 500);
+    paintAmountHint();
+    const note = $('.entry-from');
+    note.textContent = 'Điền sẵn từ Thu chi (tin, ảnh Zalo). Kiểm ngày và số tiền với chứng từ rồi bấm Xem lại.';
+    note.hidden = false;
+    $('.receipt-amount').focus();
+  }
+  function entryAfterRender() { paintStrip(); paintImages(); if (fromThuChi) openFromThuChi(); }
   // Ảnh dán khi không đứng ở ô nhập nào: vào khung Ghi phiếu thu (mở khung nếu đang đóng); sổ chưa ghi được thì null.
   function entryImageKey() {
     if (!active() || !drawer) return null;
