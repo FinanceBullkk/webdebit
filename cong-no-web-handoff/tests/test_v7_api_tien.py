@@ -114,7 +114,7 @@ class TienApiTest(unittest.TestCase):
             ("/api/v7/tien/accounts/7/coverage?from=2026-10-01&to=2026-10-31", "tien_get_coverage",
              {"account_id": 7, "from": "2026-10-01", "to": "2026-10-31"}),
             ("/api/v7/tien/accounts/7/coverage", "tien_get_coverage",
-             {"account_id": 7, "from": (today - timedelta(days=44)).isoformat(), "to": today.isoformat()}),
+             {"account_id": 7, "from": (today - timedelta(days=92)).isoformat(), "to": today.isoformat()}),
             ("/api/v7/tien/accounts/7/days/2026-10-05", "tien_get_day", {"account_id": 7, "date": "2026-10-05"}),
             ("/api/v7/tien/accounts/7/imports", "tien_list_imports", {"account_id": 7}),
             ("/api/v7/tien/accounts/7/transactions?from=2026-10-01&to=2026-10-31", "tien_list_transactions",
@@ -132,7 +132,7 @@ class TienApiTest(unittest.TestCase):
                      "/api/v7/tien/accounts/7/coverage?from=2026-10-31&to=2026-10-01",
                      "/api/v7/tien/accounts/7/coverage?from=2026-01-01&to=2026-10-01",
                      "/api/v7/tien/accounts/7/coverage?from=2026-10-01&from=2026-10-02&to=2026-10-31",
-                     "/api/v7/tien/accounts/7/transactions?thang=10"):
+                     "/api/v7/tien/accounts/7/transactions?thang=10", "/api/v7/tien/accounts/7/coverage?to=0001-01-05"):
             self.rejects("GET", path, None, "INVALID_REQUEST")
 
     def test_import_read_with_raw_cells_is_logged(self):
@@ -193,6 +193,11 @@ class TienApiTest(unittest.TestCase):
                                    "source": "bank_pdf"}),
             ("/balance-evidence", {"idempotency_key": "k", "account_id": 7, "as_of_date": "2026-10-05", "amount_minor": "25000",
                                    "source": "zalo"}),
+            # Review lát 2 (Thấp): ký tự điều khiển (cả NUL) trong đích phân bổ làm psql lỗi thành 503 → chặn trước DB.
+            ("/allocations", {"idempotency_key": "k", "transaction_id": 4, "expected_version": 0,
+                              "lines": [{**line, "target_kind": "expense_category", "target_ref": {"category": "a\u0000b"}}]}),
+            ("/allocations", {"idempotency_key": "k", "transaction_id": 4, "expected_version": 0,
+                              "lines": [{**line, "target_ref": {"ca\ntegory": "x"}}]}),
         ]
         for path, body in cases:
             runner = FakePsql({"tien_my_access": grants("tien_review")})
@@ -240,9 +245,36 @@ class TienApiTest(unittest.TestCase):
         self.assertEqual(self.rejects("POST", tien.PREVIEW_PATH, {**good, "content_base64": bad_day}, "IMPORT_PARSE_ERROR").extra,
                          {"line": 5})
 
+    def test_review_fixes(self):
+        """Review độc lập lát 2: câu DAY_SIGNED nói ngày cần mở lại, lỗi đọc file nói dòng nào, đọc nội dung giao dịch ghi journal,
+        cổng shadow áp cả route tải file."""
+        def signed(payload):
+            raise api.ApiError(409, "DAY_SIGNED", tables.ERRORS["DAY_SIGNED"][1], {"detail": "2026-11-21"})
+        error = self.rejects("POST", tien.PREFIX + "/imports/void", {"idempotency_key": "k", "import_id": 9, "reason": "x"}, "DAY_SIGNED",
+                             results={"tien_void_import": signed})
+        self.assertEqual((error.status, error.extra), (409, {"detail": "2026-11-21"}))
+        self.assertTrue(error.message.startswith("Ngày 21/11/2026 đã ký số dư") and "Mở lại ngày 21/11/2026" in error.message, error.message)
+        bad_day = base64.b64encode(demo_csv("2026-13-01,,CK,,1,\n")).decode()
+        error = self.rejects("POST", tien.PREVIEW_PATH, {"idempotency_key": "k", "account_id": 7, "template": "demo-csv@1",
+                                                         "file_name": "a.csv", "content_base64": bad_day}, "IMPORT_PARSE_ERROR")
+        self.assertEqual(error.message, "Dòng 5 của file: Ngày không có thật.")
+        errors = io.StringIO()
+        with mock.patch.object(sys, "stderr", errors):
+            self.call("GET", "/api/v7/tien/accounts/7/transactions?from=2026-10-01&to=2026-10-31",
+                      results={"tien_list_transactions": {"description_visible": True, "transactions": []}})
+            self.call("GET", "/api/v7/tien/transactions/11", results={"tien_get_transaction": {"description_visible": True}})
+            self.call("GET", "/api/v7/tien/transactions/12", results={"tien_get_transaction": {"description_visible": False}})
+        self.assertEqual(errors.getvalue(), f"SO-TIEN: {ACTOR} đọc nội dung giao dịch tài khoản 7 2026-10-01..2026-10-31\n"
+                                            f"SO-TIEN: {ACTOR} đọc nội dung giao dịch 11\n")
+        tien.CONFIG = tien.Config("shadow", None)
+        with self.assertRaises(api.ApiError) as caught:
+            tien.binary("/api/v7/tien/files/3", "", FakePsql({"tien_my_access": grants("tien_nhap")}), ACTOR)
+        self.assertEqual(caught.exception.code, "TIEN_FORBIDDEN")
+
     def test_body_limit(self):
         self.assertEqual(api.body_limit(tien.PREVIEW_PATH), tien.MAX_PREVIEW_BODY)
-        self.assertEqual(api.body_limit(tien.PREFIX + "/imports/commit"), tables.MAX_BODY)
+        self.assertEqual(api.body_limit(tien.COMMIT_PATH), tien.MAX_COMMIT_BODY)
+        self.assertEqual(api.body_limit(tien.PREFIX + "/imports/reject"), tables.MAX_BODY)
         encoded = base64.b64encode(b"x" * (4 * 1024 * 1024)).decode()
         raw = json.dumps({"idempotency_key": "k", "account_id": 7, "template": "demo-csv@1", "file_name": "a.csv",
                           "content_base64": encoded}).encode()

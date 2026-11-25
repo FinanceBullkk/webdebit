@@ -42,6 +42,16 @@ class TienXlsxTest(unittest.TestCase):
         self.assertIn('t="inlineStr"', sheet)
         self.assertIn("=CK GIA MOT", sheet)
 
+    def test_cash_account_and_unknown_opening(self):
+        data = export_sample()
+        data["account"].update(bank_code=None, account_last4=None)
+        data["opening_minor"] = None
+        name, body = export.build(data)
+        self.assertEqual(name, "so-tien-tien-mat-7-2026-10-01-2026-10-31.xlsx")
+        tx = v7_xlsx_writer.read_workbook(body)["Giao dịch"]
+        self.assertEqual(tx[0][0], "Sổ tiền tiền mặt #7 (VND)")
+        self.assertEqual(tx[2][4], "chưa có: sổ bắt đầu ngày 01/10/2026", "đầu kỳ trước số dư mở là chưa biết, không lấy số dư mở thế vào")
+
     def test_only_vnd(self):
         data = export_sample()
         data["account"]["currency"] = "USD"

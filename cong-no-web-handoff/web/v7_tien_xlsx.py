@@ -61,9 +61,13 @@ def build(data: dict) -> tuple[str, bytes]:
         raise ExportError("P0 chỉ xuất tài khoản VND")
     start, end = data["from"], data["to"]
     stamp = dt.datetime.fromisoformat(data["generated_at"]).astimezone(VN).strftime("%d/%m/%Y %H:%M")
-    top = [[Styled(f"Sổ tiền {account['bank_code']} ••••{account['account_last4']} ({account['currency']})", "title")],
+    # Tài khoản tiền mặt không có mã ngân hàng, 4 số cuối (review lát 2, Thấp).
+    label = f"{account['bank_code']} ••••{account['account_last4']}" if account.get("bank_code") else f"tiền mặt #{account['id']}"
+    opening = (Styled(_money(data["opening_minor"]), "money") if data["opening_minor"] is not None
+               else Styled(f"chưa có: sổ bắt đầu ngày {_vn(data['opening_as_of'])}" if data.get("opening_as_of") else "chưa có số dư mở", "text"))
+    top = [[Styled(f"Sổ tiền {label} ({account['currency']})", "title")],
            [Styled(f"{account['legal_entity_name']} · kỳ {_vn(start)} – {_vn(end)}", "bold")],
-           [Styled("Số dư sổ đầu kỳ", "bold"), None, None, None, Styled(_money(data["opening_minor"]), "money")],
+           [Styled("Số dư sổ đầu kỳ", "bold"), None, None, None, opening],
            [Styled("Số dư sổ cuối kỳ", "bold"), None, None, None, Styled(_money(data["closing_minor"]), "money")],
            [Styled(f"Xuất bởi {data['actor']} lúc {stamp}. Số dư sổ tính từ sao kê đã nhập, chưa phải số dư kế toán.", "text")]]
     rows = []
@@ -80,5 +84,7 @@ def build(data: dict) -> tuple[str, bytes]:
              SIGN.get(day["business_status"], day["business_status"])] for day in data["days"]]
     body = write_workbook([Sheet("Giao dịch", TX_COLUMNS, rows, top=top), Sheet("Phân bổ", ALLOC_COLUMNS, allocations),
                            Sheet("Ngày", DAY_COLUMNS, days)])
-    name = f"so-tien-{SAFE.sub('', account['bank_code'])}-{SAFE.sub('', account['account_last4'])}-{start}-{end}.xlsx"
+    who = (f"{SAFE.sub('', account['bank_code'])}-{SAFE.sub('', account['account_last4'] or '')}" if account.get("bank_code")
+           else f"tien-mat-{account['id']}")
+    name = f"so-tien-{who}-{start}-{end}.xlsx"
     return name, body

@@ -10,12 +10,13 @@
   const esc = F.esc;
   const API = '/api/v7/tien';
   const MAX_FILE = 4 * 1024 * 1024;
+  const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
   const $ = selector => document.querySelector(selector);
   const params = new URLSearchParams(location.search);
   const S = {
     me: null, off: false, accounts: [], accountId: Number(params.get('account')) || null, card: null, imports: [],
-    reviewId: Number(params.get('lo')) || null, review: null, choice: { lines: {}, keep: {} }, known: {},
-    month: /^\d{4}-\d{2}$/.test(params.get('thang') ?? '') ? params.get('thang') : null, status: '', tx: null, txDesc: false,
+    reviewId: Number(params.get('lo')) || null, review: null, choice: { lines: {}, keep: {} }, known: {}, showAll: false,
+    month: MONTH.test(params.get('thang') ?? '') ? params.get('thang') : null, status: '', tx: null, txDesc: false,
     openTx: null, detail: null, template: null, busy: false, toast: null, giuBao: null,
   };
   const net = DoiXeChung.tao({
@@ -82,7 +83,7 @@
   function accountHtml() {
     const label = a => `${a.bank_code} ••••${a.account_last4} · ${a.currency}`;
     if (S.accounts.length > 1) {
-      return `<label class="st-account"><span class="st-muted" hidden>Tài khoản</span><select data-act="account" aria-label="Tài khoản">${
+      return `<label class="st-account"><span class="st-muted" hidden>Tài khoản</span><select data-act="account" data-f="account" aria-label="Tài khoản">${
         S.accounts.map(a => `<option value="${a.id}"${a.id === S.accountId ? ' selected' : ''}>${esc(label(a))}</option>`).join('')}</select></label>`;
     }
     const one = S.accounts.find(a => a.id === S.accountId);
@@ -103,7 +104,10 @@
     if (cov.data_until) {
       facts.push(cov.missing_count > 0
         ? `<li><span class="st-tag bad">Thiếu sao kê ${cov.missing_count} ngày</span><span class="st-small">${cov.missing_days.slice(0, 6).map(M.shortDate).join(', ')}${cov.missing_count > 6 ? '…' : ''}</span></li>`
-        : '<li><span class="st-tag ok">Không thiếu ngày nào</span></li>');
+        : '<li><span class="st-tag ok">Không có ngày trống giữa các lần nhập</span></li>');
+      // Thường ngày cuối có dữ liệu là hôm nay (tải lúc 17h) hoặc hôm qua (trước 17h); cũ hơn thì nhắc, không gọi là "đủ".
+      const gap = M.daysBetween(cov.data_until, c.today);
+      if (gap >= 2) facts.push(`<li><span class="st-tag warn">Chưa có sao kê từ ngày ${M.vnDate(M.addDays(cov.data_until, 1))} (${gap} ngày)</span></li>`);
     }
     if (c.pending_imports > 0) facts.push(`<li><span class="st-tag warn">${c.pending_imports} lô chờ ghi</span></li>`);
     if (cov.unsigned_full_days > 0) {
@@ -134,24 +138,29 @@
   }
 
   function questionsHtml(view, readOnly) {
-    const { suspects, unmatched } = M.questions(view);
-    if (!suspects.length && !unmatched.length) return '';
+    const { suspects, unmatched, pool } = M.questions(view);
+    if (!suspects.length && !pool.length) return '';
     const off = readOnly || S.busy ? ' disabled' : '';
     const targets = new Map(Object.entries(S.choice.lines).filter(([, v]) => v !== 'new').map(([line, tx]) => [tx, line]));
     const items = suspects.map(({ line, candidates }) => {
       const picked = S.choice.lines[line.line_no];
-      const options = [`<label><input type="radio" name="d-${line.line_no}" value="new" data-act="decide" data-line="${line.line_no}"${picked === 'new' ? ' checked' : ''}${off}>Đây là giao dịch mới</label>`]
-        .concat(candidates.map(id => `<label><input type="radio" name="d-${line.line_no}" value="${id}" data-act="decide" data-line="${line.line_no}"${picked === id ? ' checked' : ''}${off}>Trùng giao dịch đã có: ${esc(txText(S.known[id]))}</label>`));
+      const radio = (value, label) => `<label><input type="radio" name="d-${line.line_no}" value="${value}" data-act="decide" data-line="${line.line_no}"
+        data-f="d-${line.line_no}-${value}"${String(picked) === String(value) ? ' checked' : ''}${off}>${label}</label>`;
+      const options = [radio('new', 'Đây là giao dịch mới')].concat(candidates.map(id => radio(id, `Trùng giao dịch đã có: ${esc(txText(S.known[id] ?? unmatched.find(u => u.transaction_id === id)))}`)));
       return `<li class="st-q${picked !== undefined ? ' done' : ''}"><div class="st-q-line">${esc(lineText(line))}</div>
-        <div class="st-q-why">${candidates.length ? 'Sổ đã có giao dịch cùng ngày, cùng số tiền. Xem file gốc rồi chọn:' : 'Có thể trùng giao dịch đã có. Chọn:'}</div>${options.join('')}</li>`;
+        <div class="st-q-why">${candidates.length ? 'Sổ đã có giao dịch cùng ngày, cùng chiều, cùng số tiền. Xem file gốc rồi chọn:' : 'Có thể trùng giao dịch đã có. Chọn:'}</div>${options.join('')}</li>`;
     });
-    const kept = unmatched.map(item => {
-      const by = targets.get(item.transaction_id);
-      const tx = S.known[item.transaction_id] ?? { booking_date: item.booking_date, direction: item.direction, amount_minor: item.amount_minor };
+    // Giao dịch đã có trong kỳ mà file chưa nhận (lát 1, commit_import): là đích "trùng" của một dòng, hoặc giữ có lý do.
+    const asks = new Set(M.keepAsks(view, S.choice));
+    const kept = pool.map(id => {
+      const tx = S.known[id] ?? unmatched.find(u => u.transaction_id === id);
       const head = `<div class="st-q-line">Giao dịch đã có trong sổ: ${esc(txText(tx))}</div>`;
+      const by = targets.get(id);
       if (by) return `<li class="st-q done">${head}<div class="st-q-why">Đã ghép với dòng ${esc(by)} của file.</div></li>`;
-      return `<li class="st-q">${head}<div class="st-q-why">File mới không có giao dịch này. Nếu ngân hàng đã bỏ giao dịch thì bỏ lô và báo quản trị; nếu vẫn giữ, ghi lý do:</div>
-        <textarea data-keep="${item.transaction_id}" data-f="keep-${item.transaction_id}" maxlength="500" aria-label="Lý do giữ giao dịch"${off}>${esc(S.choice.keep[item.transaction_id] ?? '')}</textarea></li>`;
+      if (!asks.has(id)) return '';
+      const why = unmatched.some(u => u.transaction_id === id) ? 'File mới không có giao dịch này.' : 'Dòng của file giống giao dịch này đã chọn là giao dịch mới, nên sổ giữ cả hai.';
+      return `<li class="st-q">${head}<div class="st-q-why">${why} Nếu ngân hàng đã bỏ giao dịch thì bỏ lô và báo quản trị; nếu vẫn giữ, ghi lý do:</div>
+        <textarea data-keep="${id}" data-f="keep-${id}" maxlength="500" aria-label="Lý do giữ giao dịch"${off}>${esc(S.choice.keep[id] ?? '')}</textarea></li>`;
     });
     return `<ol class="st-questions">${items.concat(kept).join('')}</ol>`;
   }
@@ -170,26 +179,30 @@
     }
     const c = v.counts;
     const blockers = M.blockers(v);
+    const warnings = M.warnings(v);
     const errors = v.lines.filter(l => l.class === 'error').slice(0, 20)
       .map(l => `<p>${esc(lineText(l))}: ${esc(M.LINE_ERROR[l.code] ?? l.code)}</p>`).join('');
-    const { suspects, unmatched } = M.questions(v);
-    const asks = suspects.length + unmatched.filter(u => !Object.values(S.choice.lines).includes(u.transaction_id)).length;
+    const { suspects, pool } = M.questions(v);
+    const asks = [suspects.length ? `${suspects.length} dòng nghi trùng` : '', pool.length ? `${pool.length} giao dịch đã có cần xác nhận` : ''].filter(Boolean).join(' và ');
     const readOnly = !can('tien_review');
     const role = M.commitRole(v);
     const balanced = v.balance.opening_minor === null && v.balance.closing_minor === null
       ? '<p class="st-check">File không có số dư đầu, cuối: chưa kiểm được liền mạch với sổ; ký số dư ngày sẽ cần số dư từ ngân hàng.</p>'
       : v.balance.chain_breaks === 0 ? '<p class="st-check ok">Số dư đầu, cuối của file liền với sổ.</p>' : '';
-    const table = `<details class="st-more"><summary>Xem đủ ${c.rows} dòng</summary><div class="st-scroll"><table class="st-table"><thead><tr><th>Dòng</th><th>Ngày</th><th>Thu/Chi</th>
-      <th class="st-money">Số tiền</th><th>Mã GD</th>${v.raw_visible ? '<th>Nội dung</th>' : ''}<th>Kết quả</th></tr></thead><tbody>${v.lines.map(l => `<tr><td>${l.line_no}</td>
-      <td>${M.vnDate(l.booking_date)}</td><td>${dirText(l.direction)}</td><td class="st-money">${esc(M.money(/^\d+$/.test(l.amount_minor ?? '') ? l.amount_minor : null))}</td>
-      <td>${esc(l.bank_ref ?? '')}</td>${v.raw_visible ? `<td class="st-desc">${esc(l.description ?? '')}</td>` : ''}<td><span class="st-tag ${l.class === 'error' ? 'bad' : l.class === 'suspect' ? 'warn' : l.class === 'new' ? 'ok' : ''}">${esc(M.CLASS[l.class])}</span></td></tr>`).join('')}</tbody></table></div></details>`;
+    // Bảng đủ dòng chỉ dựng khi mở (lô tới 20000 dòng), và giữ trạng thái mở qua các lần vẽ lại (review lát 2).
+    const rows = S.showAll ? v.lines.map(l => `<tr><td>${l.line_no}</td><td>${M.vnDate(l.booking_date)}</td><td>${dirText(l.direction)}</td>
+      <td class="st-money">${esc(M.money(l.amount_minor))}</td><td>${esc(l.bank_ref ?? '')}</td>${v.raw_visible ? `<td class="st-desc">${esc(l.description ?? '')}</td>` : ''}
+      <td><span class="st-tag ${l.class === 'error' ? 'bad' : l.class === 'suspect' ? 'warn' : l.class === 'new' ? 'ok' : ''}">${esc(M.CLASS[l.class])}</span></td></tr>`).join('') : '';
+    const table = `<details class="st-more" id="st-all"${S.showAll ? ' open' : ''}><summary>Xem đủ ${c.rows} dòng</summary>${S.showAll ? `<div class="st-scroll"><table class="st-table"><thead><tr><th>Dòng</th><th>Ngày</th><th>Thu/Chi</th>
+      <th class="st-money">Số tiền</th><th>Mã GD</th>${v.raw_visible ? '<th>Nội dung</th>' : ''}<th>Kết quả</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}</details>`;
     const stop = blockers.length > 0 || !can(role) || S.busy;
     const acts = `<div class="st-acts">${can('tien_nhap') ? `<button type="button" class="nd-btn" data-act="reject"${S.busy ? ' disabled' : ''}>Bỏ lô</button>` : ''}
       <button type="button" class="nd-btn primary" data-act="commit"${stop ? ' disabled' : ''}>Ghi vào sổ</button></div>`;
     return `<div class="st-review" id="st-review">${head}
       <p class="st-counts">${c.rows} dòng: <b>${c.new}</b> mới · <b>${c.duplicate}</b> đã có trong sổ · <b>${c.suspect}</b> cần quyết · <b>${c.error}</b> lỗi</p>
       ${balanced}${blockers.length || errors ? `<div class="st-block">${blockers.map(b => `<p>${esc(b)}</p>`).join('')}${errors}</div>` : ''}
-      ${questionsHtml(v, readOnly)}${role === 'tien_review' && readOnly ? `<p class="st-ro">Lô có ${asks || suspects.length + unmatched.length} chỗ cần người đối chiếu quyết. Người có vai đối chiếu mở lô này để quyết và ghi.</p>` : ''}
+      ${warnings.length ? `<div class="st-warn">${warnings.map(w => `<p>${esc(w)}</p>`).join('')}</div>` : ''}
+      ${questionsHtml(v, readOnly)}${role === 'tien_review' && readOnly ? `<p class="st-ro">Lô có ${asks}: người có vai đối chiếu mở lô này để quyết và ghi.</p>` : ''}
       ${role === 'tien_nhap' && !can('tien_nhap') ? '<p class="st-ro">Lô không có chỗ cần quyết; người có vai nhập bấm Ghi vào sổ.</p>' : ''}
       ${table}${acts}</div>`;
   }
@@ -197,7 +210,7 @@
   function importHtml() {
     if (!can('tien_nhap') && !can('tien_review')) return '';
     const list = templates();
-    const pick = list.length > 1 ? `<select data-act="template" aria-label="Mẫu file">${list.map(t => `<option value="${esc(t.id)}"${t.id === S.template ? ' selected' : ''}>${esc(t.label)}</option>`).join('')}</select>` : '';
+    const pick = list.length > 1 ? `<select data-act="template" data-f="template" aria-label="Mẫu file">${list.map(t => `<option value="${esc(t.id)}"${t.id === S.template ? ' selected' : ''}>${esc(t.label)}</option>`).join('')}</select>` : '';
     const accept = list.map(t => t.extension).join(',');
     const button = can('tien_nhap') ? `<label class="nd-btn primary st-file">Chọn file sao kê<input type="file" data-act="upload" accept="${esc(accept)}"${!list.length || S.busy || S.card.opening === null ? ' disabled' : ''}></label>` : '';
     const hint = !list.length
@@ -215,7 +228,7 @@
     const raw = can('tien_nhap') || can('tien_review');
     const rows = S.imports.slice(0, 20).map(i => {
       const acts = [];
-      if (i.status === 'validated') acts.push(`<button type="button" class="nd-btn" data-act="open-import" data-id="${i.id}">Mở</button>`);
+      if (i.status === 'validated' && raw) acts.push(`<button type="button" class="nd-btn" data-act="open-import" data-id="${i.id}">Mở</button>`);
       if (i.file && raw) acts.push(`<button type="button" class="nd-btn" data-act="download-file" data-id="${i.file.id}">Tải file gốc</button>`);
       if (i.status === 'committed' && can('tien_review')) acts.push(`<button type="button" class="nd-btn" data-act="void" data-id="${i.id}"${S.busy ? ' disabled' : ''}>Hủy lô</button>`);
       return `<tr><td>${M.vnDate(i.period_from)} – ${M.vnDate(i.period_to)}</td><td><span class="st-tag ${i.status === 'committed' ? 'ok' : i.status === 'validated' ? 'warn' : ''}">${esc(M.IMPORT_STATUS[i.status])}</span></td>
@@ -230,9 +243,9 @@
   function detailHtml(d) {
     const t = d.transaction;
     const sources = d.sources.map(s => `<li>Lô ${M.vnDate(s.period_from)} – ${M.vnDate(s.period_to)}, dòng ${s.line_no}${s.role === 'duplicate_confirmed' ? ' (xác nhận trùng)' : ''}${s.import_status !== 'committed' ? ` · lô ${esc(M.IMPORT_STATUS[s.import_status]).toLowerCase()}` : ''}</li>`).join('');
-    const allocations = d.allocations.length ? d.allocations.map(a => `<li>${esc(M.TARGET[a.target_kind]?.label ?? a.target_kind)}${Object.values(a.target_ref).length ? ` (${esc(Object.values(a.target_ref).join(', '))})` : ''}: ${esc(M.money(a.amount_minor))}${a.note ? ` · ${esc(a.note)}` : ''}</li>`).join('') : '<li>Chưa phân bổ.</li>';
+    const allocations = d.allocations.length ? d.allocations.map(a => `<li>${esc(M.TARGET[a.target_kind]?.label ?? a.target_kind)}${Object.keys(a.target_ref).length ? ` (${esc(M.refText(a.target_ref))})` : ''}: ${esc(M.money(a.amount_minor))}${a.note ? ` · ${esc(a.note)}` : ''}</li>`).join('') : '<li>Chưa phân bổ.</li>';
     const history = d.history.map(h => `<li>${esc(h.by?.actor ?? '')} ${M.stamp(h.by?.at)}: ${h.after.length} dòng${h.reason ? ` · lý do: ${esc(h.reason)}` : ''}</li>`).join('');
-    return `<div class="st-small"><b>Nguồn</b><ul class="st-lines">${sources}</ul><b>Phân bổ</b><ul class="st-lines">${allocations}</ul>
+    return `<div class="st-small"><p>Mã giao dịch trong sổ tiền: <b>#${t.id}</b> (dùng khi ghép chuyển nội bộ)</p><b>Nguồn</b><ul class="st-lines">${sources}</ul><b>Phân bổ</b><ul class="st-lines">${allocations}</ul>
       ${history ? `<b>Lịch sử phân bổ</b><ul class="st-lines">${history}</ul>` : ''}
       ${!t.voided ? `<p><a href="/doi-soat-ngay.html?account=${S.accountId}&date=${t.booking_date}">Phân bổ ở Đối soát ngày ${M.vnDate(t.booking_date)} ›</a></p>` : ''}</div>`;
   }
@@ -244,7 +257,7 @@
     const cols = S.txDesc ? 7 : 6;
     const body = rows.length ? rows.map(t => {
       const open = S.openTx === t.id;
-      const tr = `<tr class="st-row" data-tx="${t.id}" aria-expanded="${open}" tabindex="0"><td>${M.vnDate(t.booking_date)}</td>
+      const tr = `<tr class="st-row" data-tx="${t.id}" data-f="tx-${t.id}" aria-expanded="${open}" tabindex="0"><td>${M.vnDate(t.booking_date)}</td>
         <td class="st-money">${t.direction === 'in' ? esc(M.money(t.amount_minor)) : ''}</td><td class="st-money">${t.direction === 'out' ? esc(M.money(t.amount_minor)) : ''}</td>
         <td>${esc(t.bank_ref ?? '')}</td>${S.txDesc ? `<td class="st-desc">${esc(t.description ?? '')}</td>` : ''}
         <td><span class="st-tag ${t.status === 'applied' || t.status === 'matched' ? 'ok' : t.status === 'voided' ? '' : 'warn'}">${esc(M.STATUS[t.status])}</span></td>
@@ -252,8 +265,8 @@
       return open && S.detail?.transaction.id === t.id ? `${tr}<tr class="st-detail"><td colspan="${cols}">${detailHtml(S.detail)}</td></tr>` : tr;
     }).join('') : `<tr><td colspan="${cols}" class="st-muted">Không có giao dịch trong tháng ${esc(S.month.split('-').reverse().join('/'))}${S.status ? ' với trạng thái này' : ''}.</td></tr>`;
     return `<section class="nd-card" aria-labelledby="st-tx-title"><div class="nd-card-head"><h2 id="st-tx-title">Giao dịch</h2>
-      <div class="st-filter"><input type="month" data-act="month" value="${esc(S.month)}" max="${esc(S.card.today.slice(0, 7))}" aria-label="Tháng">
-      <select data-act="status" aria-label="Trạng thái">${statuses.map(s => `<option value="${s}"${s === S.status ? ' selected' : ''}>${s ? esc(M.STATUS[s]) : 'Mọi trạng thái'}</option>`).join('')}</select>
+      <div class="st-filter"><input type="month" data-act="month" data-f="month" value="${esc(S.month)}" max="${esc(S.card.today.slice(0, 7))}" aria-label="Tháng">
+      <select data-act="status" data-f="status" aria-label="Trạng thái">${statuses.map(s => `<option value="${s}"${s === S.status ? ' selected' : ''}>${s ? esc(M.STATUS[s]) : 'Mọi trạng thái'}</option>`).join('')}</select>
       ${can('tien_review') ? '<button type="button" class="nd-btn" data-act="export">Xuất Excel tháng này</button>' : ''}</div></div>
       <div class="st-scroll"><table class="st-table"><thead><tr><th>Ngày</th><th class="st-money">Thu</th><th class="st-money">Chi</th><th>Mã GD</th>${S.txDesc ? '<th>Nội dung</th>' : ''}
       <th>Trạng thái</th><th class="st-money">Chưa phân bổ</th></tr></thead><tbody>${body}</tbody></table></div></section>`;
@@ -286,17 +299,23 @@
     dialog.showModal();
     input.focus();
     return new Promise(resolve => {
-      const done = value => { dialog.close(); dialog.removeEventListener('click', onClick); resolve(value); };
+      const onCancel = () => done(null);
+      function done(value) {
+        dialog.removeEventListener('click', onClick);
+        dialog.removeEventListener('cancel', onCancel);
+        dialog.close();
+        resolve(value);
+      }
       function onClick(event) {
         const act = event.target.closest('[data-act]')?.dataset.act;
         if (act === 'reason-cancel') done(null);
         if (act === 'reason-ok') {
-          if (!input.value.trim()) { input.focus(); return; }
-          done(input.value.trim());
+          if (!M.clean(input.value)) { input.focus(); return; }
+          done(M.clean(input.value));
         }
       }
       dialog.addEventListener('click', onClick);
-      dialog.addEventListener('cancel', () => done(null), { once: true });
+      dialog.addEventListener('cancel', onCancel);
     });
   }
 
@@ -339,6 +358,7 @@
         }
         S.reviewId = out.import_id;
         S.choice = { lines: {}, keep: {} };
+        S.showAll = false;
         net.bao(`Đã đọc ${out.counts.rows} dòng. Xem lại rồi bấm Ghi vào sổ.`);
       });
     };
@@ -346,7 +366,7 @@
   }
 
   function commit() {
-    const built = M.commitBody(S.review, S.choice);
+    const built = M.commitBody(S.review, S.choice, S.known);
     if (built.error) { net.bao(built.error, 'err'); return; }
     net.ghi(`${API}/imports/commit`, built.body, out => {
       S.reviewId = null;
@@ -365,12 +385,19 @@
     const el = event.target;
     const act = el.dataset.act;
     if (act === 'upload') upload(el.files?.[0]);
-    if (act === 'account') { S.accountId = Number(el.value); S.reviewId = null; S.review = null; S.openTx = null; S.detail = null; S.month = null; load(); }
+    if (act === 'account') {
+      Object.assign(S, { accountId: Number(el.value), card: null, imports: [], tx: null, reviewId: null, review: null, openTx: null, detail: null, month: null });
+      load();
+    }
     if (act === 'template') S.template = el.value;
-    if (act === 'month' && /^\d{4}-\d{2}$/.test(el.value)) { S.month = el.value; S.openTx = null; load(); }
+    if (act === 'month' && MONTH.test(el.value)) { S.month = el.value; S.openTx = null; load(); }
     if (act === 'status') { S.status = el.value; draw(); }
     if (act === 'decide') { S.choice.lines[el.dataset.line] = el.value === 'new' ? 'new' : Number(el.value); draw(); }
   });
+  // <details> không nổi sự kiện toggle lên document: nghe ở pha bắt.
+  document.addEventListener('toggle', event => {
+    if (event.target.id === 'st-all' && event.target.open !== S.showAll) { S.showAll = event.target.open; draw(); }
+  }, true);
   document.addEventListener('input', event => {
     const id = event.target.dataset.keep;
     if (id) S.choice.keep[id] = event.target.value;
@@ -384,8 +411,8 @@
     const act = el.dataset.act;
     const id = Number(el.dataset.id);
     if (act === 'dong-toast') { S.toast = null; net.drawToast(); }
-    if (act === 'open-import') { S.reviewId = id; S.choice = { lines: {}, keep: {} }; load(); }
-    if (act === 'close-review') { S.reviewId = null; S.review = null; draw(); }
+    if (act === 'open-import') { S.reviewId = id; S.choice = { lines: {}, keep: {} }; S.showAll = false; load(); }
+    if (act === 'close-review') { S.reviewId = null; S.review = null; S.showAll = false; draw(); }
     if (act === 'commit') commit();
     if (act === 'reject') {
       reasonThen('Bỏ lô', 'Lô không vào sổ; file gốc vẫn được lưu. Nhập lại file khi cần.', 'Bỏ lô', `${API}/imports/reject`, { import_id: S.reviewId },

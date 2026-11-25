@@ -53,11 +53,12 @@ EVENT_OF = {"create_legal_entity": "entity_create", "create_account": "account_c
             "reject_import": "import_reject", "void_import": "import_void", "set_allocation": "allocation_set",
             "record_balance_evidence": "balance_evidence", "sign_day_coverage": "day_sign_coverage",
             "sign_day_business": "day_sign_business", "reopen_day": "day_reopen"}
-# Hàm đọc của cả tien_app và tien_reader (lát 1 + lát 2); file gốc và dữ liệu xuất chỉ tien_app.
+# Hàm đọc của cả tien_app và tien_reader (lát 1 + lát 2); hàm có thể trả mô tả, ô gốc, tên file, file gốc hay dữ liệu xuất chỉ
+# tien_app (máy canh không cần, và DB tin người làm trong biến phiên).
 READS = ["get_account_summary(bigint)", "list_transactions(bigint,date,date)", "my_access()", "list_accounts()",
-         "get_account_card(bigint)", "get_coverage(bigint,date,date)", "get_day(bigint,date)", "list_imports(bigint)",
-         "get_import(bigint)", "get_transaction(bigint)"]
-APP_READS = ["get_statement_file(bigint)", "export_rows(bigint,date,date)"]
+         "get_account_card(bigint)", "get_coverage(bigint,date,date)", "get_day(bigint,date)"]
+APP_READS = ["list_imports(bigint)", "get_import(bigint)", "get_transaction(bigint)", "get_statement_file(bigint)",
+             "export_rows(bigint,date,date)"]
 TABLES = ["currency", "event", "legal_entity", "financial_account", "account_opening", "access_grant", "statement_import",
           "raw_statement_line", "bank_transaction", "bank_transaction_source", "allocation", "idempotency",
           "statement_file", "balance_evidence", "day_review"]
@@ -330,7 +331,8 @@ END $$""", user=role)
                      "UNION ALL SELECT relowner::regrole::text FROM pg_class WHERE relnamespace = 'tien'::regnamespace "
                      "UNION ALL SELECT proowner::regrole::text FROM pg_proc WHERE pronamespace = 'tien'::regnamespace) o") == "t",
             "schema tien và mọi đối tượng phải thuộc tien_owner")
-    cases.append("quyền: tien_app gọi đúng 14 lệnh + 12 hàm đọc (file gốc, dữ liệu xuất chỉ tien_app), tien_reader chỉ 10 hàm đọc, "
+    cases.append("quyền: tien_app gọi đúng 14 lệnh + 12 hàm đọc (lô, giao dịch, file gốc, dữ liệu xuất chỉ tien_app), tien_reader chỉ 7 "
+                 "hàm đọc không trả mô tả hay ô gốc, "
                  "PUBLIC không gọi gì, hàm phụ không cấp; "
                  "AT-02.1 cả hai login không SELECT/INSERT/UPDATE/DELETE/TRUNCATE được bảng nào (thử thật); không dùng được sokhach; "
                  "hàm SECURITY DEFINER + search_path cố định; mọi đối tượng thuộc tien_owner")
@@ -1013,8 +1015,8 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
                                         "currency": "VND", "account_hmac": hashlib.sha256(f"tk-gia-c-{last4}".encode()).hexdigest(),
                                         "holder": "company", "statement_template": TEMPLATE}, QT_C)["account_id"]
 
-    c1, c2, c3, c4 = (account(x) for x in ("1001", "1002", "1003", "1004"))
-    for acc in (c1, c3, c4):
+    c1, c2, c3, c4, c5 = (account(x) for x in ("1001", "1002", "1003", "1004", "1005"))
+    for acc in (c1, c3, c4, c5):
         t.cmd("set_opening", {"account_id": acc, "as_of": str(d(1)), "amount_minor": "1000000", "evidence_note": "so du gia lat 2"}, QT_C)
 
     # File gốc: lưu một lần, cùng file lần hai dùng lại; băm, base64, loại file, tên, khóa lạ sai → INVALID_COMMAND.
@@ -1194,15 +1196,20 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
     require(b2["role_overlap"] is True and b2["not_fully_allocated"] == 0, f"tự phân bổ rồi ký → trùng vai: {b2}")
     rows = int(pg.value("SELECT count(*) FROM tien.day_review"))
     both = t.cmd("reopen_day", {**biz, "track": "coverage", "reason": "mo lai ca hai gia"}, RV2)
+    status = {n: t.read("get_day", f"{c1}, {lit(str(d(n)))}", XEM2)["coverage_status"] for n in (1, 2, 5, 6)}
     require(both == {**both, "coverage_status": "reopened", "business_status": "reopened"}
-            and int(pg.value("SELECT count(*) FROM tien.day_review")) == rows + 2, f"mở lại số dư kéo đối soát: {both}")
+            and both["reopened_days"] == [str(d(2)), str(d(5)), str(d(6))]
+            and status == {1: "signed", 2: "reopened", 5: "reopened", 6: "reopened"}
+            and int(pg.value("SELECT count(*) FROM tien.day_review")) == rows + 4,
+            f"mở lại số dư kéo đối soát và các ngày sau: {both} {status}")
     hist = t.read("get_day", f"{c1}, {lit(str(d(2)))}", XEM2)["history"]
     require([(h["track"], h["action"]) for h in hist][:2] in ([("business", "reopen"), ("coverage", "reopen")],
                                                              [("coverage", "reopen"), ("business", "reopen")])
             and hist[0]["by"]["actor"] == RV2, f"lịch sử ký: {hist}")
     cases.append("lát 2 ký đối soát: chưa ký số dư → DAY_NOT_READY COVERAGE_NOT_SIGNED; người nhập → TIEN_FORBIDDEN; ký khi còn khoản "
                  "chưa phân bổ (số đếm vào snapshot); ký lặp không ghi; mở lại đối soát giữ chữ ký số dư; người phân bổ tự ký → "
-                 "role_overlap; mở lại số dư khi đối soát đã ký → một vết, hai dòng mở lại; lịch sử ký có người làm")
+                 "role_overlap; mở lại số dư ngày 2 khi đối soát đã ký → một vết, mở lại số dư + đối soát ngày 2 và số dư mọi ngày sau "
+                 "đang ký (5, 6), ngày 1 giữ chữ ký; lịch sử ký có người làm")
 
     # Hàm đọc: vai của tôi, danh sách tài khoản, thẻ, lô (chờ: phân loại lại + băm để commit, hết hạn khi sổ đổi), giao dịch, xuất.
     require(t.read("my_access", "", LA) == {"actor": LA, "grants": []}, "người lạ: không vai, không lỗi")
@@ -1211,12 +1218,12 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
             f"vai của tôi: {mine}")
     require(t.read("list_accounts", "", LA)["accounts"] == [], "người lạ không thấy tài khoản")
     accounts = t.read("list_accounts", "", KT2)["accounts"]
-    require([a["id"] for a in accounts] == [c1, c2, c3, c4] and accounts[0]["roles"] == ["tien_nhap", "tien_phan_bo"]
+    require([a["id"] for a in accounts] == [c1, c2, c3, c4, c5] and accounts[0]["roles"] == ["tien_nhap", "tien_phan_bo"]
             and accounts[0]["legal_entity"]["code"] == "PN-GIA-C", f"danh sách tài khoản: {accounts}")
     card = t.read("get_account_card", str(c1), XEM2)
     require(card["coverage"]["data_until"] == str(d(6)) and card["coverage"]["data_until_state"] == "full"
             and card["coverage"]["complete_until"] == str(d(6)) and card["coverage"]["missing_count"] == 0
-            and card["coverage"]["last_signed_day"] == str(d(6)) and card["coverage"]["unsigned_full_days"] == 3
+            and card["coverage"]["last_signed_day"] == str(d(1)) and card["coverage"]["unsigned_full_days"] == 5
             and card["pending_imports"] == 0 and card["roles"] == ["tien_xem"] and card["balance_minor"] == ledger(c1, d(6)),
             f"thẻ tài khoản: {card}")
     pending = t.cmd("preview_import", complete(statement(c4, "c4-w", d(3), d(3), int(ledger(c4, d(2))), [(1, d(3), "in", 1000, "CK GIA W")])), KT2)
@@ -1262,7 +1269,7 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
              "tien_get_statement_file": {"file_id": p1["file_id"]}, "tien_export_rows": {"account_id": c1, "from": str(d(1)), "to": str(d(6))}}
     require(set(reads) == {k for k in SQL if k.startswith("tien_") and k[5:] not in TIEN_COMMANDS}, "adapter phải thử mọi câu đọc của API")
     got = {function: app.run(function, payload, KTR, consistent=True) for function, payload in reads.items()}
-    require(got["tien_my_access"]["actor"] == KTR and len(got["tien_list_accounts"]["accounts"]) == 4
+    require(got["tien_my_access"]["actor"] == KTR and len(got["tien_list_accounts"]["accounts"]) == 5
             and got["tien_get_day"]["date"] == str(d(2)) and len(got["tien_export_rows"]["transactions"]) == 7
             and base64.b64decode(got["tien_get_statement_file"]["content_base64"]) == f1_bytes, "đọc qua adapter")
     via = app.run("tien_record_balance_evidence", {"idempotency_key": "api-ev-1", "account_id": c1, "as_of_date": str(d(3)),
@@ -1278,6 +1285,56 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
     cases.append("lát 2 qua adapter API (SQL cố định của v7_api_tables, login thành viên tien_app): mười một câu đọc chạy thật, ghi bằng "
                  "chứng lấy người làm từ phiên, DAY_NOT_READY thành 409 kèm DETAIL lý do")
 
+    # Review độc lập lát 2 (TB): đổi giao dịch ngày D bị chặn khi còn ngày ≥ D đã ký số dư (DETAIL là ngày đã ký sớm nhất), kể cả hủy
+    # lô chỉ có giao dịch của ngày chưa ký; mở lại ngày đó kéo theo các ngày sau; file chỉ có số dư đầu không là bằng chứng ngân hàng.
+    i1 = t.cmd("preview_import", complete(statement(c5, "c5-1", d(1), d(1), 1000000, [(1, d(1), "in", 10000, "CK GIA C5A")])), KT2)
+    commit(i1)
+    i2 = t.cmd("preview_import", complete(statement(c5, "c5-2", d(2), d(3), 1010000, [(1, d(2), "in", 20000, "CK GIA C5B"),
+                                                                                       (2, d(3), "in", 30000, "CK GIA C5C")])), KT2)
+    commit(i2)
+    sign(c5, 3)
+    t.reject("void_import", {"import_id": i1["import_id"], "reason": "thu huy gia"}, RV2, "DAY_SIGNED", detail=str(d(3)))
+    late = complete(statement(c5, "c5-3", d(2), d(2), 1010000, [(1, d(2), "in", 20000, "CK GIA C5B"), (2, d(2), "in", 4000, "CK GIA MUON C5")]))
+    i3 = t.cmd("preview_import", late, KT2)
+    require(i3["signed_days"] == [str(d(3))] and i3["counts"]["new"] == 1, f"cảnh báo ngày đã ký sau ngày của dòng mới: {i3}")
+    t.reject("commit_import", {"import_id": i3["import_id"], "expected_preview_hash": i3["preview_hash"]}, KT2, "DAY_SIGNED",
+             detail=str(d(3)))
+    t.cmd("reject_import", {"import_id": i3["import_id"], "reason": "ky ngay 1 2 truoc"}, KT2)
+    sign(c5, 1)
+    sign(c5, 2)
+    i3 = t.cmd("preview_import", late, KT2)
+    require(i3["signed_days"] == [str(d(2))], f"ngày đã ký sớm nhất từ ngày của dòng mới: {i3}")
+    reopened = t.cmd("reopen_day", {"account_id": c5, "business_date": str(d(2)), "track": "coverage", "reason": "giao dich muon c5"}, RV2)
+    require(reopened["reopened_days"] == [str(d(2)), str(d(3))]
+            and [get_day(c5, n)["coverage_status"] for n in (1, 2, 3)] == ["signed", "reopened", "reopened"], f"mở lại kéo theo: {reopened}")
+    commit(i3)
+    g2, g3 = get_day(c5, 2), get_day(c5, 3)
+    require(g2["ready"] and [e["import_id"] for e in g2["evidence"] if e["current"]] == [i3["import_id"]]
+            and g3["reasons"] == ["BALANCE_DIFFERENCE"] and [e["difference_minor"] for e in g3["evidence"]] == ["4000"],
+            f"file mới chỉ phủ ngày 2; ngày 3 còn file cũ nên báo lệch tới khi có file mới: {g2} {g3}")
+    i4 = t.cmd("preview_import", complete(statement(c5, "c5-4", d(4), d(4), int(ledger(c5, d(3))), [(1, d(4), "out", 5000, "CHI GIA C5D")],
+                                                    closing=False)), KT2)
+    commit(i4)
+    g4 = get_day(c5, 4)
+    require(g4["coverage"] == "full" and g4["evidence"] == [] and g4["reasons"] == ["NO_EVIDENCE"],
+            f"file chỉ có số dư đầu không là bằng chứng (BR-DC4): {g4}")
+    t.reject("preview_import", complete(statement(c5, "c5-5", today, today, None, [])), KT2, "INVALID_COMMAND")
+    t.cmd("void_import", {"import_id": i4["import_id"], "reason": "file thieu so du cuoi"}, RV2)
+    require(coverage(c5, 4, 4) == {str(d(4)): "missing"}, "hủy lô → ngày trở lại thiếu")
+    drift = pg.value(
+        "SELECT count(*) FROM (SELECT DISTINCT ON (r.account_id, r.business_date) r.account_id, r.business_date, r.action, r.snapshot "
+        "FROM tien.day_review r WHERE r.track = 'coverage' ORDER BY r.account_id, r.business_date, r.id DESC) s "
+        "JOIN tien.account_opening o ON o.account_id = s.account_id WHERE s.action = 'sign' "
+        "AND (s.snapshot ->> 'ledger_closing_minor')::bigint <> o.amount_minor + coalesce((SELECT sum(CASE x.direction WHEN 'in' "
+        "THEN x.amount_minor ELSE -x.amount_minor END) FROM tien.bank_transaction x WHERE x.account_id = s.account_id "
+        "AND x.voided_event IS NULL AND x.booking_date <= s.business_date), 0)")
+    require(drift == "0", f"số dư sổ của ngày đang ký phải bằng số dư lúc ký ({drift} ngày lệch)")
+    cases.append("lát 2 sau review độc lập: ký ngày 3 khi ngày 1, 2 chưa ký → hủy lô chỉ có giao dịch ngày 1 và commit giao dịch muộn "
+                 "ngày 2 đều DAY_SIGNED (DETAIL ngày 3), xem trước báo ngày 3; mở lại ngày 2 kéo theo ngày 3 (ngày 1 giữ chữ ký), commit "
+                 "được; ngày 2 lấy bằng chứng file mới, ngày 3 còn file cũ nên báo lệch đúng số giao dịch muộn; file chỉ có số dư đầu → "
+                 "NO_EVIDENCE (BR-DC4); file kỳ tới hôm nay mà ghi ngày cuối đã trọn → INVALID_COMMAND; hủy lô → ngày trở lại thiếu; "
+                 "mọi ngày đang ký có số dư sổ bằng số dư lúc ký")
+
     # Bảng lát 2 chỉ thêm (chủ schema bị trigger chặn); hoàn tác lát 2 dừng khi đã có dữ liệu lát 2; bất biến của tài khoản mới.
     for stmt in ("UPDATE tien.statement_file SET file_name = 'x.csv'", "DELETE FROM tien.statement_file",
                  "UPDATE tien.balance_evidence SET amount_minor = amount_minor + 1", "DELETE FROM tien.balance_evidence",
@@ -1286,7 +1343,7 @@ def scenario_lat2(pg: Pg, cases: list[str]) -> None:
         pg.rejects(f"BEGIN; SET LOCAL ROLE tien_owner; {stmt}; COMMIT", message="IMMUTABLE")
     pg.rejects(ROLLBACK2.read_text(encoding="utf-8"), message="TIEN_HAS_DATA")
     require(pg.value("SELECT to_regclass('tien.day_review') IS NOT NULL") == "t", "hoàn tác lát 2 khi có dữ liệu phải dừng")
-    invariants(pg, t, {c1: KT2, c3: KT2, c4: KT2})
+    invariants(pg, t, {c1: KT2, c3: KT2, c4: KT2, c5: KT2})
     cases.append("lát 2 bảng chỉ thêm: UPDATE/DELETE/TRUNCATE file gốc, bằng chứng, ký ngày, đổi file_id của lô bị trigger chặn; hoàn "
                  "tác lát 2 khi đã có dữ liệu → TIEN_HAS_DATA; bất biến I-1, I-4, I-5, I-6, I-8, I-10 trên tài khoản lát 2")
 
@@ -1300,7 +1357,8 @@ def main() -> int:
     ap.add_argument("--report", type=Path, help="ghi báo cáo JSON")
     args = ap.parse_args()
     cases: list[str] = []
-    report = {"spec": "specs/so-tien-p0a.md", "image": IMAGE, "cases": cases, "result": "fail", "cleanup": "not_started"}
+    report = {"spec": "specs/so-tien-p0a.md + specs/so-tien-p0a-lat2.md", "image": IMAGE, "cases": cases, "result": "fail",
+              "cleanup": "not_started"}
     started = time.monotonic()
     try:
         with disposable_database(report) as pg:

@@ -31,6 +31,8 @@ from v7_api_validate import ApiError, bad, no_duplicates
 PREFIX = "/api/v7/tien"
 PREVIEW_PATH = PREFIX + "/imports/preview"
 MAX_PREVIEW_BODY = 6 * 1024 * 1024        # file ≤ 4 MiB thành base64 ~5,6 MB cộng vài trường
+COMMIT_PATH = PREFIX + "/imports/commit"
+MAX_COMMIT_BODY = 2 * 1024 * 1024         # tới 20000 quyết định nghi trùng / giữ giao dịch cũ (mỗi cái ~100 byte)
 MODES = ("off", "shadow", "on")
 SHADOW_ROLES = frozenset({"tien_review", "tien_quan_tri"})
 XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -169,7 +171,10 @@ def _query(query: str, allowed: set[str]) -> dict[str, str]:
 def _range(q: dict[str, str], *, default_days: int, max_days: int) -> tuple[str, str]:
     """Khoảng ngày của tham số from/to; thiếu thì tới hôm nay (giờ VN), lùi default_days ngày."""
     end = _day(q["to"]) if "to" in q else datetime.now(VN).date().isoformat()
-    start = _day(q["from"]) if "from" in q else (date.fromisoformat(end) - timedelta(days=default_days)).isoformat()
+    try:
+        start = _day(q["from"]) if "from" in q else (date.fromisoformat(end) - timedelta(days=default_days)).isoformat()
+    except OverflowError:   # ngày cuối quá gần năm 1: lùi ngày ra ngoài lịch Python (review lát 2, Thấp)
+        bad()
     if start > end or (date.fromisoformat(end) - date.fromisoformat(start)).days > max_days:
         bad()
     return start, end
@@ -203,7 +208,7 @@ def _get(rest: str, query: str, db, actor: str) -> dict:
     if name == "card":
         return read("tien_get_account_card", {"account_id": ref})
     if name == "coverage":
-        start, end = _range(q, default_days=44, max_days=92)
+        start, end = _range(q, default_days=92, max_days=92)
         return read("tien_get_coverage", {"account_id": ref, "from": start, "to": end})
     if name == "day":
         return read("tien_get_day", {"account_id": ref, "date": _day(match[2])})
@@ -211,13 +216,19 @@ def _get(rest: str, query: str, db, actor: str) -> dict:
         return read("tien_list_imports", {"account_id": ref})
     if name == "transactions":
         start, end = _range(q, default_days=30, max_days=366)
-        return read("tien_list_transactions", {"account_id": ref, "from": start, "to": end})
+        result = read("tien_list_transactions", {"account_id": ref, "from": start, "to": end})
+        if result.get("description_visible"):   # QD-08: ghi lại ai đã mở nội dung chuyển khoản (không ghi nội dung)
+            _log(actor, "đọc nội dung giao dịch", f"tài khoản {ref} {start}..{end}")
+        return result
     if name == "import":
         result = read("tien_get_import", {"import_id": ref})
         if result.get("raw_visible"):
             _log(actor, "mở lô có ô gốc", ref)
         return result
-    return read("tien_get_transaction", {"transaction_id": ref})
+    result = read("tien_get_transaction", {"transaction_id": ref})
+    if result.get("description_visible"):
+        _log(actor, "đọc nội dung giao dịch", ref)
+    return result
 
 
 # ---- ghi -------------------------------------------------------------------------------------------------------------------
@@ -255,7 +266,8 @@ def _preview(raw: bytes, db, actor: str) -> dict:
     try:
         parsed = template.parse(data, currency)
     except v7_tien_import.ParseError as exc:
-        raise ApiError(422, "IMPORT_PARSE_ERROR", exc.message, {} if exc.line is None else {"line": exc.line}) from exc
+        message = exc.message if exc.line is None else f"Dòng {exc.line} của file: {exc.message}"
+        raise ApiError(422, "IMPORT_PARSE_ERROR", message, {} if exc.line is None else {"line": exc.line}) from exc
     payload = {"idempotency_key": body["idempotency_key"], "account_id": account, "file_sha256": hashlib.sha256(data).hexdigest(),
                "template": template.id, "period_from": parsed.period_from, "period_to": parsed.period_to,
                "last_day_complete": parsed.last_day_complete, "opening_minor": parsed.opening_minor,
@@ -305,11 +317,14 @@ def _check_allocation(body: dict) -> None:
         if line["target_kind"] not in TARGETS or not isinstance(line["amount_minor"], str) or not POSITIVE.fullmatch(line["amount_minor"]):
             bad()
         ref = line["target_ref"]
-        if not isinstance(ref, dict) or len(ref) > 4 or any(not isinstance(k, str) or len(k) > 40 for k in ref):
+        if not isinstance(ref, dict) or len(ref) > 4:
             bad()
-        for value in ref.values():
-            if isinstance(value, bool) or not isinstance(value, (str, int)) or (isinstance(value, str) and len(value) > 200):
+        for key, value in ref.items():   # chữ có ký tự điều khiển (cả NUL) làm psql lỗi thành 503: chặn ở đây (review lát 2, Thấp)
+            _text(key, 40, optional=False)
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
                 bad()
+            if isinstance(value, str):
+                _text(value, 200, optional=False)
         _text(line.get("note"), 500)
 
 
@@ -358,6 +373,16 @@ POST_HANDLERS = {
 }
 
 
+def _explain(exc: ApiError) -> ApiError:
+    """DAY_SIGNED kèm ngày (DETAIL) thành câu nói rõ ngày nào cần mở lại; mã khác giữ nguyên."""
+    detail = exc.extra.get("detail", "")
+    if exc.code == "DAY_SIGNED" and DAY.fullmatch(detail):
+        day = date.fromisoformat(detail).strftime("%d/%m/%Y")
+        return ApiError(exc.status, exc.code, f"Ngày {day} đã ký số dư, mà thay đổi này làm đổi số dư của ngày đó. Mở lại ngày {day} ở "
+                                              "Đối soát ngày (các ngày đã ký sau đó mở lại theo) rồi làm lại.", exc.extra)
+    return exc
+
+
 def handle(method: str, path: str, query: str, raw: bytes, runner, actor: str) -> tuple[int, dict]:
     """GET và POST JSON của /api/v7/tien (v7_ledger_api đã kiểm Host, Origin, Content-Type, cỡ thân và giải danh tính)."""
     db = _runner(runner)
@@ -372,7 +397,10 @@ def handle(method: str, path: str, query: str, raw: bytes, runner, actor: str) -
     if handler is None:
         raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
     _gate(db, actor)
-    return 200, handler(raw, db, actor)
+    try:
+        return 200, handler(raw, db, actor)
+    except ApiError as exc:
+        raise _explain(exc) from None
 
 
 def binary(path: str, query: str, runner, actor: str) -> tuple[str, str, bytes]:

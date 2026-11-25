@@ -161,6 +161,8 @@ def body_limit(path: str) -> int:
     mang file gốc ≤ 4 MiB dạng base64."""
     if path == v7_api_tien.PREVIEW_PATH:
         return v7_api_tien.MAX_PREVIEW_BODY
+    if path == v7_api_tien.COMMIT_PATH:
+        return v7_api_tien.MAX_COMMIT_BODY
     return MAX_IMAGE_BODY if path == IMAGE_PATH else v7_api_doixe.MAX_CHANG_BODY if path == v7_api_doixe.CHANG_PATH else MAX_BODY
 
 
@@ -1207,7 +1209,7 @@ def main() -> None:
     if tien_mode != "off":
         try:
             tien_runner = (PsqlDirect(args.direct_socket_dir, args.database, args.tien_db_user,
-                                      required_function=("tien", "get_account_summary"))
+                                      required_function=("tien", "get_day"))   # hàm của lát 2: DB mới có lát 1 thì module tắt
                            if args.direct_socket_dir else Psql(args.container, args.database, args.db_user))
         except ValueError as exc:
             print(f"SO-TIEN: tắt sổ tiền, login {args.tien_db_user} không qua kiểm trước: {exc}", file=sys.stderr, flush=True)

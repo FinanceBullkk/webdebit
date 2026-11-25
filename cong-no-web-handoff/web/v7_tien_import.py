@@ -77,6 +77,8 @@ def parse_demo_csv(data: bytes, currency: str) -> Parsed:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise ParseError("File phải là chữ UTF-8.") from None
+    if "\x00" in text:   # PostgreSQL không lưu được NUL trong chữ (review lát 2, Thấp)
+        raise ParseError("File có ký tự lạ (NUL); tải lại file từ ngân hàng.")
     period: tuple[str, str, bool] | None = None
     opening = closing = None
     header = False

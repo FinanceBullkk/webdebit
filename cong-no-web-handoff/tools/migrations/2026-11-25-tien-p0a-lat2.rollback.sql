@@ -21,7 +21,7 @@ DROP FUNCTION IF EXISTS tien._guard_signed_day(), tien.record_balance_evidence(j
     tien.get_transaction(bigint), tien.get_statement_file(bigint), tien.export_rows(bigint, date, date), tien._signed_days(bigint, jsonb, jsonb),
     tien._read_account(bigint, text), tien._require_any(text[], bigint, bigint), tien._my_roles(bigint, bigint), tien._who(bigint),
     tien._day_business(bigint, date), tien._day_check(bigint, date), tien._day_evidence(bigint, date), tien._day_importers(bigint, date),
-    tien._ledger_closing(bigint, date), tien._coverage(bigint, date, date), tien._day_status(bigint, date, text);
+    tien._ledger_closing(bigint, date), tien._coverage(bigint, date, date), tien._signed_from(bigint, date), tien._day_status(bigint, date, text);
 DROP INDEX IF EXISTS tien.statement_import_period;
 ALTER TABLE tien.statement_import DROP CONSTRAINT IF EXISTS statement_import_file_fk;
 ALTER TABLE tien.statement_import DROP COLUMN IF EXISTS file_id;

@@ -125,11 +125,23 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'p
                     CASE p_track WHEN 'coverage' THEN 'unconfirmed' ELSE 'open' END)
 $$;
 
--- Đã ký số dư ngày D thì không thêm, không hủy giao dịch có ngày ghi sổ D (BR-IM13): mở lại ngày trước. Phân bổ (chỉ tăng version)
+-- Ngày đã ký số dư sớm nhất từ p_date trở đi (NULL: không có). Số dư cuối của mọi ngày ≥ ngày ghi sổ của một giao dịch đều đổi theo
+-- giao dịch đó, nên ngày đã ký sau D cũng phải mở lại trước khi đổi giao dịch ngày D (review độc lập lát 2, mức TB).
+CREATE OR REPLACE FUNCTION tien._signed_from(p_account bigint, p_date date) RETURNS date
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'pg_temp' AS $$
+    SELECT min(s.business_date) FROM (
+        SELECT DISTINCT ON (r.business_date) r.business_date, r.action FROM tien.day_review r
+         WHERE r.account_id = p_account AND r.track = 'coverage' AND r.business_date >= p_date
+         ORDER BY r.business_date, r.id DESC) s
+     WHERE s.action = 'sign'
+$$;
+
+-- Còn ngày nào từ ngày ghi sổ D trở đi đã ký số dư thì không thêm, không hủy giao dịch ngày D (BR-IM13): số dư đã ký không bao giờ
+-- đổi ngầm. DETAIL là ngày đã ký sớm nhất cần mở lại (mở lại ngày đó kéo theo các ngày sau, reopen_day). Phân bổ (chỉ tăng version)
 -- không bị chặn; commit lô chỉ xác nhận trùng không tạo giao dịch nên vẫn được.
 CREATE OR REPLACE FUNCTION tien._guard_signed_day() RETURNS trigger
 LANGUAGE plpgsql SET search_path TO 'pg_catalog', 'tien', 'pg_temp' AS $$
-DECLARE v_date date;
+DECLARE v_date date; v_signed date;
 BEGIN
     IF TG_OP = 'INSERT' THEN
         v_date := NEW.booking_date;
@@ -138,8 +150,9 @@ BEGIN
     ELSE
         RETURN NEW;
     END IF;
-    IF tien._day_status(NEW.account_id, v_date, 'coverage') = 'signed' THEN
-        RAISE EXCEPTION 'DAY_SIGNED' USING DETAIL = to_char(v_date, 'YYYY-MM-DD');
+    v_signed := tien._signed_from(NEW.account_id, v_date);
+    IF v_signed IS NOT NULL THEN
+        RAISE EXCEPTION 'DAY_SIGNED' USING DETAIL = to_char(v_signed, 'YYYY-MM-DD');
     END IF;
     RETURN NEW;
 END $$;
@@ -177,19 +190,25 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'p
      WHERE i.account_id = p_account AND i.status = 'committed' AND p_date BETWEEN i.period_from AND i.period_to
 $$;
 
--- Bằng chứng số dư cuối ngày theo ngân hàng (BR-DC4): mỗi lô đã commit phủ TRỌN ngày và có số dư đầu hoặc cuối của file cho một
--- giá trị (số dư đầu + dòng của file tới hết ngày; không có số dư đầu thì số dư cuối − dòng sau ngày); thêm bản nhập tay mới nhất.
--- `current`: lô mới nhất (mã lô lớn nhất) trong số đó và bản nhập tay là bằng chứng dùng để ký; lô cũ hơn chỉ để xem, vì ngân hàng
--- có thể ghi lùi ngày một giao dịch sau khi file cũ đã tải (file cũ thành ảnh chụp lỗi thời, không phải lỗi của sổ).
--- Dòng của lô đã commit đều hợp lệ (commit chặn lô có dòng lỗi) nên chiều và số tiền đọc thẳng từ StatementLine đã lưu; phép đổi
--- kiểu vẫn có pg_input_is_valid vì planner có thể tính biểu thức trên mọi dòng gốc (cả dòng lỗi của lô bị bỏ) trước khi lọc theo lô.
+-- Bằng chứng số dư cuối ngày theo ngân hàng (BR-DC4): mỗi lô đã commit phủ TRỌN ngày và CÓ SỐ DƯ CUỐI cho một giá trị = số dư cuối
+-- của file − dòng của file sau ngày đó. Chỉ số dư cuối chứng minh file đủ dòng (file cụt có số dư cuối thì commit gãy
+-- CLOSING_MISMATCH); số dư đầu + dòng thì luôn bằng sổ nên không chứng minh gì, file chỉ có số dư đầu cần bằng chứng nhập tay (review
+-- độc lập lát 2, mức TB). `current`: lô mới nhất phủ trọn ngày (có hay không có số dư cuối) là cách nhìn hiện tại của ngân hàng; chỉ
+-- bằng chứng của lô đó và bản nhập tay mới nhất dùng để ký. Lô cũ hơn chỉ để xem, vì ngân hàng có thể ghi lùi ngày một giao dịch
+-- sau khi file cũ đã tải. Dòng của lô đã commit đều hợp lệ (commit chặn lô có dòng lỗi); phép đổi kiểu vẫn có pg_input_is_valid vì
+-- planner có thể tính biểu thức trên mọi dòng gốc (cả dòng lỗi của lô bị bỏ) trước khi lọc theo lô. Trùng vai của bản nhập tay tính
+-- lại mỗi lần đọc: người nhập bằng chứng cũng là người nhập lô phủ ngày đó (kể cả lô nhập sau bằng chứng).
 CREATE OR REPLACE FUNCTION tien._day_evidence(p_account bigint, p_date date) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'pg_temp' AS $$
+    WITH newest AS (
+        SELECT max(j.id) AS id FROM tien.statement_import j
+         WHERE j.account_id = p_account AND j.status = 'committed' AND p_date BETWEEN j.period_from AND j.period_to
+           AND (p_date < j.period_to OR j.last_day_complete)
+    )
     SELECT coalesce(jsonb_agg(x.e ORDER BY x.ord, x.id), '[]'::jsonb) FROM (
-        SELECT 1 AS ord, i.id, jsonb_build_object('source', 'file', 'import_id', i.id, 'amount_minor', (CASE
-                   WHEN i.opening_minor IS NOT NULL THEN i.opening_minor + coalesce(sum(s.signed) FILTER (WHERE s.bdate <= p_date), 0)
-                   ELSE i.closing_minor - coalesce(sum(s.signed) FILTER (WHERE s.bdate > p_date), 0) END)::bigint::text,
-                   'current', i.id = max(i.id) OVER ()) AS e
+        SELECT 1 AS ord, i.id, jsonb_build_object('source', 'file', 'import_id', i.id, 'amount_minor',
+                   (i.closing_minor - coalesce(sum(s.signed) FILTER (WHERE s.bdate > p_date), 0))::bigint::text,
+                   'current', i.id = (SELECT n.id FROM newest n)) AS e
           FROM tien.statement_import i
           LEFT JOIN LATERAL (SELECT (r.line ->> 'booking_date')::date AS bdate,
                                     CASE WHEN pg_input_is_valid(r.line ->> 'amount_minor', 'bigint') THEN
@@ -197,12 +216,12 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'p
                                                                     WHEN 'out' THEN -(r.line ->> 'amount_minor')::bigint END END AS signed
                                FROM tien.raw_statement_line r WHERE r.import_id = i.id) s ON true
          WHERE i.account_id = p_account AND i.status = 'committed' AND p_date BETWEEN i.period_from AND i.period_to
-           AND (p_date < i.period_to OR i.last_day_complete) AND (i.opening_minor IS NOT NULL OR i.closing_minor IS NOT NULL)
+           AND (p_date < i.period_to OR i.last_day_complete) AND i.closing_minor IS NOT NULL
          GROUP BY i.id
         UNION ALL
         SELECT 2, b.id, jsonb_build_object('source', b.source, 'evidence_id', b.id, 'amount_minor', b.amount_minor::text,
-                                           'note', b.note, 'role_overlap', b.role_overlap, 'actor', ev.actor, 'at', ev.at,
-                                           'current', true)
+                                           'note', b.note, 'role_overlap', b.role_overlap OR ev.actor = ANY (tien._day_importers(p_account, p_date)),
+                                           'actor', ev.actor, 'at', ev.at, 'current', true)
           FROM tien.balance_evidence b JOIN tien.event ev ON ev.id = b.created_event
          WHERE b.id = (SELECT max(b2.id) FROM tien.balance_evidence b2 WHERE b2.account_id = p_account AND b2.as_of_date = p_date)
     ) x
@@ -310,15 +329,16 @@ BEGIN
     RETURN v_acc;
 END $$;
 
--- Ngày đã ký số dư có dòng mới hoặc nghi trùng trong một lô (commit sẽ bị DAY_SIGNED nếu tạo giao dịch ở ngày đó).
+-- Ngày đã ký số dư sẽ chặn commit của một lô: với mỗi dòng mới hoặc nghi trùng, ngày đã ký sớm nhất từ ngày ghi sổ của dòng trở đi
+-- (commit tạo giao dịch ở đó sẽ bị DAY_SIGNED; mở lại ngày trả về là đủ vì mở lại kéo theo các ngày sau).
 CREATE OR REPLACE FUNCTION tien._signed_days(p_account bigint, p_classes jsonb, p_lines jsonb) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'pg_temp' AS $$
-    SELECT coalesce(jsonb_agg(x.d ORDER BY x.d), '[]'::jsonb) FROM (
-        SELECT DISTINCT (l.e ->> 'booking_date')::date AS d
+    SELECT coalesce(jsonb_agg(x.s ORDER BY x.s), '[]'::jsonb) FROM (
+        SELECT DISTINCT tien._signed_from(p_account, (l.e ->> 'booking_date')::date) AS s
           FROM jsonb_array_elements(p_classes) c
           JOIN jsonb_array_elements(p_lines) WITH ORDINALITY l(e, ord) ON l.ord = (c ->> 'seq')::bigint
          WHERE c ->> 'class' IN ('new', 'suspect')) x
-     WHERE tien._day_status(p_account, x.d, 'coverage') = 'signed'
+     WHERE x.s IS NOT NULL
 $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------------
@@ -350,7 +370,8 @@ BEGIN
     v_last := tien._bool(p -> 'last_day_complete', false);
     IF v_sha IS NULL OR v_sha !~ '^[0-9a-f]{64}$' OR v_tpl IS NULL OR v_tpl !~ '^[a-z0-9][a-z0-9_-]{0,39}@[1-9][0-9]{0,3}$'
        OR v_from IS NULL OR v_to IS NULL OR v_from > v_to OR v_to > tien._today()
-       OR (v_acc.statement_template IS NOT NULL AND v_tpl <> v_acc.statement_template) THEN
+       OR (v_acc.statement_template IS NOT NULL AND v_tpl <> v_acc.statement_template)
+       OR (v_last AND v_to >= tien._today()) THEN   -- hôm nay chưa hết ngày nên không thể là ngày cuối đã trọn (BR-IM11)
         RAISE EXCEPTION 'INVALID_COMMAND';
     END IF;
     PERFORM tien._check_lines(p -> 'lines');
@@ -474,8 +495,11 @@ BEGIN
         RAISE EXCEPTION 'DAY_NOT_READY' USING DETAIL = (SELECT string_agg(r, ',') FROM jsonb_array_elements_text(v_check -> 'reasons') r);
     END IF;
     v_importers := tien._day_importers(v_acc.id, v_date);
+    -- Trùng vai (BR-DC4, BR-DC5): người ký là người nhập lô hay người nhập bằng chứng tay, hoặc bằng chứng tay do chính người nhập lô
+    -- nhập. Được ký (QD-06, QD-24) nhưng có đánh dấu.
     v_overlap := tien._actor() = ANY (v_importers)
-                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_check -> 'evidence') e WHERE e ->> 'actor' = tien._actor());
+                 OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_check -> 'evidence') e
+                             WHERE (e ->> 'current')::boolean AND (e ->> 'actor' = tien._actor() OR (e ->> 'role_overlap')::boolean));
     v_snapshot := jsonb_build_object('ledger_closing_minor', v_check -> 'ledger_closing_minor', 'evidence', v_check -> 'evidence',
                                      'importers', to_jsonb(v_importers), 'account_version', v_acc.version);
     v_event := tien._event('day_sign_coverage', v_acc.legal_entity_id, v_acc.id,
@@ -529,11 +553,12 @@ BEGIN
         'not_fully_allocated', v_snapshot -> 'not_fully_allocated'));
 END $$;
 
--- Mở lại ngày (lý do bắt buộc): mạch coverage kéo theo đối soát nếu đã ký; mạch business chỉ mở đối soát.
+-- Mở lại ngày (lý do bắt buộc). Mạch coverage: mở lại số dư của ngày đó VÀ mọi ngày sau đang ký số dư (số dư cuối các ngày đó phụ
+-- thuộc ngày này, review độc lập lát 2 mức TB), kéo theo chữ ký đối soát của các ngày đó. Mạch business: chỉ mở đối soát ngày đó.
 CREATE OR REPLACE FUNCTION tien.reopen_day(p jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'pg_catalog', 'tien', 'pg_temp' AS $$
 DECLARE v_key text := tien._begin(p); v_acc tien.financial_account; v_scope text; v_retry jsonb; v_date date; v_track text;
-        v_reason text; v_cov text; v_bus text; v_new_cov text; v_new_bus text; v_event bigint;
+        v_reason text; v_cov text; v_bus text; v_new_cov text; v_new_bus text; v_event bigint; v_days date[]; v_day date;
 BEGIN
     PERFORM tien._keys(p, ARRAY['idempotency_key', 'account_id', 'business_date', 'track'], ARRAY['reason']);
     v_acc := tien._lock_account(tien._id(p -> 'account_id'));
@@ -553,20 +578,31 @@ BEGIN
     END IF;
     v_new_cov := CASE WHEN v_track = 'coverage' THEN 'reopened' ELSE v_cov END;
     v_new_bus := CASE WHEN v_bus = 'signed' THEN 'reopened' ELSE v_bus END;
+    IF v_track = 'coverage' THEN
+        SELECT array_agg(s.business_date ORDER BY s.business_date) INTO v_days FROM (
+            SELECT DISTINCT ON (r.business_date) r.business_date, r.action FROM tien.day_review r
+             WHERE r.account_id = v_acc.id AND r.track = 'coverage' AND r.business_date >= v_date
+             ORDER BY r.business_date, r.id DESC) s
+         WHERE s.action = 'sign';
+    ELSE
+        v_days := ARRAY[v_date];
+    END IF;
     v_event := tien._event('day_reopen', v_acc.legal_entity_id, v_acc.id,
         jsonb_build_object('day', jsonb_build_object('date', v_date, 'coverage_status', v_cov, 'business_status', v_bus)),
         jsonb_build_object('day', jsonb_build_object('date', v_date, 'coverage_status', v_new_cov, 'business_status', v_new_bus),
-                           'track', v_track, 'reason', v_reason), v_key);
-    IF v_track = 'coverage' THEN
-        INSERT INTO tien.day_review(account_id, business_date, track, action, role_overlap, snapshot, note, created_event)
-        VALUES (v_acc.id, v_date, 'coverage', 'reopen', false, '{}', v_reason, v_event);
-    END IF;
-    IF v_bus = 'signed' THEN
-        INSERT INTO tien.day_review(account_id, business_date, track, action, role_overlap, snapshot, note, created_event)
-        VALUES (v_acc.id, v_date, 'business', 'reopen', false, '{}', v_reason, v_event);
-    END IF;
+                           'track', v_track, 'reason', v_reason, 'days', to_jsonb(v_days)), v_key);
+    FOREACH v_day IN ARRAY v_days LOOP
+        IF v_track = 'coverage' THEN
+            INSERT INTO tien.day_review(account_id, business_date, track, action, role_overlap, snapshot, note, created_event)
+            VALUES (v_acc.id, v_day, 'coverage', 'reopen', false, '{}', v_reason, v_event);
+        END IF;
+        IF tien._day_status(v_acc.id, v_day, 'business') = 'signed' THEN
+            INSERT INTO tien.day_review(account_id, business_date, track, action, role_overlap, snapshot, note, created_event)
+            VALUES (v_acc.id, v_day, 'business', 'reopen', false, '{}', v_reason, v_event);
+        END IF;
+    END LOOP;
     RETURN tien._finish(v_scope, 'reopen_day', p, jsonb_build_object('account_id', v_acc.id, 'business_date', v_date,
-        'coverage_status', v_new_cov, 'business_status', v_new_bus));
+        'coverage_status', v_new_cov, 'business_status', v_new_bus, 'reopened_days', to_jsonb(v_days)));
 END $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------------
@@ -812,7 +848,10 @@ BEGIN
         'account', jsonb_build_object('id', v_acc.id, 'bank_code', v_acc.bank_code, 'account_last4', v_acc.account_last4,
                                       'currency', v_acc.currency, 'legal_entity_code', v_entity.code, 'legal_entity_name', v_entity.name),
         'from', p_from, 'to', p_to, 'actor', tien._actor(), 'generated_at', clock_timestamp(), 'opening_as_of', v_open.as_of,
-        'opening_minor', tien._ledger_closing(v_acc.id, p_from - 1)::text, 'closing_minor', tien._ledger_closing(v_acc.id, p_to)::text,
+        -- Kỳ bắt đầu trước ngày số dư mở thì đầu kỳ chưa có sổ: NULL (chưa biết), không lấy số dư mở thế vào.
+        'opening_minor', CASE WHEN v_open.account_id IS NULL OR p_from < v_open.as_of THEN NULL
+                              ELSE tien._ledger_closing(v_acc.id, p_from - 1)::text END,
+        'closing_minor', tien._ledger_closing(v_acc.id, p_to)::text,
         'transactions', (SELECT coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'booking_date', t.booking_date,
                 'value_date', t.value_date, 'bank_ref', t.bank_ref, 'description', t.description, 'direction', t.direction,
                 'amount_minor', t.amount_minor::text, 'status', t.status, 'allocated_minor', t.allocated_minor::text,
@@ -834,13 +873,15 @@ BEGIN
               FROM tien._coverage(v_acc.id, greatest(p_from, v_open.as_of), least(p_to, v_today)) c) END);
 END $$;
 
--- Quyền: tien_app thêm bốn lệnh mới, mười hàm đọc mới (file gốc và dữ liệu xuất chỉ tien_app); tien_reader tám hàm đọc không chứa
--- file gốc hay dữ liệu xuất. Hàm phụ không cấp cho ai; không quyền bảng.
+-- Quyền: tien_app thêm bốn lệnh mới và mười hàm đọc mới. tien_reader (máy canh) chỉ thêm năm hàm đọc không trả mô tả, ô gốc hay tên
+-- file: DB tin người làm trong biến phiên (F1 mục 7), nên login máy canh không được gọi hàm có thể trả chữ của vai nhập/đối chiếu
+-- (review độc lập lát 2, mức Thấp). Hàm phụ không cấp cho ai; không quyền bảng.
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA tien FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA tien FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA tien FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION tien.preview_import(jsonb), tien.record_balance_evidence(jsonb), tien.sign_day_coverage(jsonb),
-    tien.sign_day_business(jsonb), tien.reopen_day(jsonb), tien.get_statement_file(bigint), tien.export_rows(bigint, date, date) TO tien_app;
+    tien.sign_day_business(jsonb), tien.reopen_day(jsonb), tien.list_imports(bigint), tien.get_import(bigint), tien.get_transaction(bigint),
+    tien.get_statement_file(bigint), tien.export_rows(bigint, date, date) TO tien_app;
 GRANT EXECUTE ON FUNCTION tien.my_access(), tien.list_accounts(), tien.get_account_card(bigint), tien.get_coverage(bigint, date, date),
-    tien.get_day(bigint, date), tien.list_imports(bigint), tien.get_import(bigint), tien.get_transaction(bigint) TO tien_app, tien_reader;
+    tien.get_day(bigint, date) TO tien_app, tien_reader;
 COMMIT;

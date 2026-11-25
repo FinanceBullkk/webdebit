@@ -1,8 +1,9 @@
 /* SO-TIEN P0-a lát 2: phần không vẽ của hai trang Sổ tiền và Đối soát ngày (specs/so-tien-p0a-lat2.md, mục Màn hình).
  * Gồm chữ nghiệp vụ cho mã của máy chủ (lớp dòng, trạng thái phân bổ, độ phủ, lý do chưa ký, chỗ gãy), đọc số tiền gõ tay, tính
  * phần còn lại khi phân bổ (BigInt; tính tiền chỉ ở model, ARCH-03), gom quyết định dòng nghi trùng/giao dịch cũ thành thân lệnh
- * commit, và chọn ngày làm việc tiếp theo. Tiền từ máy chủ là chuỗi số nguyên đơn vị nhỏ nhất; null là chưa biết, hiện "—".
- * Không gọi mạng, không đụng DOM: test ở test-so-tien-model.js. */
+ * commit đúng luật của commit_import (mọi giao dịch đã có trong kỳ mà file chưa nhận phải là đích "trùng" hoặc được giữ có lý do),
+ * và chọn ngày làm việc tiếp theo. Tiền từ máy chủ là chuỗi số nguyên đơn vị nhỏ nhất; null là chưa biết, hiện "—"; chuỗi không
+ * phải số nguyên (dòng lỗi của file) hiện nguyên văn. Không gọi mạng, không đụng DOM: test ở test-so-tien-model.js. */
 (function (root, factory) {
   // cong-no-format.js khai báo CongNoFormat bằng const ở tầm script (không có trên globalThis); Node lấy qua require.
   const api = factory(typeof CongNoFormat !== 'undefined' ? CongNoFormat : require('./cong-no-format.js'));
@@ -32,15 +33,10 @@
     DAY_INCOMPLETE: 'Sao kê của ngày này chưa trọn ngày: nhập file của ngày làm việc sau (phủ cả ngày này).',
     DAY_MISSING: 'Chưa có sao kê phủ ngày này.',
     MISSING_DAYS_BEFORE: 'Còn ngày trước đó thiếu sao kê hoặc chưa trọn, nên chưa chứng minh được số dư.',
-    PENDING_IMPORT: 'Còn lô sao kê chờ ghi phủ tới ngày này: ghi hoặc bỏ lô đó trước.',
-    NO_EVIDENCE: 'Chưa có số dư cuối ngày của ngân hàng: file không có số dư, cần nhập số dư từ sao kê PDF hoặc app.',
+    PENDING_IMPORT: 'Còn lô sao kê chờ ghi phủ tới ngày này: ghi hoặc bỏ lô đó trước (người có vai nhập bỏ được lô).',
+    NO_EVIDENCE: 'Chưa có số dư cuối ngày của ngân hàng: file mới nhất không có số dư cuối, cần nhập số dư từ sao kê PDF hoặc app.',
     BALANCE_DIFFERENCE: 'Số dư sổ khác số dư ngân hàng.',
     COVERAGE_NOT_SIGNED: 'Ký số dư của ngày này trước.',
-  };
-  const BREAK = {
-    OPENING_MISMATCH: 'Số dư đầu của file khác số dư sổ ở ngày đầu kỳ.',
-    RUNNING_BALANCE: 'Số dư sau một dòng của file không liền với dòng trước.',
-    CLOSING_MISMATCH: 'Số dư đầu cộng các dòng của file khác số dư cuối của file.',
   };
   // Đích phân bổ của lát 2, xếp theo chiều tiền hay gặp; `ref` là ô cần nhập thêm (null: không có).
   const TARGETS = [
@@ -60,14 +56,15 @@
   const ROLE = { tien_xem: 'xem', tien_nhap: 'nhập', tien_phan_bo: 'phân bổ', tien_review: 'đối chiếu', tien_quan_tri: 'quản trị' };
   const WEEKDAY = ['Chủ nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
 
-  const money = value => (value === null || value === undefined ? '—' : F.full(value));
+  // Tiền: chuỗi số nguyên → "1.234 đ"; null → "—"; chuỗi khác (ô số tiền sai dạng của dòng lỗi) → nguyên văn, không ném lỗi.
+  const money = value => (value === null || value === undefined ? '—' : /^-?\d+$/.test(String(value)) ? F.full(value) : String(value));
   // 'YYYY-MM-DD' → 'dd/mm/yyyy'; tính bằng chữ, không qua Date nên không lệch múi giờ.
   const vnDate = value => (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : '—');
   const shortDate = value => vnDate(value).slice(0, 5);
-  function weekday(value) {
-    const [y, m, d] = value.split('-').map(Number);
-    return WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];   // chỉ lấy thứ của ngày lịch, giờ UTC cố định
-  }
+  const utc = value => { const [y, m, d] = value.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  const weekday = value => WEEKDAY[new Date(utc(value)).getUTCDay()];   // thứ của ngày lịch, giờ UTC cố định
+  const daysBetween = (from, to) => Math.round((utc(to) - utc(from)) / 86400000);
+  const addDays = (value, n) => new Date(utc(value) + n * 86400000).toISOString().slice(0, 10);
   // Giờ VN của một mốc ISO từ vết: 'dd/mm hh:mm'.
   function stamp(value) {
     if (!value) return '—';
@@ -75,6 +72,8 @@
       .formatToParts(new Date(value)).reduce((out, p) => ({ ...out, [p.type]: p.value }), {});
     return `${parts.day}/${parts.month} ${parts.hour}:${parts.minute}`;
   }
+  // Chữ người gõ gửi lên máy chủ: gộp xuống dòng và khoảng trắng thành một dấu cách (API từ chối ký tự điều khiển).
+  const clean = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 
   // Số tiền gõ tay: "1.234.567", "1234567", "-25.000" → chuỗi số nguyên; sai dạng → null. Không nhận số lẻ.
   function readAmount(text, { signed = false } = {}) {
@@ -97,7 +96,7 @@
     return left.toString();
   }
 
-  // Dòng phân bổ người dùng đang sửa → thân lệnh; lỗi đầu tiên (chữ) hoặc null.
+  // Dòng phân bổ người dùng đang sửa → thân lệnh; lỗi đầu tiên (chữ) hoặc null. Mã trong target_ref là chuỗi số (luật set_allocation).
   function allocationLines(lines) {
     const out = [];
     for (const [i, line] of lines.entries()) {
@@ -107,12 +106,12 @@
       if (amount === null || amount === '0') return { error: `Dòng ${i + 1}: số tiền phải là số nguyên lớn hơn 0.` };
       const ref = {};
       if (target.ref) {
-        const value = String(line.ref ?? '').trim();
+        const value = clean(line.ref);
         if (!value) return { error: `Dòng ${i + 1}: ${target.ref === 'category' ? 'ghi mục chi' : target.ref === 'customer_id' ? 'chọn sổ khách' : 'ghi mã giao dịch đối ứng'}.` };
         if (target.ref !== 'category' && !/^[1-9]\d{0,17}$/.test(value)) return { error: `Dòng ${i + 1}: mã phải là số.` };
-        ref[target.ref] = target.ref === 'transaction_id' ? Number(value) : value;
+        ref[target.ref] = value;
       }
-      const note = String(line.note ?? '').trim();
+      const note = clean(line.note);
       out.push({ target_kind: target.kind, target_ref: ref, amount_minor: amount, ...(note ? { note } : {}) });
     }
     return { lines: out };
@@ -130,32 +129,62 @@
     });
   }
 
-  // Câu cần quyết của một lô chờ: dòng nghi trùng (chọn mới hay trùng giao dịch nào) và giao dịch đã có trong kỳ mà file không
-  // nhận (giữ có lý do, hoặc là đích "trùng" của một dòng). `choice`: { lines: {line_no: 'new' | txId}, keep: {txId: lý do} }.
-  function questions(view) {
-    const suspects = view.lines.filter(l => l.class === 'suspect').map(l => ({
-      line: l, candidates: l.soft_candidates ?? (l.candidate ? [l.candidate] : []),
-    }));
-    const unmatched = (view.breaks ?? []).filter(b => b.code === 'UNMATCHED_EXISTING');
-    return { suspects, unmatched };
+  // Đích hiện cho người dùng: "sổ khách #12", "giao dịch #41", tên mục chi.
+  function refText(ref) {
+    return Object.entries(ref ?? {}).map(([k, v]) => (k === 'customer_id' ? `sổ khách #${v}` : k === 'transaction_id' ? `giao dịch #${v}` : String(v))).join(', ');
   }
 
-  function commitBody(view, choice) {
-    const { suspects, unmatched } = questions(view);
+  // Lô chờ (theo commit_import của lát 1): dòng nghi trùng chọn "mới" hoặc "trùng" một giao dịch đã có cùng ngày, chiều, số tiền (ứng
+  // viên mềm của dòng, hoặc giao dịch đã có mà file chưa nhận); `pool` là mọi giao dịch đã có trong kỳ mà file chưa nhận chắc chắn
+  // (giao dịch file không có + ứng viên mềm) — mỗi cái phải là đích "trùng" của một dòng, hoặc được giữ có lý do.
+  function questions(view) {
+    const unmatched = (view.breaks ?? []).filter(b => b.code === 'UNMATCHED_EXISTING');
+    const suspectLines = view.lines.filter(l => l.class === 'suspect');
+    const suspects = suspectLines.map(l => {
+      const own = l.soft_candidates ?? (l.candidate ? [l.candidate] : []);
+      const same = unmatched.filter(u => u.booking_date === l.booking_date && u.direction === l.direction && u.amount_minor === l.amount_minor)
+        .map(u => u.transaction_id);
+      return { line: l, candidates: [...new Set([...own, ...same])] };
+    });
+    const pool = [...new Set([...unmatched.map(u => u.transaction_id), ...suspectLines.flatMap(l => l.soft_candidates ?? [])])];
+    return { suspects, unmatched, pool };
+  }
+
+  const targetsOf = choice => new Map(Object.entries(choice.lines).filter(([, v]) => v !== 'new').map(([line, tx]) => [tx, Number(line)]));
+
+  // Giao dịch cần hỏi lý do giữ lúc này: trong pool, chưa là đích "trùng", và không còn là lựa chọn của dòng chưa quyết.
+  function keepAsks(view, choice) {
+    const { suspects, pool } = questions(view);
+    const targets = targetsOf(choice);
+    const open = new Set(suspects.filter(s => choice.lines[s.line.line_no] === undefined).flatMap(s => s.candidates));
+    return pool.filter(id => !targets.has(id) && !open.has(id));
+  }
+
+  function commitBody(view, choice, known = {}) {
+    const { suspects, unmatched, pool } = questions(view);
     const decisions = [];
     const targets = new Set();
     for (const { line } of suspects) {
       const picked = choice.lines[line.line_no];
       if (picked === undefined) return { error: `Dòng ${line.line_no}: chọn giao dịch mới hay trùng.` };
-      if (picked === 'new') decisions.push({ line_no: line.line_no, decision: 'new' });
-      else { decisions.push({ line_no: line.line_no, decision: 'duplicate_of', transaction_id: picked }); targets.add(picked); }
+      if (picked === 'new') {
+        decisions.push({ line_no: line.line_no, decision: 'new' });
+      } else {
+        if (targets.has(picked)) return { error: `Dòng ${line.line_no}: hai dòng không thể cùng trùng một giao dịch đã có.` };
+        targets.add(picked);
+        decisions.push({ line_no: line.line_no, decision: 'duplicate_of', transaction_id: picked });
+      }
     }
     const keep = [];
-    for (const item of unmatched) {
-      if (targets.has(item.transaction_id)) continue;
-      const reason = String(choice.keep[item.transaction_id] ?? '').trim();
-      if (!reason) return { error: `Giao dịch ngày ${vnDate(item.booking_date)}, ${money(item.amount_minor)} có trong sổ mà file không có: ghi lý do giữ.` };
-      keep.push({ transaction_id: item.transaction_id, reason });
+    for (const id of pool) {
+      if (targets.has(id)) continue;
+      const reason = clean(choice.keep[id]);
+      if (!reason) {
+        const tx = known[id] ?? unmatched.find(u => u.transaction_id === id);
+        const what = tx ? `ngày ${vnDate(tx.booking_date)}, ${money(tx.amount_minor)}` : `#${id}`;
+        return { error: `Giao dịch đã có ${what} chưa được file nhận: ghi lý do giữ.` };
+      }
+      keep.push({ transaction_id: id, reason });
     }
     const body = { import_id: view.import.id, expected_preview_hash: view.preview_hash };
     if (decisions.length) body.suspect_decisions = decisions;
@@ -163,14 +192,24 @@
     return { body, needsReview: decisions.length + keep.length > 0 };
   }
 
-  // Lô chờ: còn gì chặn ghi (theo thứ tự hiện cho người dùng).
+  // Lô chờ: chỗ chặn ghi (máy chủ chắc chắn từ chối) theo thứ tự hiện cho người dùng; gãy số dư tối đa 5 câu.
   function blockers(view) {
     const out = [];
     if (view.stale) out.push('Sổ đã đổi từ lúc xem trước lô này (vừa ghi lô khác). Bỏ lô này rồi nhập lại file.');
     if ((view.counts?.error ?? 0) > 0) out.push(`Lô có ${view.counts.error} dòng lỗi. Sửa file (tải lại từ ngân hàng) rồi nhập lại.`);
-    for (const b of view.breaks ?? []) if (BREAK[b.code]) out.push(`${BREAK[b.code]} File ${money(b.actual_minor)}, sổ ${money(b.expected_minor)}.`);
-    for (const day of view.signed_days ?? []) out.push(`Ngày ${vnDate(day)} đã ký số dư mà lô có giao dịch mới ở ngày đó. Mở lại ngày ở Đối soát ngày trước khi ghi.`);
+    const chain = (view.breaks ?? []).filter(b => b.code !== 'UNMATCHED_EXISTING');
+    for (const b of chain.slice(0, 5)) {
+      if (b.code === 'OPENING_MISMATCH') out.push(`Số dư đầu của file ${money(b.actual_minor)} khác số dư sổ đầu kỳ ${money(b.expected_minor)}.`);
+      else if (b.code === 'RUNNING_BALANCE') out.push(`Dòng ${b.line_no}: số dư sau trong file ${money(b.actual_minor)}, tính theo các dòng trước là ${money(b.expected_minor)}.`);
+      else if (b.code === 'CLOSING_MISMATCH') out.push(`Số dư cuối của file ${money(b.actual_minor)} khác số dư đầu cộng các dòng ${money(b.expected_minor)}.`);
+    }
+    if (chain.length > 5) out.push(`Và ${chain.length - 5} chỗ gãy số dư khác.`);
     return out;
+  }
+
+  // Lô chờ: cảnh báo không chặn — ngày đã ký số dư sẽ chặn nếu lô tạo giao dịch ở ngày đó hoặc trước (dòng chọn "trùng" thì không tạo).
+  function warnings(view) {
+    return (view.signed_days ?? []).map(day => `Ngày ${vnDate(day)} đã ký số dư. Nếu lô tạo giao dịch ở ngày đó hoặc trước đó thì ghi sẽ bị chặn: mở lại ngày ${vnDate(day)} ở Đối soát ngày (các ngày đã ký sau đó mở lại theo).`);
   }
 
   // Ngày nên mở đầu tiên ở Đối soát ngày: ngày cũ nhất đủ sao kê mà chưa ký số dư hoặc chưa ký đối soát; không có thì ngày mới nhất.
@@ -207,13 +246,13 @@
 
   // Ai ghi được lô chờ (lát 1): lô có câu cần quyết (nghi trùng, giao dịch cũ) cần vai đối chiếu; lô không có thì cần vai nhập.
   function commitRole(view) {
-    const { suspects, unmatched } = questions(view);
-    return suspects.length + unmatched.length > 0 ? 'tien_review' : 'tien_nhap';
+    const { suspects, pool } = questions(view);
+    return suspects.length + pool.length > 0 ? 'tien_review' : 'tien_nhap';
   }
 
   return {
-    CLASS, STATUS, IMPORT_STATUS, COVERAGE, SIGN, SOURCE, LINE_ERROR, REASON, BREAK, TARGETS, TARGET, ROLE,
-    money, vnDate, shortDate, weekday, stamp, readAmount, remaining, allocationLines, changesExisting, questions, commitBody,
-    blockers, nextDay, dayCoverageText, has, monthRange, commitRole, diffText,
+    CLASS, STATUS, IMPORT_STATUS, COVERAGE, SIGN, SOURCE, LINE_ERROR, REASON, TARGETS, TARGET, ROLE,
+    money, vnDate, shortDate, weekday, daysBetween, addDays, stamp, clean, readAmount, remaining, allocationLines, changesExisting,
+    refText, questions, keepAsks, commitBody, blockers, warnings, nextDay, dayCoverageText, has, monthRange, diffText, commitRole,
   };
 }));

@@ -70,6 +70,7 @@ class DemoCsvTest(unittest.TestCase):
         self.fails(csv("", head="#period,2026-10-05,2026-10-03,partial\ndate,ref,description,debit,credit,balance\n"),
                    "Ngày đầu kỳ sau ngày cuối kỳ.", None)
         self.fails(b"\xff\xfe khong phai utf-8", "File phải là chữ UTF-8.", None)
+        self.fails(csv("2026-10-01,,CK" + chr(0) + "GIA,,5,\n"), "File có ký tự lạ (NUL); tải lại file từ ngân hàng.", None)
         self.fails(csv("2026-10-01,," + "x" * 1001 + ",,5,\n"), "Nội dung hoặc mã giao dịch quá dài.", 5)
 
     def test_row_limit(self):
