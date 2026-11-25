@@ -138,6 +138,11 @@ test('đơn giá gõ 45 (dưới 1.000.000 đ): hiện đơn vị, hỏi tại c
   await cell.focus();
   await page.keyboard.type('45');
   assert.match(await page.locator('td.editable[data-trip="11"] .cell-unit').innerText(), /đồng, không phải triệu/);
+  // SK-G4: lời nhắc nổi dưới ô, không xuống dòng trong ô: hàng giữ chiều cao, bảng không nhảy.
+  assert.deepEqual(await cell.evaluate(td => {
+    const unit = td.querySelector('.cell-unit').getBoundingClientRect(), box = td.getBoundingClientRect();
+    return { row: Math.round(td.closest('tr').getBoundingClientRect().height), below: unit.top >= box.bottom - 3, oneLine: unit.height < 30 };
+  }), { row: 35, below: true, oneLine: true });
   await page.keyboard.press('Enter');
   const ask = page.locator('.price-ask');
   await ask.waitFor();

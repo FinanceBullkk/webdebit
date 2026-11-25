@@ -486,9 +486,6 @@ async function withPage(fn, setup = () => {}) {
     // (?month=) để test không đổi theo ngày chạy; world.month = null để thử đúng mặc định.
     const month = world.month === undefined ? '&month=2026-09' : world.month ? `&month=${world.month}` : '';
     if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
-    // SO-GON-07: cột phụ phí riêng trống cả tháng mặc định ẩn. Test gõ phí vào ô cột riêng chạy như người đã bấm "Hiện cột phí
-    // trống"; world.feeHideEmpty = true để thử đúng mặc định.
-    if (!world.feeHideEmpty) await page.addInitScript(() => { try { localStorage.setItem('so-khach.cot-phi-trong', 'hien'); } catch { /* about:blank */ } });
     await world.beforeOpen?.(page);   // cho test chặn phản hồi trước khi trang mở (dữ liệu về muộn)
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
     await page.waitForSelector('.book-head');

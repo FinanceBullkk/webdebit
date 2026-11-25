@@ -136,6 +136,10 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 .ledger .columns th.num,.trip-list td.num,.ledger tr.subtotal td.num{padding-left:10px;padding-right:10px;font-variant-numeric:tabular-nums}
 .trip-list td:has(>:is(.money-input,.fee-own-input):focus){outline:2px solid #145fa9;outline-offset:-2px}
 .ledger .trip-list td>input:is(.money-input,.fee-own-input){display:block;box-sizing:border-box;width:100%;height:26px;margin:0;padding:0;border:0;border-radius:0;outline:0;background:transparent;color:inherit;font:inherit;text-align:right;box-shadow:none}
+/* SK-G4: lời nhắc đơn vị ở ô Đơn giá đang sửa nổi ngay dưới ô (che tạm hàng dưới), không xuống dòng trong ô nên hàng không cao
+   thêm và bảng không nhảy. Chữ nhắc do so-khach-v7-edit-ui.js unitHint() đặt. */
+.trip-list td:has(>.cell-unit){position:relative;overflow:visible}
+.trip-list td>.cell-unit{position:absolute;top:calc(100% - 2px);right:0;z-index:5;margin:0;padding:2px 8px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--ink-2);font-size:13px;white-space:nowrap;pointer-events:none}
 .pay-list col:last-child{width:148px!important}
 .pay-list .receipt-money{display:flex;align-items:center;justify-content:flex-end;gap:8px;white-space:nowrap}
 .pay-list .receipt .receipt-money>.image-clip{display:inline-flex;position:static;align-items:center;justify-content:center;flex:none;min-width:24px;min-height:24px;margin:0;padding:0 3px;border:0;border-radius:4px;background:transparent;color:#174579;font-size:16px;line-height:24px}
