@@ -36,7 +36,27 @@ Việc khác phải làm trước khi khóa Sheet (phiên kiểm toàn bộ webs
 
 ĐÃ CHỐT hướng (web là sổ chính thức). Nguyên tắc 1–5 và bảng là ĐỀ XUẤT của Claude. Quyết định này không đổi DB, quyền, luật tiền (FIFO, khóa tháng, NULL không phải 0) hay hành vi máy đang chạy; mỗi thay đổi máy là một PR riêng có test và nhật ký.
 
-**Ngày thôi gõ Sheet (người dùng chốt 25/11/2026, chat, chọn "Từ 1/12/2026" thay vì chuyển từng đầu vào):** từ **1/12/2026** người nhập thôi gõ Sheet sổ nợ; mọi đầu vào (khách mới, chuyến bộ chọn sổ, giá, phụ phí, phiếu thu) nhập trên web, kể cả giá hay phiếu của tháng 11 nhập trễ. Cách làm (ĐỀ XUẤT của Claude): cho tới hết 30/11 máy chép vẫn chạy theo nguyên tắc 3; lượt đối soát cuối tháng 11 là lượt so Sheet cuối cùng có giá trị; sau lượt đó tắt mọi đường chép (`WEBDEBIT_AUTO_SHEET`, timer đối soát ghi, `MAY-TAO-SO-01`) và `KIEM-TONG-01`, có nhật ký trong `docs/deploys/`. Lệnh audit chuyển hẳn (`v7_cutover_audit.py`) đo theo kiểu "khớp Sheet": chạy lần cuối cho đối soát cuối tháng 11, sau đó thôi dùng; từ 1/12 web được kiểm theo booking, chứng từ và lưới an toàn (nguyên tắc 5), không theo [checklist chuyển hẳn](../chuyen-han-checklist.md) phần A1–A3. Trước 1/12 phải xong: đường nhập trên web cho từng đầu vào ở bảng trên dùng được, và người nhập đã đi thử từng đường trên `hao`.
+**Ngày thôi gõ Sheet (người dùng chốt 25/11/2026, chat, chọn "Từ 1/12/2026" thay vì chuyển từng đầu vào):** từ **1/12/2026** người nhập thôi gõ Sheet sổ nợ; mọi đầu vào (khách mới, chuyến bộ chọn sổ, giá, phụ phí, phiếu thu) nhập trên web, kể cả giá hay phiếu của tháng 11 nhập trễ. Cách làm (ĐỀ XUẤT của Claude): cho tới hết 30/11 máy chép vẫn chạy theo nguyên tắc 3; lượt đối soát cuối tháng 11 là lượt so Sheet cuối cùng có giá trị; sau lượt đó tắt các đường chép từ Sheet sổ nợ theo mục "Tắt máy ngày 1/12" dưới đây, có nhật ký trong `docs/deploys/`. Lệnh audit chuyển hẳn (`v7_cutover_audit.py`) đo theo kiểu "khớp Sheet": chạy lần cuối cho đối soát cuối tháng 11, sau đó thôi dùng; từ 1/12 web được kiểm theo booking, chứng từ và lưới an toàn (nguyên tắc 5), không theo [checklist chuyển hẳn](../chuyen-han-checklist.md) phần A1–A3. Trước 1/12 phải xong: đường nhập trên web cho từng đầu vào ở bảng trên dùng được, và người nhập đã đi thử từng đường trên `hao`.
+
+### Tắt máy ngày 1/12 (ĐỀ XUẤT)
+
+Sửa 25/11/2026 theo phiên kiểm toàn bộ website, Claude đã đối chiếu mã trên `main`. Câu cũ "tắt `WEBDEBIT_AUTO_SHEET`" là sai. Cờ đó điều khiển cả việc tự dán chuyến từ booking, mà booking vẫn là nguồn chuyến. Vì vậy chỉ tắt phần lấy từ Sheet sổ nợ:
+
+1. **Cờ `WEBDEBIT_AUTO_SHEET`:**
+   - bỏ `prices`, `ps`, `headers`;
+   - **giữ `trips`, `road`**: chuyến biển `CONT_NGUON` và chuyến bộ `CONT_BO` tự vào sổ;
+   - `text` (chữ nơi đi, nơi đến…) xét theo nguồn: nếu chép từ tab Sheet sổ nợ thì bỏ.
+2. **Lượt đối soát mỗi giờ:**
+   - thôi ghi theo Sheet và thôi so Sheet, kéo theo `KIEM-TONG-01` và `MAY-TAO-SO-01`;
+   - phép so sổ web với booking ([`DU-CHUYEN-01`](du-chuyen-01.md)) đang chạy trong lượt này, sau bước tải bản xlsx Sheet. Phải tách ra chạy riêng từ bản chụp booking và DB **trước** khi tắt lượt, không thì mất lưới booking.
+3. **Bản chụp:**
+   - runner bản chụp vẫn đọc CHAU_HAO;
+   - bản chụp giá của Sheet sổ nợ đang là lịch sử tab để xếp chuyến bộ vào sổ. Thiếu file thì mọi chuyến bộ thành `NO_TAB`. Phải đóng băng file đó, hoặc thêm dự phòng như đường của thẻ Khách, trước khi thôi đọc tab.
+4. **Máy canh ([`CANH-BAO-01`](canh-bao-01.md)):** sửa cùng lúc danh sách timer tiền, danh sách bản chụp và cờ phải có, không thì báo động giả.
+5. **Trước 1/12:**
+   - ghi các cặp chủ hàng → sổ mà máy đã học từ tab thành tên booking trên web ([`KHACH-WEB-01`](khach-web-01.md));
+   - chuyến bộ `AMBIGUOUS_TAB` / `TAB_FAR` cần nút chọn sổ như chuyến biển.
+6. **Phiếu chỉ ghi trên web:** máy đối soát coi đó là sổ lệch, quá ngưỡng thì dừng ghi cả lượt và gửi email. Từ nay tới 30/11, phiếu người nhập thử trên web làm lệch là đúng dự kiến, không phải lỗi.
 
 CÒN MỞ:
 
