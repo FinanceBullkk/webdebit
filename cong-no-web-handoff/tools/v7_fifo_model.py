@@ -139,6 +139,8 @@ class Book:
         for receipt in self.live_receipts():
             received[month_of(receipt.day)] = received.get(month_of(receipt.day), 0) + receipt.amount
         keys = set(outstanding) | {trip.month for trip in self.live_trips()} | set(received)
+        if self.current_month:   # SK-C1 (25/11/2026): tháng hiện tại luôn có dòng, tháng chưa có gì thì toàn 0
+            keys.add(self.current_month)
         total, later, rows = sum(outstanding.values()), 0, []
         for month in sorted(keys, reverse=True):
             rows.append((month, outstanding.get(month, 0), charges.get(month, 0), received.get(month, 0), total - later))

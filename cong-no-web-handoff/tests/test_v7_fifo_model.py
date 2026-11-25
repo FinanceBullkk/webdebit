@@ -78,6 +78,17 @@ class FifoModelTest(unittest.TestCase):
         self.assertEqual(book.receipts["PH-001"].lines, [(JAN, DEBT, 30)])
         self.assertEqual(book.ledger_months(), [(JAN, 70, 100, 0, 100), (FEB, 0, 0, 30, 70)])
 
+    def test_current_month_always_has_a_row(self):
+        # SK-C1: tháng hiện tại chưa có gì vẫn có dòng: nợ của kỳ 0, phát sinh 0, đã thu 0, cuối tháng = cuối tháng trước.
+        book = Book({JAN: 100, FEB: 50}, current_month=NOW)
+        self.assertEqual(book.ledger_months(), [(JAN, 100, 100, 0, 100), (FEB, 50, 50, 0, 150), (NOW, 0, 0, 0, 150)])
+        self.assertEqual(book.total(), 150)
+        # Phiếu trong tháng hiện tại: vẫn một dòng, nợ cũ trước (100 rồi 20 của tháng 2).
+        book.record_receipt("PH-001", "2026-11-03", 120, "THU TIỀN")
+        self.assertEqual(book.ledger_months(), [(JAN, 0, 100, 0, 100), (FEB, 30, 50, 0, 150), (NOW, 0, 0, 120, 30)])
+        # Không có tháng hiện tại (mô hình cũ) thì không thêm dòng.
+        self.assertEqual(Book({JAN: 100}).ledger_months(), [(JAN, 100, 100, 0, 100)])
+
     def test_months_appear_and_disappear_with_their_rows(self):
         book = Book({}, open_months=[FEB], current_month=NOW)
         self.assertEqual(book.expect_receipt(), "NO_MONTH_FOR_RECEIPT")

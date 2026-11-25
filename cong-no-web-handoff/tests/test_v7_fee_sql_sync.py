@@ -22,6 +22,7 @@ DASHBOARD_DEBT_JIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql"
 # Audit SQL F4 23/11/2026: get_ledger, _ledger_events và schema_level bằng migration này thay các bản trước.
 SO_GON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-so-gon.sql"
+THANG_HIEN_TAI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql"
 # Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
 AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql"
 # CAN-DU-01 30/10/2026: record_receipt, get_receivables_detail và hai view nợ tháng bằng migration mới nhất thay chúng.
@@ -174,9 +175,11 @@ class FeeSqlSync(unittest.TestCase):
                 expected = definition(canonical, "FUNCTION", name)
                 self.assertEqual(definition(schema_copy, "FUNCTION", name), expected)
                 if name in ("_ledger_events", "get_ledger"):   # audit SQL F4: bản mới nhất ở so-gon, get_ledger giữ SET jit = off
-                    if name == "get_ledger":
+                    latest = SO_GON_MIGRATION
+                    if name == "get_ledger":   # SK-C1: get_ledger mới nhất ở thang-hien-tai
                         self.assertEqual(expected.count(jit_off), 1)
-                    self.assertEqual(definition(SO_GON_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", name), expected)
+                        latest = THANG_HIEN_TAI_MIGRATION
+                    self.assertEqual(definition(latest.read_text(encoding="utf-8"), "FUNCTION", name), expected)
                     continue
                 self.assertEqual(definition(ledger_events, "FUNCTION", name), expected)
         with self.subTest(name="get_ledger jit off"):

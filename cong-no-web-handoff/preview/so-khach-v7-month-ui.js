@@ -116,8 +116,10 @@
   // Phát sinh − Đã thu = Còn nợ cuối tháng (SO-GON-05; số lấy nguyên từ GET, mỗi số tiền của tháng vẫn hiện một lần như SO-GON-03).
   function monthBar(item, key, { locked, active, debit, totals }) {
     const label = monthLabel(key);
-    const lock = `<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${label}" `
-      + `title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>'}</button>`
+    // SK-N11: chữ rê chuột và tên đọc cho trình đọc màn hình nói cùng một câu: trạng thái rồi việc nút làm.
+    const lockSay = locked ? `Đang khóa · bấm để mở khóa tháng ${label}` : `Đang mở · bấm để khóa tháng ${label}`;
+    const lock = `<button class="month-lock" data-month="${escape(item.month)}" aria-label="${lockSay}" `
+      + `title="${lockSay}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>'}</button>`
       + `<span class="month-lock-text">${locked ? 'Đã khóa' : 'Đang mở'}</span>`;
     const debitButton = debit ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog" aria-label="Debit note tháng ${label}" title="Debit note tháng ${label}"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><rect x="4" y="9" width="16" height="8" rx="1.5"/><path d="M7 14h10v7H7z"/></svg></button>` : '';
     const part = (name, value, cls) => `<span class="${cls}">${name} <b>${fmt(value)}${cls === 'month-end' && value != null ? ' đ' : ''}</b></span>`;
@@ -151,7 +153,9 @@
   // dòng tóm tắt của thanh tháng và đầu khối phiếu thu (SO-GON-06).
   function subtotalRow(item, key, { locked, active, feeTotalCells, totals }) {
     return `<tr class="subtotal"><td colspan="${columns.unitPrice()}">`
-      + `<button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>`
+      // SK-N11: nút tắt ở tháng khóa nói lý do khi rê chuột.
+      + `<button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? ''
+        : `disabled${locked ? ' title="Tháng đang khóa, mở khóa trước"' : ''}`}>+ Điều chỉnh cả tháng</button></td>`
       + `<td class="num unit-total" title="Chỉ cộng giá đã có; bỏ qua chuyến thiếu giá, chờ kiểm hoặc đã loại">${fmt(totals.unitPriceVnd)}</td>`
       + `${feeTotalCells}${num(fmt(totals.chargesVnd), 'amount-total')}</tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
   }
@@ -213,9 +217,10 @@
     `${detailed ? '' : subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table>${toolbar}</section>`].join(GAP);
   }
 
-  // Chip một tháng trên thanh tháng: "T9" (ghi năm khi khác năm hiện tại), còn nợ cuối tháng rút gọn, dấu khóa chỉ để xem
+  // Chip một tháng trên thanh tháng: "T9", ghi năm ở chip đầu tiên và khi năm khác chip đứng trước (SK-N8: theo chip trước, không
+  // theo năm hiện tại, để "T11" sau "T8/2025" không bị đọc thành 11/2025); còn nợ cuối tháng rút gọn, dấu khóa chỉ để xem
   // (khóa/mở khóa bấm ở thanh của bảng tháng) và chấm cam số việc chờ.
-  function monthChip(item, { data, openKey, lockFlags }) {
+  function monthChip(item, { data, openKey, lockFlags }, prevYear) {
     const key = monthKey(item.month);
     const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
     const end = item.end_of_month_vnd == null ? '–' : short(item.end_of_month_vnd);
@@ -225,9 +230,17 @@
     return `<a class="month-chip${locked ? ' locked' : ''}${key === selected ? ' on' : ''}" href="#thang-${escape(key)}" data-month="${escape(key)}" `
       + `${key === selected ? 'aria-current="true" ' : ''}`
       + `aria-label="Tháng ${monthLabel(key)} · còn nợ cuối tháng ${escape(end)}${locked ? ' · đã khóa' : ''}${todo ? ` · ${escape(todo)}` : ''}">`
-      + `<span class="chip-name">${key === selected ? `Tháng ${monthLabel(key)}` : monthTag(`${key}-01`, Number(openKey.slice(0, 4)))}</span>`
+      + `<span class="chip-name">${key === selected ? `Tháng ${monthLabel(key)}` : monthTag(`${key}-01`, prevYear)}</span>`
       + `${locked ? '<span class="chip-lock" aria-hidden="true">🔒</span>' : ''}`
       + `${total ? `<span class="chip-work" title="${escape(todo)}" aria-hidden="true">${total}</span>` : ''}</a>`;
+  }
+
+  // SK-N8: giữa hai chip cách nhau một tháng trở lên có dấu "… N tháng" (tháng không có số liệu không có chip), để dãy chip
+  // không bị đọc như các tháng liền nhau.
+  const monthIndex = key => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7));
+  function monthGap(before, key) {
+    const skipped = monthIndex(key) - monthIndex(before) - 1;
+    return skipped > 0 ? `<span class="month-gap" title="${skipped} tháng không có số liệu">… ${skipped} tháng</span>` : '';
   }
 
   // Các bảng tháng và thanh chip tháng của một bản GET.
@@ -245,7 +258,10 @@
     const book = { data, active, openKey, lockFlags, historical, outgoing };
     // Chỉ vẽ tháng đang xem (SO-GON-05). work: tổng số việc chờ của mọi chip (số trên thẻ Sổ của trang khách, TRANG-KHACH-01).
     return { sections: groups.filter(item => monthKey(item.month) === open).map(item => monthSection(item, book)).join(''),
-      chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map(item => monthChip(item, book)).join('')}</nav>`,
+      chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map((item, index) => {
+        const before = index ? monthKey(groups[index - 1].month) : null;
+        return `${before ? monthGap(before, monthKey(item.month)) : ''}${monthChip(item, book, before ? Number(before.slice(0, 4)) : null)}`;
+      }).join('')}</nav>`,
       work: bookWork(data, groups).reduce((sum, [count]) => sum + count, 0) };
   }
 

@@ -16,6 +16,7 @@ from pg_v7_harness import (
     actor_sql,
     allocations,
     assert_allocations,
+    booked,
     call,
     cutover_book,
     import_book,
@@ -179,7 +180,7 @@ def check_cutover_gate(pg: Pg) -> None:
                            version(pg, customer), "gate-activate-customer", "FAKE-SIGNOFF")
     require(customer_active["status"] == "active", "customer activation missing")
     ledger = call(pg, "get_ledger", customer)
-    require(ledger["total_outstanding_vnd"] == "300" and len(ledger["months"]) == 2,
+    require(ledger["total_outstanding_vnd"] == "300" and len(booked(ledger)) == 2,
             "active opening wrong or legacy doubled")
     require(call(pg, "verify_cutover", cutover, "gate-verify-all", "FAKE-SIGNOFF") == all_verified,
             "whole-cutover retry changed result")
@@ -709,8 +710,8 @@ COMMIT;
     got = []
     bucket_cum = date_cum = 0
     counts = {month: sum(t["month"][:7] == month for t in ledger["trips"])
-              for month in (row["month"][:7] for row in ledger["months"])}
-    for row in ledger["months"]:
+              for month in (row["month"][:7] for row in booked(ledger))}
+    for row in booked(ledger):
         m = row["month"][:7]
         charges = sum(int(t["amount_vnd"] or 0) for t in ledger["trips"] if t["month"][:7] == m)
         received = sum(int(a["amount_vnd"]) for r in ledger["receipts"] for a in r["allocations"]
@@ -724,7 +725,7 @@ COMMIT;
         by_bucket = int(row["end_of_month_vnd"]) + date_cum - bucket_cum
         got.append([m, str(charges), str(received), str(by_bucket), counts[m], trip_count])
     require(got == expected["months"] and ledger["total_outstanding_vnd"] == expected["total"]
-            and len(ledger["months"]) == 11, f"golden monthly totals differ: {got}")
+            and len(booked(ledger)) == 11, f"golden monthly totals differ: {got}")
     ph101 = [[line["month"], line["kind"], line["amount_vnd"]]
              for receipt in ledger["receipts"] if receipt["pid"] == "PH-101"
              for line in receipt["allocations"] if line["superseded_by_event"] is None]
@@ -758,7 +759,7 @@ def check_monthly_identity(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 500), ("2026-02-01", -50), ("2026-03-01", 0))
     call(pg, "set_month_lock", c, 0, "identity-open", "2026-02-01", "false")
     call(pg, "record_receipt", c, 1, "identity-r", "2026-04-01", "THU TIỀN", 100)
-    rows = call(pg, "get_ledger", c)["months"]
+    rows = booked(call(pg, "get_ledger", c))
     # DA-THU-01: phiếu 01/04 trừ nợ tháng 1 nhưng thuộc tháng 4; còn nợ cuối tháng 1 không bị sửa lùi.
     # CAN-DU-01: khoản dư -50 của tháng 2 cấn vào tháng 1 (400 → 350).
     require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "500"
