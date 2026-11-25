@@ -52,23 +52,32 @@ INBOX_MAX_MINUTES = 90
 INBOX_FAILED_ROUNDS = 2
 # Cờ máy 15 phút phải bật (= drop-in auto-sheet.conf trên hao, audit vận hành 23/11/2026, O4). Cố ý tắt một cờ thì sửa biến này
 # trong alert.env cùng lúc, không thì nhóm tiền báo (đúng ý: tắt nhầm khi sửa drop-in tay là chuyến/giá ngừng vào web mà web vẫn 200).
-AUTO_FLAGS = tuple(flag.strip() for flag in
-                   os.getenv("WEBDEBIT_ALERT_AUTO_FLAGS", "text,trips,prices,road,ps,headers").split(",") if flag.strip())
+AUTO_FLAGS_SET = os.getenv("WEBDEBIT_ALERT_AUTO_FLAGS")
+AUTO_FLAGS = tuple(flag.strip() for flag in (AUTO_FLAGS_SET or "text,trips,prices,road,ps,headers").split(",") if flag.strip())
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
 MONEY_TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
                                          "webdebit-ps-snapshot": None}
 BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26}
 TIMERS: dict[str, float | None] = {**MONEY_TIMERS, **BACKUP_TIMERS}
-# WEB-CHINH-01, tắt máy ngày 1/12/2026: thôi đọc Sheet sổ nợ thì đặt `WEBDEBIT_ALERT_DEBT_SHEET=off` trong alert.env cùng lúc với tắt
-# runner giá và đổi timer đối soát sang `--booking-only`. Khi đó không canh bản chụp và timer của Sheet sổ nợ, và canh lượt so sổ web với
-# booking (`booking-web.json`) thay cho kết quả đối soát. Cờ máy 15 phút vẫn theo WEBDEBIT_ALERT_AUTO_FLAGS (bỏ `prices`, `headers`).
+# WEB-CHINH-01, tắt máy ngày 1/12/2026: thôi đọc Sheet sổ nợ khi có file đánh dấu (cùng file API đọc, `v7_price_queue.debt_sheet_off`)
+# hoặc `WEBDEBIT_ALERT_DEBT_SHEET=off` trong alert.env. Khi đó không canh bản chụp và timer của Sheet sổ nợ, canh lượt so sổ web với
+# booking (`booking-web.json`) thay cho kết quả đối soát, và cờ máy 15 phút phải có mặc định bỏ `prices`, `headers`.
 DEBT_SHEET_SNAPSHOTS = ("prices.json", "receipts.json")
 DEBT_SHEET_TIMERS = ("webdebit-sheet-prices",)
+DEBT_SHEET_FLAGS = ("prices", "headers")
+DEBT_SHEET_OFF_PATH = "/etc/webdebit/debt-sheet-off"
 BOOKING_WEB = "booking-web.json"
 
 
 def debt_sheet_off(env: Mapping[str, str] = os.environ) -> bool:
-    return (env.get("WEBDEBIT_ALERT_DEBT_SHEET") or "on").strip() == "off"
+    if (env.get("WEBDEBIT_ALERT_DEBT_SHEET") or "on").strip() == "off":
+        return True
+    return os.path.exists(env.get("WEBDEBIT_DEBT_SHEET_OFF_PATH") or DEBT_SHEET_OFF_PATH)
+
+
+def auto_flags(off: bool) -> tuple[str, ...]:
+    """Cờ máy 15 phút phải bật. Đặt WEBDEBIT_ALERT_AUTO_FLAGS thì theo đúng biến đó; không đặt thì mặc định, bỏ cờ Sheet sổ nợ khi đã thôi."""
+    return AUTO_FLAGS if AUTO_FLAGS_SET or not off else tuple(flag for flag in AUTO_FLAGS if flag not in DEBT_SHEET_FLAGS)
 
 
 def snapshot_names(off: bool) -> tuple[str, ...]:
@@ -226,7 +235,7 @@ def check_sources(folder: Path, today: dt.date, days: int = SOURCE_DAYS) -> list
     return found
 
 
-def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str]:
+def check_inbox(url: str, opener: Callable = urllib.request.urlopen, flags_needed: tuple[str, ...] | None = None) -> list[str]:
     """Hộp việc của API (dán chuyến, ghi giá, phí PS) qua phần `inbox` của /healthz. Web không trả lời thì phần web đã báo, ở đây im;
     API cũ chưa có phần này thì cũng im."""
     try:
@@ -255,7 +264,7 @@ def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str
     # API cũ chưa có các trường dưới thì im (O4).
     flags = inbox.get("auto_flags")
     if isinstance(flags, str):
-        missing = [flag for flag in AUTO_FLAGS if flag not in flags.split(",")]
+        missing = [flag for flag in (AUTO_FLAGS if flags_needed is None else flags_needed) if flag not in flags.split(",")]
         if missing:
             found.append(f"Máy 15 phút trong API đang tắt {', '.join(missing)} (WEBDEBIT_AUTO_SHEET): "
                          "chuyến, giá hay phí theo Sheet không tự vào web nữa.")
@@ -546,7 +555,7 @@ def collect_groups(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots
         ("tien", "web", lambda: check_api(healthz)), ("tien", "so booking" if off else "đối soát", run_check),
         ("tien", "bản chụp", lambda: check_snapshots(snapshots, moment, snapshot_names(off))),
         ("tien", "nguồn chuyến", lambda: check_sources(snapshots, now.date())),
-        ("tien", "hộp việc", lambda: check_inbox(healthz)), ("tien", "timer", lambda: check_units(show, moment, money_timers(off))),
+        ("tien", "hộp việc", lambda: check_inbox(healthz, flags_needed=auto_flags(off))), ("tien", "timer", lambda: check_units(show, moment, money_timers(off))),
         ("saoluu", "timer sao lưu", lambda: check_units(show, moment, BACKUP_TIMERS)), ("saoluu", "đĩa", lambda: check_disks(DISKS)),
         ("luoi", "lưới an toàn", lambda: safety(now)), ("saoluu", "bản sao ngoài máy", lambda: offsite(now)),
         ("zalo", "máy Zalo", lambda: zalo(now)), ("zalo", "bot Zalo", lambda: zalo_bot(now)))

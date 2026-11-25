@@ -200,10 +200,11 @@ const MayChayModel = (() => {
 
   // ----- Trực tiếp -----
   // Dòng trạng thái lúc đối soát nghỉ. Không có số giây đếm ngược ở đây vì dòng này được đọc cho trình đọc màn hình (aria-live).
-  function idleLine({ run, next, now, jobs }) {
+  // `sheetOff` (WEB-CHINH-01): đã thôi dùng Sheet sổ nợ thì lượt mỗi giờ chỉ so booking, và số khớp Sheet của lượt cũ không nhắc nữa.
+  function idleLine({ run, next, now, jobs, sheetOff = false }) {
     const day = String(now).slice(0, 10);
-    const parts = [`Đối soát đang nghỉ, ${next ? `lượt kế ${hhmm(next)}${String(next).slice(0, 10) === day ? '' : ' ngày mai'}` : 'chưa thấy lịch lượt kế'}.`];
-    if (run) {
+    const parts = [`${sheetOff ? 'So sổ với booking' : 'Đối soát'} đang nghỉ, ${next ? `lượt kế ${hhmm(next)}${String(next).slice(0, 10) === day ? '' : ' ngày mai'}` : 'chưa thấy lịch lượt kế'}.`];
+    if (run && !sheetOff) {
       const label = `Lượt trước ${clockOf(run.start).slice(0, 5)}${run.day === day ? '' : ` ngày ${Number(run.day.slice(8))}/${Number(run.day.slice(5, 7))}`}`;
       const wrote = run.fixed + run.created, left = run.total !== null && run.khop !== null ? run.total - run.khop : 0;
       if (run.failed) parts.push(run.failReason === 'MAT_TIN_HIEU' ? `${label} dừng giữa chừng.` : `${label} dừng vì lỗi.`);

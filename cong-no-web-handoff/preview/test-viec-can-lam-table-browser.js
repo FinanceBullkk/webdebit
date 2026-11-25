@@ -112,6 +112,30 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     assert.deepEqual(await page.evaluate(() => ['9,2', '9.2', '0,000001'].map(v => globalThis.InboxTable.parseMillions(v))), ['9200000', '9200000', '1']);
     for (const value of ['', '0', '-1', '9x', '9.200.000', '0,0000001', '9223372036855']) assert.equal(await page.evaluate(v => { try { globalThis.InboxTable.parseMillions(v); return false; } catch { return true; } }, value), true);
   }));
+  test('WEB-CHINH-01: thôi dùng Sheet sổ nợ thì dòng đầu nói rõ, không còn tab Số nợ lệch hay cột phiếu thu từ Sheet', async () => {
+    const reconcile = { version: 1, checked_at: '2026-11-30T22:05:00+07:00', counts: { KHOP: 1, LECH_TONG: 1 }, total: 2, customers: [{ customer_id: 1, status: 'LECH_TONG', reason: 'NO_EXACT_FIX', difference_vnd: '5' }] };
+    const on = { ...sample, reconcile };
+    const off = { ...sample, debt_sheet_off: '2026-12-01', reconcile: null, books: [book(4, { trips_new: 3 }), book(6, { text_diff: 3 })] };
+    await withPage({ inbox: on }, async page => {
+      assert.match(await page.locator('.viec-status').innerText(), /khớp Sheet/);
+      assert.equal(await page.locator('[data-tab="lech"]').count(), 1);
+      assert.match(await page.locator('.work-table thead').innerText(), /Phiếu thu/);
+    });
+    await withPage({ inbox: off }, async page => {
+      assert.match(await page.locator('.viec-status').innerText(), /Sheet sổ nợ đã thôi dùng từ 01\/12\/2026/);
+      assert.doesNotMatch(await page.locator('.viec-status').innerText(), /khớp Sheet/);
+      assert.deepEqual(await page.locator('[data-tab]').evaluateAll(nodes => nodes.map(n => n.dataset.tab)), ['don', 'may']);
+      assert.equal(await page.locator('[data-tab="don"]').getAttribute('aria-selected'), 'true');
+      const head = await page.locator('.work-table thead').innerText();
+      assert.doesNotMatch(head, /Phiếu thu/);
+      assert.match(head, /Giá chuyến[\s\S]*Chuyến cần xử lý[\s\S]*Thiết lập sổ/);
+      assert.match(await page.locator('.dc-lead').innerText(), /Việc còn dở trên từng sổ web/);
+      await page.locator('[data-book="4"] .book-name').click();
+      assert.equal(await page.locator('.work-detail td').getAttribute('colspan'), '5');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+      if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/viec-can-lam-thoi-sheet.png` });
+    });
+  });
   test('F1 audit 23/11: ô triệu hiện đơn vị; 45000000 (45 nghìn tỷ) hay 0,5 (500 nghìn) hỏi "Kiểm lại đơn vị" trước khi ghi, 9,2 thì không', async () => withPage(designFixture(), async page => {
     await page.locator('[data-book="2"] .book-name').click();
     await page.locator('[data-manual-price]').first().waitFor();

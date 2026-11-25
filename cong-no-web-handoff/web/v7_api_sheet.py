@@ -37,8 +37,10 @@ from v7_insurance_queue import (
 from v7_price_queue import (
     SNAPSHOT_MAX_AGE_SECONDS,
     book_rows,
+    debt_sheet_off,
     load_price_snapshot,
     project_prices,
+    sheet_off_projection,
     snapshot_stale,
 )
 from v7_ps_queue import load_ps_snapshot, project_ps
@@ -489,6 +491,8 @@ def require_writable(projection: dict) -> None:
 
 
 def price_projection(runner: Psql, ledger: dict, actor: str, *, include_kept=False) -> dict:
+    if (off := debt_sheet_off()) is not None:   # WEB-CHINH-01: thôi dùng Sheet sổ nợ, bản chụp giá đứng yên
+        return sheet_off_projection(off)
     snapshot = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
@@ -590,6 +594,8 @@ def approve_price_conflicts(raw: bytes, runner: Psql, actor: str) -> tuple[int, 
 
 
 def receipt_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    if (off := debt_sheet_off()) is not None:   # WEB-CHINH-01: thôi dùng Sheet sổ nợ, bản chụp phiếu đứng yên
+        return sheet_off_projection(off)
     snapshot = cached_load(load_receipt_snapshot, RECEIPT_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]

@@ -34,7 +34,7 @@ from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần m
 )
 from v7_api_validate import ApiError
 from v7_header_fees import added_columns, writable
-from v7_price_queue import adds_only, snapshot_stale
+from v7_price_queue import adds_only, debt_sheet_off, snapshot_stale
 from v7_ps_queue import auto_ps, best_columns
 from v7_road_queue import NOTE as ROAD_NOTE
 
@@ -181,7 +181,10 @@ def _read_reconcile(path: str) -> dict[str, Any]:
 
 
 def reconcile_result() -> dict[str, Any] | None:
-    """Kết quả máy đối soát gần nhất; chưa có file hoặc file hỏng thì None, không làm hỏng hộp việc."""
+    """Kết quả máy đối soát gần nhất; chưa có file hoặc file hỏng thì None, không làm hỏng hộp việc. Đã thôi dùng Sheet sổ nợ
+    (WEB-CHINH-01) thì cũng None: file đứng ở lượt cuối, khách lệch trong đó không còn là việc đang chờ."""
+    if debt_sheet_off() is not None:
+        return None
     try:
         return cached_load(_read_reconcile, RECONCILE_PATH)
     except (OSError, ValueError):
@@ -1029,12 +1032,12 @@ class Inbox:
             # khác giá Sheet vẫn hiện: tổng khớp mà giá từng chuyến lệch là hai chỗ bù trừ nhau, phép khớp tổng không thấy.
             reconcile = reconcile_result()
             matched = (reconcile or {}).get("matched") or {}
-            return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
+            return {"state": state, "computed_at": iso(self.computed_at), "auto": auto, "debt_sheet_off": debt_sheet_off(),
                     "sheet_at": self.sheet_status().get("sheet_at"), "refreshing": self.running,
                     "insurance": certs,
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),
                     "reconcile": None if reconcile is None else {**{k: v for k, v in reconcile.items() if k != "matched"},
                                                                   "matched_ids": sorted(int(key) for key in matched)},
-                    "books": [{**book, "sheet_matched": matched.get(str(book["customer_id"])) == book.get("outstanding_vnd")
+                    "books": [{**book, "sheet_matched": str(book["customer_id"]) in matched and matched[str(book["customer_id"])] == book.get("outstanding_vnd")
                                and not book.get("prices_conflict")}
                               for book in sorted(self.books.values(), key=lambda b: b["customer_id"])]}

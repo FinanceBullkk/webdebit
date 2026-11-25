@@ -16,7 +16,13 @@ import v7_inbox  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_price_snapshot as snapshot_tool  # noqa: E402
 from test_v7_load_real_copy import fixture  # noqa: E402
-from v7_price_queue import classify, load_price_snapshot, project_prices, targets  # noqa: E402
+from v7_price_queue import (  # noqa: E402
+    classify,
+    debt_sheet_off,
+    load_price_snapshot,
+    project_prices,
+    targets,
+)
 
 
 def row(tab="KHACH A", source_row=5, container="FAKEU0000001", date="2026-10-03", price=50000000, fee=None, total=None):
@@ -256,6 +262,38 @@ class ApproveTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(result["sheet_prices"]["unavailable"], True)
         self.assertEqual(result["sheet_prices"]["ready"], [])
+
+
+
+class DebtSheetOffTests(unittest.TestCase):
+    """WEB-CHINH-01, tắt máy 1/12/2026: file đánh dấu có thì Sheet sổ nợ đã thôi dùng; hàng chờ giá và phiếu từ Sheet rỗng kèm ngày."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.path = Path(self.folder.name) / "debt-sheet-off"
+
+    def test_reads_the_day_and_treats_odd_files_as_off(self):
+        self.assertIsNone(debt_sheet_off(str(self.path)))
+        self.path.write_text("2026-12-01\n", encoding="utf-8")
+        self.assertEqual(debt_sheet_off(str(self.path)), "2026-12-01")
+        self.path.write_text("thôi dùng", encoding="utf-8")
+        self.assertEqual(debt_sheet_off(str(self.path)), "?")   # có file mà không có ngày: vẫn là đã thôi
+        self.path.write_bytes(b"\xff\xfe")
+        self.assertEqual(debt_sheet_off(str(self.path)), "?")
+
+    def test_price_and_receipt_projections_are_empty_once_off(self):
+        import v7_api_sheet as sheet
+
+        class Runner:
+            def run(self, *args):
+                raise AssertionError("không được đọc gì khi đã thôi dùng Sheet")
+        self.path.write_text("2026-12-01", encoding="utf-8")
+        with patch("v7_price_queue.DEBT_SHEET_OFF_PATH", str(self.path)):
+            for project in (sheet.price_projection, sheet.receipt_projection):
+                found = project(Runner(), {"customer_id": 7}, "t")
+                self.assertEqual((found["ready"], found["review"], found["ready_count"], found["sheet_off"], found["snapshot_sha256"]),
+                                 ([], [], 0, "2026-12-01", None))
 
 
 if __name__ == "__main__":
