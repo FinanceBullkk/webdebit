@@ -52,13 +52,42 @@ INBOX_MAX_MINUTES = 90
 INBOX_FAILED_ROUNDS = 2
 # Cờ máy 15 phút phải bật (= drop-in auto-sheet.conf trên hao, audit vận hành 23/11/2026, O4). Cố ý tắt một cờ thì sửa biến này
 # trong alert.env cùng lúc, không thì nhóm tiền báo (đúng ý: tắt nhầm khi sửa drop-in tay là chuyến/giá ngừng vào web mà web vẫn 200).
-AUTO_FLAGS = tuple(flag.strip() for flag in
-                   os.getenv("WEBDEBIT_ALERT_AUTO_FLAGS", "text,trips,prices,road,ps,headers").split(",") if flag.strip())
+AUTO_FLAGS_SET = os.getenv("WEBDEBIT_ALERT_AUTO_FLAGS")
+AUTO_FLAGS = tuple(flag.strip() for flag in (AUTO_FLAGS_SET or "text,trips,prices,road,ps,headers").split(",") if flag.strip())
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
 MONEY_TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
                                          "webdebit-ps-snapshot": None}
-BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26}
+# v7-backup-offsite-hourly (RPO 25/11/2026): bản giờ ra hộp chờ cho PC kéo; 6–22 giờ nên đêm trống 8 giờ, ngưỡng 12 như bản giờ.
+BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26,
+                                          "v7-backup-offsite-hourly": 12}
 TIMERS: dict[str, float | None] = {**MONEY_TIMERS, **BACKUP_TIMERS}
+# WEB-CHINH-01, tắt máy ngày 1/12/2026: thôi đọc Sheet sổ nợ khi có file đánh dấu (cùng file API đọc, `v7_price_queue.debt_sheet_off`)
+# hoặc `WEBDEBIT_ALERT_DEBT_SHEET=off` trong alert.env. Khi đó không canh bản chụp và timer của Sheet sổ nợ, canh lượt so sổ web với
+# booking (`booking-web.json`) thay cho kết quả đối soát, và cờ máy 15 phút phải có mặc định bỏ `prices`, `headers`.
+DEBT_SHEET_SNAPSHOTS = ("prices.json", "receipts.json")
+DEBT_SHEET_TIMERS = ("webdebit-sheet-prices",)
+DEBT_SHEET_FLAGS = ("prices", "headers")
+DEBT_SHEET_OFF_PATH = "/etc/webdebit/debt-sheet-off"
+BOOKING_WEB = "booking-web.json"
+
+
+def debt_sheet_off(env: Mapping[str, str] = os.environ) -> bool:
+    if (env.get("WEBDEBIT_ALERT_DEBT_SHEET") or "on").strip() == "off":
+        return True
+    return os.path.exists(env.get("WEBDEBIT_DEBT_SHEET_OFF_PATH") or DEBT_SHEET_OFF_PATH)
+
+
+def auto_flags(off: bool) -> tuple[str, ...]:
+    """Cờ máy 15 phút phải bật. Đặt WEBDEBIT_ALERT_AUTO_FLAGS thì theo đúng biến đó; không đặt thì mặc định, bỏ cờ Sheet sổ nợ khi đã thôi."""
+    return AUTO_FLAGS if AUTO_FLAGS_SET or not off else tuple(flag for flag in AUTO_FLAGS if flag not in DEBT_SHEET_FLAGS)
+
+
+def snapshot_names(off: bool) -> tuple[str, ...]:
+    return tuple(name for name in SNAPSHOTS if not (off and name in DEBT_SHEET_SNAPSHOTS))
+
+
+def money_timers(off: bool) -> dict[str, float | None]:
+    return {name: hours for name, hours in MONEY_TIMERS.items() if not (off and name in DEBT_SHEET_TIMERS)}
 DISKS = ("/", "/srv", "/var/lib/postgresql")
 DISK_MIN_FREE = 0.10
 TEST_BODY = "Thử cảnh báo của máy công nợ, không có lỗi thật. Lượt kế sẽ báo ổn lại."
@@ -153,9 +182,27 @@ def check_reconcile(path: Path, now: dt.datetime) -> list[str]:
     return found
 
 
-def check_snapshots(folder: Path, now: float) -> list[str]:
+def check_booking_web(path: Path, now: dt.datetime) -> list[str]:
+    """Sau khi thôi theo Sheet sổ nợ, timer đối soát chỉ so sổ web với booking (`--booking-only`): canh lượt đó như canh lượt đối soát
+    (quá 3 giờ trong ngày hay quá 14 giờ là đã dừng). Lỗi của lượt nằm ở `last_error`, kết quả lượt đạt trước vẫn giữ."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        checked = dt.datetime.fromisoformat(data["checked_at"]) if data.get("checked_at") else None
+    except (OSError, ValueError, TypeError):
+        return ["Không đọc được kết quả so sổ web với booking."]
+    code = (data.get("last_error") or {}).get("reason")
+    tail = f" (lỗi gần nhất: {code})" if code else ""
+    if checked is None:
+        return [f"Phép so sổ web với booking chưa có lượt nào chạy được{tail}."]
+    hours = (now - checked).total_seconds() / 3600
+    if hours > 14 or (10 <= now.hour <= 22 and hours > 3):
+        return [f"Phép so sổ web với booking chưa chạy được từ {checked:%H:%M ngày %d/%m}{tail}."]
+    return []
+
+
+def check_snapshots(folder: Path, now: float, names: tuple[str, ...] = SNAPSHOTS) -> list[str]:
     found = []
-    for name in SNAPSHOTS:
+    for name in names:
         try:
             minutes = (now - (folder / name).stat().st_mtime) / 60
         except OSError:
@@ -190,7 +237,7 @@ def check_sources(folder: Path, today: dt.date, days: int = SOURCE_DAYS) -> list
     return found
 
 
-def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str]:
+def check_inbox(url: str, opener: Callable = urllib.request.urlopen, flags_needed: tuple[str, ...] | None = None) -> list[str]:
     """Hộp việc của API (dán chuyến, ghi giá, phí PS) qua phần `inbox` của /healthz. Web không trả lời thì phần web đã báo, ở đây im;
     API cũ chưa có phần này thì cũng im."""
     try:
@@ -219,7 +266,7 @@ def check_inbox(url: str, opener: Callable = urllib.request.urlopen) -> list[str
     # API cũ chưa có các trường dưới thì im (O4).
     flags = inbox.get("auto_flags")
     if isinstance(flags, str):
-        missing = [flag for flag in AUTO_FLAGS if flag not in flags.split(",")]
+        missing = [flag for flag in (AUTO_FLAGS if flags_needed is None else flags_needed) if flag not in flags.split(",")]
         if missing:
             found.append(f"Máy 15 phút trong API đang tắt {', '.join(missing)} (WEBDEBIT_AUTO_SHEET): "
                          "chuyến, giá hay phí theo Sheet không tự vào web nữa.")
@@ -503,11 +550,14 @@ def collect_groups(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots
                    zalo_bot: Callable[[dt.datetime], list[str]] = check_zalo_bot) -> list[tuple[str, list[str]]]:
     """(nhóm, dòng) cho từng phép kiểm, theo thứ tự. Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
+    off = debt_sheet_off()
+    run_check: Callable[[], list[str]] = ((lambda: check_booking_web(reconcile.with_name(BOOKING_WEB), now)) if off
+                                          else (lambda: check_reconcile(reconcile, now)))
     checks: tuple[tuple[str, str, Callable[[], list[str]]], ...] = (
-        ("tien", "web", lambda: check_api(healthz)), ("tien", "đối soát", lambda: check_reconcile(reconcile, now)),
-        ("tien", "bản chụp", lambda: check_snapshots(snapshots, moment)),
+        ("tien", "web", lambda: check_api(healthz)), ("tien", "so booking" if off else "đối soát", run_check),
+        ("tien", "bản chụp", lambda: check_snapshots(snapshots, moment, snapshot_names(off))),
         ("tien", "nguồn chuyến", lambda: check_sources(snapshots, now.date())),
-        ("tien", "hộp việc", lambda: check_inbox(healthz)), ("tien", "timer", lambda: check_units(show, moment, MONEY_TIMERS)),
+        ("tien", "hộp việc", lambda: check_inbox(healthz, flags_needed=auto_flags(off))), ("tien", "timer", lambda: check_units(show, moment, money_timers(off))),
         ("saoluu", "timer sao lưu", lambda: check_units(show, moment, BACKUP_TIMERS)), ("saoluu", "đĩa", lambda: check_disks(DISKS)),
         ("luoi", "lưới an toàn", lambda: safety(now)), ("saoluu", "bản sao ngoài máy", lambda: offsite(now)),
         ("zalo", "máy Zalo", lambda: zalo(now)), ("zalo", "bot Zalo", lambda: zalo_bot(now)))

@@ -148,6 +148,7 @@ from test_pg_v7_backend_sheet_fee import (
 )
 from test_pg_v7_backend_sheet_keep import check_sheet_keep
 from test_pg_v7_backend_tao_so import check_tao_so
+from test_pg_v7_backend_thang_hien_tai import check_thang_hien_tai
 from test_pg_v7_backend_trips import (
     check_adjustment_source,
     check_dedup,
@@ -288,6 +289,8 @@ CASES.append(case("ZALO-THU-CHI.03", "BEHAVIOR", "Cash report reviews: repeated 
 
 CASES.append(case("MAY-TAO-SO.01", "BEHAVIOR", "Create one book from a Sheet tab atomically through the cutover gates", check="tao_so", functions=("create_book_from_sheet",)))
 CASES.append(case("KHACH-WEB.01", "BEHAVIOR", "Manager creates a book and maps booking owner names on the web", check="khach_web", functions=("create_customer", "set_booking_name")))
+# SK-C1 25/11/2026: get_ledger luôn có dòng tháng hiện tại (giờ VN); tổng, phân bổ và tháng khác không đổi.
+CASES.append(case("SK-C1.01", "BEHAVIOR", "Ledger always has the current month row: prior = end of last month, zero charges, totals unchanged", check="thang_hien_tai", functions=("get_ledger",)))
 CASES.append(case("VCL-GIU.01", "BEHAVIOR", "Keep one Sheet task with audit, unchanged money, retry and validation", check="sheet_keep", functions=("keep_sheet_task",)))
 
 # BANG-THU-01 4/11/2026: tiền về theo ngày qua mọi sổ, chỉ đọc; không đổi số nợ.
@@ -320,7 +323,7 @@ CASES.append(case("AUDIT-SQL.01", "BEHAVIOR", "Catalog manifest = fresh schema; 
                   check="audit_sql", functions=("paste_trips", "edit_trip_info", "edit_legacy_trip", "_begin_command",
                                                 "set_customer_archived", "schema_level", "_catalog_manifest")))
 
-CHECKS = {"audit_sql": check_audit_sql, "audit_kien_truc": check_audit_kien_truc, "doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "khach_web": check_khach_web, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "cash_review": check_cash_review, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"audit_sql": check_audit_sql, "audit_kien_truc": check_audit_kien_truc, "doc_nhat_quan": check_doc_nhat_quan, "kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "ledger_jit_off": check_ledger_jit_off, "dashboard_debt_jit_off": check_dashboard_debt_jit_off, "tao_so": check_tao_so, "khach_web": check_khach_web, "thang_hien_tai": check_thang_hien_tai, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "cash_review": check_cash_review, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -449,7 +452,8 @@ def check_migration(pg: Pg) -> None:
                      "2026-11-19-v7-tach-phi-loai-moi.sql", "2026-11-21-v7-cash-report-review.sql",
                      "2026-11-23-v7-doi-xe-sua-audit.sql", "2026-11-23-v7-audit-sql.sql",
                      "2026-11-23-v7-dieu-chinh-theo-gia.sql",
-                     "2026-11-23-v7-so-gon.sql", "2026-11-24-v7-doi-xe-sau-khoa.sql", "2026-11-24-v7-khach-web.sql"):
+                     "2026-11-23-v7-so-gon.sql", "2026-11-24-v7-doi-xe-sau-khoa.sql", "2026-11-24-v7-khach-web.sql",
+                     "2026-11-25-v7-thang-hien-tai.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
@@ -468,6 +472,7 @@ def check_migration(pg: Pg) -> None:
               "re-running ledger-events should reset get_ledger config")
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql").read_text(encoding="utf-8"))
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-so-gon.sql").read_text(encoding="utf-8"))  # F4: get_ledger hiện hành
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql").read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     # Chuỗi trên viết tay nên dễ thiếu file mới; migration chỉ đổi dữ liệu thì so catalog không phát hiện được.
     outside_chain = {"2026-10-16-ledger-f2f3.sql",  # DB legacy webdebit_ledger, không thuộc V7
                      "2026-10-24-v7-shipper.sql", "2026-10-26-v7-ledger-shipper-read.sql"}  # chạy ở cuối hàm này
@@ -518,6 +523,7 @@ def check_migration(pg: Pg) -> None:
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-audit-sql.sql").read_text(encoding="utf-8"))
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-dieu-chinh-theo-gia.sql").read_text(encoding="utf-8"))
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-so-gon.sql").read_text(encoding="utf-8"))
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql").read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     copy.sql(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set manifest /tmp/v7_catalog_manifest.json\n" + checker)
     # Loader conflict/retry and balance checks use isolated reference-only cutover.
     copy.sql("ALTER TABLE sokhach.baseline_trip_ref DISABLE TRIGGER baseline_trip_ref_immutable; "

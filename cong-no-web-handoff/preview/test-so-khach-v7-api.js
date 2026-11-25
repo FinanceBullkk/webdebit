@@ -341,6 +341,31 @@ test('locked month: only the text cells open (KHOA-CHU-01); money, date, contain
   assert.match(root.innerHTML, /<button type="button" class="entry-open" >\+ Ghi phiếu thu<\/button>/);
 });
 
+// SK-N8: năm của chip theo chip đứng trước (không theo năm hiện tại); khoảng trống nhiều tháng có dấu "… N tháng".
+// SK-C1: GET trả dòng tháng hiện tại (phát sinh 0) nên thẻ tháng hiện tại có Nợ đầu tháng và Còn nợ cuối tháng, không "–".
+test('SK-N8 + SK-C1: chip years follow the previous chip, gaps show a month count, current month card has numbers', async () => {
+  const month = (key, prior, charges, received, end) => ({ month: `${key}-01`, prior_months_vnd: prior, charges_vnd: charges,
+    received_vnd: received, end_of_month_vnd: end, outstanding_vnd: '0' });
+  const book = { ...ledger(1), today_month: '2026-11-01',
+    months: [month('2025-07', '0', '700', '0', '700'), month('2025-08', '700', '300', '0', '1000'), month('2026-11', '1000', '0', '0', '1000')],
+    month_locks: [], opening: [], trips: [], receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] };
+  const { root } = await livePage(book, '?customer=7&month=2026-11');
+  const chips = root.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0];
+  const names = [...chips.matchAll(/<span class="(chip-name|month-gap)"[^>]*>([^<]*)<\/span>/g)].map(match => match[2]);
+  assert.deepEqual(names, ['T7/2025', 'T8', '… 14 tháng', 'Tháng 11/2026']);
+  const card = root.innerHTML.match(/<section id="thang-2026-11">.*?<\/section>/s)[0];
+  assert.match(card, /<span class="month-prior">Nợ đầu tháng <b>1\.000<\/b><\/span>/);
+  assert.match(card, /<span class="month-end">Còn nợ cuối tháng <b>1\.000 đ<\/b><\/span>/);
+  assert.doesNotMatch(card.match(/<em class="month-stats".*?<\/em>/s)[0], /<b>–/);
+  // Tháng hiện tại mở: ổ khóa nói "Đang mở", nút điều chỉnh bật và không có chữ lý do.
+  assert.match(card, /aria-label="Đang mở · bấm để khóa tháng 11\/2026" title="Đang mở · bấm để khóa tháng 11\/2026"/);
+  assert.match(card, /<button class="add-month-adjustment" data-month="2026-11-01" >/);
+  // Xem tháng khác: chip 11/2026 có năm vì chip đứng trước ở năm 2025.
+  const { root: old } = await livePage(book, '?customer=7&month=2025-08');
+  const oldNames = [...old.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0].matchAll(/<span class="chip-name">([^<]*)<\/span>/g)].map(match => match[1]);
+  assert.deepEqual(oldNames, ['T7/2025', 'Tháng 8/2025', 'T11/2026']);
+});
+
 test('saved receipt date shows future-date error in clicked cell', async () => {
   const { root, listeners } = await livePage(ledger(1));
   let onKey;
@@ -541,8 +566,13 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(block(newMonth, '2026-09'), /<span class="month-lock-text">Đã khóa<\/span>.*<em class="month-stats"[^>]*><span class="month-prior">Nợ đầu tháng <b>0<\/b><\/span>.*<span class="month-end">Còn nợ cuối tháng <b>500 đ<\/b><\/span><\/em>/);
   assert.doesNotMatch(newMonth.innerHTML, /month-collapsed|month-toggle|id="thang-2026-08"/);
   // Thanh chip tháng là chỗ chọn tháng duy nhất: tên tháng, còn nợ cuối tháng rút gọn, dấu khóa của tháng khóa; chip đang xem tô.
-  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8<\/span><\/a><a class="month-chip locked on" href="#thang-2026-09" data-month="2026-09" aria-current="true" [^>]*><span class="chip-name">Tháng 9\/2026<\/span><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
+  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8\/2026<\/span><\/a><a class="month-chip locked on" href="#thang-2026-09" data-month="2026-09" aria-current="true" [^>]*><span class="chip-name">Tháng 9\/2026<\/span><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
   assert.doesNotMatch(newMonth.innerHTML, /months-nav|DANH SÁCH THÁNG/);
+  // SK-N8: tháng 10 không có chip nên giữa 9 và 11 có dấu "… 1 tháng"; chip 11 cùng năm với chip trước nên không ghi năm.
+  assert.match(newMonth.innerHTML, /data-month="2026-09"[^>]*>.*?<\/a><span class="month-gap" title="1 tháng không có số liệu">… 1 tháng<\/span><a class="month-chip[^"]*" href="#thang-2026-11"[^>]*><span class="chip-name">T11<\/span>/);
+  // SK-N11: ổ khóa nói cùng một câu ở chữ rê chuột và tên đọc; nút tắt ở tháng khóa nói lý do.
+  assert.match(block(newMonth, '2026-09'), /<button class="month-lock" data-month="2026-09-01" aria-label="Đang khóa · bấm để mở khóa tháng 9\/2026" title="Đang khóa · bấm để mở khóa tháng 9\/2026" aria-pressed="false" >/);
+  assert.match(block(newMonth, '2026-09'), /<button class="add-month-adjustment" data-month="2026-09-01" disabled title="Tháng đang khóa, mở khóa trước">/);
   // Tháng cũ hiện chi tiết qua ?month= (8/2026 đã mở khóa, 9/2026 khóa): không có khung nhập phiếu, bảng nhập chuyến
   // (NHAP-SHEET-02) hay ô "Dán các dòng từ Sheet".
   const august = page(true, oldBook, '?customer=7&month=2026-08');
@@ -789,6 +819,24 @@ test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm
     { id: 10, name: 'OLD A', display_name: 'SHEET', commodity: 'Chuối' },
     { id: 11, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
   ])], [['10', 'SHEET · Chuối · sổ 10'], ['11', 'SHEET · Chuối · sổ 11']]);
+});
+
+test('SK-N7: tên rút gọn trùng ở hai nhóm thì giữ nhãn đủ mặt hàng; tên duy nhất vẫn rút gọn', () => {
+  const { listLabels } = require('./so-khach-v7-api.js');
+  const rows = [
+    { id: 1, name: 'X', commodity: 'Bán cước' }, { id: 2, name: 'X', commodity: 'Chuối' }, { id: 3, name: 'Y', commodity: 'Chuối' },
+    { id: 4, name: 'Z', commodity: null }, { id: 5, name: 'W', commodity: 'Dừa' }, { id: 6, name: 'W', commodity: 'Dừa' },
+  ];
+  assert.deepEqual([...listLabels(rows)], [['1', 'X · Bán cước'], ['2', 'X · Chuối'], ['3', 'Y'], ['4', 'Z'], ['5', 'W · sổ 5'], ['6', 'W · sổ 6']]);
+  // Chưa sổ nào có mặt hàng: danh sách phẳng, nhãn nguyên.
+  assert.deepEqual([...listLabels([{ id: 1, name: 'A' }, { id: 2, name: 'B' }])], [['1', 'A'], ['2', 'B']]);
+});
+
+test('SK-N7: khách gần đây — mới nhất trước, bỏ khách đang mở và id không còn, tối đa năm', () => {
+  const { recentRows } = require('./so-khach-v7-api.js');
+  const rows = Array.from({ length: 9 }, (_, i) => ({ id: i + 1 }));
+  assert.deepEqual(recentRows(rows, [3, 9, 3, 99, 5, 1, 2, 4, 6], '9').map(row => row.id), [3, 5, 1, 2, 4]);
+  assert.deepEqual(recentRows(rows, [], null), []);
 });
 
 // ---- Audit 19/11/2026 (A05): GET trả chậm không ghi đè bản sổ mới hơn ----

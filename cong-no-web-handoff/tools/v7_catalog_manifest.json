@@ -352,7 +352,7 @@
   "get_dashboard()": "532ebc89ff86f527ca4be0c2d3b19565",
   "get_dashboard_debt()": "9a93fd982d89579537be1836d9d3c3d8",
   "get_fee_types()": "b6156847eaa93488686606b4e43367dd",
-  "get_ledger(bigint)": "807096d3293b62f44eb178835b84ddf1",
+  "get_ledger(bigint)": "04ce436e0ee04c6153bea3177f3a7216",
   "get_ledger_events(bigint)": "d0b75d8cb152d69fe6450c7f43da7129",
   "get_marks(bigint,text)": "6319c809215d721fd15e2b6258a8a6ab",
   "get_price_status(bigint)": "3a26aecf3e2c3a9052817524cd39bcb4",

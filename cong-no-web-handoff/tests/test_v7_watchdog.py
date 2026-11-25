@@ -777,5 +777,65 @@ class MainTests(Base):
         self.assertEqual(self.run_main(url="https://ping.test/x", sent=False)[0], 3)
 
 
+class DebtSheetOffTests(Base):
+    """WEB-CHINH-01, tắt máy 1/12/2026: `WEBDEBIT_ALERT_DEBT_SHEET=off` thì không canh bản chụp, timer và kết quả đối soát của Sheet sổ nợ,
+    mà canh lượt so sổ web với booking. Bật (mặc định) thì như cũ."""
+
+    def booking(self, **data):
+        (self.root / "booking-web.json").write_text(json.dumps(data), encoding="utf-8")
+
+    def test_switch_and_lists(self):
+        self.assertEqual((dog.debt_sheet_off({}), dog.debt_sheet_off({"WEBDEBIT_ALERT_DEBT_SHEET": "off"})), (False, True))
+        self.assertEqual(dog.snapshot_names(False), dog.SNAPSHOTS)
+        self.assertEqual(dog.snapshot_names(True), ("snapshot.json", "road.json", "ps.json"))
+        self.assertNotIn("webdebit-sheet-prices", dog.money_timers(True))
+        self.assertEqual(set(dog.money_timers(True)), {"v7-reconcile-auto", "webdebit-sheet-sync", "webdebit-ps-snapshot"})
+        self.assertEqual(dog.money_timers(False), dog.MONEY_TIMERS)
+
+    def test_the_marker_file_shared_with_the_api_also_turns_it_off(self):
+        marker = self.root / "debt-sheet-off"
+        env = {"WEBDEBIT_DEBT_SHEET_OFF_PATH": str(marker)}
+        self.assertFalse(dog.debt_sheet_off(env))
+        marker.write_text("2026-12-01", encoding="utf-8")
+        self.assertTrue(dog.debt_sheet_off(env))
+        self.assertEqual(dog.auto_flags(False), dog.AUTO_FLAGS)
+        with patch.object(dog, "AUTO_FLAGS_SET", None):
+            self.assertEqual(dog.auto_flags(True), ("text", "trips", "road", "ps"))
+        with patch.object(dog, "AUTO_FLAGS_SET", "text,trips"), patch.object(dog, "AUTO_FLAGS", ("text", "trips")):
+            self.assertEqual(dog.auto_flags(True), ("text", "trips"))   # đặt biến thì theo đúng biến
+
+    def test_booking_run_is_watched_like_the_reconcile_run(self):
+        self.booking(checked_at="2026-11-04T11:10:00+07:00")
+        self.assertEqual(dog.check_booking_web(self.root / "booking-web.json", NOON), [])
+        self.assertEqual(dog.check_booking_web(self.root / "booking-web.json", NOON + dt.timedelta(hours=4)),
+                         ["Phép so sổ web với booking chưa chạy được từ 11:10 ngày 04/11."])
+        self.booking(last_error={"reason": "SEA_MISSING"})
+        self.assertEqual(dog.check_booking_web(self.root / "booking-web.json", NOON),
+                         ["Phép so sổ web với booking chưa có lượt nào chạy được (lỗi gần nhất: SEA_MISSING)."])
+        self.assertEqual(dog.check_booking_web(self.root / "khong-co.json", NOON), ["Không đọc được kết quả so sổ web với booking."])
+
+    def test_collect_with_the_sheet_off_skips_debt_sheet_checks(self):
+        self.write(checked_at="2026-11-01T22:05:00+07:00", mode="fix", customers=[])   # đối soát cũ từ lúc tắt: không báo nữa
+        self.booking(checked_at="2026-11-04T11:10:00+07:00")
+        for name in ("snapshot.json", "road.json", "ps.json"):
+            (self.root / name).write_text("{}", encoding="utf-8")
+        units = []
+        quiet = {name: patch.object(dog, name, return_value=[]) for name in ("check_api", "check_sources", "check_inbox", "check_disks")}
+        for item in quiet.values():
+            item.start()
+            self.addCleanup(item.stop)
+        with patch.object(dog, "check_units", side_effect=lambda show, moment, timers: units.append(sorted(timers)) or []), \
+                patch.dict(os.environ, {"WEBDEBIT_ALERT_DEBT_SHEET": "off"}):
+            found = dog.collect(NOON, healthz="x", reconcile=self.path, snapshots=self.root, safety=lambda now: [], offsite=lambda now: [],
+                                zalo=lambda now: [], zalo_bot=lambda now: [])
+        self.assertEqual(found, [])
+        self.assertEqual(units[0], ["v7-reconcile-auto", "webdebit-ps-snapshot", "webdebit-sheet-sync"])
+        with patch.object(dog, "check_units", return_value=[]), patch.dict(os.environ, {"WEBDEBIT_ALERT_DEBT_SHEET": "on"}):
+            found = dog.collect(NOON, healthz="x", reconcile=self.path, snapshots=self.root, safety=lambda now: [], offsite=lambda now: [],
+                                zalo=lambda now: [], zalo_bot=lambda now: [])
+        self.assertIn("Thiếu bản chụp Sheet prices.json.", found)   # chưa tắt: thiếu bản chụp giá vẫn là lỗi
+        self.assertTrue(any(line.startswith("Máy đối soát chưa chạy được") for line in found))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -965,7 +965,7 @@ def load_directory(sources: Sources) -> Directory:
 
 
 def handle_targets(query: str, runner, actor: str, now: float | None = None) -> dict:
-    """GET /api/v7/cash-chat/targets (Luồng 3): sổ, xe, tài xế cho ô "Gắn sổ/xe" của trang Thu chi; chỉ quản lý (cùng tiền tố).
+    """GET /api/v7/cash-chat/targets (Luồng 3): sổ, xe, tài xế cho ô "Gắn sổ/xe" của trang Thu chi; đọc nên mở cho mọi login (QUYEN-01 sửa đổi 25/11/2026), lệnh ghi review vẫn chỉ quản lý.
 
     Trang chỉ hỏi khi người dùng mở ô gắn. Xe và người đã thôi dùng không vào danh sách chọn (vẫn hiện đúng tên nếu đã gắn từ trước).
     Đọc lỗi thì `failed: true` kèm phần đọc được, không 500."""

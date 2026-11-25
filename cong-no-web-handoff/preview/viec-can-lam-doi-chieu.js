@@ -13,6 +13,7 @@ globalThis.DoiChieuView = (() => {
     SHEET_SHUFFLED: 'Đơn giá của vài chuyến đổi chỗ trên Sheet, có thể do xếp lệch cột, nên máy không ghi.',
     AMBIGUOUS_FIX: 'Có nhiều cách khớp, máy không tự chọn.',
     DETAIL_DIFFERS: 'Tổng khớp Sheet, nhưng Sheet đã đổi vài khoản mà web chưa theo, và các khoản đó cộng lại không bù đủ nên máy chưa ghi.',
+    WEB_KEPT: 'Sheet đã sửa hoặc bỏ khoản web đang có. Web là sổ chính nên máy không sửa theo; mở dòng xem từng khoản, chỉ ghi khi chắc web sai.',
     NOTHING_TO_WRITE: 'Trên Sheet không có việc nào giải thích được số lệch.',
     TOO_MANY_GROUPS: 'Quá nhiều loại việc, máy không dò.',
     TOO_MANY_DIFFERENT: 'Quá nhiều khách lệch cùng lúc, máy chỉ báo, không ghi.',
@@ -22,6 +23,7 @@ globalThis.DoiChieuView = (() => {
     HELD: 'Sheet của khách này có chỗ máy chưa đọc được (số dư tự lệch hoặc thiếu số), chưa so được. Mở dòng để xem ô cần sửa.',
     CHI_CO_SHEET: 'Có trên Sheet, chưa có sổ trên web.',
     CHI_CO_WEB: 'Có sổ trên web, không thấy trên Sheet.',
+    WEB_BOOK: 'Sổ tạo trên web, không cần tab Sheet.',
     THIEU_SO: 'Một bên chưa có tổng.',
   };
   const OUTSIDE_TEXT = { NOT_ON_TONG: 'Tab còn nợ, chưa có trên TONG, máy chưa tạo được sổ.', TONG_DIFFERS: 'Số trên TONG khác số trên tab, máy chưa tạo được sổ.', TAB_UNREADABLE: 'Tab có chỗ máy chưa đọc được, chưa tạo được sổ.' };
@@ -123,8 +125,17 @@ globalThis.DoiChieuView = (() => {
     return `<section class="viec-status ${tone}" aria-label="Đối soát với Sheet"><div class="status-line"><i aria-hidden="true"></i><strong>${reconcile.counts?.KHOP ?? 0}/${reconcile.total ?? 0} khách khớp Sheet</strong><span>${esc(facts)}</span>${working}${refreshing}<span class="status-time">Đối soát lúc ${esc(when(reconcile.checked_at, now))} · lần tới ${esc(M.nextCheck(now))}</span></div>${tongHtml(tong, tongOpen, { F, esc, href })}${failed}</section>`;
   }
 
-  function tabsHtml(current, counts) {
-    const tabs = [['lech', 'Số nợ lệch', counts.lech], ['don', 'Dọn chi tiết', counts.don], ['may', 'Đã làm', counts.may]];
+  // WEB-CHINH-01: từ ngày thôi dùng Sheet sổ nợ (1/12/2026) không còn đối soát với Sheet. Dòng đầu nói rõ điều đó thay cho "x/y khách khớp
+  // Sheet", để không ai đọc kết quả lượt cuối như việc đang chờ. `day` là yyyy-mm-dd hoặc "?" khi file đánh dấu không ghi ngày.
+  function sheetOffHtml(day, { esc, stale, computing }) {
+    const refreshing = stale ? '<span class="muted refreshing" role="status">Đang cập nhật…</span>' : '';
+    const working = computing ? `<span class="computing">${esc(computing)}</span>` : '';
+    const since = /^\d{4}-\d{2}-\d{2}$/.test(day) ? ` từ ${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}` : '';
+    return `<section class="viec-status" aria-label="Sheet sổ nợ"><div class="status-line"><i aria-hidden="true"></i><strong>Sheet sổ nợ đã thôi dùng${esc(since)}</strong><span>Web là sổ chính. Máy không còn so hay chép từ Sheet sổ nợ.</span>${working}${refreshing}</div></section>`;
+  }
+
+  function tabsHtml(current, counts, sheetOff = false) {
+    const tabs = [['lech', 'Số nợ lệch', counts.lech], ['don', 'Dọn chi tiết', counts.don], ['may', 'Đã làm', counts.may]].filter(([key]) => !sheetOff || key !== 'lech');
     return `<div class="viec-tabs" role="tablist" aria-label="Khu việc">${tabs.map(([key, text, n]) => `<button type="button" role="tab" data-tab="${key}" aria-selected="${current === key}">${text} <span>${n}</span></button>`).join('')}</div>`;
   }
 
@@ -306,5 +317,5 @@ globalThis.DoiChieuView = (() => {
     return `<section class="may-panel" aria-label="Việc đã ghi"><p class="dc-lead">Mọi lần ghi vào sổ, của máy và của người, theo ngày. Máy chỉ ghi tiền khi tổng khách khớp Sheet tới từng đồng. Thấy sai thì mở sổ sửa lại.</p>${bar}${head}${list}</section>`;
   }
 
-  return { statusHtml, tabsHtml, lechHtml, mayHtml, machineCount, money };
+  return { statusHtml, sheetOffHtml, tabsHtml, lechHtml, mayHtml, machineCount, money };
 })();

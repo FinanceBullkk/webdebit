@@ -101,6 +101,56 @@ def _day(text: Any) -> date | None:
         return None
 
 
+MISSING_CODES = ("CHUA_TINH", "THANG_CUOI")   # booking có, sổ web chưa có: tháng trước và tháng này
+
+
+def load_web(source: Path) -> dict[str, Any] | None:
+    """File so sổ web của lượt đối soát; thiếu hay hỏng thì None (Sổ khách không vẽ dòng mờ, không chặn đọc sổ)."""
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _book_trips(ledger: dict[str, Any]) -> list[tuple[str, date | None, str]]:
+    """(container, ngày, tháng) của mọi chuyến trên sổ, kể cả chờ kiểm và đã loại (người đã kết luận), trừ dòng đã xóa."""
+    out = []
+    for trip in ledger.get("trips") or ():
+        if not trip.get("deleted"):
+            out.append((_cont(trip.get("container")), _day(trip.get("event_date")), str(trip.get("month") or "")[:7]))
+    for row in ledger.get("legacy_rows") or ():
+        current = row.get("current") or {}
+        if row.get("kind") == "trip" and not current.get("deleted"):
+            out.append((_cont(current.get("container")), _day(current.get("event_date")), str(current.get("month") or row.get("month") or "")[:7]))
+    return [trip for trip in out if trip[0]]
+
+
+def book_missing(ledger: dict[str, Any], data: dict[str, Any] | None) -> dict[str, Any]:
+    """`booking_missing` của `GET /api/v7/ledger` (DONG-MO-BOOKING-01): chuyến booking mà lượt so sổ web gần nhất thấy sổ này chưa có.
+
+    Sổ khách vẽ mỗi chuyến thành dòng mờ cuối bảng chuyến của tháng ngày booking. Lượt chạy mỗi giờ, nên trước khi trả, bỏ chuyến
+    mà sổ nay đã có (cùng container, lệch không quá 3 ngày; dòng không ngày thì cùng tháng): chuyến máy hay người vừa thêm không
+    hiện mờ tới lượt sau. Chuyến vừa vào một sổ khác thì vẫn hiện tới lượt sau. Chỉ đọc file của job và sổ đã đọc sẵn."""
+    if not isinstance(data, dict) or _when(data.get("checked_at")) is None or not isinstance(data.get("rows"), list):
+        return {"unavailable": True, "items": []}
+    have = _book_trips(ledger)
+    items = []
+    for row in data["rows"]:
+        source = row.get("source") if isinstance(row, dict) else None
+        if (not isinstance(source, dict) or row.get("code") not in MISSING_CODES
+                or (row.get("suggest") or {}).get("customer_id") != ledger.get("customer_id")):
+            continue
+        cont, day = _cont(row.get("container")), _day(source.get("date"))
+        if day is None or any(cont == other and (abs((when - day).days) <= PAIR_DAYS if when else month == day.isoformat()[:7])
+                              for other, when, month in have):
+            continue
+        items.append({"container": row.get("container"), "date": day.isoformat(), "kind": source.get("kind"),
+                      "ref": source.get("ref") or ""})
+    items.sort(key=lambda item: (item["date"], item["container"] or ""))
+    return {"checked_at": data["checked_at"], "items": items}
+
+
 def with_web(body: dict[str, Any], runner, reads, actor: str) -> dict[str, Any]:
     """Gắn `web` (sổ, ngày của chuyến web cùng container, lệch không quá 3 ngày, sổ nào cũng được) cho dòng `THANG_CUOI`.
 

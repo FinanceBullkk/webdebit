@@ -17,8 +17,8 @@ canh. Người dùng mở web qua Tailscale Serve (cổng 8443 → API `127.0.0.
 | Máy đối soát (`v7-reconcile-auto`) | `hao`, mỗi giờ :05 từ 7 tới 22 giờ | **có** (`--fix`) | tiền (cũ quá 3 giờ trong ngày, lỗi ghi, chạy không `--fix`, cầu dao 40 khách hai lượt) | `systemctl disable --now v7-reconcile-auto.timer` |
 | Bản chụp Sheet (`webdebit-sheet-sync`, `-sheet-prices`, `-ps-snapshot`) | `hao`, 15 phút | không | tiền (file cũ quá 60 phút, nguồn booking trống 3 ngày) | `systemctl disable --now <tên>.timer` |
 | Thông tin cty (`webdebit-company-info`), nút Làm mới (`.path`) | `hao`, mỗi giờ :20 / khi bấm | không | không ai (chỉ chữ trên trang) | `systemctl disable --now` |
-| Sao lưu DB (`v7-backup-hourly`, `-daily`), gói cấu hình (`-config`), hộp chờ ngoài máy (`-offsite`) | `hao`, mỗi giờ / 02:40 / 02:50 / 03:00 | không | sao lưu (timer tắt, lỗi, quá 12/26 giờ; đĩa dưới 10%) | `systemctl disable --now <tên>.timer` |
-| PC kéo bản sao (`Webdebit V7 Backup Pull`) | các PC, mỗi ngày 04:30/04:40 | không | sao lưu (không khóa kéo nào đăng nhập 48 giờ) và check riêng của từng PC (kéo không `PASS`) | `Disable-ScheduledTask` trên PC |
+| Sao lưu DB (`v7-backup-hourly`, `-daily`), gói cấu hình (`-config`), hộp chờ ngoài máy (`-offsite`, bản giờ `-offsite-hourly`) | `hao`, mỗi giờ 6–22 / 02:40 / 02:50 / 03:00 / :20 mỗi giờ 6–22 | không | sao lưu (timer tắt, lỗi, quá 12/26 giờ; đĩa dưới 10%) | `systemctl disable --now <tên>.timer` |
+| PC kéo bản sao (`Webdebit V7 Backup Pull`, bản giờ `… Hourly`) | các PC, mỗi ngày 04:30/04:40/04:50; bản giờ :35/:40/:45 từ 6 tới 22 giờ | không | sao lưu (không khóa kéo nào đăng nhập 48 giờ), check riêng của từng PC (kéo ngày không `PASS`), check chung `webdebit kéo bản giờ` (không PC nào kéo bản giờ 3 giờ trong ngày) | `Disable-ScheduledTask` trên PC |
 | Lưới an toàn (bốn phép kiểm chỉ đọc trên sổ thật) | trong máy canh, 15 phút | không | lưới an toàn | không cần dừng; chấp nhận một phát hiện bằng `v7_safety_net.py --accept` |
 | Máy Zalo (agent đọc Zalo/WeChat, đẩy gói lên `hao`) | PC `msi`, mỗi phút | không | Zalo (7–20 giờ: im quá 15 phút, Zalo/WeChat chưa mở, lỗi xử lý) | task `ZaloAgent` trên `msi` |
 | Bot Zalo hỏi đáp (`v7-zalo-bot`, `v7-zalo-kenh`) | `hao` | không | Zalo | CHƯA CÀI |
@@ -59,9 +59,12 @@ chép riêng bằng `git show <sha>:<đường dẫn>` và so SHA-256, rồi rel
 
 ## Khi `hao` chết
 
-Dữ liệu: bản ngày (02:40) mà các PC đã kéo, mã hóa `age`; bản mỗi giờ không rời ổ `hao`. Dựng lại theo
-[rebuild-hao.md](rebuild-hao.md) (CÒN MỞ: chưa diễn tập trên máy khác). Trong lúc chưa dựng xong, Sheet vẫn là sổ chính thức
-([`SONG-SONG-01`](decisions/song-song-01.md)): người nhập tiếp tục trên Sheet, máy sẽ theo lại sau khi `hao` chạy.
+Dữ liệu: bản mới nhất mà một PC đã kéo, mã hóa `age`: bản giờ trong 6–22 giờ (mất tối đa khoảng 1 giờ 45 phút khi có PC
+bật), ngoài giờ là bản ngày 02:40. Dựng lại theo [rebuild-hao.md](rebuild-hao.md) (diễn tập lõi 25/11/2026 trên máy trống:
+khoảng 13 phút từ giải mã tới web đúng số; cả máy thật ước 2–3 giờ). Tới 30/11/2026 Sheet vẫn là sổ chính thức
+([`SONG-SONG-01`](decisions/song-song-01.md)): người nhập tiếp tục trên Sheet, máy theo lại sau khi `hao` chạy. Từ 1/12/2026
+web là sổ duy nhất ([`WEB-CHINH-01`](decisions/web-chinh-01.md)): phần sau bản đã kéo phải nhập lại tay; chỗ ghi tạm khi
+`hao` sập chưa có quy trình (E2 của [checklist chuyển hẳn](chuyen-han-checklist.md)).
 
 ## Nhìn ở đâu
 

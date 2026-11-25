@@ -50,7 +50,7 @@
   // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; fresh: chỉ khách mới (KHACH-MOI-01);
   // sort: cột xếp; all: đã mở hết danh sách.
   const state = { tier: null, risk: null, com: null, fresh: false, sort: 'overdue', all: false, data: null, debt: null, rows: null, ready: false,
-    tiers: [], rk: null, coms: [], names: new Map() };
+    tiers: [], rk: null, coms: [], names: new Map(), missingOpen: false };
   const nameOf = id => state.names.get(String(id)) ?? state.rows?.find(row => row.id === id)?.name ?? `Sổ ${id}`;
   const comOf = key => state.coms.find(item => item.key === key) ?? null;
   const tierValue = i => state.debt.due_tiers.find(item => item.tier === M.TIERS[i])?.receivable_vnd ?? '0';
@@ -90,11 +90,14 @@
     const credit = data.credit.customers ? short(positive(data.credit.total_vnd)) : null;
     // Chuyến chưa giá và khách trả thừa là số cả công ty, không tách theo lọc: ẩn khi đang lọc.
     const pills = `<span class="pill" tabindex="0"${tipAttr([`${people} khách đang nợ`])}>${ICON.people}${people}<span class="sr-only"> khách đang nợ</span></span>`
-      // QUYEN-01: người dùng không mở được Việc cần làm nên viên này chỉ để đọc.
-      + (missing && !scoped ? (admin ? '<a class="pill warn" id="missing-price" href="/viec-can-lam.html"' : '<span class="pill warn" id="missing-price" tabindex="0"')
-        + `${tipAttr([`${missing} chuyến chưa có đơn giá`, `Chưa tính vào số Còn phải thu${admin ? ' · bấm để mở Việc cần làm' : ''}`])}>${ICON.tag}${missing}<span class="sr-only"> chuyến chưa giá</span>${admin ? '</a>' : '</span>'}` : '')
+      // QUYEN-01: người dùng không mở được Việc cần làm. WEB-CHINH-01: từ 1/12/2026 người dùng tự gõ giá trên web, nên viên này
+      // bung danh sách sổ còn chuyến chưa giá ngay tại khối, mỗi sổ mở Sổ khách tô sẵn chuyến thiếu giá (?loc=thieu-gia).
+      + (missing && !scoped ? (admin ? '<a class="pill warn" id="missing-price" href="/viec-can-lam.html"'
+        : `<button type="button" class="pill warn" id="missing-price" aria-expanded="${state.missingOpen}" aria-controls="missing-list"`)
+        + `${tipAttr([`${missing} chuyến chưa có đơn giá`, `Chưa tính vào số Còn phải thu · ${admin ? 'bấm để mở Việc cần làm' : 'bấm để xem sổ nào còn chuyến chưa giá'}`])}>${ICON.tag}${missing}<span class="sr-only"> chuyến chưa giá</span>${admin ? '</a>' : '</button>'}` : '')
       + (credit && !scoped ? `<span class="pill credit" id="credit" tabindex="0"${tipAttr([`${data.credit.customers} khách trả thừa ${credit}`, 'Tính riêng, không trừ vào số Còn phải thu'])}>${ICON.wallet}${esc(credit)}<span class="sr-only"> khách trả thừa</span></span>` : '');
-    const head = `<span class="lbl" id="h-owe">Còn phải thu${scopeTag('tier', 'Số của dải đầu chỉ tính khách trong phạm vi lọc')}</span><div class="owe-row"><b class="big-money" tabindex="0"${tipAttr(['Còn phải thu', F.full(total)])}>${esc(short(total))}</b>${pills}</div>`;
+    const head = `<span class="lbl" id="h-owe">Còn phải thu${scopeTag('tier', 'Số của dải đầu chỉ tính khách trong phạm vi lọc')}</span><div class="owe-row"><b class="big-money" tabindex="0"${tipAttr(['Còn phải thu', F.full(total)])}>${esc(short(total))}</b>${pills}</div>`
+      + (missing && !scoped && !admin && state.missingOpen ? missingList(data.todo.missing_price) : '');
     if (!debt) return `${head}<p class="empty">Chưa tải được phần quá hạn. Bấm Làm mới để thử lại.</p>`;
     const whole = scoped ? sc.total : debt.receivable_vnd;
     if (scoped && !sc.count) return `${head}<p class="empty">Không có khách nào khớp bộ lọc.</p>`;
@@ -115,6 +118,14 @@
     const tiles = `<div class="tiles">${values.map((value, i) => `<button type="button" class="tile" data-tier="${i}" aria-pressed="false"${F.toBig(value) > 0n ? '' : ' disabled'}${tipAttr(tip(i))}>
         <span class="tl"><i class="sw t${i}" aria-hidden="true"></i>${esc(state.tiers[i].tile)}</span><b class="${tierInk(i)}">${esc(short(value))}</b></button>`).join('')}</div>`;
     return `${head}${brk}${bar}${tiles}`;
+  }
+
+  // Danh sách sổ còn chuyến chưa giá (mọi tháng), nhiều chuyến trước. Chỉ đọc; gõ giá ở Sổ khách như mọi lần.
+  function missingList(items) {
+    const rows = [...items].sort((a, b) => b.count - a.count || nameOf(a.customer_id).localeCompare(nameOf(b.customer_id), 'vi'));
+    return `<div class="missing-list" id="missing-list" role="region" aria-label="Sổ còn chuyến chưa giá"><p>Sổ còn chuyến chưa có đơn giá · bấm tên sổ để mở và gõ giá</p><ul>`
+      + rows.map(item => `<li><a href="${ledgerHref(item.customer_id)}&loc=thieu-gia">${esc(nameOf(item.customer_id))}</a><span>${item.count} chuyến</span></li>`).join('')
+      + '</ul></div>';
   }
 
   // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng.
@@ -328,6 +339,9 @@
   };
 
   root.addEventListener('click', event => {
+    if (event.target.closest('button#missing-price')) {
+      state.missingOpen = !state.missingOpen; paint(); root.querySelector('#missing-price')?.focus(); return;
+    }
     const tier = event.target.closest('[data-tier]');
     if (tier) {
       if (!state.ready) { location.href = matrixHref(); return; }
@@ -353,6 +367,10 @@
     if (line && !event.target.closest('a')) location.href = pageHref(Number(line.dataset.id));
   });
 
+  root.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !state.missingOpen || !event.target.closest?.('#missing-list, #missing-price')) return;
+    state.missingOpen = false; paint(); root.querySelector('#missing-price')?.focus();
+  });
   globalThis.DataTip.mount('.tq-page');
   window.addEventListener('popstate', () => { readUrl(); if (state.data) { dropStale(); paint(); } });
 

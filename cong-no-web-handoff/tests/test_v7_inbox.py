@@ -94,14 +94,29 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual((book["trips_new"], book["trips_check"]), (1, {"count": 1, "reasons": {"AMBIGUOUS_MATCH": 1}}))
 
     def test_machine_price_rows_from_october_open_or_locked(self):
-        prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
-                  "review": [{"status": "MONTH_LOCKED", "month": "2026-10"}, {"status": "MONTH_LOCKED", "month": "2026-09"},
+        new = {"sheet_unit_price_vnd": "100", "sheet_other_fee_vnd": None, "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
+        prices = {"ready": [{**new, "month": "2026-11"}, {**new, "month": "2026-09"}],
+                  "review": [{**new, "status": "MONTH_LOCKED", "month": "2026-10"}, {**new, "status": "MONTH_LOCKED", "month": "2026-09"},
                              {"status": "CONFLICT", "month": "2026-10"}, {"status": "MANUAL", "month": "2026-10"},
                              {"status": "AMBIGUOUS", "month": "2026-10"}]}
         # Trước 10/2026 sổ gốc là chuẩn; giá khác web, phụ phí gõ tay, nhiều chuyến khớp để người quyết.
         self.assertEqual([r["month"] for r in v7_inbox.auto_prices(prices)], ["2026-11", "2026-10"])
         book = v7_inbox.summarize(7, projection(sheet_prices=prices))
         self.assertEqual((book["prices"], book["prices_auto"]), ({"ready": 2, "review": 5}, 2))
+
+    def test_machine_price_rows_only_add_what_the_web_lacks(self):
+        """WEB-CHINH-01 (3): dòng sẵn sàng mà ghi vào là đè số web đang có thì máy giá 15 phút không ghi, để người bấm."""
+        new = {"status": "MONTH_LOCKED", "month": "2026-10", "sheet_unit_price_vnd": "100", "sheet_other_fee_vnd": None,
+               "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
+        rows = {"chuyến chưa giá": new,
+                "phụ phí web bằng Sheet": {**new, "sheet_other_fee_vnd": "7", "web_other_fee_vnd": "7"},
+                "sổ gốc chưa tính đồng nào": {**new, "target_kind": "legacy", "web_total_vnd": "0"},
+                "sổ gốc đã tính đúng bằng": {**new, "target_kind": "legacy", "sheet_other_fee_vnd": "5", "web_total_vnd": "105"},
+                "đổi giảm trừ âm": {**new, "web_unit_price_vnd": "100", "sheet_other_fee_vnd": "-9", "web_other_fee_vnd": "-5"},
+                "thay phụ phí web": {**new, "web_other_fee_vnd": "7"},
+                "đổi số sổ gốc đã tính": {**new, "target_kind": "legacy", "web_total_vnd": "90"}}
+        written = {name for name, row in rows.items() if v7_inbox.auto_prices({"review": [row]})}
+        self.assertEqual(written, {"chuyến chưa giá", "phụ phí web bằng Sheet", "sổ gốc chưa tính đồng nào", "sổ gốc đã tính đúng bằng"})
 
     def test_receipt_details_for_writing_at_the_inbox(self):
         ledger = projection(sheet_receipts={"snapshot_sha256": "b" * 64,
@@ -354,6 +369,23 @@ class InboxTests(unittest.TestCase):
             reconcile.write_text("hỏng", encoding="utf-8")
             os.utime(reconcile, (1, 1))
             self.assertIsNone(self.inbox.view(runner)["reconcile"])
+
+    def test_after_the_debt_sheet_is_retired_the_last_reconcile_is_not_shown(self):
+        """WEB-CHINH-01: file đánh dấu có thì không còn kết quả đối soát (file đứng ở lượt cuối), hộp việc báo ngày thôi dùng."""
+        folder = Path(self.dir.name)
+        reconcile, marker = folder / "reconcile.json", folder / "debt-sheet-off"
+        reconcile.write_text(json.dumps({"version": 1, "checked_at": "2026-11-30T22:05:00+07:00", "counts": {"KHOP": 1},
+                                         "matched": {"1": "500"}, "customers": []}), encoding="utf-8")
+        runner = Runner([1])
+        with patch.object(v7_inbox, "RECONCILE_PATH", str(reconcile)), patch("v7_price_queue.DEBT_SHEET_OFF_PATH", str(marker)):
+            self.inbox.start(runner)
+            wait_idle(self.inbox)
+            self.assertEqual((self.inbox.view(runner)["reconcile"]["checked_at"], self.inbox.view(runner)["debt_sheet_off"]),
+                             ("2026-11-30T22:05:00+07:00", None))
+            marker.write_text("2026-12-01", encoding="utf-8")
+            view = self.inbox.view(runner)
+            self.assertEqual((view["reconcile"], view["debt_sheet_off"]), (None, "2026-12-01"))
+            self.assertFalse(any(book["sheet_matched"] for book in view["books"]))
 
     def test_missing_snapshot_is_unavailable(self):
         for path in self.paths:

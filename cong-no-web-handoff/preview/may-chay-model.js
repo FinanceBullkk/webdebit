@@ -20,9 +20,11 @@ const MayChayModel = (() => {
     TOO_MANY_DIFFERENT: { tag: 'Không ghi', tone: 'warn', why: 'Quá nhiều khách lệch cùng lúc, cả lượt không ghi.' },
     SHEET_SHUFFLED: { tag: 'Không ghi', tone: 'warn', why: 'Giá trên Sheet đổi chỗ trong tháng, khớp tổng không phân biệt được. Cần người xem.' },
     DETAIL_DIFFERS: { tag: 'Không ghi', tone: 'warn', why: 'Tổng khớp Sheet nhưng Sheet còn khoản web chưa theo, cộng lại không bù đủ. Cần người xem.' },
+    WEB_KEPT: { tag: 'Giữ web', tone: 'warn', why: 'Sheet sửa hoặc bỏ khoản web đã có. Web là sổ chính nên máy không sửa theo, chờ người quyết.' },
     HELD: { tag: 'Bị giữ', tone: 'warn', why: 'Tab đọc không được, khách này không đưa vào so. Cần người xem.' },
     WEB_AHEAD: { tag: 'Web đi trước', tone: 'info', why: 'Web có việc Sheet chưa có. Chênh đúng bằng phần đó, không cần ghi.' },
     CHI_CO_WEB: { tag: 'Chỉ báo', tone: 'warn', why: 'Có sổ trên web mà không thấy trên Sheet. Máy không tự xóa.' },
+    WEB_BOOK: { tag: 'Sổ web', tone: 'info', why: 'Sổ tạo trên web (KHACH-WEB-01), không cần tab Sheet.' },
     THIEU_SO: { tag: 'Chỉ báo', tone: 'warn', why: 'Thiếu số để so.' },
     BOOK_OVERLAP: { tag: 'Không tạo sổ', tone: 'warn', why: 'Tab mới trùng chuyến với sổ khác. Cần người xem.' },
     TOO_MANY_NEW_BOOKS: { tag: 'Không tạo sổ', tone: 'warn', why: 'Quá nhiều tab mới cùng lúc. Cần người xem.' },
@@ -147,7 +149,7 @@ const MayChayModel = (() => {
     return { state, text, f };
   }
 
-  const HELD = new Set(['NO_EXACT_FIX', 'AMBIGUOUS_FIX', 'NOTHING_TO_WRITE', 'TOO_MANY_GROUPS', 'SHEET_SHUFFLED', 'DETAIL_DIFFERS']);
+  const HELD = new Set(['NO_EXACT_FIX', 'AMBIGUOUS_FIX', 'NOTHING_TO_WRITE', 'TOO_MANY_GROUPS', 'SHEET_SHUFFLED', 'DETAIL_DIFFERS', 'WEB_KEPT']);
   function gateMarks(run, t) {
     const decided = run.customers.filter(c => t >= c.decided);
     const held = decided.some(c => HELD.has(c.reason)), wrote = decided.some(c => c.wrote);
@@ -198,10 +200,11 @@ const MayChayModel = (() => {
 
   // ----- Trực tiếp -----
   // Dòng trạng thái lúc đối soát nghỉ. Không có số giây đếm ngược ở đây vì dòng này được đọc cho trình đọc màn hình (aria-live).
-  function idleLine({ run, next, now, jobs }) {
+  // `sheetOff` (WEB-CHINH-01): đã thôi dùng Sheet sổ nợ thì lượt mỗi giờ chỉ so booking, và số khớp Sheet của lượt cũ không nhắc nữa.
+  function idleLine({ run, next, now, jobs, sheetOff = false }) {
     const day = String(now).slice(0, 10);
-    const parts = [`Đối soát đang nghỉ, ${next ? `lượt kế ${hhmm(next)}${String(next).slice(0, 10) === day ? '' : ' ngày mai'}` : 'chưa thấy lịch lượt kế'}.`];
-    if (run) {
+    const parts = [`${sheetOff ? 'So sổ với booking' : 'Đối soát'} đang nghỉ, ${next ? `lượt kế ${hhmm(next)}${String(next).slice(0, 10) === day ? '' : ' ngày mai'}` : 'chưa thấy lịch lượt kế'}.`];
+    if (run && !sheetOff) {
       const label = `Lượt trước ${clockOf(run.start).slice(0, 5)}${run.day === day ? '' : ` ngày ${Number(run.day.slice(8))}/${Number(run.day.slice(5, 7))}`}`;
       const wrote = run.fixed + run.created, left = run.total !== null && run.khop !== null ? run.total - run.khop : 0;
       if (run.failed) parts.push(run.failReason === 'MAT_TIN_HIEU' ? `${label} dừng giữa chừng.` : `${label} dừng vì lỗi.`);

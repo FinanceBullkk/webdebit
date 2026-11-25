@@ -7,6 +7,8 @@ const { clock, todayMonth, withPage, posts, viewMonth, settled } = require('./so
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const thisMonth = `${Number(clock.slice(5, 7))}/${clock.slice(0, 4)}`;
 const drawer = page => page.locator('.entry-drawer');
+// Số dưới 100.000 đ phải bấm "Đúng số này" ở bước xem lại (PHIEU-WEB-01, review #676 lần 2); các test này dùng số nhỏ cho gọn.
+const confirmSmall = async page => { const ok = page.locator('.entry-drawer .entry-review .entry-doubt-ok'); if (await ok.count()) await ok.check(); };
 const receiptPosts = world => posts(world).filter(([path]) => path === '/api/v7/receipts');
 // Mở khung, gõ ngày và số tiền, Enter ở ô Số tiền: sang bước xem lại.
 async function fill(page, date, amount) {
@@ -14,6 +16,7 @@ async function fill(page, date, amount) {
   await drawer(page).locator('.receipt-date').fill(date);
   await drawer(page).locator('.receipt-amount').fill(amount);
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await confirmSmall(page);
 }
 
 test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (chưa gửi), Enter nữa mới ghi đúng một lệnh', async () => withPage(async ({ page, world, shot }) => {
@@ -37,12 +40,15 @@ test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (c
   assert.doesNotMatch(text, /khách dư|đang khóa/);
   await settled(page);
   assert.equal(world.requests.length, 0, 'bước xem lại chưa gửi lệnh nào');
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true, 'tiêu điểm ở nút Ghi phiếu');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-sum')), true, 'SK-C2: tiêu điểm ở câu tóm tắt, không ở nút Ghi phiếu');
   await shot('entry-xem-lai');
   // Sửa lại: về ô Số tiền, số đã gõ còn nguyên.
   await drawer(page).locator('.entry-back').click();
   assert.equal(await drawer(page).locator('.receipt-amount').inputValue(), '50.000.000');
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true, 'Tab hai lần tới nút Ghi phiếu');
   await page.keyboard.press('Enter');
   await page.locator('.saved-strip').waitFor();
   await settled(page);
@@ -59,6 +65,58 @@ test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (c
   assert.equal(await drawer(page).locator('.receipt-amount').inputValue(), '');
   await shot('entry-da-ghi');
 }, world => { world.total = '1250000000'; }));
+
+test('SK-C2: gõ ngày, số tiền, Enter, Enter (kể cả giữ phím) không gửi lệnh ghi; Tab tới Ghi phiếu rồi Enter ghi đúng một lệnh', async () => withPage(async ({ page, world }) => {
+  await fill(page, today, '2000000');
+  const review = drawer(page).locator('.entry-review');
+  await review.waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('Enter');
+  await page.keyboard.down('Enter');   // phím giữ lặp (event.repeat)
+  await page.keyboard.up('Enter');
+  await settled(page);
+  assert.equal(world.requests.length, 0, 'Enter, Enter và giữ Enter không gửi lệnh nào');
+  assert.equal(await review.isVisible(), true, 'bước Xem lại vẫn mở');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-sum')), true);
+  // Ghi có chủ ý: Tab tới Ghi phiếu rồi Enter.
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true);
+  await page.keyboard.press('Enter');
+  await page.locator('.saved-strip').waitFor();
+  await settled(page);
+  assert.equal(receiptPosts(world).length, 1);
+  assert.equal(receiptPosts(world)[0][1].amount_vnd, '2000000');
+}));
+
+test('SK-N10: ô Số tiền hiện số đã hiểu có nhóm nghìn khi gõ và khi rời ô; lỗi nói dạng đúng và tắt khi sửa ô', async () => withPage(async ({ page, world, shot }) => {
+  await page.locator('.entry-open').click();
+  const amount = drawer(page).locator('.receipt-amount');
+  const hint = drawer(page).locator('.entry-amount-hint');
+  const error = drawer(page).locator('.receipt-amount-error');
+  await amount.pressSequentially('1234567');
+  assert.equal(await hint.innerText(), 'Hiểu là 1.234.567 đ');
+  assert.equal(await amount.inputValue(), '1234567', 'đang gõ thì không đổi chữ trong ô');
+  await shot('entry-so-tien-hieu-la');
+  await drawer(page).locator('.receipt-reference').focus();   // rời ô
+  assert.equal(await amount.inputValue(), '1.234.567');
+  // Chữ chưa đọc được: giữ nguyên chữ gõ, không hiện số; lỗi chỉ khi bấm Xem lại.
+  await amount.fill('45tr');
+  assert.equal(await hint.innerText(), '');
+  await drawer(page).locator('.receipt-reference').focus();
+  assert.equal(await amount.inputValue(), '45tr');
+  await drawer(page).locator('.receipt-date').fill(today);
+  await amount.press('Enter');
+  assert.match(await error.innerText(), /^Số tiền không hợp lệ\. Chỉ gõ chữ số/);
+  await shot('entry-so-tien-loi');
+  // Sửa ô: lỗi cũ tắt ngay, không đợi lần Xem lại sau.
+  await amount.pressSequentially('0');
+  assert.equal(await error.innerText(), '');
+  await amount.fill('45.000.000');
+  assert.equal(await hint.innerText(), 'Hiểu là 45.000.000 đ');
+  await settled(page);
+  assert.equal(world.requests.length, 0);
+}));
 
 test('Bấm Ghi phiếu hai lần nhanh vẫn một phiếu; vượt tổng nợ thì xem lại báo khách dư', async () => withPage(async ({ page, world }) => {
   await fill(page, today, '30000000');
@@ -80,7 +138,7 @@ test('Chặn tại ô trước khi gửi: ngày sai, ngày sau hôm nay, thiếu
   await fill(page, today, '0');
   assert.equal(await drawer(page).locator('.receipt-amount-error').innerText(), 'Số tiền phải lớn hơn 0.');
   await fill(page, today, 'abc');
-  assert.equal(await drawer(page).locator('.receipt-amount-error').innerText(), 'Số tiền không hợp lệ.');
+  assert.match(await drawer(page).locator('.receipt-amount-error').innerText(), /^Số tiền không hợp lệ\. Chỉ gõ chữ số.*45\.000\.000.*không gõ chữ như tr, k/);
   assert.equal(await drawer(page).locator('.entry-review').isHidden(), true);
   await settled(page);
   assert.equal(world.requests.length, 0);
@@ -88,6 +146,58 @@ test('Chặn tại ô trước khi gửi: ngày sai, ngày sau hôm nay, thiếu
   assert.equal(await drawer(page).isHidden(), true);
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-open')), true);
 }));
+
+test('PHIEU-WEB-01: không rõ ngày trả → chọn tháng, ghi ngày cuối tháng (không sau hôm nay) và tham chiếu "(ngày tượng trưng)"', async () => withPage(async ({ page, world, shot }) => {
+  const n = Number(clock.slice(0, 4)) * 12 + Number(clock.slice(5, 7)) - 2;
+  const prev = `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, '0')}`;
+  const prevEnd = `${prev}-${String(new Date(Date.UTC(Number(prev.slice(0, 4)), Number(prev.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
+  const shown = iso => `${iso.slice(8)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+  await page.locator('.entry-open').click();
+  await drawer(page).locator('.receipt-unknown').check();
+  assert.equal(await drawer(page).locator('.receipt-date').isDisabled(), true, 'ô ngày tắt khi không rõ ngày');
+  assert.equal(await drawer(page).locator('.receipt-month').inputValue(), '', 'tháng chưa chọn sẵn');
+  assert.equal(await drawer(page).locator('.receipt-month option').count(), 13);
+  // Chưa chọn tháng: chặn tại ô, không gửi.
+  await drawer(page).locator('.receipt-amount').fill('2.000.000');
+  await drawer(page).locator('.receipt-amount').press('Enter');
+  assert.equal(await drawer(page).locator('.receipt-month-error').innerText(), 'Chọn tháng khách trả.');
+  // Tháng trước: ngày cuối tháng đó.
+  await drawer(page).locator('.receipt-month').selectOption(prev);
+  assert.equal(await drawer(page).locator('.entry-symbolic-hint').innerText(), `Ghi ngày ${shown(prevEnd)} (ngày tượng trưng).`);
+  await drawer(page).locator('.receipt-reference').fill('CK qua Zalo');
+  await drawer(page).locator('.receipt-reference').press('Enter');
+  const review = drawer(page).locator('.entry-review');
+  await review.waitFor();
+  assert.ok((await review.innerText()).includes(`ngày ${shown(prevEnd)} (ngày tượng trưng), nằm ở tháng`));
+  assert.match(await review.innerText(), /Không rõ ngày trả: ghi ngày cuối tháng/);
+  await shot('entry-khong-ro-ngay');
+  // Tháng hiện tại: ngày cuối tháng sau hôm nay nên lấy hôm nay (cùng luật máy Sheet).
+  await drawer(page).locator('.entry-back').click();
+  await drawer(page).locator('.receipt-month').selectOption(clock.slice(0, 7));
+  assert.equal(await drawer(page).locator('.entry-symbolic-hint').innerText(), `Ghi ngày ${today} (ngày tượng trưng).`);
+  await drawer(page).locator('.receipt-month').selectOption(prev);
+  await drawer(page).locator('.receipt-amount').press('Enter');
+  await drawer(page).locator('.receipt-save').click();
+  await page.locator('.saved-strip').waitFor();
+  await settled(page);
+  assert.equal(receiptPosts(world).length, 1);
+  const sent = receiptPosts(world)[0][1];
+  assert.equal(sent.date, prevEnd);
+  assert.equal(sent.reference, 'CK qua Zalo (ngày tượng trưng)');
+  assert.equal(sent.amount_vnd, '2000000');
+  // Khung về trống: bỏ đánh dấu, ô ngày bật lại.
+  await page.locator('.entry-open').click();
+  assert.equal(await drawer(page).locator('.receipt-unknown').isChecked(), false);
+  assert.equal(await drawer(page).locator('.receipt-date').isDisabled(), false);
+  assert.equal(await drawer(page).locator('.entry-month').isHidden(), true);
+  // Cấn trừ cần ngày cụ thể.
+  await drawer(page).locator('.receipt-unknown').check();
+  await drawer(page).locator('.receipt-method').selectOption('CẤN TRỪ');
+  await drawer(page).locator('.receipt-amount').fill('1000');
+  await drawer(page).locator('.receipt-amount').press('Enter');
+  assert.match(await drawer(page).locator('.receipt-month-error').innerText(), /Cấn trừ cần ngày cụ thể/);
+  assert.equal(receiptPosts(world).length, 1);
+}, world => { world.total = '10000000'; }));
 
 test('Server báo ngày sau hôm nay: về ô Ngày, không kẹt lệnh; sổ đổi dưới tay: xem lại số mới rồi ghi lại', async () => withPage(async ({ page, world }) => {
   world.failNext = { error: 'FUTURE_RECEIPT_DATE', message: 'Ngày trả không được sau hôm nay.' };
@@ -97,6 +207,7 @@ test('Server báo ngày sau hôm nay: về ô Ngày, không kẹt lệnh; sổ �
   assert.equal(await drawer(page).locator('.entry-form').isVisible(), true);
   // Sổ đổi giữa lúc xem lại: lệnh bị từ chối vì phiên bản, sổ tải lại, khung vẫn ở bước xem lại với số mới.
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await confirmSmall(page);
   world.version += 1;
   world.total = '7000';
   await drawer(page).locator('.receipt-save').click();

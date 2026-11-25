@@ -1,6 +1,7 @@
 """Máy tự sửa sổ lệch Sheet (MAY-DOI-SOAT-01): chỉ ghi khi đúng một tổ hợp đưa tổng về đúng tổng Sheet. Dữ liệu giả."""
 
 import datetime as dt
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -31,6 +32,13 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(fix.month_end("2026-08", TODAY), "2026-08-31")
         self.assertEqual(fix.month_end("2024-02-01", TODAY), "2024-02-29")
         self.assertEqual(fix.month_end("2026-11", TODAY), "2026-11-04")
+
+    def test_month_end_matches_the_shared_cases_of_the_web_form(self):
+        # PHIEU-WEB-01: khung Ghi phiếu thu (CongNoFormat.symbolicDate) chạy cùng các ca này, hai bên không được lệch luật.
+        cases = json.loads((Path(__file__).parent / "golden" / "ngay-tuong-trung.json").read_text(encoding="utf-8"))["cases"]
+        for case in cases:
+            with self.subTest(**case):
+                self.assertEqual(fix.month_end(case["month"], dt.date.fromisoformat(case["today"])), case["date"])
 
     def test_receipt_groups_by_kind_and_month(self):
         orphans = [{"id": 5, "amount_vnd": "300"}, {"id": 6, "amount_vnd": "100"}]
@@ -351,6 +359,36 @@ class ChooseTests(unittest.TestCase):
 
     def test_too_many_groups_are_not_searched(self):
         self.assertEqual(fix.choose([self.group(i + 1) for i in range(fix.MAX_GROUPS + 1)], 3), ("TOO_MANY_GROUPS", []))
+
+
+class MachinePartTests(unittest.TestCase):
+    """WEB-CHINH-01 (3): trong tổ hợp đã khớp tổng, máy theo Sheet chỉ tự ghi phần thêm cái web chưa có."""
+
+    @staticmethod
+    def kinds(groups):
+        return [(g["kind"], g["month"], g["delta_vnd"], len(g["rows"])) for g in groups]
+
+    def test_price_group_splits_rows_that_add_from_rows_that_overwrite(self):
+        rows = [price("READY", target=1, sheet=("100", None)),                          # chuyến chưa giá: thêm
+                price("CONFLICT", target=2, sheet=("120", None), web=("100", None)),     # giá Sheet khác giá web
+                price("READY", target=3, sheet=("90", "-9"), web=("90", "-5")),          # đổi giảm trừ âm
+                price("READY", target=4, sheet=("50", None), web=(None, "7"))]           # thay phụ phí web
+        group = {"kind": "prices", "month": "2026-10", "rows": rows, "delta_vnd": sum(fix.price_delta(r) for r in rows)}
+        write, kept = fix.machine_part([group])
+        self.assertEqual((self.kinds(write), self.kinds(kept)), ([], [("prices", "2026-10", 20 - 4 + 50, 3), ("prices", "2026-10", 100, 1)]))
+        # Không có dòng đè thì dòng thêm được ghi.
+        self.assertEqual(self.kinds(fix.machine_part([{**group, "rows": rows[:1], "delta_vnd": 100}])[0]), [("prices", "2026-10", 100, 1)])
+
+    def test_additions_wait_when_the_same_family_has_something_held(self):
+        receipts, undated = {"kind": "receipts", "month": None, "rows": [{}], "delta_vnd": -45}, {"kind": "receipts_no_date", "month": "2026-10", "rows": [{}], "delta_vnd": -9}
+        gone = {"kind": "receipts_gone", "month": None, "rows": [{}], "delta_vnd": 45}
+        added = {"kind": "prices", "month": "2026-11", "rows": [price("READY", month="2026-11")], "delta_vnd": 100}
+        undo = {"kind": "fee_undo", "month": "2026-11", "rows": [{}], "delta_vnd": -100}
+        write, kept = fix.machine_part([receipts, undated, gone, added])
+        self.assertEqual(([g["kind"] for g in write], sorted(g["kind"] for g in kept)), (["prices"], ["receipts", "receipts_gone", "receipts_no_date"]))
+        write, kept = fix.machine_part([receipts, added, undo])   # cặp hai dòng: giá vào chuyến, dòng điều chỉnh cũ chưa hủy thì không ghi giá
+        self.assertEqual(([g["kind"] for g in write], sorted(g["kind"] for g in kept)), (["receipts"], ["fee_undo", "prices"]))
+        self.assertEqual(fix.machine_part([{"kind": "fee_rows", "month": "2026-11", "rows": [{}], "delta_vnd": 43}])[0], [])
 
 
 class Db:

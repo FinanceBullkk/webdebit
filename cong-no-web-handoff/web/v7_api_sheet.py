@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
+import v7_booking_view
 import v7_sheet_refresh
 from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
@@ -36,8 +37,10 @@ from v7_insurance_queue import (
 from v7_price_queue import (
     SNAPSHOT_MAX_AGE_SECONDS,
     book_rows,
+    debt_sheet_off,
     load_price_snapshot,
     project_prices,
+    sheet_off_projection,
     snapshot_stale,
 )
 from v7_ps_queue import load_ps_snapshot, project_ps
@@ -45,7 +48,12 @@ from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
 from v7_receipt_queue import load_receipt_snapshot, project_receipts, review_reference
 from v7_receipt_queue import reference as receipt_reference
-from v7_road_queue import build_road_queue, load_road_snapshot, project_road
+from v7_road_queue import (
+    build_road_queue,
+    load_road_snapshot,
+    project_choices,
+    project_road,
+)
 from v7_sheet_queue import (
     build_queue,
     load_baseline,
@@ -331,6 +339,7 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
             "booking_prices": project_booking_prices(base, ledger)}
 
 
+NO_PRICE_SNAPSHOT: dict = {"rows": [], "sha256": None}   # thiếu bản chụp giá: một đối tượng cố định để bộ nhớ hàng chờ chuyến bộ vẫn trúng
 _ROAD: list = [None, None, None, None]   # [road.json, prices.json, khóa danh sách khách, hàng chờ chuyến bộ]
 _ROAD_LOCK = threading.Lock()
 
@@ -350,20 +359,61 @@ def cached_road_queue(road: dict, prices: dict, customers: list) -> dict:
 def road_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     """Chuyến bộ mới của một sổ (NGUON-CHUYEN-01 GĐ3): sổ theo tab khách trên Sheet, chặn trùng như hàng chờ chuyến biển.
 
-    Runner chưa ghi road.json thì không có việc (không phải lỗi); file hỏng thì hàm ném lỗi như ba hàm chiếu kia.
+    Runner chưa ghi road.json thì không có việc (không phải lỗi); file hỏng thì hàm ném lỗi như ba hàm chiếu kia. Bản chụp giá (tab
+    Sheet sổ nợ) chỉ là lịch sử tab để xếp chuyến vào sổ: thiếu file (đã thôi đọc Sheet, WEB-CHINH-01) thì chuyến bộ chỉ còn theo tên
+    booking gán trên web (KHACH-WEB-01), như thẻ Khách; file có mà hỏng thì vẫn ném lỗi, không đoán.
     """
     if not os.path.exists(ROAD_SNAPSHOT_PATH):
         return {"snapshot_sha256": None, "items": [], "new_count": 0, "conflict_count": 0, "source_missing": True}
     road = cached_load(load_road_snapshot, ROAD_SNAPSHOT_PATH)
-    prices = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
+    prices = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH) if os.path.exists(PRICE_SNAPSHOT_PATH) else NO_PRICE_SNAPSHOT
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     queue = cached_road_queue(road, prices, customers)
     mine = [item for item in queue["items"] if item["customer_id"] == ledger.get("customer_id")]
-    if not mine:
+    # Chuyến bị giữ (nhiều dòng tab, tab lệch ngày) mà biết sổ ứng viên: hiện ở sổ ứng viên đầu để người chọn sổ (WEB-CHINH-01).
+    offered = [c for c in queue.get("choices") or [] if c["candidate_ids"] and min(c["candidate_ids"]) == ledger.get("customer_id")]
+    if not mine and not offered:
         return project_road({**queue, "items": []}, ledger)
-    other_containers, other_legacy = other_book_checks(runner, ledger, mine, actor)
-    return project_road({**queue, "items": mine}, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
+    other_containers, other_legacy = other_book_checks(runner, ledger, mine + offered, actor)
+    result = project_road({**queue, "items": mine}, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
+    chosen = project_choices(queue, ledger, customers, other_containers, other_legacy)
+    return {**result, "items": result["items"] + chosen, "conflict_count": result["conflict_count"] + len(chosen)}
+
+
+def assign_road_trip(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Người chọn sổ cho một chuyến bộ máy giữ lại (`NEEDS_BOOK`: tab ghi nhiều dòng hay lệch ngày). Đưa vào sổ được chọn bằng đúng
+    đường dán của máy (`paste_sheet_rows`), chưa có giá, nợ không đổi; người làm là người bấm. Thân như lệnh chọn sổ chuyến biển."""
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    required = {"customer_id", "expected_version", "idempotency_key", "target_customer_id", "target_version", "source_fingerprint"}
+    if not isinstance(request, dict) or set(request) != required:
+        bad()
+    if (any(not positive_int(request[k]) for k in ("customer_id", "target_customer_id"))
+            or any(type(request[k]) is not int or not 0 <= request[k] <= MAX_BIGINT for k in ("expected_version", "target_version"))
+            or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
+            or not isinstance(request["idempotency_key"], str) or not 1 <= len(request["idempotency_key"]) <= 128
+            or not request["idempotency_key"].strip() or any(ord(c) < 32 for c in request["idempotency_key"])):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = road_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", "Không đọc được chuyến bộ.") from exc
+    rows = [row for row in projection["items"] if row.get("source_fingerprint") == request["source_fingerprint"]
+            and row.get("sync_reason") == "NEEDS_BOOK"]
+    if len(rows) != 1 or request["target_customer_id"] not in [c["id"] for c in rows[0].get("candidate_books", [])]:
+        raise ApiError(409, "STALE_SHEET", "Chuyến hoặc sổ được chọn đã đổi. Tải lại rồi thử lại.")
+    target = ledger if request["target_customer_id"] == request["customer_id"] else         runner.run("get_ledger", {"customer_id": request["target_customer_id"]}, actor)
+    if target.get("version") != request["target_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    out = paste_sheet_rows(runner, request["target_customer_id"], request["target_version"], projection["snapshot_sha256"],
+                           "chon-so-chuyen-bo:" + request["idempotency_key"], rows, actor)
+    return 200, {**out, "target_customer_id": request["target_customer_id"]}
 
 
 APPROVE_KEYS = {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}
@@ -485,6 +535,8 @@ def require_writable(projection: dict) -> None:
 
 
 def price_projection(runner: Psql, ledger: dict, actor: str, *, include_kept=False) -> dict:
+    if (off := debt_sheet_off()) is not None:   # WEB-CHINH-01: thôi dùng Sheet sổ nợ, bản chụp giá đứng yên
+        return sheet_off_projection(off)
     snapshot = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
@@ -586,6 +638,8 @@ def approve_price_conflicts(raw: bytes, runner: Psql, actor: str) -> tuple[int, 
 
 
 def receipt_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    if (off := debt_sheet_off()) is not None:   # WEB-CHINH-01: thôi dùng Sheet sổ nợ, bản chụp phiếu đứng yên
+        return sheet_off_projection(off)
     snapshot = cached_load(load_receipt_snapshot, RECEIPT_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
@@ -1013,6 +1067,11 @@ def detail_projection(_runner: Psql, ledger: dict, _actor: str) -> dict:
     return project_details(cached_load(load_detail_snapshot, DETAIL_SNAPSHOT_PATH), ledger)
 
 
+def booking_projection(_runner: Psql, ledger: dict, _actor: str) -> dict:
+    """DONG-MO-BOOKING-01: chuyến booking sổ này chưa có, theo lượt so sổ web gần nhất (file của job, đọc lại khi file đổi)."""
+    return v7_booking_view.book_missing(ledger, cached_load(v7_booking_view.load_web, v7_booking_view.web_path()))
+
+
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
     """`GET /api/v7/ledger`: gắn các hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
 
@@ -1029,6 +1088,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
         ("insurance", insurance_projection, {"unavailable": True, "review": [], "done": [], "review_count": 0}),
         ("sheet_road", road_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}),
         ("sheet_details", detail_projection, {"unavailable": True, "rows": [], "months": {}}),
+        ("booking_missing", booking_projection, {"unavailable": True, "items": []}),
     )
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         futures = [(key, pool.submit(project, shared, ledger, actor), empty) for key, project, empty in parts]

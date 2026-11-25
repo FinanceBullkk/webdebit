@@ -915,17 +915,21 @@
     if (button.hasAttribute('data-assign-trip')) {
       if (inbox.action || inbox.review) return;
       const ledger = inbox.details.get(inbox.open), source = button.dataset.assignTrip;
-      const row = ledger?.sheet_sync?.items?.find(r => r.source_fingerprint === source && r.sync_state === 'NEW');
+      // Chuyến biển chưa rõ sổ (`sheet_sync`, NEW) hoặc chuyến bộ máy giữ lại (`sheet_road`, NEEDS_BOOK, WEB-CHINH-01): cùng ô chọn sổ.
+      const sea = ledger?.sheet_sync?.items?.find(r => r.source_fingerprint === source && r.sync_state === 'NEW');
+      const road = sea ? null : ledger?.sheet_road?.items?.find(r => r.source_fingerprint === source && r.sync_reason === 'NEEDS_BOOK');
+      const row = sea ?? road;
       const targetId = Number(inboxRoot.querySelector(`[data-trip-book="${source}"]`)?.value);
       const choice = row?.candidate_books?.find(c => c.id === targetId);
       if (!choice) return;
+      const where = road ? choice.name : choice.commodity ?? choice.name;   // chuyến bộ: sổ ứng viên có thể của khách khác nhau
       button.disabled = true;
       try {
         const target = targetId === inbox.open ? ledger : await json(`/api/v7/ledger?customer=${targetId}`);
         if (!Number.isInteger(target.version)) throw Error();
-        inbox.action = { id: inbox.open, title: `Đưa chuyến ${row.container} vào ${choice.commodity ?? choice.name}`, rowKey: `assignment:${source}`,
+        inbox.action = { id: inbox.open, title: `Đưa chuyến ${row.container} vào ${where}`, rowKey: `assignment:${source}`,
           text: 'Chỉ đưa chuyến này vào sổ được chọn, chưa có giá, nợ không đổi. Chuyến nghi trùng sẽ chờ kiểm.',
-          inlineText: `Vào sổ ${choice.commodity ?? choice.name} · chưa giá, nợ không đổi`, path: '/api/v7/sheet/trips/assign',
+          inlineText: `Vào sổ ${where} · chưa giá, nợ không đổi`, path: road ? '/api/v7/sheet/road/assign' : '/api/v7/sheet/trips/assign',
           body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID(),
             target_customer_id: targetId, target_version: target.version, source_fingerprint: source } };
         paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
@@ -998,9 +1002,9 @@
         const next = SoKhachV7Model.tripAmount({ container: row.container, status: 'confirmed', unitPriceVnd: row.sheet_unit_price_vnd, otherFeeVnd: row.sheet_other_fee_vnd }).amountVnd;
         if (next == null || (current.amount_vnd ?? current.counted_vnd) == null) { inbox.action = null; return; }
         const after = globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, current.amount_vnd ?? current.counted_vnd, next.toString());
-        Object.assign(inbox.action, { title: 'Lấy giá Sheet', path: '/api/v7/sheet/tasks/price',
+        Object.assign(inbox.action, { title: 'Đổi sang giá Sheet', path: '/api/v7/sheet/tasks/price',
           text: `Đơn giá ${F.full(row.web_unit_price_vnd)} → ${F.full(row.sheet_unit_price_vnd)}, phụ phí ${row.web_other_fee_vnd == null ? '—' : F.full(row.web_other_fee_vnd)} → ${row.sheet_other_fee_vnd == null ? '—' : F.full(row.sheet_other_fee_vnd)}. Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(after)}.`,
-          inlineText: `Lấy giá Sheet ${globalThis.InboxTable.million(row.sheet_unit_price_vnd)} tr · nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(after)} tr` });
+          inlineText: `Đổi sang giá Sheet ${globalThis.InboxTable.million(row.sheet_unit_price_vnd)} tr · nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(after)} tr` });
       }
       paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus(); return;
     }

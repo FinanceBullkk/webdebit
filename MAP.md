@@ -11,7 +11,8 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `.claude/settings.json` | Quyền: cho phép lệnh kiểm, commit/push/mở và merge PR (Claude tự merge từ 28/10/2026), hỏi trước psql/xóa file (ssh không hỏi từ 30/10/2026, lệnh có psql vẫn hỏi), cấm force push và đọc secrets |
 | `.claude/agents/` | `planner.md` (chỉ đọc), `implementer.md` (sửa theo phạm vi), `reviewer.md` (review, không sửa) |
 | `.claude/skills/kiem-tra-truoc-pr/` | Quy trình kiểm trước khi mở PR |
-| `.claude/skills/thiet-ke-ux/` | Quy trình thiết kế, sửa, review giao diện: bài toán → cấu trúc → thị giác → trạng thái → kiểm bản render |
+| `.claude/skills/thiet-ke-ux/` | Quy trình thiết kế, sửa, review giao diện: bài toán → cấu trúc → thị giác → trạng thái → kiểm bản render; `reference/` có danh sách chống giao diện "AI" và nền tảng học thuật UX/UI kèm nguồn |
+| `scripts/check-css-tokens.js` | Bước `lint:tok`: màu viết thẳng, cỡ chữ ngoài thang, bo góc tự đặt, viền một bên trong CSS giao diện không vượt mức trần từng file (`scripts/css-tokens-baseline.json`, chỉ được hạ bằng `--update`) |
 | `.claude/skills/go-loi-co-he-thong/` | Gỡ lỗi: nguyên nhân gốc → so mẫu → giả thuyết → test đỏ rồi sửa; bẫy môi trường đã biết (phỏng theo obra/superpowers, MIT) |
 | `.claude/skills/kiem-chung-truoc-khi-bao-xong/` | Cổng bằng chứng trước mỗi câu báo xong/xanh/đã triển khai (phỏng theo obra/superpowers, MIT) |
 | `scripts/check-secrets.js` | Quét secrets và dữ liệu thật trong tài liệu (số tiền nhóm chấm từ 7 chữ số, số container; stdlib Node) trên diff đã stage hoặc toàn bộ file đã theo dõi; `npm run check` chạy bản `--all` |

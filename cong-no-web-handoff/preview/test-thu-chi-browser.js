@@ -59,15 +59,16 @@ function makeServer(state) {
     const file = path.join(__dirname, url.pathname.replace(/^\//, ''));
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
-    return send(200, type, fs.readFileSync(file));
+    const data = fs.readFileSync(file);   // QUYEN-01: máy chủ thật gắn data-role="user" cho login không phải quản lý
+    return send(200, type, state.role === 'user' && type === 'text/html' ? String(data).replace('<html lang="vi"', '<html lang="vi" data-role="user"') : data);
   });
 }
 
 const TARGETS = { so: [{ id: 1, label: 'SỔ A' }, { id: 2, label: 'SỔ B' }, { id: 3, label: '陈氏贸易有限公司 RẤT DÀI TÊN SỔ ĐỂ THỬ BỐ CỤC' }],
   xe: [{ id: 10, label: '51C-12345' }, { id: 11, label: '29H-67890' }], tai_xe: [{ id: 20, label: 'Bình' }, { id: 21, label: 'Cường' }], failed: false };
 
-async function withPage(respond, fn, { viewport = { width: 1280, height: 720 }, clock = false, review = null } = {}) {
-  const state = { calls: [], respond, posts: [], review, targetCalls: 0 };
+async function withPage(respond, fn, { viewport = { width: 1280, height: 720 }, clock = false, review = null, role = null } = {}) {
+  const state = { calls: [], respond, posts: [], review, targetCalls: 0, role };
   const server = makeServer(state);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await launchShared();
@@ -88,6 +89,25 @@ async function withPage(respond, fn, { viewport = { width: 1280, height: 720 }, 
 const ok = items => () => ({ body: body(items) });
 const clean = text => text.replace(/\s+/g, ' ').trim();
 const ready = page => page.locator('.tc-row').first().waitFor();
+
+test('QUYEN-01 sửa đổi 25/11/2026: người dùng xem cả trang Thu chi; không có nút Xử lý (ghi kết luận), không có link Đội xe', () => withPage(ok(ITEMS), async page => {
+  await ready(page);
+  assert.equal(await page.locator('.tc-row').count(), ITEMS.length);
+  assert.equal(await page.locator('[data-act="open"]').count(), 0, 'nút Xử lý chỉ quản lý');
+  assert.equal(await page.locator('a[href="/doi-xe.html"]').count(), 0, 'Đội xe chỉ quản lý');
+  assert.equal(await page.locator('.tc-status a', { hasText: 'Mở sổ' }).first().getAttribute('href'), '/so-khach-v7-live.html?customer=1&month=2026-11');
+  const nav = page.locator('aside.app-nav nav a');
+  assert.deepEqual((await nav.allInnerTexts()).map(clean), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
+  assert.equal(await nav.last().getAttribute('aria-current'), 'page');
+  assert.equal(await page.locator('.admin-tabs').count(), 0);
+}, { role: 'user' }));
+
+test('Thu chi: quản lý vẫn có nút Xử lý và vào trang từ dải thẻ Quản trị', () => withPage(ok(ITEMS), async page => {
+  await ready(page);
+  assert.ok(await page.locator('[data-act="open"]').count() > 0);
+  assert.equal(await page.locator('aside.app-nav nav a', { hasText: 'Thu chi' }).count(), 0);
+  assert.equal(await page.locator('.admin-tabs a', { hasText: 'Thu chi' }).count(), 1);
+}));
 
 test('Thu chi: hôm nay và 7 ngày, gom theo ngày mới trên cùng, trạng thái đối chiếu bằng câu thường', () => withPage(ok(ITEMS), async page => {
   await ready(page);
@@ -125,6 +145,18 @@ test('Thu chi: Mở tin sang đúng tin của Chat Zalo, Mở sổ sang đúng s
   assert.equal(await page.locator('.tc-status a', { hasText: 'Mở sổ' }).first().getAttribute('href'), '/so-khach-v7-live.html?customer=1&month=2026-11');
   await page.locator('.tc-open').first().click();
   await page.waitForURL(/zalo-chat\.html\?c=1{64}&m=t1&from=thu-chi/);
+}));
+
+test('PHIEU-WEB-01 mục 4: khoản thu chưa vào sổ đã gắn sổ có nút Ghi phiếu, mở sổ đó và để phiếu nháp (không đưa số lên địa chỉ)', () => withPage(ok(ITEMS), async page => {
+  await ready(page);
+  const links = page.locator('.tc-write');
+  assert.equal(await links.count(), 1, 'chỉ khoản thu chưa vào sổ, đã gắn sổ, có số (đã vào sổ, lệch, chưa rõ đối tượng, khoản chi: không)');
+  assert.equal(await links.first().getAttribute('href'), '/so-khach-v7-live.html?customer=3&ghi-phieu=1');
+  await page.route('**/so-khach-v7-live.html*', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Sổ</title><p id="so">sổ</p>' }));
+  await links.first().click();
+  await page.waitForURL(/so-khach-v7-live\.html\?customer=3&ghi-phieu=1$/);
+  const draft = JSON.parse(await page.evaluate(() => sessionStorage.getItem('webdebit:phieu-nhap')));
+  assert.deepEqual({ ...draft, at: typeof draft.at }, { customerId: 3, date: '2026-11-15', amount: '40000000', reference: 'Zalo: thu 40000000 thử', at: 'number' });
 }));
 
 test('Thu chi: lọc Chưa vào sổ, Lệch số, Chưa rõ đối tượng ghi số đúng với danh sách; bàn phím bấm được', () => withPage(ok(ITEMS), async page => {

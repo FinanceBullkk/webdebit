@@ -828,10 +828,16 @@ class QueryAndRouteTests(CashChatCase):
                        port=8780, host="127.0.0.1", actor="tester")
         self.assertIn(caught.exception.status, (404, 405, 422))
 
-    def test_only_managers_may_call_the_route(self):
-        self.assertTrue(v7_role.admin_api("/api/v7/cash-chat"))
-        self.assertFalse(v7_role.allowed("/api/v7/cash-chat", v7_role.USER, {}))
-        self.assertTrue(v7_role.allowed("/api/v7/cash-chat", v7_role.ADMIN, {}))
+    def test_users_read_and_only_managers_write(self):
+        # QUYEN-01 sửa đổi 25/11/2026: người dùng đọc Thu chi; lệnh ghi kết luận xem xét vẫn chỉ quản lý.
+        for path in ("/api/v7/cash-chat", "/api/v7/cash-chat/targets"):
+            self.assertFalse(v7_role.admin_api(path))
+            self.assertTrue(v7_role.allowed(path, v7_role.USER, {}))
+        for path in ("/api/v7/cash-chat/review", "/api/v7/cash-chat/review/x"):
+            self.assertTrue(v7_role.admin_api(path))
+            self.assertFalse(v7_role.allowed(path, v7_role.USER, {}))
+            self.assertTrue(v7_role.allowed(path, v7_role.ADMIN, {}))
+        self.assertTrue(v7_role.allowed("/thu-chi.html", v7_role.USER, {"/thu-chi.html"}))
 
 
 class ReviewTests(CashChatCase):

@@ -1154,6 +1154,9 @@ BEGIN
         WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id
       UNION SELECT date_trunc('month',r.date)::date FROM sokhach.receipt r
         WHERE r.customer_id=get_ledger.customer_id AND r.voided_on IS NULL
+      -- SK-C1 (25/11/2026): tháng hiện tại (giờ VN) luôn có dòng để thẻ tháng có Nợ đầu tháng và Còn nợ cuối tháng;
+      -- tháng chưa có gì thì phát sinh, đã thu, còn nợ của kỳ đều 0 nên tổng và các tháng khác không đổi.
+      UNION SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
     ), figures AS (
       SELECT k.debt_month,
         coalesce((SELECT v.outstanding_vnd FROM sokhach.v_outstanding_month v

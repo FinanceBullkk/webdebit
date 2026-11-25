@@ -204,7 +204,7 @@ function payWorld(world) {
   ];
 }
 
-test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi tháng một dòng, số tiền thẳng cột, không hiện mã máy', async () => withPage(async ({ page }) => {
+test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi tháng một dòng, số tiền thẳng cột, không hiện mã máy', async () => withPage(async ({ page, shot }) => {
   for (const width of [1280, 1895]) {
     await page.setViewportSize({ width, height: 848 });
     await reload(page);
@@ -214,12 +214,15 @@ test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi thán
       const money = cells[4].querySelector('.receipt-sum') ?? cells[4];
       const range = document.createRange();
       range.selectNodeContents(money);
-      return { day: cells[0].innerText, note: cells[2].innerText, height: row.getBoundingClientRect().height, right: Math.round(range.getBoundingClientRect().right),
+      return { day: cells[0].innerText, method: cells[1].innerText, note: cells[2].innerText, height: row.getBoundingClientRect().height, right: Math.round(range.getBoundingClientRect().right),
         clipped: cells.map(cell => cell.scrollWidth > cell.clientWidth).some(Boolean) };
     }));
     assert.deepEqual(rows.map(row => [row.day, row.note]), [
-      ['16/09/2026', 'tt'], ['–', 'đã tt'], ['–', ''], ['30/09/2026', '+'], ['30/09/2026', 'da tt · ngày tượng trưng'], ['04/09/2026', 'TT'],
+      ['16/09/2026', 'tt'], ['không ghi ngày', 'đã tt'], ['không ghi ngày', ''], ['30/09/2026', '+'], ['30/09/2026', 'da tt · ngày tượng trưng'], ['04/09/2026', 'TT'],
       ['30/09/2026', 'khách chuyển thay cho công ty bên kia đợt hai · ngày tượng trưng']]);
+    // SK-N9: khoản thu sổ gốc không có ô "–" không tên — hình thức ghi "Sổ gốc", thiếu ngày ghi "không ghi ngày".
+    assert.deepEqual(rows.slice(0, 3).map(row => row.method), ['Sổ gốc', 'Sổ gốc', 'Sổ gốc']);
+    assert.equal(rows.some(row => row.day === '–' || row.method === '–'), false);
     assert.deepEqual(rows.filter(row => row.clipped), [], 'không ô nào bị cắt chữ');
     assert.equal(new Set(rows.map(row => row.right)).size, 1, 'số tiền sổ gốc và phiếu web thẳng một cột: ' + rows.map(row => row.right));
     assert.ok(rows[3].height <= 76, 'phiếu chia ba tháng cao ba dòng chữ, không bẻ tháng và số: ' + rows[3].height);
@@ -234,6 +237,7 @@ test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi thán
     assert.equal(pairs.length, 3);
     assert.ok(pairs.every(pair => pair.sameLine && pair.right === pairs[0].right), 'tháng và số cùng dòng, số thẳng cột phải');
     assert.doesNotMatch(await page.locator('.pay-block').innerText(), /Sheet|5bd3cb|46295/);
+    await shot(`phieu-thu-${width}`);
   }
 }, payWorld));
 
@@ -252,13 +256,15 @@ test('Còn nợ cuối tháng cùng một hàng với nhãn; ghi chú, trừ n�
     assert.deepEqual(line, { sameLine: true, right: 0 }, `${width}px: số không rơi xuống dòng dưới, thẳng mép phải với các số trên`);
     const gaps = await page.locator('.pay-row:has(.alloc-lines)').first().evaluate(row => {
       const box = selector => row.querySelector(selector).getBoundingClientRect();
-      const block = document.querySelector('.pay-block').getBoundingClientRect(), entry = document.querySelector('.pay-head .entry-open').getBoundingClientRect();
-      return { note: box('.alloc-label').left - box('.receipt-ref').right, money: box('.receipt-sum').left - box('.alloc-lines').right, entryEdge: Math.round(block.right - entry.right), block: block.width };
+      const list = document.querySelector('.pay-list').getBoundingClientRect(), entry = document.querySelector('.pay-head .entry-open').getBoundingClientRect();
+      const slot = document.querySelector('.month-pay-slot');
+      const edge = slot.getBoundingClientRect().right - parseFloat(getComputedStyle(slot).paddingRight);
+      return { note: box('.alloc-label').left - box('.receipt-ref').right, money: box('.receipt-sum').left - box('.alloc-lines').right, entryEdge: Math.round(edge - entry.right), list: list.width };
     });
     assert.ok(gaps.note < 120, `${width}px: từ ghi chú sang Trừ nợ không phải đi qua khoảng trống: ${gaps.note}`);
     assert.ok(gaps.money < 120, `${width}px: từ Trừ nợ sang số tiền: ${gaps.money}`);
-    assert.equal(gaps.entryEdge, 0, 'nút Ghi phiếu thu thẳng mép phải khối phiếu');
-    assert.ok(gaps.block <= 860, `${width}px: khối phiếu ôm theo nội dung: ${gaps.block}`);
+    assert.equal(gaps.entryEdge, 0, 'SK-N4: nút Ghi phiếu thu ở mép phải ô phiếu của thẻ tháng');
+    assert.ok(gaps.list <= 860, `${width}px: bảng phiếu ôm theo nội dung: ${gaps.list}`);
   }
 }, world => {
   world.monthValues = { '2026-09-01': { prior_months_vnd: '25334328759', charges_vnd: '860000000', received_vnd: '6594000000', end_of_month_vnd: '19600328759' } };
@@ -273,9 +279,12 @@ test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm,
   assert.equal(await page.locator('.picker-head h1').innerText(), 'Sổ khách');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search');
   assert.equal(await page.locator('#customer-count').innerText(), '60 khách');
-  assert.equal(await page.locator('#customer-list a').count(), 60, 'trang chọn khách không dừng ở 50 dòng');
-  assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['Dừa (30)', 'Thanh long (30)']);
-  assert.equal(await page.locator('#customer-list a').first().innerText(), 'Khách 2');
+  // Phiên test đã mở sổ 1 (withPage) nên sổ 1 là khách gần đây duy nhất, đứng đầu với nhãn đủ mặt hàng (SK-N7).
+  assert.equal(await page.locator('#customer-list a').count(), 61, 'trang chọn khách không dừng ở 50 dòng: 60 sổ + 1 dòng Gần đây');
+  assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['Gần đây', 'Dừa (30)', 'Thanh long (30)']);
+  assert.equal(await page.locator('#customer-list a').first().innerText(), 'Khách 1 · Thanh long');
+  assert.equal(await page.locator('#customer-list a').nth(1).innerText(), 'Khách 2');
+  assert.equal(await page.locator('#customer-list a.is-active').count(), 0, 'chưa gõ thì chưa dòng nào được tô');
   assert.equal(await page.locator('#live-controls').isVisible(), false, 'chưa có sổ thì không có Làm mới');
   assert.equal(await page.locator('.dashboard-link').isVisible(), false, 'menu trái đã có Tổng quan');
   const geometry = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -296,6 +305,53 @@ test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm,
   await page.waitForURL(/customer=1$/);
 }, world => {
   world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
+}));
+
+// SK-N6 (audit Sổ khách 25/11/2026): ô tìm khách chạy bằng bàn phím như ô tìm ở menu trái; tại một lúc chỉ một dòng được tô.
+test('Trang chọn khách: gõ → ↓ ↑ dời dòng tô, Enter mở dòng tô, Tab không để hai dòng cùng tô, Esc xóa chữ gõ', async () => withPage(async ({ page }) => {
+  await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
+  await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+  const search = page.locator('#customer-search');
+  const active = () => page.locator('#customer-list a.is-active').allInnerTexts();
+  await search.fill('thanh long');
+  assert.deepEqual(await active(), ['Khách 1'], 'gõ xong dòng đầu được tô');
+  await search.press('ArrowDown');
+  assert.deepEqual(await active(), ['Khách 3']);
+  await search.press('ArrowDown');
+  await search.press('ArrowUp');
+  assert.deepEqual(await active(), ['Khách 3'], '↓ ↓ ↑ về đúng dòng thứ hai');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search', 'con trỏ ở lại ô tìm để gõ tiếp');
+  await search.press('ArrowUp');
+  await search.press('ArrowUp');
+  assert.deepEqual(await active(), ['Khách 1'], '↑ dừng ở dòng đầu, không vòng lại');
+  // Tab sang dòng khác: chỉ dòng đó được tô.
+  await search.press('Tab');
+  assert.deepEqual(await active(), ['Khách 1']);
+  await page.keyboard.press('ArrowDown');
+  assert.deepEqual(await active(), ['Khách 3'], '↓ từ dòng đang focus dời sang dòng kế');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search', '↑ ở dòng đầu trả con trỏ về ô tìm');
+  await search.press('Escape');
+  assert.equal(await search.inputValue(), '', 'Esc xóa chữ đã gõ');
+  assert.equal(await page.locator('#customer-list a.is-active').count(), 0);
+  await search.fill('thanh long');
+  await search.press('ArrowDown');
+  await search.press('Enter');
+  await page.waitForURL(/customer=3$/);
+}, world => {
+  world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
+}));
+
+// SK-N7: cùng một tên ở hai nhóm mặt hàng không còn hai dòng giống hệt.
+test('Trang chọn khách: tên trùng ở hai nhóm giữ mặt hàng trên dòng; tên không trùng vẫn gọn', async () => withPage(async ({ page }) => {
+  await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
+  await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+  const rows = await page.evaluate(() => [...document.querySelectorAll('#customer-list > *')].map(node => `${node.className === 'customer-group' ? '#' : ''}${node.textContent}`));
+  assert.deepEqual(rows, ['#Gần đây', 'Khách Lẻ · Chuối', '#Bán cước (1)', 'Khách Lẻ · Bán cước', '#Chuối (2)', 'Khách Lẻ · Chuối', 'Khách Riêng']);
+}, world => {
+  world.customers = [{ id: 1, name: 'Khách Lẻ', status: 'active', commodity: 'Chuối' }, { id: 2, name: 'Khách Lẻ', status: 'active', commodity: 'Bán cước' },
+    { id: 3, name: 'Khách Riêng', status: 'active', commodity: 'Chuối' }];
 }));
 
 // Góp ý 13/11/2026 "mở sổ khách lúc load hiện UI cũ": trước khi JS dời ô tìm vào menu trái và dải "Tự cập nhật" vào thanh thẻ
@@ -378,3 +434,77 @@ test('Bảng chuyến 1280: tổng phụ phí đậm không dính mép, sổ có
   world.legacy[1].fee_lines = [{ id: 501, fee_type_id: 9, amount_vnd: '17000000', note: null }];
   world.legacy[1].current.other_fee_vnd = '17000000';
 }));
+
+// Audit Sổ khách 25/11/2026, đợt 3 (SK-N2, SK-N3, SK-N4). Khung 1265×560 = 1280×560 trừ thanh cuộn 15px của Chrome Windows.
+const lookupPrice = { unit_price_vnd: '9000000', tier: 'khach', location: 'Ea Kar', destination: 'Cát Lái', valid_from: '2026-09-10', valid_to: null };
+function workWorld(world) {
+  handoff(world);
+  world.query = '&loc=thieu-gia';
+  world.priceStatus = { customer_id: 1, version: 1, has_table: true, ready_count: 2, ready_total_vnd: '18000000', ready_months: ['2026-11-01'], reapply_count: 0,
+    trips: [17, 18].map(id => ({ trip_id: id, unit_price_vnd: null, from_table: false, lookup: lookupPrice, ready: true, differs: false })) };
+  world.sheetPrices = { snapshot_sha256: 'd'.repeat(64), ready: [], ready_count: 0, review_count: 24, review: Array.from({ length: 24 }, (_, i) => ({
+    target_kind: 'trip', target_id: 11 + (i % 6), status: 'CONFLICT', batchable: true, container: `DEMU${String(1000000 + i)}`, date: '2026-11-01',
+    source_row: 10 + i, sheet_unit_price_vnd: '9300000', web_unit_price_vnd: '9200000', sheet_other_fee_vnd: null })) };
+  // Tham chiếu dài làm bảng phiếu tháng 11 rộng hơn tháng trống: trước SK-N4 nút Ghi phiếu thu chạy theo bề ngang bảng.
+  world.receipts.push({ id: 3, pid: 'PH-003', date: '2026-11-03', method: 'Chuyển khoản', amount_vnd: '1000000', voided_by_event: null,
+    reference: 'Chuyển thay cho công ty bên kia, đợt hai, đối chiếu theo bảng kê gửi qua Zalo ngày 3/11',
+    allocations: [{ month: '2026-08-01', amount_vnd: '1000000', superseded_by_event: null }] });
+}
+
+test('SK-N2/N3: việc giá, ?loc= và Sheet cần xem nằm trên một thanh; chỉ Ghi phiếu thu là nút đậm; thấy ≥ 5 chuyến ở đầu bảng', async () => withPage(async ({ page, world, shot }) => {
+  await page.setViewportSize({ width: 1265, height: 560 });
+  await reload(page);
+  await page.locator('.book-tasks .loc-bar').waitFor();
+  await page.locator('.book-tasks .price-table-apply').waitFor();
+  const bar = await page.evaluate(() => {
+    const items = [...document.querySelectorAll('.book-tasks > *')];
+    const tasks = document.querySelector('.book-tasks').getBoundingClientRect();
+    const filled = [...document.querySelectorAll('#app button')].filter(node => node.offsetParent && getComputedStyle(node).backgroundColor === 'rgb(28, 92, 171)');
+    return { kinds: items.map(node => node.className), tops: new Set(items.map(node => Math.round(node.getBoundingClientRect().top))).size,
+      height: tasks.height,
+      between: (() => { const out = []; for (let node = document.querySelector('.book-bar').nextElementSibling; node && !node.matches('.layout'); node = node.nextElementSibling) if (node.getBoundingClientRect().height > 0) out.push(node.className); return out; })(), filled: filled.map(node => node.className),
+      apply: getComputedStyle(document.querySelector('.price-table-apply')).backgroundColor, locOutside: document.querySelectorAll('.loc-bar:not(.book-tasks *)').length };
+  });
+  assert.deepEqual(bar.kinds, ['price-table-apply', 'loc-bar', 'price-strip'], 'mục ?loc= đứng ngay sau Điền giá theo bảng');
+  assert.equal(bar.tops, 1, 'mọi việc trên một hàng');
+  assert.ok(bar.height <= 56, `thanh việc cao một thanh: ${bar.height}`);
+  assert.equal(bar.locOutside, 0, 'không còn dải ?loc= riêng trên thẻ tháng');
+  assert.deepEqual(bar.between, [], 'giữa thanh việc và sổ không còn dải nào');
+  assert.deepEqual(bar.filled, ['entry-open'], 'SK-N3: chỉ "+ Ghi phiếu thu" nền đậm');
+  assert.equal(bar.apply, 'rgb(255, 255, 255)');
+  assert.match(await page.locator('.book-tasks .price-strip').innerText(), /Giá Sheet chưa ghi được:\s*24/);
+  assert.match(await page.locator('.loc-bar').innerText(), /2 chuyến thiếu đơn giá/);
+  assert.equal(await page.locator('.loc-clear').getAttribute('aria-label'), 'Bỏ đánh dấu');
+  // Cuộn tới đầu bảng chuyến (tiêu đề cột dính dưới chip tháng): thấy đủ ít nhất 5 dòng chuyến.
+  const rows = await page.evaluate(async () => {
+    const head = document.querySelector('.ledger-head');
+    const stuck = parseFloat(getComputedStyle(head).top) + head.getBoundingClientRect().height;
+    window.scrollTo({ top: scrollY + document.querySelector('.trip-list tr[data-row]').getBoundingClientRect().top - stuck, behavior: 'instant' });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const top = document.querySelector('.ledger-head').getBoundingClientRect().bottom;
+    return [...document.querySelectorAll('.trip-list tr[data-row]')].filter(row => {
+      const box = row.getBoundingClientRect();
+      return box.top >= top - 1 && box.bottom <= innerHeight;
+    }).length;
+  });
+  assert.ok(rows >= 5, `thấy ${rows} dòng chuyến`);
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await shot('sk-n2-thanh-viec-1280x560');
+  await page.locator('.loc-clear').click();
+  assert.equal(await page.locator('.loc-bar').count(), 0);
+  await settled(page);
+  assert.deepEqual(world.requests, [], 'xem không ghi tiền');
+}, workWorld));
+
+test('SK-N4: nút "+ Ghi phiếu thu" cùng một chỗ ở mọi tháng, kể cả tháng có tham chiếu dài', async () => withPage(async ({ page }) => {
+  for (const width of [1265, 1895]) {
+    await page.setViewportSize({ width, height: 560 });
+    await reload(page);
+    const rights = [];
+    for (const key of ['2026-11', '2026-10', '2026-07', '2026-11']) {
+      await viewMonth(page, key);
+      rights.push(await page.locator('.pay-head .entry-open').evaluate(node => node.getBoundingClientRect().right));
+    }
+    assert.equal(new Set(rights).size, 1, `${width}px: ${rights}`);
+  }
+}, workWorld));

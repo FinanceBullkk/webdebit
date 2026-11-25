@@ -175,3 +175,44 @@ class WithWebTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def missing(cont, day, book=7, code="THANG_CUOI"):
+    return {"code": code, "container": cont, "source": {"kind": "BIEN", "date": day, "ref": "BK1", "owner": "CHU GIA"},
+            "suggest": {"tab": "SO GIA", "customer_id": book}}
+
+
+BOOK_LEDGER = {"customer_id": 7,
+               "trips": [{"container": "HAVU1000001", "event_date": "2026-11-05", "month": "2026-11-01"},
+                         {"container": "REJU1000003", "event_date": "2026-11-09", "month": "2026-11-01", "status": "rejected"},
+                         {"container": "DELU1000004", "event_date": "2026-11-10", "month": "2026-11-01", "deleted": True}],
+               "legacy_rows": [{"kind": "trip", "month": "2026-10-01", "current": {"container": "OLDU1000005", "event_date": None, "month": "2026-10-01"}}]}
+
+
+class BookMissingTests(unittest.TestCase):
+    """DONG-MO-BOOKING-01: chuyến booking sổ này chưa có thành dòng mờ; bỏ chuyến sổ nay đã có, không đoán khi file hỏng."""
+
+    def result(self, *rows, checked="2026-11-25T15:05:00+07:00"):
+        return view.book_missing(BOOK_LEDGER, {"checked_at": checked, "rows": list(rows)})
+
+    def test_only_this_book_and_only_trips_still_missing(self):
+        body = self.result(
+            missing("NEWU1000002", "2026-11-18"),
+            missing("hav u 1000001", "2026-11-07"),                      # sổ đã có, lệch 2 ngày, viết khác
+            missing("REJU1000003", "2026-11-09"),                        # người đã loại: đã kết luận
+            missing("DELU1000004", "2026-11-10"),                        # dòng đã xóa không tính là có
+            missing("OLDU1000005", "2026-10-20", code="CHUA_TINH"),      # dòng sổ gốc không ngày cùng tháng
+            missing("OTHU1000006", "2026-11-11", book=8),                # sổ khác
+            {**missing("DUPU1000007", "2026-11-12"), "code": "TRUNG"},   # nhóm khác
+        )
+        self.assertEqual([item["container"] for item in body["items"]], ["DELU1000004", "NEWU1000002"])
+        self.assertEqual(body["items"][1], {"container": "NEWU1000002", "date": "2026-11-18", "kind": "BIEN", "ref": "BK1"})
+        self.assertEqual(body["checked_at"], "2026-11-25T15:05:00+07:00")
+
+    def test_no_or_broken_file_draws_nothing(self):
+        for data in (None, {}, {"checked_at": "x", "rows": []}, {"checked_at": "2026-11-25T15:05:00+07:00", "rows": None}):
+            self.assertEqual(view.book_missing(BOOK_LEDGER, data), {"unavailable": True, "items": []})
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(view.load_web(Path(folder) / "booking-web.json"))
+            (Path(folder) / "booking-web.json").write_text("[1]", encoding="utf-8")
+            self.assertIsNone(view.load_web(Path(folder) / "booking-web.json"))

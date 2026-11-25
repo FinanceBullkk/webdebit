@@ -10,7 +10,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
 import v7_api_sheet
-from v7_road_queue import NO_WAREHOUSE, NOTE, build_road_queue, project_road
+from v7_road_queue import (
+    NO_WAREHOUSE,
+    NOTE,
+    build_road_queue,
+    project_choices,
+    project_road,
+    source_fingerprint,
+)
 
 SHA = "a" * 64
 CUSTOMERS = [{"id": 7, "name": "DUONG BO KHACH A 324", "status": "active"},
@@ -74,6 +81,94 @@ class BuildRoadQueueTests(unittest.TestCase):
             ("TWOTAB00001", "2026-10-05", "AMBIGUOUS_TAB")])
 
 
+class RoadChoiceTests(unittest.TestCase):
+    """WEB-CHINH-01: chuyến bộ máy giữ lại mà biết sổ có thể nhận thì người chọn sổ trên web, như chuyến biển chưa rõ sổ."""
+
+    def queue(self):
+        return build_road_queue({"sha256": SHA, "rows": [road_row(3, "TWOTAB00001", "2026-10-05"), road_row(2, "NOTAB000001", "2026-10-05", owner="KHO MOI"),
+                                                         road_row(4, "DRAFT000001", "2026-10-05")]},
+                                {"rows": [tab_row("DUONG BO KHACH A 324", 1, "TWOTAB00001", "2026-10-05"), tab_row("KHACH B", 2, "TWOTAB00001", "2026-10-06"),
+                                          tab_row("KHACH C", 3, "DRAFT000001", "2026-10-05")]}, CUSTOMERS)
+
+    def test_only_trips_with_known_candidate_books_are_offered(self):
+        queue = self.queue()
+        self.assertEqual(queue["stats"], {"AMBIGUOUS_TAB": 1, "NO_TAB": 1, "NO_BOOK": 1})   # máy vẫn không tự đưa vào
+        self.assertEqual([(c["container"], c["candidate_ids"], c["choice_reason"]) for c in queue["choices"]],
+                         [("TWOTAB00001", [7, 8], "AMBIGUOUS_TAB")])   # không tab nào, hay tab của sổ chưa hoạt động: không có ứng viên
+
+    def test_shown_once_in_the_first_candidate_book_and_gone_once_any_book_has_the_trip(self):
+        queue = self.queue()
+        shown = project_choices(queue, ledger(customer_id=7), CUSTOMERS)
+        self.assertEqual([(r["container"], r["sync_state"], r["sync_reason"], r["customer_id"]) for r in shown],
+                         [("TWOTAB00001", "CONFLICT", "NEEDS_BOOK", 7)])
+        self.assertEqual([c["name"] for c in shown[0]["candidate_books"]], ["DUONG BO KHACH A 324", "KHACH B"])
+        self.assertEqual(shown[0]["source_fingerprint"], source_fingerprint(queue["choices"][0]))
+        self.assertIn("chọn sổ", shown[0]["message"])
+        self.assertEqual(project_choices(queue, ledger(customer_id=8), CUSTOMERS), [])
+        here = ledger(trips=[{"id": 5, "container": "TWOTAB00001", "event_date": "2026-10-06", "month": "2026-10-01"}], customer_id=7)
+        self.assertEqual(project_choices(queue, here, CUSTOMERS), [])                                 # đã vào sổ này
+        self.assertEqual(project_choices(queue, ledger(customer_id=7), CUSTOMERS, {"TWOTAB00001"}), [])   # đã vào sổ khác
+
+
+class AssignRoadTripTests(unittest.TestCase):
+    """`POST /api/v7/sheet/road/assign`: người chọn sổ cho chuyến bộ `NEEDS_BOOK`; dán bằng đúng đường của máy, dưới tên người bấm."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        folder = Path(self.dir.name)
+        self.road, self.prices = folder / "road.json", folder / "prices.json"
+        self.road.write_text(json.dumps({"sha256": SHA, "row_count": 1, "rows": [road_row(3, "TWOTAB00001", "2026-10-05")]}), encoding="utf-8")
+        tabs = [tab_row("DUONG BO KHACH A 324", 1, "TWOTAB00001", "2026-10-05"), tab_row("KHACH B", 2, "TWOTAB00001", "2026-10-06")]
+        self.prices.write_text(json.dumps({"sha256": "b" * 64, "row_count": 2, "rows": tabs}), encoding="utf-8")
+        self.writes, self.versions = [], {7: 4, 8: 9}
+        test = self
+
+        class Runner:
+            def run(self, function, payload, actor):
+                if function == "list_customers":
+                    return {"customers": CUSTOMERS}
+                if function in ("list_sheet_trip_refs", "list_legacy_trip_refs"):
+                    return {"items": []}
+                if function == "get_ledger":
+                    return {**ledger(customer_id=payload["customer_id"]), "version": test.versions[payload["customer_id"]], "events": []}
+                if function == "paste_trips":
+                    test.writes.append((payload, actor))
+                    return {"trip_ids": [41], "pending_review": []}
+                raise AssertionError(function)
+        self.runner = Runner()
+        for name, value in (("ROAD_SNAPSHOT_PATH", self.road), ("PRICE_SNAPSHOT_PATH", self.prices)):
+            patcher = patch.object(v7_api_sheet, name, str(value))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        v7_api_sheet._ROAD[:] = [None, None, None, None]
+
+    def assign(self, **change):
+        fingerprint = v7_api_sheet.road_projection(self.runner, {**ledger(customer_id=7), "version": 4}, "t")["items"][0]["source_fingerprint"]
+        body = {"customer_id": 7, "expected_version": 4, "idempotency_key": "k-1", "target_customer_id": 8, "target_version": 9,
+                "source_fingerprint": fingerprint, **change}
+        return v7_api_sheet.assign_road_trip(json.dumps(body).encode(), self.runner, "nguoi-nhap")
+
+    def test_the_chosen_book_gets_the_trip_without_price_under_the_person(self):
+        status, out = self.assign()
+        self.assertEqual((status, out["complete"], out["target_customer_id"]), (200, True, 8))
+        payload, actor = self.writes[0]
+        self.assertEqual((payload["customer_id"], payload["expected_version"], payload["debt_month"], actor), (8, 9, "2026-10-01", "nguoi-nhap"))
+        trip = payload["trips"][0]
+        self.assertEqual((trip["container"], trip["date"], trip["unitPriceVnd"], trip["note"], trip["src"]),
+                         ("TWOTAB00001", "05/10/2026", None, NOTE, f"sheet:{SHA}:3"))
+
+    def test_stale_or_foreign_choices_write_nothing(self):
+        for change, code in (({"target_customer_id": 9}, "STALE_SHEET"), ({"source_fingerprint": "f" * 64}, "STALE_SHEET"),
+                             ({"expected_version": 3}, "STALE_LEDGER"), ({"target_version": 8}, "STALE_LEDGER")):
+            with self.assertRaises(v7_api_sheet.ApiError) as raised:
+                self.assign(**change)
+            self.assertEqual(raised.exception.code, code)
+        with self.assertRaises(v7_api_sheet.ApiError):
+            v7_api_sheet.assign_road_trip(b'{"customer_id": 7}', self.runner, "t")
+        self.assertEqual(self.writes, [])
+
+
 class OwnerBookTests(unittest.TestCase):
     """CHUYEN-BO-CHU-HANG-01: chuyến chưa ở tab nào lấy sổ theo CHỦ HÀNG khi chủ hàng đó chỉ từng vào một sổ."""
 
@@ -123,6 +218,17 @@ class OwnerBookTests(unittest.TestCase):
                             tab_row("DUONG BO KHACH A 324", 52, "FARU0000003", "2026-06-02", "2026-06")])  # xa: chuyến khác
         self.assertEqual(queue["stats"], {"TAB_FAR": 2, "OWNER": 1})
         self.assertEqual([i["container"] for i in queue["items"]], ["FARU0000003"])
+
+    def test_tab_far_trip_offers_the_owner_book_and_the_book_of_the_far_tab_row(self):
+        """WEB-CHINH-01: tab Sheet đứng yên sau 1/12 thì chuyến chờ tab không bao giờ tự vào sổ; người chọn sổ trên web. Ứng viên là sổ
+        của chủ hàng và sổ của dòng tab lệch ngày. Máy vẫn không tự đưa vào (vẫn đếm TAB_FAR, không có trong `items`)."""
+        queue = self.build([road_row(2, "FARU0000001", "2026-10-11", owner="CHU HANG X 379"),
+                            road_row(3, "FARU0000002", "2026-10-11", owner="CHU HANG X 379")],
+                           [tab_row("DUONG BO KHACH A 324", 50, "FARU0000001", "2026-10-25"),
+                            tab_row("KHACH B", 51, "FARU0000002", None, month="2026-09")])
+        self.assertEqual((queue["items"], queue["stats"]), ([], {"TAB_FAR": 2}))
+        self.assertEqual([(c["container"], c["candidate_ids"], c["choice_reason"], c["customer_id"]) for c in queue["choices"]],
+                         [("FARU0000001", [7], "TAB_FAR", None), ("FARU0000002", [7, 8], "TAB_FAR", None)])
 
     def test_booking_name_set_on_the_web_places_an_owner_without_tab_history(self):
         """KHACH-WEB-01: chủ hàng quản lý đã gán tên booking cho sổ thì vào sổ đó dù chưa đủ chuyến tab đã xếp; tab có dòng lệch ngày
@@ -257,6 +363,26 @@ class RoadProjectionApiTests(unittest.TestCase):
         self.assertEqual((trip["src"], trip["note"], trip["from"], trip["to"], trip["date"], trip["unitPriceVnd"]),
                          (f"sheet:{SHA}:2", NOTE, NO_WAREHOUSE, "CHIMA", "02/10/2026", None))
         self.assertEqual((pasted[0]["debt_month"], result["pasted"]), ("2026-10-01", [{"source_row": 2, "trip_id": 41}]))
+
+
+class RoadWithoutPriceSnapshotTests(unittest.TestCase):
+    """WEB-CHINH-01, tắt máy 1/12/2026: thôi đọc Sheet sổ nợ thì có thể không còn bản chụp giá. Chuyến bộ khi đó chỉ theo tên booking gán
+    trên web (KHACH-WEB-01), không ném lỗi; bản chụp có mà hỏng thì vẫn ném. Cùng dữ liệu với `RoadProjectionApiTests`."""
+
+    setUp = RoadProjectionApiTests.setUp
+    tearDown = RoadProjectionApiTests.tearDown
+
+    def test_missing_price_snapshot_is_not_an_error(self):
+        with patch.object(v7_api_sheet, "ROAD_SNAPSHOT_PATH", str(self.road)), \
+                patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(Path(self.dir.name) / "none.json")):
+            result = v7_api_sheet.road_projection(self.runner, ledger(), "t")
+        self.assertEqual(result["items"], [])   # không tab, không tên gán: chưa rõ sổ, chờ người
+
+    def test_broken_price_snapshot_still_raises(self):
+        self.prices.write_text("{", encoding="utf-8")
+        with patch.object(v7_api_sheet, "ROAD_SNAPSHOT_PATH", str(self.road)), \
+                patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(self.prices)), self.assertRaises(ValueError):
+            v7_api_sheet.road_projection(self.runner, ledger(), "t")
 
 
 if __name__ == "__main__":

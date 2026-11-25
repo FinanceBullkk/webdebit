@@ -51,8 +51,8 @@
       + `<td class="pay pay-allocation">${allocationInline(receipt, key)}</td>` + amountCell;
   }
   // Khoản thu Sheet (dòng sổ gốc): ngày, ghi chú, số tiền. Ô ngày trên Sheet hay gõ lẫn chữ ("16/9/2026 tt", "đã tt"): ngày vào cột ngày,
-  // chữ vào cột ghi chú; không đọc được ngày thì cột ngày ghi "–". Hình thức thu không suy từ ghi chú (V7-MIG còn mở);
-  // ghi chú chỉ hiện khi không lặp lại ô ngày. XOA-THU-GOC-01: tháng mở thì bấm số tiền để xóa hẳn.
+  // chữ vào cột ghi chú; không đọc được ngày thì cột ngày ghi "không ghi ngày". Hình thức thu không suy từ ghi chú (V7-MIG còn mở): cột
+  // hình thức ghi "Sổ gốc"; ghi chú chỉ hiện khi không lặp lại ô ngày. XOA-THU-GOC-01: tháng mở thì bấm số tiền để xóa hẳn.
   function legacyPayRow(receipt, locked) {
     const r = receipt.d;
     const read = sheetDate(r.raw_date);
@@ -64,7 +64,11 @@
         + `aria-label="Xóa hẳn khoản thu sổ gốc ${escape(fmt(receipt.source_total_vnd))}" title="Bấm để xóa hẳn khoản thu này">`
         + `${fmt(receipt.source_total_vnd)}</td>`
       : num(fmt(receipt.source_total_vnd), 'pay');
-    return `<tr class="pay-row legacy-pay">${cell(day || '–', 'pay pay-start')}${cell('–', 'pay')}${cell(noteText, 'pay pay-reference')}${cell('', 'pay pay-allocation')}${payAmount}</tr>`;
+    // SK-N9 (audit 25/11/2026): ô trống ghi rõ thay hai dấu "–" không tên — bảng phiếu không có hàng tiêu đề.
+    const dayCell = day ? cell(day, 'pay pay-start')
+      : '<td class="pay pay-start pay-unset" title="Sổ gốc không ghi ngày thu">không ghi ngày</td>';
+    const methodCell = '<td class="pay pay-unset" title="Khoản thu chép từ sổ gốc; sổ gốc không ghi hình thức thu">Sổ gốc</td>';
+    return `<tr class="pay-row legacy-pay">${dayCell}${methodCell}${cell(noteText, 'pay pay-reference')}${cell('', 'pay pay-allocation')}${payAmount}</tr>`;
   }
   // Audit P0 29/10/2026: phiếu đã hủy không chiếm chỗ phiếu thật — gom một dòng mờ, bấm Xem mới hiện từng phiếu.
   function voidRows(key, voided) {

@@ -10,6 +10,7 @@ from pg_v7_harness import (
     DIEU_CHINH_THEO_GIA_MIGRATION,
     ROOT,
     SO_GON_MIGRATION,
+    THANG_HIEN_TAI_MIGRATION,
     Pg,
     PsqlSession,
     call,
@@ -55,6 +56,7 @@ def _check_catalog(pg: Pg) -> None:
     pg.sql(migration)
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
+    pg.sql(THANG_HIEN_TAI_MIGRATION.read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     require(pg.value(CATALOG) == fresh, "audit SQL migration rerun changed function catalog")
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     live = json.loads(pg.value("SELECT sokhach._catalog_manifest()"))

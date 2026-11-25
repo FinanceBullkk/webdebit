@@ -78,7 +78,8 @@ function ledger(world) {
       counted_differs: row.current?.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
-    ...(world.psFees ? { ps_fees: world.psFees } : {}), ...(world.details ? { sheet_details: world.details } : {}) };
+    ...(world.psFees ? { ps_fees: world.psFees } : {}), ...(world.details ? { sheet_details: world.details } : {}),
+    ...(world.bookingMissing ? { booking_missing: world.bookingMissing } : {}), ...(world.sheetRoad ? { sheet_road: world.sheetRoad } : {}) };
 }
 
 // Lệnh phụ phí giả: một đích (chuyến web / dòng sổ gốc); tháng khóa và dòng sổ gốc chưa có đơn giá bị chặn như server.
@@ -127,6 +128,21 @@ function applyFee(world, url, body) {
     after: { targets: infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines })), batch_count: infos.length } });
   world.version += 1;
   return [200, { ok: true, version: world.version }];   // như _change_trip_fees → _finish_command
+}
+
+// Phiếu ghi vào sổ khác (PHIEU-WEB-01 mục 2): giữ khóa chống trùng như _begin_command (cùng khóa trả kết quả cũ), sai phiên bản
+// thì STALE_LEDGER; book.failNext / book.dropNext (mất mạng: máy chủ đã lưu mà trang không nhận được) do test đặt.
+function applyBook(book, body) {
+  book.keys ??= new Map();
+  if (book.keys.has(body.idempotency_key)) return [200, book.keys.get(body.idempotency_key)];
+  if (book.failNext) { const fail = book.failNext; book.failNext = null; return [422, fail]; }
+  if (body.expected_version !== book.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi.' }];
+  (book.receipts ??= []).push(body);
+  book.version += 1;
+  const result = { pid: `PH-B${book.receipts.length}`, version: book.version };
+  book.keys.set(body.idempotency_key, result);
+  if (book.dropNext) { book.dropNext = false; return [503, { error: 'RESULT_UNKNOWN', message: 'Chưa rõ kết quả.' }]; }
+  return [200, result];
 }
 
 function apply(world, url, body) {
@@ -357,6 +373,10 @@ function apply(world, url, body) {
     if (!row) return [422, { error: 'ADJUSTMENT_NOT_FOUND', message: 'Không tìm thấy dòng điều chỉnh cả tháng, có thể đã xóa. Tải lại sổ.' }];
     world.adjustments = world.adjustments.filter(item => item !== row);
     event('adjust_month_delete', { adjustment: { ...row } }, { adjustment: { id: row.id, month: row.month, amount_vnd: '0', deleted: true } });
+  } else if (url === '/api/v7/sheet/road/assign') {
+    // WEB-CHINH-01: chuyến bộ chờ chọn sổ vào sổ khác; sổ đang mở không đổi tiền, dòng chờ thôi hiện.
+    world.sheetRoad = { ...world.sheetRoad, items: world.sheetRoad.items.filter(item => item.source_fingerprint !== body.source_fingerprint) };
+    return [200, { approved: 1, remaining: 0, complete: true, review_count: 0, pending_review: [], pasted: [], target_customer_id: body.target_customer_id }];
   } else if (url === '/api/v7/trips/paste') {
     for (const trip of body.trips) {
       const [d, m, y] = trip.date.split('/');
@@ -388,6 +408,14 @@ async function withPage(fn, setup = () => {}) {
       });
       return;
     }
+    // PHIEU-WEB-01 mục 2: sổ khác do test đặt (world.books, khóa là mã sổ: { version, total }) cho một lần chuyển chia nhiều sổ;
+    // Bảng thu giả (world.receiptBook) để cảnh báo tham chiếu đã dùng ở sổ khác.
+    const otherBook = world.books?.[url.searchParams.get('customer')];
+    if (url.pathname === '/api/v7/ledger' && otherBook) {
+      send(200, { customer_id: Number(url.searchParams.get('customer')), version: otherBook.version, status: otherBook.status ?? 'active', total_outstanding_vnd: otherBook.total });
+      return;
+    }
+    if (url.pathname === '/api/v7/receipt-book') { (world.bookReads ??= []).push(url.search); send(200, world.receiptBook ?? { days: [], undated: [] }); return; }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
     // MO-SO-NHANH-02: Lịch sử đọc riêng như server thật. world.eventsFail: lỗi một lần để thử nút Thử lại.
     if (url.pathname === '/api/v7/ledger/events') {
@@ -465,7 +493,8 @@ async function withPage(fn, setup = () => {}) {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         // NHAP-NHANH-01: WEBDEBIT_TEST_WRITE_DELAY_MS=<ms> làm mọi lệnh ghi tới máy chủ giả chậm như runner CI chậm, để lộ
         // test còn đọc world.requests trước khi hàng đợi ghi nền gửi hết (chạy: set biến rồi npm run test:browser).
-        const run = () => { world.requests.push({ path: url.pathname, body }); send(...apply(world, url.pathname, body)); };
+        const book = url.pathname === '/api/v7/receipts' ? world.books?.[body.customer_id] : null;
+        const run = () => { world.requests.push({ path: url.pathname, body }); send(...(book ? applyBook(book, body) : apply(world, url.pathname, body))); };
         if (WRITE_DELAY) setTimeout(run, WRITE_DELAY); else run();
       });
       return;
@@ -485,9 +514,6 @@ async function withPage(fn, setup = () => {}) {
     // (?month=) để test không đổi theo ngày chạy; world.month = null để thử đúng mặc định.
     const month = world.month === undefined ? '&month=2026-09' : world.month ? `&month=${world.month}` : '';
     if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
-    // SO-GON-07: cột phụ phí riêng trống cả tháng mặc định ẩn. Test gõ phí vào ô cột riêng chạy như người đã bấm "Hiện cột phí
-    // trống"; world.feeHideEmpty = true để thử đúng mặc định.
-    if (!world.feeHideEmpty) await page.addInitScript(() => { try { localStorage.setItem('so-khach.cot-phi-trong', 'hien'); } catch { /* about:blank */ } });
     await world.beforeOpen?.(page);   // cho test chặn phản hồi trước khi trang mở (dữ liệu về muộn)
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
     await page.waitForSelector('.book-head');

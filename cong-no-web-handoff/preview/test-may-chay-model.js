@@ -180,6 +180,8 @@ test('trực tiếp: dòng nghỉ nêu lượt kế, lượt trước, job đang
   const jobs = [{ id: 'sheet', name: 'Bản chụp Sheet', state: 'running' }, { id: 'reconcile', name: 'Đối soát', state: 'running' }, { id: 'ps', name: 'Phí PS', state: 'failed' }];
   assert.equal(M.idleLine({ run: null, next: '2026-11-07T07:05:00+07:00', now, jobs }), 'Đối soát đang nghỉ, lượt kế 07:05 ngày mai. Bản chụp Sheet đang chạy. Cần xem: Phí PS.');
   assert.equal(M.idleLine({ run: null, next: null, now, jobs: [] }), 'Đối soát đang nghỉ, chưa thấy lịch lượt kế.');
+  // WEB-CHINH-01: thôi dùng Sheet sổ nợ thì lượt mỗi giờ là so booking, số khớp Sheet của lượt cũ không nhắc nữa.
+  assert.equal(M.idleLine({ run, next: '2026-11-06T10:05:00+07:00', now, jobs: [], sheetOff: true }), 'So sổ với booking đang nghỉ, lượt kế 10:05.');
 });
 
 test('trực tiếp: "hôm nay" chỉ tính việc đã ghi trong ngày, lượt cũ chỉ còn số đếm thì đếm riêng', () => {

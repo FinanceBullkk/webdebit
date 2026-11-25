@@ -145,3 +145,31 @@ test('?loc=thieu-gia: mở tháng cũ có chuyến thiếu giá; chip có chấm
   world.query = '&loc=thieu-gia';
   Object.assign(world.trips.find(trip => trip.month === `${MONTHS[1]}-01`), { unit_price_vnd: null, amount_vnd: null, is_missing_price: true });
 }));
+
+// SK-C1 + SK-N8: sổ có chuyến ở hai tháng liền cách đây 16 và 15 tháng, tháng hiện tại chưa có gì. Chip có năm ở chip đầu và khi
+// năm khác chip đứng trước, khoảng trống 14 tháng có dấu "… 14 tháng"; bấm chip tháng hiện tại thì Nợ đầu tháng và Còn nợ cuối
+// tháng là số của GET (dòng tháng hiện tại có phát sinh 0), không phải "–".
+test('SK-C1 + SK-N8: chip năm theo chip trước, dấu "… 14 tháng", tháng hiện tại có Nợ đầu tháng từ GET', async () => withPage(async ({ page, shot }) => {
+  const now = todayMonth.slice(0, 7);
+  const [first, second] = [shift(now, 16), shift(now, 15)];
+  const tag = (key, prev) => `T${Number(key.slice(5, 7))}${prev && prev.slice(0, 4) === key.slice(0, 4) ? '' : `/${key.slice(0, 4)}`}`;
+  const names = await page.locator('.month-chips').evaluate(nav => [...nav.querySelectorAll('.chip-name,.month-gap')].map(node => node.textContent));
+  assert.deepEqual(names, [tag(first), `Tháng ${Number(second.slice(5, 7))}/${second.slice(0, 4)}`, '… 14 tháng', tag(now, second)]);
+  await shot('sk-n8-chip-tháng');
+  await page.locator(`.month-chip[data-month="${now}"]`).click();
+  const bar = (await page.locator(`#thang-${now} .month-stats`).innerText()).replace(/\s+/g, ' ');
+  assert.match(bar, /^Nợ đầu tháng 2\.000\.000 \+ Phát sinh 0 − Khách trả 0 = Còn nợ cuối tháng 2\.000\.000 đ$/);
+  // SK-N11: tháng hiện tại mở; tháng cũ khóa thì nút điều chỉnh tắt có chữ lý do.
+  assert.equal(await page.locator(`#thang-${now} .month-lock`).getAttribute('title'), `Đang mở · bấm để khóa tháng ${Number(now.slice(5, 7))}/${now.slice(0, 4)}`);
+  await shot('sk-c1-thang-hien-tai');
+  await page.locator(`.month-chip[data-month="${second}"]`).click();
+  assert.equal(await page.locator(`#thang-${second} .add-month-adjustment`).getAttribute('title'), 'Tháng đang khóa, mở khóa trước');
+}, world => {
+  world.month = null;
+  world.locks = [];
+  world.legacy = [];
+  world.trips = [shift(todayMonth.slice(0, 7), 16), shift(todayMonth.slice(0, 7), 15)].map((key, index) => ({
+    id: 2000 + index, month: `${key}-01`, container: `GAPU000000${index}`, carrier: 'Tàu thử', event_date: `${key}-05`, origin: 'Nơi A',
+    destination: 'Nơi B', unit_price_vnd: '1000000', other_fee_vnd: null, amount_vnd: '1000000', status: 'confirmed',
+    is_missing_price: false, is_fee_only: false, editable: false, info_editable: false, deleted: false }));
+}));

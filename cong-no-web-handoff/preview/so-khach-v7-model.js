@@ -36,6 +36,34 @@ const SoKhachV7Model = (() => {
       : `${shown} đ là trên 1 tỷ đ một chuyến: có thể gõ thừa số 0.`;
   }
 
+  // Phiếu thu hợp lý từ 100.000 đ tới 1 tỷ đ (review #676 lần 2: khoản trả lẻ dưới 1 triệu là thật). Ngoài khoảng đó thường là
+  // nhầm đơn vị ("50" thay vì 50 triệu) hay thừa số 0. Dùng chung cho khung một phiếu và dán nhiều phiếu; chỉ hỏi, máy chủ không chặn.
+  const RECEIPT_LOW = 100000n;
+  function receiptDoubt(value) {
+    const amount = typeof value === "bigint" ? value : vnd(String(value));
+    if (amount < RECEIPT_LOW) return "small";
+    return amount > PRICE_HIGH ? "large" : null;
+  }
+  function receiptDoubtText(value) {
+    const kind = receiptDoubt(value);
+    if (!kind) return "";
+    const shown = formatVnd(typeof value === "bigint" ? value : vnd(String(value)));
+    return kind === "small"
+      ? `${shown} đ là dưới 100.000 đ: có thể gõ thiếu đơn vị (số tiền tính bằng đồng, 45 triệu gõ 45.000.000).`
+      : `${shown} đ là trên 1 tỷ đ một phiếu: có thể gõ thừa số 0.`;
+  }
+
+  // Phụ phí một loại của một chuyến hợp lý từ 10.000 đ tới 100 triệu đ (trị tuyệt đối). Ngoài khoảng đó thường là nhầm đơn vị
+  // ("1,5" triệu gõ "15", hay thừa số 0). Như priceDoubt: chỉ hỏi (dán lô ghi cờ ở dòng xem lại), máy chủ không chặn.
+  const FEE_LOW = 10000n;
+  const FEE_HIGH = 100000000n;
+  function feeDoubt(value) {
+    const amount = typeof value === "bigint" ? value : BigInt(String(value));
+    const size = amount < 0n ? -amount : amount;
+    if (size < FEE_LOW) return "small";
+    return size > FEE_HIGH ? "large" : null;
+  }
+
   function formatVnd(amount) {
     if (typeof amount !== "bigint") throw new Error("Invalid VND amount");
     const digits = (amount < 0n ? -amount : amount).toString();
@@ -209,6 +237,17 @@ const SoKhachV7Model = (() => {
       try { return parseVnd(value).toString(); } catch { throw new Error("Số tiền không hợp lệ."); }
     }
     return field === "container" ? value.replace(/\s+/g, "").toUpperCase() : value;
+  }
+
+  // SK-N10: ô Số tiền của khung Ghi phiếu thu. Câu lỗi nói dạng đúng; số đã hiểu hiện có nhóm nghìn khi gõ và khi rời ô.
+  // Cùng luật đọc với parseVnd (readVnd), không đoán thêm; chỉ trình bày, số ghi đi vẫn do moneyText của trang quyết.
+  const MONEY_INPUT_HELP = "Số tiền không hợp lệ. Chỉ gõ chữ số, có hoặc không có dấu chấm ngăn nghìn (45.000.000); không gõ chữ như tr, k, không gõ số lẻ.";
+  /** Số đã hiểu có nhóm nghìn ("1234567" → "1.234.567"); null khi chưa đọc được, bằng 0 hay vượt giới hạn bigint của sổ. */
+  function readMoneyInput(text) {
+    try {
+      const amount = parseVnd(String(text ?? ""));
+      return amount > 0n && amount <= 9223372036854775807n ? formatVnd(amount) : null;
+    } catch { return null; }
   }
 
   // Total of server adjustment rows (digit strings, signed) shown as one line per month; null when none.
@@ -588,6 +627,90 @@ const SoKhachV7Model = (() => {
     const beforeVnd = vnd(totalOutstandingVnd, true);
     const afterVnd = beforeVnd - vnd(amountVnd);
     return { beforeVnd, afterVnd, creditVnd: afterVnd < 0n ? -afterVnd : 0n };
+  }
+
+  /** Một lần chuyển chia cho nhiều sổ (PHIEU-WEB-01 mục 2). `totalText` là tổng tiền chuyển gõ vào; `parts` là
+   *  [{ customerId, amountText }]. Luôn trả tổng đã chia và phần còn lệch (để hiện khi gõ); ok chỉ khi mọi phần đọc được, lớn
+   *  hơn 0, không sổ nào hai lần, ít nhất hai sổ và tổng các phần đúng bằng tổng chuyển. Lỗi trả code, message và index của phần. */
+  function planReceiptSplit(totalText, parts) {
+    const read = text => { try { const amount = parseVnd(String(text ?? "")); return amount > 0n ? amount : null; } catch { return null; } };
+    const totalVnd = String(totalText ?? "").trim() ? read(totalText) : null;
+    const amounts = (parts ?? []).map(part => String(part.amountText ?? "").trim() ? read(part.amountText) : null);
+    const sumVnd = amounts.reduce((sum, amount) => sum + (amount ?? 0n), 0n);
+    const base = { totalVnd, sumVnd, restVnd: totalVnd === null ? null : totalVnd - sumVnd };
+    const fail = (code, message, index = null) => ({ ...base, ok: false, code, message, index });
+    if (!String(totalText ?? "").trim()) return fail("TOTAL_REQUIRED", "Nhập tổng tiền khách chuyển.");
+    if (totalVnd === null) return fail("TOTAL_INVALID", MONEY_INPUT_HELP);
+    if ((parts ?? []).length < 2) return fail("TOO_FEW", "Chọn ít nhất hai sổ. Một sổ thì ghi phiếu thường.");
+    const seen = new Set();
+    for (const [index, part] of parts.entries()) {
+      if (seen.has(String(part.customerId))) return fail("DUPLICATE_BOOK", "Sổ này đã có ở dòng trên.", index);
+      seen.add(String(part.customerId));
+      if (!String(part.amountText ?? "").trim()) return fail("PART_REQUIRED", "Nhập số tiền cho sổ này.", index);
+      if (amounts[index] === null) return fail("PART_INVALID", MONEY_INPUT_HELP, index);
+    }
+    if (sumVnd !== totalVnd) {
+      const gap = totalVnd - sumVnd;
+      return fail("SUM_MISMATCH", `Tổng các phần ${formatVnd(sumVnd)} đ khác tổng chuyển ${formatVnd(totalVnd)} đ: ${gap > 0n ? "còn thiếu" : "thừa"} ${formatVnd(gap > 0n ? gap : -gap)} đ.`);
+    }
+    return { ...base, ok: true, parts: parts.map((part, index) => ({ customerId: part.customerId, amountVnd: amounts[index] })) };
+  }
+
+  /** Dán nhiều phiếu thu vào một sổ (PHIEU-WEB-01 mục 3), cùng cách đọc bảng dán Tab của cột giá: mỗi dòng một phiếu. Cột cố
+   *  định theo Tab, ô trống giữ chỗ: 1 ngày trả (d/m/yyyy), 2 số tiền, 3 hình thức (trống là THU TIỀN; THU TIỀN, ỨNG TRƯỚC, KHÁC),
+   *  4 trở đi tham chiếu (nối bằng " · "). Dòng đầu không có chữ số ở ô ngày là dòng tiêu đề. CẤN TRỪ không dán được.
+   *  `receipts`: phiếu đang có trong sổ (bản GET), để đánh dấu dòng có thể đã ghi (cùng số tiền, ngày cách ≤ 3 ngày, như hàng chờ
+   *  phiếu Sheet); `isLocked(yyyy-mm)`: tháng đang khóa (phiếu vẫn ghi được, chỉ nhắc).
+   *  Trả { rows: [{ line, date, method, amountVnd, reference, doubt, doubtText, maybeSwapped, locked, duplicate }], errors, warnings }.
+   *  `doubt` theo luật hỏi lại của phiếu thu (receiptDoubt, như khung một phiếu): dưới 100.000 đ hay trên 1 tỷ đ thì người xác nhận.
+   *  `duplicate`: { pid, date } khi sổ đã có phiếu giống, { line, date } khi một dòng trước trong cùng bảng giống (cùng số tiền,
+   *  ngày cách ≤ 3 ngày, cùng tham chiếu). */
+  const PASTE_METHODS = ["THU TIỀN", "ỨNG TRƯỚC", "KHÁC"];
+  const PASTE_DUPLICATE_DAYS = 3;
+  function parseReceiptPaste(text, todayIso, { receipts = [], isLocked = null } = {}) {
+    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    const rows = [], errors = [], warnings = [];
+    let monthFirst = null;   // dòng ghi ngày kiểu tháng/ngày (phần sau > 12): dấu hiệu cả bảng có thể đảo
+    for (const [index, raw] of lines.entries()) {
+      const line = index + 1;
+      const cells = raw.split("\t").map(cell => cell.trim());
+      if (!cells.some(Boolean)) continue;
+      const parts = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(cells[0]);
+      let date;
+      try { date = parseCellEdit("event_date", cells[0], null); } catch {
+        if (!rows.length && !errors.length && !/\d/.test(cells[0])) continue;   // dòng tiêu đề
+        if (parts && Number(parts[1]) <= 12 && Number(parts[2]) > 12) monthFirst ??= line;
+        errors.push(`Dòng ${line}: ngày “${cells[0]}” phải dạng dd/mm/yyyy.`);
+        continue;
+      }
+      if (todayIso && date > todayIso) { errors.push(`Dòng ${line}: ngày ${cells[0]} sau hôm nay.`); continue; }
+      let amount;
+      try { amount = parseVnd(String(cells[1] ?? "").replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { amount = null; }
+      if (amount === null || amount <= 0n || amount > 9223372036854775807n) { errors.push(`Dòng ${line}: “${cells[1] ?? ""}” không đọc được thành số tiền.`); continue; }
+      const kind = cells[2] ?? "";
+      const method = kind ? PASTE_METHODS.find(name => name.localeCompare(kind, "vi", { sensitivity: "base" }) === 0) : "THU TIỀN";
+      if (!method && kind.localeCompare("CẤN TRỪ", "vi", { sensitivity: "base" }) === 0) { errors.push(`Dòng ${line}: cấn trừ phải ghi từng phiếu (chọn sổ lấy tiền).`); continue; }
+      if (!method) { errors.push(`Dòng ${line}: hình thức “${kind}” không hiểu. Cột 3 để trống (THU TIỀN) hoặc ghi THU TIỀN, ỨNG TRƯỚC, KHÁC.`); continue; }
+      const reference = cells.slice(3).filter(Boolean).join(" · ").slice(0, 500) || null;
+      const day = Number(parts?.[1] ?? 0), month = Number(parts?.[2] ?? 0);
+      const close = other => Math.abs(Date.parse(`${other}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) <= PASTE_DUPLICATE_DAYS * 86400000;
+      const near = (receipts ?? []).find(item => item.voided == null && item.voided_by_event == null && String(item.amount_vnd) === amount.toString() && close(item.date));
+      const twin = rows.find(row => row.amountVnd === amount && row.reference === reference && close(row.date));
+      rows.push({ line, date, method, amountVnd: amount, reference, doubt: receiptDoubt(amount), doubtText: receiptDoubtText(amount),
+        maybeSwapped: day <= 12 && month <= 12 && day !== month, locked: Boolean(isLocked?.(date.slice(0, 7))),
+        duplicate: near ? { pid: near.pid ?? null, date: near.date } : twin ? { line: twin.line, date: twin.date } : null });
+    }
+    if (!rows.length && !errors.length) errors.push("Chưa có dòng nào. Chép các cột ngày, số tiền (và hình thức, tham chiếu nếu có) rồi dán.");
+    const swapped = rows.filter(row => row.maybeSwapped);
+    if (monthFirst && swapped.length) {
+      warnings.push(`Dòng ${monthFirst} ghi ngày kiểu tháng/ngày: bảng có thể đang ghi tháng trước ngày. Kiểm ngày của dòng ${swapped.map(row => row.line).join(", ")} (cả ngày và tháng đều ≤ 12, máy đọc là ngày/tháng).`);
+    }
+    const months = [...new Set(rows.map(row => row.date.slice(0, 7)))].sort();
+    if (months.length > 1) warnings.push(`Các phiếu nằm ở ${months.length} tháng: ${months.map(key => `${Number(key.slice(5))}/${key.slice(0, 4)}`).join(", ")}. Kiểm lại nếu đây là một lần chép.`);
+    const locked = rows.filter(row => row.locked);
+    if (locked.length) warnings.push(`Dòng ${locked.map(row => row.line).join(", ")} nằm ở tháng đang khóa; phiếu vẫn ghi được.`);
+    return { rows, errors, warnings };
   }
 
   function offsetErrorMessage(code, detail) {
@@ -1003,7 +1126,8 @@ const SoKhachV7Model = (() => {
   // Một cột: mỗi dòng một giá, theo thứ tự. Hai cột có số container: ghép theo container (cột nào trước cũng được).
   // Dòng trống là bỏ qua (null), không phải 0; dòng cuối trống do Sheet thêm thì bỏ. Ô không đọc được thành số tiền > 0 thì lỗi kèm số dòng.
   const PASTE_CONTAINER = /^[A-Z]{4}\d{7}$/;
-  function parsePricePaste(text) {
+  // `read(raw)`: chữ một ô → chuỗi VND; null khi không đọc được; ném Error khi có câu riêng cho ô đó (ví dụ sai dấu phụ phí).
+  function parsePaste(text, read) {
     const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
     const rows = lines.map((line, index) => {
@@ -1023,11 +1147,28 @@ const SoKhachV7Model = (() => {
       const raw = others[0] ?? "";
       if (!raw) { out.push({ line: row.line, container, priceVnd: null }); continue; }
       let value;
-      try { value = parseVnd(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { value = null; }
-      if (value === null || value <= 0n || value > 9223372036854775807n) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
-      out.push({ line: row.line, container, priceVnd: value.toString() });
+      try { value = read(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); }
+      catch (problem) { errors.push(`Dòng ${row.line}: “${raw}”: ${problem.message}.`); continue; }
+      if (value === null) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
+      out.push({ line: row.line, container, priceVnd: value });
     }
     return { mode, rows: out, errors };
+  }
+  function parsePricePaste(text) {
+    return parsePaste(text, raw => {
+      let value;
+      try { value = parseVnd(raw); } catch { return null; }
+      return value <= 0n || value > 9223372036854775807n ? null : value.toString();
+    });
+  }
+  // Dán cột phụ phí riêng (PHU-PHI-01): như dán giá, đọc theo dấu của loại phí (Giảm trừ số âm). Ô 0 hay sai dấu là lỗi kèm số dòng.
+  function parseFeePaste(text, sign) {
+    return parsePaste(text, raw => {
+      let value;
+      try { value = parseFeeInput(raw, sign); }
+      catch (problem) { if (/nhập số (âm|dương)/.test(problem.message)) throw problem; return null; }   // sai dấu: nói đúng lỗi
+      return value < -9223372036854775807n || value > 9223372036854775807n ? null : value.toString();
+    });
   }
 
   // Kế hoạch ghi từ chữ đã đọc. `order`: khóa dòng của bảng tháng từ dòng đang đứng trở xuống ("trip-11", "legacy-21").
@@ -1083,6 +1224,65 @@ const SoKhachV7Model = (() => {
     return { items, writes: finalWrites, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
   }
 
+  // Kế hoạch dán cột phụ phí riêng `typeId`: cùng cách chọn dòng và cùng luật bỏ qua như dán giá (chỉ chuyến web đã duyệt, có container,
+  // tháng mở). Mỗi chuyến một lệnh "đặt loại = số" (feeSet): mọi khoản cùng loại thay bằng số dán. Chuyến chưa có đơn giá chưa tính nợ
+  // nên nợ không đổi; chuyến có giá thì nợ đổi đúng phần chênh của loại đó.
+  function planFeePaste(parsed, snapshot, order = [], typeId) {
+    const trips = (snapshot?.trips ?? []).filter(trip => !trip.deleted);
+    const legacy = (snapshot?.legacy_rows ?? []).filter(row => row.kind !== "receipt");
+    const box = value => String(value ?? "").replace(/\s+/g, "").toUpperCase();
+    const items = parsed.rows.map((pasted, index) => {
+      const base = { line: pasted.line, amountVnd: pasted.priceVnd, container: pasted.container };
+      if (pasted.priceVnd === null) return { ...base, status: "empty" };
+      let kind, row;
+      if (parsed.mode === "container") {
+        const hits = [...trips.filter(trip => box(trip.container) === pasted.container).map(item => ["trip", item]),
+          ...legacy.filter(item => box(item.current?.container ?? item.display?.container) === pasted.container).map(item => ["legacy", item])];
+        if (hits.length !== 1) return { ...base, status: "skip", reason: hits.length ? "container có nhiều dòng trong sổ" : "không có trong sổ" };
+        [kind, row] = hits[0];
+      } else {
+        if (index >= order.length) return { ...base, status: "skip", reason: "thừa, hết chuyến trong bảng tháng" };
+        const key = order[index], dash = key.indexOf("-"), id = key.slice(dash + 1);
+        kind = key.slice(0, dash);
+        row = kind === "trip" ? trips.find(trip => String(trip.id) === id) : legacy.find(item => String(item.id) === id);
+      }
+      const info = { ...base, container: (kind === "trip" ? row?.container : row?.current?.container ?? row?.display?.container) || base.container,
+        date: kind === "trip" ? row?.event_date : row?.current?.event_date };
+      if (!row) return { ...info, status: "skip", reason: "không có trong sổ" };
+      if (kind === "legacy") return { ...info, status: "skip", reason: "dòng sổ gốc: sửa từng ô" };
+      if (row.status === "pending_review") return { ...info, status: "skip", reason: "chờ kiểm" };
+      if (row.status !== "confirmed") return { ...info, status: "skip", reason: "đã loại" };
+      if (row.is_fee_only || !row.container) return { ...info, status: "skip", reason: "dòng phí lẻ" };
+      if (row.editable !== true) return { ...info, status: "skip", reason: "tháng khóa" };
+      const oldVnd = feeCells(row.fee_lines, [typeId]).own[0];
+      const amount = vnd(pasted.priceVnd, true);
+      if (oldVnd === amount) return { ...info, status: "same", tripId: row.id };
+      const counted = row.unit_price_vnd != null;
+      return { ...info, status: "write", tripId: row.id, oldVnd, counted, deltaVnd: counted ? amount - (oldVnd ?? 0n) : 0n,
+        doubt: feeDoubt(amount), overwrite: oldVnd !== null };
+    });
+    const matched = items.filter(item => item.status === "write" || item.status === "same");
+    const seen = new Map();
+    for (const item of matched) seen.set(item.tripId, (seen.get(item.tripId) ?? 0) + 1);
+    for (const item of matched) if (seen.get(item.tripId) > 1) Object.assign(item, { status: "skip", reason: "dán hai lần cho cùng chuyến" });
+    const writes = items.filter(item => item.status === "write");
+    const beforeVnd = vnd(snapshot?.total_outstanding_vnd ?? "0", true);
+    const deltaVnd = writes.reduce((sum, item) => sum + item.deltaVnd, 0n);
+    return { items, writes, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
+  }
+
+  // GIA-BOOKING-01: gợi ý giá booking của một chuyến (`sheet_sync.booking_prices` của GET sổ). `unit` là đơn giá (đồng) khi máy
+  // đọc chắc được chữ; `fee` là phụ phí booking sẽ điền, chỉ khi chuyến chưa có phụ phí (đã có thì giữ). Chữ không đọc được: chỉ `text`.
+  // Dùng chung cho Việc cần làm và ô giá Sổ khách: chỉ là gợi ý, người bấm mới điền, vẫn phải lưu.
+  function bookingHint(ledger, row) {
+    const hint = ledger?.sheet_sync?.booking_prices?.[String(row?.id)];
+    const text = typeof hint?.text === "string" ? hint.text.trim() : "";
+    if (!text) return null;
+    const digits = value => typeof value === "string" && /^\d+$/.test(value);
+    if (!digits(hint.unit_price_vnd) || BigInt(hint.unit_price_vnd) <= 0n || !(hint.other_fee_vnd == null || digits(hint.other_fee_vnd))) return { text, unit: null, fee: null };
+    return { text, unit: hint.unit_price_vnd, fee: row.other_fee_vnd == null ? hint.other_fee_vnd ?? null : null };
+  }
+
   // NHAP-NHANH-01 (specs/nhap-nhanh-01.md): bản sổ đã vá theo một lệnh vừa gõ, để ô hiện ngay trong lúc lệnh còn ghi nền.
   // Không đổi bản gốc; lệnh có thể đổi tiền (đơn giá, phụ phí, ô *_vnd) thì dòng mang `saving: true` (ô Thành tiền hiện "…");
   // sửa chữ, ngày thì không. Không tính tiền: Thành tiền, số tổng tháng
@@ -1131,11 +1331,11 @@ const SoKhachV7Model = (() => {
     return done ? copy : null;
   }
 
-  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, MONEY_INPUT_HELP, readMoneyInput, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, receiptDoubt, receiptDoubtText, RECEIPT_LOW, feeDoubt, FEE_LOW, FEE_HIGH, parsePricePaste, planPricePaste, parseFeePaste, planFeePaste, bookingHint, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, planReceiptSplit, parseReceiptPaste, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();

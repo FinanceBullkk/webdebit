@@ -17,3 +17,13 @@ Bảng chuyến của Sổ khách (bản live), phương án A người dùng ch
 ## Hiệu lực và giới hạn
 
 ĐÃ CHỐT. Sửa phần bố cục Claude chọn trong `COT-PHU-PHI-01` (cột riêng trống hẹp 60px): nay mặc định ẩn theo tháng, hẹp khi đã bấm Hiện. Chỉ đổi cách hiện: không đổi dòng phụ phí, tiền, số dư, phân bổ hay quyền ghi. Bảng chi tiết "Gọn | Đủ cột" ([SO-CHI-TIET-01](so-chi-tiet-01.md)) không đổi.
+
+## Sửa đổi 25/11/2026: tháng mở hiện đủ cột phí (SK-G7)
+
+Thay (1). Người dùng chọn phương án A (chat, 25/11/2026), vì từ 1/12/2026 gõ phí tại ô trên web là đường nhập duy nhất (người nhập thôi gõ Sheet sổ nợ) và audit Sổ khách 25/11/2026 (SK-G7) thấy hai máy mở cùng sổ hiện 8 cột và 1 cột phí do lựa chọn nhớ theo trình duyệt.
+
+1. **Tháng đang mở** (sổ đang dùng, tháng không khóa) hiện đủ cột phụ phí riêng của sổ, kể cả cột trống, để gõ thẳng vào lưới như Sheet. Bảng rộng hơn khung thì cuộn ngang; tên cột và Thành tiền vẫn dính (SK-N1).
+2. **Tháng khóa** ẩn cột riêng trống cả tháng như (1) cũ, cho gọn để đọc.
+3. Nút ở thanh bảng chuyến ("Ẩn n cột phí trống" / "Hiện n cột phí trống") chỉ đổi tạm cho tháng đang xem; đổi tháng hay tải lại thì về mặc định. **Không nhớ theo trình duyệt** nữa: mọi máy thấy cùng một bảng.
+
+ĐÃ CHỐT. Chỉ đổi cách hiện; (2), (3) và dòng phụ phí, tiền, số dư, phân bổ, quyền ghi không đổi.

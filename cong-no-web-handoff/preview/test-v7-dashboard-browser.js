@@ -178,14 +178,39 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   }
 }));
 
-test('QUYEN-01: người dùng thấy số chuyến chưa giá nhưng không có link sang Việc cần làm', async () => withDashboard({ role: 'user' }, async page => {
-  const pill = page.locator('span#missing-price');
+test('QUYEN-01 + WEB-CHINH-01: người dùng không có link sang Việc cần làm; viên chưa giá bung danh sách sổ, mỗi sổ mở Sổ khách tô chuyến thiếu giá', async () => withDashboard({ role: 'user' }, async page => {
+  const pill = page.locator('button#missing-price');
   await pill.waitFor();
   assert.equal(await page.locator('a[href="/viec-can-lam.html"]').count(), 0);
-  assert.equal(await pill.getAttribute('tabindex'), '0');
-  assert.doesNotMatch(await pill.getAttribute('data-tip'), /bấm để mở/);
+  assert.doesNotMatch(await pill.getAttribute('data-tip'), /Việc cần làm/);
+  assert.equal(await pill.getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('#missing-list').count(), 0);
+  await pill.click();
+  const list = page.locator('#missing-list');
+  assert.equal(await page.locator('#missing-price').getAttribute('aria-expanded'), 'true');
+  assert.equal(await list.locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=2&loc=thieu-gia');
+  assert.match(await list.innerText(), /Khách C\s*3 chuyến/);
+  if (process.env.SHOTS_DIR) {
+    fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
+    await page.setViewportSize({ width: 1280, height: 560 });
+    await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'dashboard-v7-chua-gia-nguoi-dung.png') });
+  }
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#missing-list').count(), 0);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'missing-price', 'Esc trả tiêu điểm về viên');
   assert.deepEqual((await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]),
-    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
+}));
+
+test('WEB-CHINH-01: danh sách chưa giá nhiều sổ xếp theo hàng, cuộn dọc, không tràn ngang (25 sổ như hao 25/11)', async () => withDashboard({ role: 'user',
+  payload: { ...dashboard, todo: { ...dashboard.todo, missing_price: Array.from({ length: 25 }, (_, i) => ({ customer_id: 100 + i, name: `Sổ thử có tên khá dài số ${i + 1}`, count: 30 - i })) } } }, async page => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator('button#missing-price').click();
+  const box = await page.locator('#missing-list ul').evaluate(ul => ({ items: ul.children.length, wide: ul.scrollWidth - ul.clientWidth, tall: ul.scrollHeight > ul.clientHeight }));
+  assert.equal(box.items, 25);
+  assert.ok(box.wide <= 0, `không tràn ngang (${box.wide}px)`);
+  assert.equal(box.tall, true, 'dài thì cuộn dọc trong khung');
+  assert.equal(await page.locator('#missing-list li').first().locator('span').innerText(), '30 chuyến', 'nhiều chuyến đứng đầu');
 }));
 
 test('Tổng quan không có khách đang nợ: không bịa số', async () => withDashboard({

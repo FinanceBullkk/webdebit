@@ -44,10 +44,11 @@
   const tight = false;
   let showShipper = true;
   const shipperCell = html => showShipper ? html : '';
-  function useLiveColumns(ownNames, shipper = true, ownUsed = ownNames.map(() => true)) {
+  // SK-N5: sổ chuyến bộ (transport_mode BO của khách) ghi biển số ở ô carrier nên cột tên "Xe"; chưa biết loại sổ thì giữ "Hãng tàu".
+  function useLiveColumns(ownNames, shipper = true, ownUsed = ownNames.map(() => true), carrier = 'Hãng tàu') {
     showShipper = shipper;
     ownCount = ownNames.length;
-    labels = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
+    labels = ['STT', 'Số container', carrier, ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
     // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên; cột riêng chưa có khoản nào trong sổ chỉ cần chỗ cho
     // tên loại (xuống hai dòng) và dấu "–" (COT-PHU-PHI-01). Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
     ownEmpty = ownNames.map((_, index) => !ownUsed[index]);
@@ -209,6 +210,8 @@
 
   function renderShell(view) {
     const scrollY = window.scrollY;
+    // SK-N1: vẽ lại (sau mỗi lần sửa) giữ chỗ cuộn ngang của bảng chuyến rộng, không nhảy về cột đầu.
+    const scrollX = new Map([...root.querySelectorAll?.('.trip-body-scroll') ?? []].map(box => [box.closest('section')?.id, box.scrollLeft]));
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách, Lịch sử, tổng còn nợ.
     // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = Sổ khách / tên khách ▾, thanh bốn thẻ
     // (so-khach-v7-tabs-ui.js, phần đó cũng dời ô tìm khách lên thanh trên), Tổng còn nợ, nút chính "Ghi phiếu thu" và nút phụ
@@ -282,8 +285,24 @@
         section.append(trips);
         const bar = section.querySelector('.trip-toolbar');
         if (bar) trips.append(bar);
-        if (columnTable) trips.append(columnTable);
-        trips.append(table);
+        // SK-N1: bảng rộng hơn khung (feeOver) thì thân bảng cuộn ngang trong khung riêng, hàng tiêu đề ở khung riêng dính theo
+        // trang; hai khung cuộn ngang theo nhau. Điện thoại (DIEN-THOAI-CHUYEN-01) vẽ bảng thành thẻ nên không bọc.
+        const wrap = feeOver && columnTable && !(typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches);
+        if (wrap) {
+          const headBox = document.createElement('div'), bodyBox = document.createElement('div');
+          headBox.className = 'trip-head-scroll';
+          bodyBox.className = 'trip-body-scroll';
+          headBox.append(columnTable);
+          bodyBox.append(table);
+          trips.append(headBox, bodyBox);
+          const follow = (from, to) => from.addEventListener('scroll', () => { if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft; }, { passive: true });
+          follow(bodyBox, headBox);
+          follow(headBox, bodyBox);
+          bodyBox.scrollLeft = scrollX.get(section.id) ?? 0;
+        } else {
+          if (columnTable) trips.append(columnTable);
+          trips.append(table);
+        }
         for (const row of trips.querySelectorAll('.trip-list tr[data-row]')) {
           row.cells[columns.unitPrice()]?.classList.add('unit-price');
           row.lastElementChild?.classList.add('trip-amount');
@@ -307,10 +326,8 @@
   function pinReceipts() {
     if (typeof root.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
     const columnHead = live ? root.querySelector('.ledger-head') : null;
+    for (const td of root.querySelectorAll('.trip-list td')) cutTitle(td);
     for (const table of root.querySelectorAll('section > table.ledger')) {
-      for (const td of table.querySelectorAll('.trip-list td')) {
-        if (td.scrollWidth > td.clientWidth && !td.title) td.title = td.textContent.trim();
-      }
       // Bản live (SO-GON-06) không còn danh sách phiếu bên phải để dính.
       const head = columnHead ?? table.querySelector('tr.month th'), stick = table.querySelector('.pay-stick');
       if (!head || !stick) continue;
@@ -321,6 +338,24 @@
     }
   }
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', pinReceipts);
+  // SK-N5: ô chữ bị cắt "…" (Tuyến, Shipper, Hãng tàu…) có chữ rê chuột đủ chữ; ô đã có chữ rê chuột riêng thì giữ. Tính lại khi
+  // vẽ, đổi cỡ và lúc rê chuột vào ô (sửa tại ô đổi chữ mà không vẽ lại cả sổ). Tuyến ghép "nơi đi → nơi đến".
+  function cutTitle(td) {
+    if (td.title && !td.dataset.cutTitle) return;
+    const text = [...td.childNodes].map(node => node.textContent.trim()).filter(Boolean).join(' ');
+    // Tuyến cắt ở từng phần (nơi đi, nơi đến) nên xét cả ô con.
+    const cut = [td, ...td.children].some(box => box.scrollWidth > box.clientWidth);
+    if (cut && text && !td.querySelector('input')) {
+      td.title = text;
+      td.dataset.cutTitle = '1';
+    } else if (td.dataset.cutTitle) {
+      td.removeAttribute('title');
+      delete td.dataset.cutTitle;
+    }
+  }
+  if (typeof root.addEventListener === 'function') {
+    root.addEventListener('mouseover', event => { const td = event.target.closest?.('.trip-list td'); if (td) cutTitle(td); });
+  }
 
   function render() {
     const chain = model.monthChain(book);
@@ -384,14 +419,15 @@
       destination: 'nơi đến', unit_price_vnd: 'đơn giá', other_fee_vnd: 'phụ phí' };
     // PHU-PHI-01: cột phụ phí riêng của sổ (fee_columns, đọc lại mỗi lần vẽ) và danh mục loại phụ phí (so-khach-v7-fee-ui.js nạp).
     let feeColumnIds = [];
-    // SO-GON-07 (23/11/2026, người dùng chọn A): cột riêng không có khoản nào trong tháng đang xem thì ẩn; cấu hình cột của sổ
-    // (feeColumnIds) giữ nguyên. Nút "Hiện n cột phí trống" ở thanh bảng chuyến mở lại mọi cột để gõ phí như Sheet (giữ tới khi
-    // bấm "Ẩn cột phí trống"; trình duyệt nhớ lựa chọn, người hay gõ phí bật một lần là giữ); phí loại đó cũng nhập được qua ô Khác.
-    const FEE_KEY = 'so-khach.cot-phi-trong';
+    // SO-GON-07 (sửa đổi 25/11/2026, người dùng chọn A; SK-G7): tháng đang mở hiện đủ cột phụ phí riêng để gõ thẳng vào lưới như
+    // Sheet; tháng khóa ẩn cột riêng không có khoản nào trong tháng. Cấu hình cột của sổ (feeColumnIds) giữ nguyên. Nút ở thanh
+    // bảng chuyến đổi tạm cho tháng đang xem (feeOverride), đổi tháng hay tải lại thì về mặc định; không nhớ theo trình duyệt nữa
+    // để mọi máy thấy cùng một bảng (khóa cũ 'so-khach.cot-phi-trong' bị xóa).
     let shownFeeIds = [];
-    let feeHidden = 0;
+    let feeEmpty = 0;
     let feeShowAll = false;
-    try { feeShowAll = localStorage.getItem(FEE_KEY) === 'hien'; } catch { /* trình duyệt chặn lưu: mặc định ẩn */ }
+    let feeOverride = null;   // { month, showAll } khi người dùng bấm nút ở tháng đang xem
+    try { localStorage.removeItem('so-khach.cot-phi-trong'); } catch { /* trình duyệt chặn lưu: không có gì để xóa */ }
     let feeTypes = [];
     const feeTypeName = id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`;
     // Vẽ lại sổ từ bản đang có (không tải lại). Khung Ghi phiếu thu nằm ngoài #app (so-khach-v7-entry-ui.js) nên chữ đang gõ
@@ -471,10 +507,13 @@
       const usedTypes = new Set([...(data.trips ?? []).filter(row => !row.deleted), ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted)]
         .filter(inShown).flatMap(row => row.fee_lines ?? []).map(line => Number(line.fee_type_id)));
       const used = feeColumnIds.filter(id => usedTypes.has(id));
-      feeHidden = feeColumnIds.length - used.length;
+      feeEmpty = feeColumnIds.length - used.length;
+      feeShowAll = feeOverride?.month === shownKey ? feeOverride.showAll : ctx.shownMonthOpen(data);
       shownFeeIds = feeShowAll ? feeColumnIds : used;
+      const road = live.customerRow?.(customerId)?.transport_mode === 'BO';
+      fieldNames.carrier = road ? 'xe' : 'hãng tàu';
       useLiveColumns(shownFeeIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''),
-        shownFeeIds.map(id => usedTypes.has(id)));
+        shownFeeIds.map(id => usedTypes.has(id)), road ? 'Xe' : 'Hãng tàu');
       const updated = document.querySelector('#updated-at');
       const time = new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${time} · tự tải mỗi 60 giây`;
@@ -492,6 +531,7 @@
       conflictsAfterRender(data);
       decoratePrices(data, active);
       ctx.removedAfterRender?.(data, active);
+      ctx.roadChoicesAfterRender?.(data, active);
       ctx.receiptsAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);
@@ -569,10 +609,9 @@
       liveOpenMonth, methods, fieldNames, moved, ghosts, sheetFieldLabel, resolvableSheetFields, moneyText, referenceFields,
       showNotice, renderSnapshot, redraw, redrawWhenFree, submit, columns, feeTypeName,
       get feeTypes() { return feeTypes; }, set feeTypes(value) { feeTypes = value; },
-      get feeColumnIds() { return feeColumnIds; }, get shownFeeIds() { return shownFeeIds; }, get feeHidden() { return feeShowAll ? 0 : feeHidden; }, get feeShowAll() { return feeShowAll; },
+      get feeColumnIds() { return feeColumnIds; }, get shownFeeIds() { return shownFeeIds; }, get feeEmpty() { return feeEmpty; }, get feeShowAll() { return feeShowAll; },
       toggleFeeColumns: () => {
-        feeShowAll = !feeShowAll;
-        try { localStorage.setItem(FEE_KEY, feeShowAll ? 'hien' : 'an'); } catch { /* không lưu được: chỉ giữ tới khi tải lại */ }
+        feeOverride = { month: ctx.shownMonthKey(snapshot), showAll: !feeShowAll };
         redraw();
       }, get snapshot() { return snapshot; },
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },

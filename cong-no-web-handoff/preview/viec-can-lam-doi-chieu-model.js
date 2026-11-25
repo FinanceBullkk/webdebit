@@ -11,11 +11,13 @@
   const aheadToCheck = row => (row.hints ?? []).some(hint => AHEAD_CHECK.has(hint.kind));
   const isAhead = row => (row.reason === 'WEB_AHEAD' || (row.reason === 'FIXED' && row.status !== 'KHOP')) && !aheadToCheck(row);
   const isDone = row => row.reason === 'FIXED' || row.reason === 'BOOK_CREATED';
+  // Sổ quản lý tạo trên web (KHACH-WEB-01) không có tab Sheet là đúng thiết kế, không phải sổ lệch.
+  const isWebBook = row => row.reason === 'WEB_BOOK';
   const abs = value => { const n = big(value); return n === null ? null : n < 0n ? -n : n; };
 
   // Khách phải xem, lệch lớn trước; máy ghi xong mà không khớp đứng đầu; chưa biết số lệch xếp sau cùng.
   function openRows(reconcile) {
-    const rows = (reconcile?.customers ?? []).filter(row => aheadToCheck(row) || (!isDone(row) && !isAhead(row)));
+    const rows = (reconcile?.customers ?? []).filter(row => !isWebBook(row) && (aheadToCheck(row) || (!isDone(row) && !isAhead(row))));
     const rank = row => (row.reason === 'VERIFY_FAILED' ? 0 : row.difference_vnd === null || row.difference_vnd === undefined ? 2 : 1);
     return [...rows].sort((a, b) => rank(a) - rank(b) || (abs(b.difference_vnd) > abs(a.difference_vnd) ? 1 : abs(b.difference_vnd) < abs(a.difference_vnd) ? -1 : 0));
   }

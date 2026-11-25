@@ -4,6 +4,9 @@ Gom việc Sheet → web đang chờ của một sổ (phiếu thu, giá) thành
 tổ hợp nhóm đưa tổng web về tổng Sheet: có thì ghi bằng các lệnh có sẵn như nút bấm; không có, hoặc có nhiều tổ hợp, thì không ghi
 gì và để lại lý do. Tổng Sheet và hàng chờ phải đọc từ cùng một bản tải Sheet. Người làm trong Lịch sử do nơi gọi `apply_fix` chỉ rõ:
 lượt đối soát là "Máy (theo Sheet)", gọi tay thì là người ra lệnh.
+
+Từ 25/11/2026 web là sổ chính thức (WEB-CHINH-01): lượt đối soát chỉ tự ghi phần thêm của tổ hợp (`machine_part`); phần hủy, thay hay
+kéo tổng về Sheet chờ người bấm ở bảng đối chiếu, nơi `apply_fix` vẫn ghi được mọi loại nhóm dưới tên người bấm.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from v7_api_validate import ApiError
 from v7_inbox import AUTO_ACTOR, in_month
 from v7_price_queue import (
     DATE_WINDOW_DAYS,
+    adds_only,
     classify,
     container_key,
     customer_health,
@@ -49,6 +53,12 @@ FEE_NOTE = "Theo Sheet: dòng có tiền, không container"
 AHEAD_MAX_DAYS = 14
 AHEAD_HINTS_MAX = 8
 APPLY_ORDER = {"receipts_gone": 0, "receipts_edited": 1, "receipts": 2, "receipts_no_date": 3, "prices": 4, "fee_rows": 5, "fee_undo": 6}
+# WEB-CHINH-01 (3), 25/11/2026: máy theo Sheet chỉ thêm cái web chưa có. Các nhóm này hủy, thay hay kéo tổng web về Sheet nên là việc
+# của người (bảng đối chiếu); giá thì xét từng dòng bằng `adds_only`. Nhóm thêm cùng họ với một nhóm để người cũng chờ người: phiếu Sheet
+# mới cạnh phiếu Sheet bỏ có thể là chính phiếu đó bị sửa số, ghi riêng phiếu mới là thu hai lần.
+HELD_KINDS = frozenset({"receipts_gone", "receipts_edited", "fee_rows", "fee_undo"})
+FAMILY = {"receipts": "receipts", "receipts_no_date": "receipts", "receipts_gone": "receipts", "receipts_edited": "receipts",
+          "prices": "trips", "fee_rows": "trips", "fee_undo": "trips"}
 
 
 def _vnd(value: Any) -> int | None:
@@ -390,6 +400,28 @@ def choose(groups: list[dict[str, Any]], need: int) -> tuple[str, list[dict[str,
     if not found:
         return "NO_EXACT_FIX", []
     return ("AMBIGUOUS_FIX", []) if len(found) > 1 else ("FIX", list(found[0]))
+
+
+def machine_part(chosen: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(phần máy theo Sheet được tự ghi, phần để người) của một tổ hợp đã khớp tổng (WEB-CHINH-01 (3)). Tổ hợp vẫn tìm trên mọi nhóm:
+    phần để người là lời giải thích cho phần thêm, không được ghi. Nhóm giá tách theo dòng: dòng `adds_only` là thêm, dòng khác (giá
+    Sheet khác giá web, thay phụ phí, đổi số sổ gốc) để người. Họ nào có phần để người thì phần thêm cùng họ cũng để người."""
+    write: list[dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
+    for group in chosen:
+        if group["kind"] in HELD_KINDS:
+            kept.append(group)
+        elif group["kind"] == "prices":
+            added = [row for row in group["rows"] if adds_only(row)]
+            others = [row for row in group["rows"] if not adds_only(row)]
+            for rows, into in ((added, write), (others, kept)):
+                if rows:
+                    into.append({**group, "rows": rows, "delta_vnd": sum(price_delta(row) or 0 for row in rows)})
+        else:
+            write.append(group)
+    blocked = {FAMILY[group["kind"]] for group in kept}
+    return ([group for group in write if FAMILY[group["kind"]] not in blocked],
+            kept + [group for group in write if FAMILY[group["kind"]] in blocked])
 
 
 def _sha(text: str) -> str:

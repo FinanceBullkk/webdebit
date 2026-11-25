@@ -191,6 +191,7 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - Máy đi chung đường `write_price_items` với nút "Ghi N giá từ Sheet". Khóa chống ghi trùng theo (bản chụp giá, đích, ô), nên chạy lại cùng bản chụp không ghi hai lần.
 - Gom theo tháng. Tháng khóa thì mở một lần, ghi cả tháng, khóa lại; lệnh ghi lỗi vẫn khóa lại rồi dừng sổ đó tới lượt sau. Người làm trong Lịch sử là "Máy (theo Sheet)".
 - `CONFLICT`, `AMBIGUOUS`, `MANUAL`, `PENDING_REVIEW`, dòng đã "Giữ giá web" và tháng trước 10/2026 không đổi: vẫn để người.
+- Từ 25/11/2026 ([`WEB-CHINH-01`](../docs/decisions/web-chinh-01.md) (3)) chỉ dòng `adds_only`: web chưa có đơn giá, phụ phí web trống hoặc bằng phụ phí Sheet, dòng sổ gốc đã tính nợ (khác 0) thì đơn giá + phụ phí Sheet bằng đúng số đã tính. Dòng `READY` đổi giảm trừ âm, thay phụ phí web, đổi số sổ gốc đã tính vẫn ở danh sách sẵn sàng cho nút, máy không tự ghi (`test_v7_inbox.SummarizeTests.test_machine_price_rows_only_add_what_the_web_lacks`).
 - Chạy sau bước đưa chuyến mới (P3b) trong cùng lượt hộp việc, nên chuyến máy vừa dán nhận giá ngay.
 - `GET /api/v7/inbox` thêm `auto.prices_enabled`, `today_prices`, `today_price_books`, `price_items`. Mỗi sổ thêm `prices_auto` (số dòng máy ghi được). Tab Việc cần làm liệt kê giá máy đã ghi ở "Máy đã tự làm" (container, ngày, giá trước → sau: "chưa giá → 52,5 tr" hoặc phụ phí trước → sau khi chỉ đổi giảm trừ, nhãn "tháng khóa"), và chip "Máy" đếm giá riêng.
 

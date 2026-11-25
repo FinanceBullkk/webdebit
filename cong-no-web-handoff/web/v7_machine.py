@@ -20,6 +20,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from v7_api_validate import ApiError
+from v7_price_queue import debt_sheet_off
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 RUNS_KEPT = 120         # khoảng một tuần theo nhịp 16 lượt mỗi ngày
@@ -39,12 +40,14 @@ OPEN_REASONS = {
     "TOO_MANY_DIFFERENT": "Quá nhiều khách lệch cùng lúc, lượt này không ghi",
     "SHEET_SHUFFLED": "Giá trên Sheet đổi chỗ trong tháng",
     "DETAIL_DIFFERS": "Khớp tổng nhưng Sheet còn khoản web chưa theo",
+    "WEB_KEPT": "Sheet sửa hoặc bỏ khoản web đã có, web giữ nguyên chờ người",
     "WRITE_ERROR": "Lỗi khi ghi",
     "CHECK_ERROR": "Lỗi khi kiểm",
     "VERIFY_FAILED": "Ghi xong đọc lại không khớp",
     "HELD": "Tab đọc không được, khách bị giữ lại",
     "WEB_AHEAD": "Web đi trước Sheet",
     "CHI_CO_WEB": "Có sổ trên web, không thấy trên Sheet",
+    "WEB_BOOK": "Sổ tạo trên web, không cần tab Sheet",
     "CHI_CO_SHEET": "Có trên Sheet, chưa có sổ web",
     "THIEU_SO": "Thiếu số để so",
     "BOOK_OVERLAP": "Tab mới trùng chuyến với sổ khác",
@@ -63,8 +66,11 @@ JOBS = (
     {"id": "backup-daily", "name": "Sao lưu ngày", "does": "Sao lưu đêm", "unit": "v7-backup-daily", "every": "Mỗi đêm", "late_after": 26 * 3600},
     {"id": "backup-config", "name": "Sao lưu cấu hình", "does": "Sao lưu đêm", "unit": "v7-backup-config", "every": "Mỗi đêm", "late_after": 26 * 3600},
     {"id": "backup-offsite", "name": "Bản sao ngoài máy", "does": "Chuẩn bị bản kéo về", "unit": "v7-backup-offsite", "every": "Mỗi đêm", "late_after": 26 * 3600},
+    {"id": "backup-offsite-hourly", "name": "Bản giờ ra ngoài", "does": "Chuẩn bị bản giờ kéo về", "unit": "v7-backup-offsite-hourly", "every": "Mỗi giờ, 6–22 giờ", "late_after": 12 * 3600},
 )
 _jobs_cache: dict[str, Any] = {"at": 0.0, "rows": []}
+SHEET_OFF_JOBS = ("prices",)
+BOOKING_ONLY = {"name": "So sổ với booking", "does": "So chuyến booking với sổ web, không ghi"}
 # ZALO-AGENT-01 Phần 6: máy có Zalo ghi `status.json` mỗi phút, đẩy lên đây. Chỉ có mã và số đếm.
 ZALO_STATUS = "/srv/v7/zalo-agent/status.json"
 ZALO_LATE = 900         # im lặng, chờ Zalo hay xử lý chậm quá 15 phút thì máy canh báo
@@ -164,7 +170,15 @@ def _parse_show(output: str) -> dict[str, dict[str, str]]:
 
 
 def jobs(now: float | None = None) -> list[dict[str, Any]]:
-    """Lịch và tình trạng từng job. systemctl lỗi thì `state` là unknown, không làm hỏng trang."""
+    """Lịch và tình trạng từng job. systemctl lỗi thì `state` là unknown, không làm hỏng trang. Đã thôi dùng Sheet sổ nợ (WEB-CHINH-01)
+    thì không còn job đọc giá Sheet, và lượt mỗi giờ chỉ so sổ web với booking (`--booking-only`)."""
+    rows = _jobs(now)
+    if debt_sheet_off() is None:
+        return rows
+    return [{**row, **BOOKING_ONLY} if row["id"] == "reconcile" else row for row in rows if row["id"] not in SHEET_OFF_JOBS]
+
+
+def _jobs(now: float | None = None) -> list[dict[str, Any]]:
     now = time.time() if now is None else now
     if now - _jobs_cache["at"] < JOBS_TTL and _jobs_cache["rows"]:
         return _jobs_cache["rows"]
@@ -435,7 +449,7 @@ def now_view(now: float | None = None) -> dict[str, Any]:
     folder = base_dir()
     rows = jobs(now)
     return {"now": datetime.fromtimestamp(now, VN).isoformat(timespec="seconds"), "run": _current_run(folder, rows, now),
-            "jobs": rows, "office": _office(folder, now), "zalo": zalo(now), "zalo_bot": zalo_bot(now)}
+            "jobs": rows, "office": _office(folder, now), "zalo": zalo(now), "zalo_bot": zalo_bot(now), "debt_sheet_off": debt_sheet_off()}
 
 
 def view(now: float | None = None) -> dict[str, Any]:
@@ -470,6 +484,9 @@ def summary(now: float | None = None) -> dict[str, Any]:
     traces = [trace for trace in _read_lines(folder / "reconcile-run-history.jsonl", 30) if trace.get("state") == "done"]
     last = traces[-1] if traces else None
     streak = _streaks(traces)
+    off = debt_sheet_off()
+    if off is not None:   # WEB-CHINH-01: thôi dùng Sheet sổ nợ thì khách lệch của lượt đối soát cuối không còn là việc của quản lý
+        last = None
     open_rows = []
     for key, row in sorted(((last or {}).get("customers") or {}).items(), key=lambda item: int(item[0])):
         reason = row.get("reason")
@@ -486,6 +503,7 @@ def summary(now: float | None = None) -> dict[str, Any]:
         "too_many_different": bool((last or {}).get("too_many")),
         "last_run_failed": isinstance(latest, dict) and latest.get("state") == "failed",
         "jobs": {job["id"]: job["state"] for job in jobs(now)},
+        "debt_sheet_off": off,
         "zalo": _zalo_summary(now),
         "thu_chi_anh_tuan": dict(FEEDBACK) or None,   # None: chưa ai mở trang Thu chi từ lần khởi động API
     }

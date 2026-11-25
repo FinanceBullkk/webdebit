@@ -65,16 +65,8 @@ globalThis.InboxTable = (() => {
     }
     return list.sort((a, b) => b.trips.length - a.trips.length || (a.trips[0].event_date ?? '').localeCompare(b.trips[0].event_date ?? ''));
   }
-  // GIA-BOOKING-01: gợi ý giá booking của một chuyến (`sheet_sync.booking_prices` của GET sổ). `unit` là đơn giá (đồng) khi máy
-  // đọc chắc được chữ; `fee` là phụ phí booking sẽ điền, chỉ khi chuyến chưa có phụ phí (đã có thì giữ). Chữ không đọc được: chỉ `text`.
-  function bookingHint(ledger, row) {
-    const hint = ledger?.sheet_sync?.booking_prices?.[String(row?.id)];
-    const text = typeof hint?.text === 'string' ? hint.text.trim() : '';
-    if (!text) return null;
-    const digits = value => typeof value === 'string' && /^\d+$/.test(value);
-    if (!digits(hint.unit_price_vnd) || BigInt(hint.unit_price_vnd) <= 0n || !(hint.other_fee_vnd == null || digits(hint.other_fee_vnd))) return { text, unit: null, fee: null };
-    return { text, unit: hint.unit_price_vnd, fee: row.other_fee_vnd == null ? hint.other_fee_vnd ?? null : null };
-  }
+  // GIA-BOOKING-01: gợi ý giá booking của một chuyến; luật chung ở model (cùng dùng cho ô giá Sổ khách).
+  const bookingHint = (ledger, row) => SoKhachV7Model.bookingHint(ledger, row);
   // Hàng tuyến có nút booking khi mọi chuyến của tuyến có cùng gợi ý (cùng đơn giá và cùng phụ phí sẽ điền).
   function groupBooking(ledger, group) {
     const hints = group.trips.map(row => bookingHint(ledger, row)), first = hints[0];
@@ -96,7 +88,10 @@ globalThis.InboxTable = (() => {
     return [...map.values()].filter(b => groups.some(g => g.keys.some(key => count(b, key))));
   }
   function render(data, opts) {
-    const { F, esc, label, href, dashboard, unsorted, selected = new Set(), selectedPrices = new Set(), review, result, busy, filter, open, details, tab = 'lech', dc } = opts;
+    const { F, esc, label, href, dashboard, unsorted, selected = new Set(), selectedPrices = new Set(), review, result, busy, filter, open, details, dc } = opts;
+    // WEB-CHINH-01: đã thôi dùng Sheet sổ nợ thì không có tab Số nợ lệch (đối soát với Sheet) và không có cột phiếu thu từ Sheet.
+    const sheetOff = data?.debt_sheet_off ?? null;
+    const tab = sheetOff && (opts.tab ?? 'lech') === 'lech' ? 'don' : opts.tab ?? 'lech';
     const old = globalThis.InboxCard;
     const view = globalThis.DoiChieuView;
     const now = opts.now ?? Date.now();
@@ -131,12 +126,13 @@ globalThis.InboxTable = (() => {
       const words = { missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư', commodity: 'mặt hàng', transport: 'cảng/bộ', ps: 'PS', text_diff: 'ô chữ' };
       return pill(b, ['baseline', 'commodity', 'transport'].includes(key) ? '' : n, words[key], key === 'removed' ? 'danger' : key === 'missing' ? 'warn' : '');
     };
-    const columns = [['receipts'], ['prices', 'missing'], ['removed', 'checks', 'trips_new'], ['baseline', 'commodity', 'transport', 'ps', 'text_diff']];
-    const dim = i => filter && (i < 2 ? 'money' : i === 2 ? 'trips' : 'setup') !== filter ? ' class="dimmed"' : '';
+    const skip = sheetOff ? 1 : 0;   // cột Phiếu thu chỉ có phiếu từ Sheet
+    const columns = [['receipts'], ['prices', 'missing'], ['removed', 'checks', 'trips_new'], ['baseline', 'commodity', 'transport', 'ps', 'text_diff']].slice(skip);
+    const dim = i => filter && (i + skip < 2 ? 'money' : i + skip === 2 ? 'trips' : 'setup') !== filter ? ' class="dimmed"' : '';
     const shown = list.filter(b => !filter || groups.find(g => g.key === filter)?.keys.some(key => count(b, key)));
     const rows = shown.map(b => {
       const failed = result?.books?.find(row => row.customer_id === b.customer_id && !row.ok);
-      const detail = open === b.customer_id ? `<tr class="work-detail" id="book-detail-${b.customer_id}"><td colspan="6">${detailHtml(b, details?.get(b.customer_id), opts)}<a class="open-book" href="${href(b.customer_id)}">Mở cả sổ ${icon('right')}</a></td></tr>` : '';
+      const detail = open === b.customer_id ? `<tr class="work-detail" id="book-detail-${b.customer_id}"><td colspan="${6 - skip}">${detailHtml(b, details?.get(b.customer_id), opts)}<a class="open-book" href="${href(b.customer_id)}">Mở cả sổ ${icon('right')}</a></td></tr>` : '';
       return `<tr class="work-row${open === b.customer_id ? ' expanded' : ''}${count(b, 'removed') ? ' has-removed' : ''}" data-book="${b.customer_id}"><th scope="row"><button class="book-name" type="button" ${toggle(b)} title="Bấm để xử lý việc của ${esc(label(b))} ngay tại đây">${esc(label(b))}</button>${failed ? `<p class="row-error" role="alert">${esc(failed.message)}</p>` : ''}</th>${columns.map((keys, i) => `<td${dim(i)}><div class="cell-pills">${keys.map(key => key === 'checks' ? count(b, 'trips_check') + count(b, 'pending') ? pill(b, count(b, 'trips_check') + count(b, 'pending'), 'cần xem', 'warn') : '' : cell(b, key)).join('')}</div></td>`).join('')}<td><button class="row-toggle" type="button" ${toggle(b)} aria-label="${open === b.customer_id ? 'Đóng' : 'Xử lý'} sổ ${esc(label(b))}">${icon(open === b.customer_id ? 'up' : 'down', 16)}</button></td></tr>${detail}`;
     }).join('');
     const totalCount = key => list.reduce((sum, b) => sum + count(b, key), 0);
@@ -149,15 +145,16 @@ globalThis.InboxTable = (() => {
       return `${n} ${{ missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư đầu', commodity: 'mặt hàng', transport: 'cảng/bộ', ps: 'PS', text_diff: 'ô chữ' }[key]}`;
     };
     const foot = showFilters ? `<tfoot><tr><th scope="row">Cộng</th>${columns.map((keys, i) => `<td${dim(i)}>${keys.map(footPart).filter(Boolean).join(' · ')}</td>`).join('')}<td></td></tr></tfoot>` : '';
-    const table = shown.length ? `<div class="work-scroll"><table class="work-table"><thead><tr><th scope="col">Khách</th>${['Phiếu thu <span class="muted">tr</span>', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ'].map((text, i) => `<th scope="col"${dim(i)}>${text}</th>`).join('')}<th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows}</tbody>${foot}</table></div>` : `<p class="empty">${icon('check', 28)}${filter ? 'Không có sổ nào có việc loại này.' : partial ? 'Đang chờ đủ dữ liệu để tính việc.' : 'Hôm nay không còn việc.'}</p>`;
+    const table = shown.length ? `<div class="work-scroll"><table class="work-table"><thead><tr><th scope="col">Khách</th>${['Phiếu thu <span class="muted">tr</span>', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ'].slice(skip).map((text, i) => `<th scope="col"${dim(i)}>${text}</th>`).join('')}<th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows}</tbody>${foot}</table></div>` : `<p class="empty">${icon('check', 28)}${filter ? 'Không có sổ nào có việc loại này.' : partial ? 'Đang chờ đủ dữ liệu để tính việc.' : 'Hôm nay không còn việc.'}</p>`;
     const textCount = totalCount('text_diff');
     const textNote = textCount ? `<p class="inbox-note">Lệch chữ: ${textCount} chỗ ở ${list.filter(b => b.text_diff > 0).length} sổ. Không đụng tiền; ${data?.auto?.text_enabled ? 'máy lấy theo Sheet ở lượt tính tới.' : 'máy chưa bật tự lấy theo Sheet.'}</p>` : '';
-    const don = `<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar"><h2 id="h-inbox" class="band-count">${total}</h2>${chips}${hasReady ? `<button class="btn pick-ready" type="button" data-pick-ready${busy ? ' disabled' : ''}>${icon('pick', 17)}Chọn hết mục sẵn sàng ghi</button>` : ''}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div><p class="dc-lead">Các việc này không làm tổng nợ lệch Sheet. Làm khi rảnh; để đó số nợ vẫn đúng.</p>${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}</section>`;
+    const don = `<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar"><h2 id="h-inbox" class="band-count">${total}</h2>${chips}${hasReady ? `<button class="btn pick-ready" type="button" data-pick-ready${busy ? ' disabled' : ''}>${icon('pick', 17)}Chọn hết mục sẵn sàng ghi</button>` : ''}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div><p class="dc-lead">${sheetOff ? 'Việc còn dở trên từng sổ web.' : 'Các việc này không làm tổng nợ lệch Sheet. Làm khi rảnh; để đó số nợ vẫn đúng.'}</p>${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}</section>`;
     const lech = view.lechHtml(reconcile, dc, { F, esc, href, now, action: opts.action, busy, nothing,
       bookVersions: new Map((data?.books ?? []).map(book => [book.customer_id, book.version])) });
     const may = view.mayHtml(opts.act, people, { esc, href });
     const counts = { lech: globalThis.DoiChieuModel.openRows(reconcile).length + (reconcile?.outside_tabs?.length ?? 0), don: list.length, may: view.machineCount(bot, reconcile) };
-    return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing, F, href, tongOpen: opts.tongOpen })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? (opts.notice.warn ? `<p class="inbox-result warn" role="alert">${esc(opts.notice.text)}</p>` : `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>`) : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
+    const status = sheetOff ? view.sheetOffHtml(sheetOff, { esc, stale: opts.stale, computing }) : view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing, F, href, tongOpen: opts.tongOpen });
+    return `${status}${errors}${view.tabsHtml(tab, counts, Boolean(sheetOff))}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? (opts.notice.warn ? `<p class="inbox-result warn" role="alert">${esc(opts.notice.text)}</p>` : `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>`) : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
   }
   function detailHtml(book, ledger, opts) {
     const { F, esc, href, action } = opts;
@@ -182,7 +179,7 @@ globalThis.InboxTable = (() => {
     const fee = value => (value == null ? 'trống' : million(value));
     const conflictText = r => (r.web_unit_price_vnd === r.sheet_unit_price_vnd ? `Đơn giá ${million(r.web_unit_price_vnd)} · phụ phí web ${fee(r.web_other_fee_vnd)} → Sheet ${fee(r.sheet_other_fee_vnd)}` : `Trên web ${million(r.web_unit_price_vnd)} · trên Sheet ${million(r.sheet_unit_price_vnd)}`);
     const priceWhy = r => (r.status === 'CONFLICT' ? conflictText(r) : r.status === 'AMBIGUOUS' ? 'Khớp nhiều chuyến, máy không biết ghi giá vào chuyến nào' : r.status === 'MANUAL' && r.closable ? 'Phụ phí gõ tay hoặc giá âm, máy không tự ghi' : 'Cần đối chiếu giá trong sổ');
-    const prices = (book.inStatement ? [] : ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, priceWhy(r), null, r.status === 'CONFLICT' && r.source_fingerprint ? `${r.month_locked ? '' : btn('Lấy giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : `${r.closable ? closeBtn('price', r.source_fingerprint) : ''}${link('Mở để đối chiếu')}`, r.closable ? `source:${r.source_fingerprint}` : `sheet-price:${r.target_kind}:${r.target_id}`));
+    const prices = (book.inStatement ? [] : ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, priceWhy(r), null, r.status === 'CONFLICT' && r.source_fingerprint ? `${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${r.month_locked ? '' : btn('Đổi sang giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : `${r.closable ? closeBtn('price', r.source_fingerprint) : ''}${link('Mở để đối chiếu')}`, r.closable ? `source:${r.source_fingerprint}` : `sheet-price:${r.target_kind}:${r.target_id}`));
     const suggestedOf = r => {
       const rate = ledger.price_status?.trips?.find(p => p.trip_id === r.id && p.ready)?.lookup?.unit_price_vnd;
       return rate == null ? '' : millionInput(rate);
@@ -225,8 +222,8 @@ globalThis.InboxTable = (() => {
       r.editable === true ? `${btn(r.unit_price_vnd == null ? 'Đúng, giữ' : 'Đúng, tính nợ', `data-command="confirm" data-trip="${r.id}"`)}${btn('Trùng, bỏ', `data-command="reject" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `review:${r.id}`));
     // Chuyến bộ (NGUON-CHUYEN-01): dòng của sheet_road mang sẵn `message`; máy đưa vào sổ, người mở sổ khi vướng.
     const sheet = [...(ledger.sheet_sync?.items ?? []), ...(ledger.sheet_road?.items ?? [])].filter(r => ['NEW', 'CONFLICT'].includes(r.sync_state) && !r.closed).map(r => item(r.container, r.event_date ?? r.date, r.message || { OTHER_BOOK_LEGACY: 'Đã có ở sổ khác · sửa tên khách trên Sheet nếu nhầm', OTHER_CUSTOMER: 'Container ở khách khác', COMMODITY_UNKNOWN: 'Sheet chưa ghi mặt hàng', DIFFERENT_FIELDS: 'Sheet khác thông tin trong sổ' }[r.sync_reason] || 'Máy chưa chắc vào sổ nào', null,
-      r.sync_state === 'NEW' && r.candidate_books?.length && r.source_fingerprint
-        ? `<select class="inline-price" data-trip-book="${r.source_fingerprint}" aria-label="Sổ nhận chuyến ${esc(r.container)}"><option value="">Chọn sổ</option>${r.candidate_books.map(c => `<option value="${c.id}">${esc(c.commodity ? `Sổ ${c.commodity}` : c.display_name ?? c.name)}</option>`).join('')}</select>${btn('Vào sổ', `data-assign-trip="${r.source_fingerprint}"`)}${r.closable ? closeBtn('trip', r.source_fingerprint) : ''}`
+      (r.sync_state === 'NEW' || r.sync_reason === 'NEEDS_BOOK') && r.candidate_books?.length && r.source_fingerprint
+        ? `<select class="inline-price" data-trip-book="${r.source_fingerprint}" aria-label="Sổ nhận chuyến ${esc(r.container)}"><option value="">Chọn sổ</option>${r.candidate_books.map(c => `<option value="${c.id}">${esc(r.sync_reason === 'NEEDS_BOOK' ? c.name : c.commodity ? `Sổ ${c.commodity}` : c.display_name ?? c.name)}</option>`).join('')}</select>${btn('Vào sổ', `data-assign-trip="${r.source_fingerprint}"`)}${r.closable ? closeBtn('trip', r.source_fingerprint) : ''}`
         : `${r.closable ? closeBtn('trip', r.source_fingerprint) : ''}${link('Mở trong sổ')}`, `assignment:${r.source_fingerprint}`));
     const ps = [...(ledger.ps_fees?.ready ?? []), ...(ledger.ps_fees?.review ?? [])].map(r => item(r.container || 'Dòng PS', r.event_date ?? r.date, r.closable && r.message ? r.message : 'Tách vào cột phụ phí · không đổi tổng tiền', null,
       `${r.closable ? closeBtn('ps', r.source_fingerprint) : ''}${link('Mở trong sổ')}`, r.closable ? `source:${r.source_fingerprint}` : ''));

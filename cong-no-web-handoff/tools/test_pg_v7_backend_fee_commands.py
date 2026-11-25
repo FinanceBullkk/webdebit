@@ -10,6 +10,7 @@ from pg_v7_harness import (
     KIEM_TAB_MIGRATION,
     ROOT,
     SO_GON_MIGRATION,
+    THANG_HIEN_TAI_MIGRATION,
     actor_sql,
     call,
     fixture_open_month,
@@ -143,6 +144,7 @@ def check_fee_catalog(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql").read_text(encoding="utf-8"))  # chan-trung trả list_legacy_trip_refs cũ
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql").read_text(encoding="utf-8"))  # p2 trả get_ledger cũ; MO-SO-NHANH-02 trả về bản hiện hành
     pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
+    pg.sql(THANG_HIEN_TAI_MIGRATION.read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-mo-so-tat-jit.sql").read_text(encoding="utf-8"))  # ledger-events xóa cấu hình hàm; MO-SO-NHANH-03 tắt lại JIT
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau KHOA-CHU-01
@@ -150,6 +152,7 @@ def check_fee_catalog(pg):
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
+    pg.sql(THANG_HIEN_TAI_MIGRATION.read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql").read_text(encoding="utf-8"))  # bang-gia trả save_price_table cũ; BANG-GIA-02 trả về bản 5/11
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql").read_text(encoding="utf-8"))
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql").read_text(encoding="utf-8"))  # BANG-GIA-04 thay _lookup_price, save_price_table

@@ -9,6 +9,7 @@ from pg_v7_harness import (
     CONTAINER_INDEX_MIGRATION,
     DIEU_CHINH_THEO_GIA_MIGRATION,
     SO_GON_MIGRATION,
+    THANG_HIEN_TAI_MIGRATION,
     call,
     fixture_open_month,
     lit,
@@ -52,6 +53,7 @@ def check_chan_trung(pg) -> str:
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
+    pg.sql(THANG_HIEN_TAI_MIGRATION.read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     require(pg.value(CATALOG) == fresh, "chan-trung migration rerun changed function catalog")
     for name, allowed in (("list_legacy_trip_refs", True), ("_legacy_undated_match", False)):
         require(pg.value(f"SELECT bool_and(has_function_privilege('v7_app',oid,'EXECUTE')) FROM pg_proc "

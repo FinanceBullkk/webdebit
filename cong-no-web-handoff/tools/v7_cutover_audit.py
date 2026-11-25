@@ -489,7 +489,7 @@ def audit_reconcile(reconcile: dict | None) -> dict[str, Any]:
         if row.get("fixed_at") not in (None, reconcile.get("checked_at")):
             earlier += 1   # việc máy làm ở lượt trước trong ngày, máy giữ lại cho chủ sổ soát: số của dòng là số lúc đó, không phải của lượt này
             continue
-        if row.get("status") == "KHOP" and row.get("reason") != "DETAIL_DIFFERS":   # khớp tổng mà lệch chi tiết vẫn chưa xong
+        if row.get("status") == "KHOP" and row.get("reason") not in ("DETAIL_DIFFERS", "WEB_KEPT"):   # khớp tổng mà lệch chi tiết vẫn chưa xong
             continue
         web_ahead = as_int(row.get("web_ahead_vnd"))
         gap = as_int(row.get("difference_vnd")) - web_ahead

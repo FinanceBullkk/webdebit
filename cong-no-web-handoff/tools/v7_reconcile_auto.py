@@ -4,6 +4,7 @@
 Chạy trên hao dưới user runner (timer v7-reconcile-auto, mỗi giờ từ 7 tới 22 giờ VN), cùng biến môi trường với runner giá:
 
     v7_reconcile_auto.py --source-dir /srv/v7/so-goc-20261020 [--fix]
+    v7_reconcile_auto.py --booking-only      # sau khi thôi theo Sheet sổ nợ (1/12/2026): chỉ so sổ web với booking
 
 Mỗi lượt: tải bản xlsx sổ gốc (chỉ đọc), làm sạch đúng như đối soát chính thức, đọc tổng từng khách trên web. Khách lệch thì tìm đúng
 một tổ hợp việc đang chờ (phiếu thu, giá) đưa tổng web về tổng Sheet tới từng đồng, tổng và việc đều lấy từ cùng bản tải. Khách có
@@ -241,6 +242,14 @@ def brief(group: dict[str, Any], chosen: list[dict[str, Any]]) -> dict[str, Any]
             "chosen": any(group is item for item in chosen)}
 
 
+def keep_for_person(row: dict[str, Any], kept: list[dict[str, Any]], *, conclude: bool = True) -> None:
+    """Phần của tổ hợp máy không tự ghi vì nó đè web (WEB-CHINH-01 (3)): liệt kê để người xem ở bảng đối chiếu, kết luận `WEB_KEPT`
+    (chế độ chỉ kiểm giữ `WOULD_FIX` để còn thấy máy sẽ ghi phần thêm)."""
+    row["kept"] = [{key: value for key, value in brief(group, []).items() if key != "chosen"} for group in kept]
+    if conclude:
+        row["reason"] = "WEB_KEPT"
+
+
 def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], prices: dict, receipts: dict, today: dt.date,
            *, write: bool, trace: run_trace.RunTrace | None = None) -> None:
     """Kết luận cho một khách lệch; `write` thì ghi đúng tổ hợp đã chọn rồi đọc lại sổ để kiểm. Cập nhật `row` tại chỗ."""
@@ -273,13 +282,20 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row["reason"] = "SHEET_SHUFFLED" if shuffled else verdict
         attach_hints(row, ledger, prices, receipts, customers, target - total)
         return
+    adding, kept = fix.machine_part(chosen)
+    target -= sum(group["delta_vnd"] for group in kept)   # phần để người không ghi: web giữ số của mình ở phần đó
+    if not adding:
+        keep_for_person(row, kept)
+        return
     if not write:
         row["reason"] = "WOULD_FIX"
+        if kept:
+            keep_for_person(row, kept, conclude=False)
         return
     trace.stage("ghi")
     trace.customer(customer_id, writing=True)
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, adding, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)
@@ -293,6 +309,8 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row["reason"] = "VERIFY_FAILED"
     else:
         row.update(reason="FIXED", status="KHOP" if target == sheet else "LECH_TONG")
+        if kept:
+            keep_for_person(row, kept)
 
 
 def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[dict], prices: dict, receipts: dict, today: dt.date,
@@ -320,11 +338,18 @@ def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[di
     if not complete:
         row["reason"] = "DETAIL_DIFFERS"
         return
+    adding, kept = fix.machine_part(active)
+    need -= sum(group["delta_vnd"] for group in kept)   # phần để người không ghi (WEB-CHINH-01 (3))
+    if not adding:
+        keep_for_person(row, kept)
+        return
     if not write:
         row["reason"] = "WOULD_FIX"
+        if kept:
+            keep_for_person(row, kept, conclude=False)
         return
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, active, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, adding, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)
@@ -339,6 +364,8 @@ def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[di
         row["reason"] = "VERIFY_FAILED"
     else:
         row["reason"] = "FIXED"
+        if kept:
+            keep_for_person(row, kept)
 
 
 def settle_all_matched(db, results: list[dict[str, Any]], ids: dict, held_names: dict, rows: list[dict],
@@ -505,6 +532,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                        if args.booking_check else {"skipped": "OFF"})
         trace.stage("so", total=len(rows))
         results, _, _ = rec.reconcile(sheet, web, compare_months=False)
+        web_books = {rec.name(row["name"]) for row in rows if row.get("booking_names")}   # KHACH-WEB-01: sổ quản lý tạo trên web
         by_month, _, _ = rec.reconcile(sheet, web, compare_months=True, can_du=True)
         months_differ = [row["customer"] for row in by_month if row["status"] == "CHI_LECH_THANG"]
         different = [row for row in results if row["status"] == "LECH_TONG"]
@@ -549,6 +577,8 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                 row.update(reason="HELD", held_reasons=item["reasons"])
                 if item["chain_break"]:
                     row["hints"] = [hints.money_fields(item["chain_break"])]
+            elif row["status"] == "CHI_CO_WEB" and row["customer"] in web_books:
+                row["reason"] = "WEB_BOOK"
             elif row["status"] != "LECH_TONG":
                 row.setdefault("reason", row["status"])
         count_sheet_fixes(db, results, rows, sheet_snapshots)   # còn trong `with`: bản chụp dựng từ bản tải ở thư mục tạm
@@ -571,11 +601,26 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         # Khớp tổng mà Sheet còn khoản web chưa theo thì không ẩn việc chờ của sổ (THAY-PHIEU-SHEET-01).
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched
-                    if row["customer_id"] and row.get("reason") != "DETAIL_DIFFERS"},
+                    if row["customer_id"] and row.get("reason") not in ("DETAIL_DIFFERS", "WEB_KEPT")},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
         "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
         "booking_web": booking_web, "details": details,
     }
+
+
+def booking_only(args: argparse.Namespace) -> int:
+    """Chỉ so sổ web với booking (DU-CHUYEN-01), không tải Sheet sổ nợ, không đọc hay ghi `reconcile.json`: chế độ của timer sau khi
+    thôi theo Sheet sổ nợ (WEB-CHINH-01, tắt máy ngày 1/12/2026). Chỉ đọc DB; kết quả ở `booking-web.json` như trong lượt đối soát."""
+    if not args.booking_check:
+        print(json.dumps({"ok": True, "mode": "booking-only", "booking_web": {"skipped": "OFF"}}))
+        return 0
+    started = time.monotonic()
+    db = PsqlDirect(args.socket_dir, args.database, args.db_user)
+    books: list[dict] = []
+    read_web(db, db.run("list_customers", {}, ACTOR).get("customers", []), books=books)
+    result = booking_check.run_web_safely(books, booking_check.web_path(args.booking_output), args.snapshot, args.road)
+    print(json.dumps({"ok": "error" not in result, "mode": "booking-only", "booking_web": result, "seconds": round(time.monotonic() - started)}))
+    return 2 if "error" in result else 0
 
 
 def fixed_earlier_today(output: Path, day: str) -> list[dict[str, Any]]:
@@ -615,7 +660,7 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source-dir", type=Path, required=True, help="thư mục CSV của mốc sổ gốc (như v7_export_clean)")
+    parser.add_argument("--source-dir", type=Path, help="thư mục CSV của mốc sổ gốc (như v7_export_clean); bắt buộc trừ --booking-only")
     parser.add_argument("--output", type=Path, default=Path(os.getenv("WEBDEBIT_RECONCILE_PATH") or OUTPUT))
     parser.add_argument("--work-dir", default=WORK, help="chỗ để bản tải trong lúc chạy; xóa ngay sau lượt")
     parser.add_argument("--xlsx", type=Path, help="dùng bản tải có sẵn thay vì tải Sheet")
@@ -626,12 +671,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", default="webdebit_v7")
     parser.add_argument("--db-user", default="v7_app")
     parser.add_argument("--fix", action="store_true", help="ghi tổ hợp đã chọn; không có thì chỉ báo")
+    parser.add_argument("--booking-only", action="store_true",
+                        help="chỉ so sổ web với booking (DU-CHUYEN-01), không tải Sheet sổ nợ; dùng sau khi thôi theo Sheet (1/12/2026)")
     parser.add_argument("--booking-output", type=Path, help="kết quả kiểm booking (KIEM-BOOKING-01); mặc định booking-check.json cạnh --output")
     parser.add_argument("--snapshot", type=Path, default=Path(os.getenv("WEBDEBIT_SNAPSHOT_PATH") or booking_check.FOLDER / "snapshot.json"))
     parser.add_argument("--road", type=Path, default=Path(os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH") or booking_check.FOLDER / "road.json"))
     args = parser.parse_args(argv)
     args.booking_output = args.booking_output or args.output.with_name("booking-check.json")
     args.booking_check = os.getenv("WEBDEBIT_BOOKING_CHECK", "on") != "off"   # tắt nhanh không cần release mới
+    if args.booking_only:
+        if args.fix or args.xlsx:
+            parser.error("--booking-only không đi cùng --fix hay --xlsx")
+        return booking_only(args)
+    if args.source_dir is None:
+        parser.error("cần --source-dir")
     if not args.xlsx and (not args.spreadsheet_id or not args.credentials):
         parser.error("cần --xlsx, hoặc --spreadsheet-id và --credentials (biến môi trường của runner)")
     started = time.monotonic()

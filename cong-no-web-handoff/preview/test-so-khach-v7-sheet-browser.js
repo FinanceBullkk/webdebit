@@ -55,7 +55,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
   await viewMonth(page, clock);
-  assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
+  assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), 'chưa có giá');   // WEB-CHINH-01: trước đây để trống
   assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
@@ -80,6 +80,32 @@ test('CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet hiện xám ở tháng của n�
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, waiting_count: 1, items: [], waiting_items: [
     { sync_state: 'WAITING', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', source_row: 12, event_date: '2026-09-20', container: 'WAITU0000001',
       carrier: 'WH', origin: 'Nơi A', destination: 'Nơi B', changed_fields: [], existing_kind: null, existing_id: null },
+  ] };
+}));
+
+test('DONG-MO-BOOKING-01: chuyến booking sổ chưa có hiện mờ cuối bảng, không nút ghi; dòng đã hiện từ Sheet không lặp', async () => withPage(async ({ page, shot }) => {
+  await viewMonth(page, '2026-09');
+  const row = page.locator('tr.booking-missing');
+  assert.equal(await row.count(), 1, 'BOTHU0000002 đã hiện thành dòng chờ tab Sheet nên không vẽ lần hai');
+  assert.match(await row.innerText(), /MISSU0000001[\s\S]*CHƯA VÀO SỔ[\s\S]*18\/09\/2026/);
+  assert.doesNotMatch(await row.innerText(), /→/, 'không có tuyến thì không vẽ mũi tên');
+  assert.match(await row.getAttribute('title'), /Tháng cũ máy không tự thêm/);
+  assert.equal(await row.locator('button, input').count(), 0);
+  assert.equal(await row.locator('a.booking-missing-go').getAttribute('href'), '/bao-cao-thang.html?month=2026-09&webchua=1');
+  // Bảng vẫn đếm chuyến thật của sổ; dòng mờ không thêm việc trên chip tháng.
+  assert.doesNotMatch(await page.locator('#app').innerHTML(), /từ Sheet cần xem/);
+  await shot('dong-mo-booking');
+  await viewMonth(page, clock);
+  assert.match(await page.locator('tr.booking-missing').getAttribute('title'), /Máy thường tự đưa vào sổ/);
+}, world => {
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, waiting_count: 1, items: [], waiting_items: [
+    { sync_state: 'WAITING', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', source_row: 12, event_date: '2026-09-20', container: 'BOTHU0000002',
+      carrier: 'WH', origin: 'Nơi A', destination: 'Nơi B', changed_fields: [], existing_kind: null, existing_id: null },
+  ] };
+  world.bookingMissing = { checked_at: '2026-11-25T15:05:00+07:00', items: [
+    { container: 'MISSU0000001', date: '2026-09-18', kind: 'BIEN', ref: 'BK1' },
+    { container: 'BOTH U0000002', date: '2026-09-21', kind: 'BIEN', ref: 'BK2' },
+    { container: 'NOWU0000003', date: clock, kind: 'BIEN', ref: 'BK3' },
   ] };
 }));
 
@@ -198,7 +224,7 @@ test('Ghi giá từ Sheet: Sheet đổi giữa chừng thì không ghi gì và m
 
 test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Sheet, khớp nhiều chuyến chỉ báo', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('.price-approve').count(), 0);
-  assert.match(await page.locator('.price-strip').innerText(), /Giá từ Sheet cần xem:\s*5/);
+  assert.match(await page.locator('.price-strip').innerText(), /Giá Sheet chưa ghi được:\s*5/);
   await page.locator('.price-review-toggle').click();
   const items = page.locator('.price-panel li');
   assert.equal(await items.count(), 5);
@@ -335,3 +361,31 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ l�
   await reload(page);
   await page.waitForSelector('[data-row="trip-11"].sheet-removed');
 }, world => removedTrip(world, { month_locked: true })));
+
+test('WEB-CHINH-01: chuyến bộ chờ chọn sổ hiện ở sổ ứng viên đầu, người nhập chọn sổ và xác nhận ngay trên Sổ khách', async () => withPage(async ({ page, world, shot }) => {
+  const strip = page.locator('.road-choice-strip');
+  assert.match(await strip.innerText(), /Chuyến bộ chờ chọn sổ:\s*1/);
+  assert.equal(await page.locator('.road-choice-panel').count(), 0);   // gọn: chỉ dải, bấm Xem mới mở
+  await strip.locator('.road-choice-toggle').click();
+  const panel = page.locator('.road-choice-panel');
+  assert.match(await panel.innerText(), /MAUU0000041[\s\S]*chọn sổ nhận chuyến/);
+  assert.deepEqual(await panel.locator('.road-book option').allTextContents(), ['Chọn sổ', 'Khách Thử Sửa', 'Công ty Mẫu Phú Gia']);
+  await panel.locator('.road-choice-pick').click();   // chưa chọn sổ: không gửi gì
+  assert.equal(world.requests.length, 0);
+  await panel.locator('.road-book').selectOption('2');
+  await panel.locator('.road-choice-pick').click();
+  await page.locator('.road-choice-write').waitFor();   // đọc phiên bản sổ được chọn xong mới hỏi xác nhận
+  assert.match(await panel.innerText(), /Đưa vào sổ Công ty Mẫu Phú Gia\? Chưa có giá, nợ không đổi/);
+  await shot('chuyen-bo-chon-so');
+  await page.locator('.road-choice-write').click();
+  await page.locator('.road-choice-strip').waitFor({ state: 'detached' });
+  const [path, body] = posts(world).at(-1);
+  assert.equal(path, '/api/v7/sheet/road/assign');
+  assert.deepEqual([body.customer_id, body.target_customer_id, body.source_fingerprint], [1, 2, 'e'.repeat(64)]);
+  assert.ok(Number.isInteger(body.expected_version) && Number.isInteger(body.target_version));
+  assert.match(await page.locator('.live-notice').innerText(), /Đã đưa MAUU0000041 vào sổ Công ty Mẫu Phú Gia/);
+}, world => {
+  world.sheetRoad = { snapshot_sha256: 'a'.repeat(64), items: [{ sync_state: 'CONFLICT', sync_reason: 'NEEDS_BOOK', source_fingerprint: 'e'.repeat(64),
+    container: 'MAUU0000041', event_date: `${clock.slice(0, 7)}-05`, message: 'Tab Sheet ghi container này ở nhiều dòng hoặc nhiều sổ · chọn sổ nhận chuyến',
+    candidate_books: [{ id: 1, name: 'Khách Thử Sửa' }, { id: 2, name: 'Công ty Mẫu Phú Gia' }] }] };
+}));

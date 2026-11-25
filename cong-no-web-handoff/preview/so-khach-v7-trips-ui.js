@@ -6,6 +6,11 @@
   const { root, model, escape, fmt, cell, num, empty, columns, dateText, sheetDay, fieldNames, moved, feeTypeName } = ctx;
   const { shipperCell } = columns;
   const moneyCell = value => /^-?\d+$/.test(value ?? '') ? fmt(value) : (value ?? '');
+  // 45000000 → "45 tr", 45500000 → "45,5 tr": nhãn ngắn trong ô giá hẹp.
+  const millionText = value => {
+    const n = BigInt(value), fraction = (n % 1000000n).toString().padStart(6, '0').replace(/0+$/, '');
+    return `${n / 1000000n}${fraction ? `,${fraction}` : ''} tr`;
+  };
   const conflictFields = row => row.changed_fields?.length
     ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', shipper: 'shipper',
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
@@ -104,10 +109,14 @@
     const number = sttBase + index + 1;
     const stt = info ? deleteCell('trip', trip.id, trip.is_fee_only ? '–' : number, `chuyến ${what}`, feePick(`trip:${trip.id}`, what, feeEditable))
       : trip && !trip.is_fee_only ? cell(number) : empty();
-    const priceText = trip?.is_missing_price ? ['Chuyến đồng bộ', 'Chuyến bộ đồng bộ'].includes(trip.note) ? '' : 'chưa có giá' : fmt(trip?.unit_price_vnd);
+    // WEB-CHINH-01: từ 1/12/2026 giá gõ trên web, nên ô chưa giá luôn ghi "chưa có giá", kể cả chuyến máy dán từ booking.
+    const priceText = trip?.is_missing_price ? 'chưa có giá' : fmt(trip?.unit_price_vnd);
+    // GIA-BOOKING-01: chuyến sửa được có giá booking đọc chắc thì ô hiện giá đó; mở ô là điền sẵn, Enter mới ghi (so-khach-v7-edit-ui.js).
+    const booking = !pending && !locked && trip?.is_missing_price && trip.editable === true ? model.bookingHint(ctx.snapshot, trip) : null;
+    const hint = booking?.unit ? `<span class="booking-fill" title="${escape(`Booking ghi "${booking.text}". Bấm để điền ${fmt(booking.unit)} đ, Enter mới ghi.`)}">booking ${escape(millionText(booking.unit))}</span>` : '';
     const price = pending || trip?.status === 'rejected' || locked ? num(priceText)
       : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" `
-        + `role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${priceText}</td>` : empty('num');
+        + `role="button" aria-label="Sửa đơn giá chuyến ${index + 1}${hint ? `, giá booking ${escape(fmt(booking.unit))} đồng` : ''}">${priceText}${hint}</td>` : empty('num');
     // SO-GON-04 (L5): trạng thái dòng là nhãn chữ có nền màu ở cột Thành tiền — "chờ kiểm" bấm mở dòng kết luận, "đã loại" gạch.
     const amount = !trip ? empty('num') : pending && locked ? '<td class="num"><span class="row-tag review">chờ kiểm</span></td>'
       : pending ? `<td class="num review-cell"><button type="button" class="review-open row-tag review" data-trip="${trip.id}" aria-expanded="false" `
@@ -151,6 +160,20 @@
     }).join('');
   };
 
+  // DONG-MO-BOOKING-01: chuyến booking có mà sổ chưa có, theo lượt so sổ web mỗi giờ. Chỉ để xem, không nút ghi: "Xem" mở
+  // danh sách "web chưa có" của Báo cáo tháng, nơi ghi vì sao máy chưa đưa vào sổ. Tháng trước 10/2026 máy không tự thêm (DU-CHUYEN-01 (3)).
+  // Chỉ một nhãn trên màn (góp ý 25/11/2026: bớt chữ); câu giải thích ở chữ rê chuột.
+  const bookingTip = month => month < '2026-10'
+    ? 'Booking có chuyến này mà sổ chưa có. Tháng cũ máy không tự thêm: chủ sổ kết luận sót tiền, booking ghi lặp hay không tính.'
+    : 'Booking có chuyến này mà sổ chưa có. Máy thường tự đưa vào sổ ở lượt mỗi giờ; bấm Xem để biết vì sao chưa.';
+  const bookingMissingRows = rows => rows.map(row => {
+    const month = String(row.date).slice(0, 7);
+    return `<tr class="booking-missing" title="${escape(bookingTip(month))}">${empty()}<td>${escape(row.container)}`
+      + `<small class="sheet-tag">CHƯA VÀO SỔ</small></td>${cell('')}${shipperCell(cell(''))}${cell(dateText(row.date))}`
+      + `${empty()}${empty('num')}${feeEmpty()}<td class="num"><a class="booking-missing-go" `
+      + `href="/bao-cao-thang.html?month=${escape(month)}&amp;webchua=1" aria-label="Xem vì sao chuyến ${escape(row.container)} chưa vào sổ">Xem</a></td></tr>`;
+  }).join('');
+
   // Dòng trong sổ mà Sheet có dữ liệu khác: tô KHÁC và nút Xem (khung đối chiếu ở so-khach-v7-sheet-ui.js).
   function conflictsAfterRender(data) {
     const sheetRows = data.sheet_sync?.items ?? [];
@@ -169,5 +192,5 @@
     }
   }
 
-  Object.assign(ctx, { legacyTripRow, webTripRow, sheetPendingRows, conflictsAfterRender });
+  Object.assign(ctx, { legacyTripRow, webTripRow, sheetPendingRows, bookingMissingRows, conflictsAfterRender });
 };

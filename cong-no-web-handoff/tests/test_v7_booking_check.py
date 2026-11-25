@@ -373,6 +373,16 @@ class WebCheckTests(unittest.TestCase):
         self.assertTrue(on_book and all(row["customer_id"] in (1, 2, 3) for row in on_book), "dòng sổ web mang mã sổ để mở đúng sổ")
         self.assertTrue(all("customer_id" not in row for row in result["rows"] if not row["tab"]))
 
+    def test_missing_trips_carry_the_suggested_book_id(self):
+        """DONG-MO-BOOKING-01: chuyến booking chưa có trên web mang mã sổ gợi ý; chủ hàng chưa ghép sổ nào thì không mang."""
+        rows = {row["container"]: row for row in self.evaluate()["rows"] if row["group"] in ("missing", "recent")}
+        self.assertEqual(rows["MISU9999999"]["suggest"]["customer_id"], 1)
+        self.assertEqual(rows["NEWU1515151"]["suggest"]["customer_id"], 1, "tháng này cũng mang mã sổ")
+        self.assertIsNone(rows["QQQU1313131"]["suggest"])
+        twin = self.evaluate([*BOOKS, book(9, "A", [target("TWIU1000001", "2026-05-01")])])
+        self.assertNotIn("customer_id", next(row for row in twin["rows"] if row["container"] == "MISU9999999")["suggest"],
+                         "hai sổ trùng tên: không đoán")
+
     def test_empty_web_is_an_error_not_all_clear(self):
         with self.assertRaises(job.CheckError) as caught:
             self.evaluate([book(1, "A", [target("OLDU5555555", "2025-06-10")])])

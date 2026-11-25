@@ -1,0 +1,152 @@
+{
+  "app-nav.css": {
+    "mau": 40,
+    "bo": 7
+  },
+  "bang-thu.css": {
+    "mau": 36,
+    "chu": 4,
+    "bo": 13
+  },
+  "bao-cao-thang.css": {
+    "mau": 7,
+    "bo": 9,
+    "vien": 1
+  },
+  "cong-no-theme.css": {
+    "mau": 16,
+    "chu": 6,
+    "bo": 7
+  },
+  "cong-no-theo-thang.css": {
+    "mau": 17,
+    "chu": 7,
+    "bo": 12,
+    "vien": 1
+  },
+  "cong-no-thong-bao.css": {
+    "mau": 26,
+    "bo": 4,
+    "vien": 1
+  },
+  "dashboard-v7.css": {
+    "mau": 45,
+    "chu": 14,
+    "bo": 25
+  },
+  "doi-no.css": {
+    "mau": 20,
+    "chu": 1,
+    "bo": 3
+  },
+  "doi-xe-thu.css": {
+    "mau": 46,
+    "chu": 5,
+    "bo": 15
+  },
+  "doi-xe.css": {
+    "mau": 74,
+    "chu": 5,
+    "bo": 31
+  },
+  "khach.css": {
+    "mau": 20,
+    "bo": 3
+  },
+  "may-chay.css": {
+    "mau": 4,
+    "chu": 10,
+    "bo": 14
+  },
+  "nguoi-dung.css": {
+    "mau": 43,
+    "chu": 1,
+    "bo": 13
+  },
+  "nhat-ky-cong-viec.css": {
+    "mau": 25,
+    "chu": 7,
+    "bo": 10,
+    "vien": 1
+  },
+  "presence.css": {
+    "mau": 12,
+    "bo": 5
+  },
+  "sheet-trip-queue-live.html": {
+    "mau": 10,
+    "bo": 1,
+    "vien": 1
+  },
+  "so-khach-v7-contact.css": {
+    "mau": 52,
+    "chu": 5,
+    "bo": 6
+  },
+  "so-khach-v7-detail.css": {
+    "mau": 63,
+    "bo": 4,
+    "vien": 2
+  },
+  "so-khach-v7-live.html": {
+    "mau": 2
+  },
+  "so-khach-v7-overview.css": {
+    "mau": 44,
+    "chu": 1,
+    "bo": 4,
+    "vien": 1
+  },
+  "so-khach-v7-phone.css": {
+    "mau": 49,
+    "chu": 3,
+    "bo": 6
+  },
+  "so-khach-v7-priority.css": {
+    "mau": 68,
+    "chu": 2,
+    "bo": 20
+  },
+  "so-khach-v7-ps.css": {
+    "mau": 35,
+    "chu": 1,
+    "bo": 6
+  },
+  "so-khach-v7-reference.css": {
+    "mau": 96,
+    "chu": 3,
+    "bo": 21
+  },
+  "so-khach-v7.css": {
+    "mau": 595,
+    "chu": 10,
+    "bo": 105,
+    "vien": 9
+  },
+  "so-khach-v7.html": {
+    "mau": 54,
+    "bo": 4,
+    "vien": 2
+  },
+  "thong-tin-cty.css": {
+    "mau": 5,
+    "bo": 4
+  },
+  "thu-chi.css": {
+    "mau": 24,
+    "chu": 1,
+    "bo": 16
+  },
+  "viec-can-lam.css": {
+    "mau": 210,
+    "chu": 4,
+    "bo": 33,
+    "vien": 1
+  },
+  "zalo-chat.css": {
+    "mau": 13,
+    "chu": 2,
+    "bo": 17,
+    "vien": 3
+  }
+}

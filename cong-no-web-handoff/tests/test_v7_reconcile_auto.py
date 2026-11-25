@@ -9,6 +9,7 @@ import unittest
 from collections import Counter
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -218,27 +219,18 @@ class ReconcileAutoTest(unittest.TestCase):
                          ("FIXED", "KHOP", str(FAKE_AMOUNT - PAID), "0", {"receipts": 1, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0, "receipts_voided": 0}))
         self.assertEqual(result["matched"], {"1": str(FAKE_AMOUNT - PAID)})
 
-    def test_matched_book_whose_sheet_replaced_a_receipt_follows_the_sheet(self):
-        """THAY-PHIEU-SHEET-01: tổng khớp vì hai thay đổi trên Sheet bù nhau. Máy vẫn xét: mọi việc chờ cộng lại bằng 0 thì ghi hết."""
+    def test_matched_book_whose_sheet_replaced_a_receipt_waits_for_a_person(self):
+        """THAY-PHIEU-SHEET-01 rồi WEB-CHINH-01 (25/11/2026): tổng khớp vì Sheet thay một phiếu web đã ghi bằng phiếu khác cùng số. Trước
+        đây máy hủy phiếu cũ, ghi phiếu mới; nay web là sổ chính nên máy không đụng, khách hiện cho người và việc chờ không bị ẩn."""
         self.undated_receipt_book()
         db = GoneReceiptDb(PAID)
         self.assertEqual(self.run_job(db, "--fix")[0], 0)
-        self.assertEqual([(w[0], w[1].get("pid"), w[1]["amount_vnd"] if w[0] == "record_receipt" else None) for w in db.writes],
-                         [("void_receipt", "PH-001", None), ("record_receipt", None, str(PAID))])
+        self.assertEqual(db.writes, [])
         result = self.result()
         row = result["customers"][0]
-        self.assertEqual((result["counts"], row["status"], row["reason"], row["difference_vnd"]), ({"KHOP": 1}, "KHOP", "FIXED", "0"))
-        self.assertEqual(row["written"]["receipts_voided"], 1)
-        self.assertEqual(result["details"], {"checked": 1, "fixed": 1})
-
-    def test_matched_book_write_error_half_way_is_no_longer_counted_as_matched(self):
-        self.undated_receipt_book()
-        db = GoneReceiptDb(PAID)
-        db.fail = "record_receipt"   # hủy xong, ghi phiếu mới bị từ chối: tổng đã đổi
-        self.assertEqual(self.run_job(db, "--fix")[0], 0)
-        row = self.result()["customers"][0]
-        self.assertEqual((row["status"], row["reason"], row["difference_vnd"]), ("LECH_TONG", "WRITE_ERROR", str(PAID)))
-        self.assertEqual(self.result()["matched"], {})
+        self.assertEqual((result["counts"], row["status"], row["reason"], row["difference_vnd"]), ({"KHOP": 1}, "KHOP", "WEB_KEPT", "0"))
+        self.assertEqual(sorted(group["kind"] for group in row["kept"]), ["receipts_gone", "receipts_no_date"])
+        self.assertEqual((result["details"], result["matched"]), ({"checked": 1, "web_kept": 1}, {}))
 
     def test_matched_book_with_waiting_work_that_does_not_cancel_out_is_listed(self):
         self.undated_receipt_book()
@@ -574,6 +566,24 @@ class ReconcileAutoTest(unittest.TestCase):
                          [("Tab mới", "500", "2026-10", "NOT_ON_TONG"), ("Lệch TONG", "300", "2026-10", "TONG_DIFFERS"),
                           ("Không đọc được", "200", "2026-10", "TAB_UNREADABLE")])
 
+    def test_web_created_book_without_a_tab_is_not_a_difference(self):
+        """KHACH-WEB-01: sổ quản lý tạo trên web (có tên booking) không có tab là đúng thiết kế; sổ không tên booking mà mất tab vẫn báo."""
+        fixture(self.source)
+
+        class WebBooks(Db):
+            def run(self, function, payload, actor):
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "name": FAKE_NAME, "status": "active"},
+                                          {"id": 5, "name": "SO WEB MOI", "status": "active", "booking_names": ["SO WEB MOI"]},
+                                          {"id": 6, "name": "SO MAT TAB", "status": "active", "booking_names": []}]}
+                return super().run(function, payload, actor)
+        db = WebBooks()
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(db.writes, [])
+        rows = {row["customer"]: (row["status"], row["reason"]) for row in self.result()["customers"]}
+        self.assertEqual(rows["SO WEB MOI"], ("CHI_CO_WEB", "WEB_BOOK"))
+        self.assertEqual(rows["SO MAT TAB"], ("CHI_CO_WEB", "CHI_CO_WEB"))
+
     def test_held_customer_is_named_with_reason_and_never_touched(self):
         fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])   # chuỗi số dư trên Sheet không khớp
         db = Db()
@@ -805,6 +815,200 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(result["customers"][0]["reason"], "NOTHING_TO_WRITE")
         self.assertNotIn("sheet_editing", result["customers"][0])
         self.assertEqual(json.loads(printed)["edit_log"], "UNAVAILABLE")
+
+
+class BookDb:
+    """Sổ 7 ("KHACH A") dựng từ chuyến, phiếu và dòng điều chỉnh giả; lệnh ghi đổi tổng đúng như hàm SQL. Dùng cho `settle` trực tiếp."""
+
+    def __init__(self, trips=(), receipts=(), adjustments=(), fail=None):
+        self.trips, self.receipts, self.adjustments = [dict(t) for t in trips], [dict(r) for r in receipts], [dict(a) for a in adjustments]
+        self.version, self.writes, self.fail = 9, [], fail
+
+    def total(self):
+        charged = sum(int(t["unit_price_vnd"]) + int(t.get("other_fee_vnd") or 0) for t in self.trips if t.get("unit_price_vnd") is not None)
+        paid = sum(int(r["amount_vnd"]) for r in self.receipts if not r.get("voided_by_event"))
+        return charged + sum(int(a["amount_vnd"]) for a in self.adjustments) - paid
+
+    def run(self, function, payload, actor):
+        if function == "get_ledger":
+            return {"customer_id": 7, "version": self.version, "total_outstanding_vnd": str(self.total()), "today_month": "2026-11-01",
+                    "month_locks": [], "legacy_rows": [], "events": [], "trips": self.trips, "receipts": self.receipts,
+                    "adjustments": self.adjustments}
+        self.writes.append((function, payload, actor))
+        if function == self.fail:
+            raise ApiError(409, "STALE_LEDGER", "x")
+        self.version += 1
+        if function == "record_receipt":
+            self.receipts.append({"pid": f"PH-{self.version}", "date": payload["date"], "method": "THU TIỀN",
+                                  "amount_vnd": payload["amount_vnd"], "reference": payload["reference"]})
+        elif function == "edit_trip_price":
+            trip = next(t for t in self.trips if t["id"] == payload["trip_id"])
+            trip.update(unit_price_vnd=payload["unit_price_vnd"], other_fee_vnd=payload["other_fee_vnd"])
+        elif function == "void_receipt":
+            next(r for r in self.receipts if r["pid"] == payload["pid"])["voided_by_event"] = self.version
+        elif function == "adjust_month":
+            self.adjustments.append({"id": self.version, "month": payload["debt_month"], "amount_vnd": payload["amount_vnd"], "note": payload["note"]})
+        elif function == "delete_month_adjustment":
+            self.adjustments = [a for a in self.adjustments if a["id"] != payload["adjustment_id"]]
+        return {"version": self.version}
+
+
+def trip(trip_id, container, unit=None, month="2026-11", day="03"):
+    return {"id": trip_id, "status": "confirmed", "container": container, "event_date": f"{month}-{day}", "month": f"{month}-01",
+            "unit_price_vnd": unit, "other_fee_vnd": None}
+
+
+def line(source_row, container, unit=None, month="2026-11", day="03", tab="KHACH A"):
+    return {"customer_tab": tab, "source_row": source_row, "debt_month": month, "container": container, "date": f"{month}-{day}",
+            "sheet_unit_price_vnd": unit, "sheet_other_fee_vnd": None, "sheet_total_vnd": unit}
+
+
+def paid(source_row, amount, day=None, month="2026-11"):
+    """Dòng thu Sheet; ngày đọc từ ghi chú như runner (`pay_date`), không ngày thì là phiếu không ngày."""
+    note = f"{day[8:10]}/{day[5:7]}/{day[:4]} tt" if day else "tt"
+    return {"customer_tab": "KHACH A", "source_row": source_row, "debt_month": month, "amount_vnd": amount, "note": note}
+
+
+class WebKeptTests(unittest.TestCase):
+    """WEB-CHINH-01 (3), 25/11/2026: web là sổ chính thức. Máy theo Sheet chỉ thêm cái web chưa có; Sheet đổi giá, sửa hay bỏ phiếu web
+    đã ghi, dòng tiền kéo tổng về Sheet thì máy không ghi, khách thành việc của người (`WEB_KEPT`) và web giữ nguyên tới khi người bấm."""
+
+    CUSTOMERS = ({"id": 7, "name": "KHACH A"}, {"id": 8, "name": "KHACH B"})
+    TODAY = job.dt.date(2026, 11, 25)
+    TABS: ClassVar[dict] = {"KHACH A": {"status": "ok", "findings": []}}
+
+    def settle(self, db, sheet_total, price_rows=(), receipt_rows=(), *, matched=False, write=True):
+        prices = {"rows": list(price_rows), "sha256": "a" * 64, "tabs": self.TABS}
+        receipts = {"rows": list(receipt_rows), "sha256": "b" * 64, "tabs": self.TABS}
+        row = {"customer": "KHACH A", "status": "KHOP" if matched else "LECH_TONG", "sheet_total_vnd": sheet_total}
+        settle = job.settle_matched if matched else job.settle
+        with patch("sys.stderr"):
+            settle(db, row, 7, list(self.CUSTOMERS), prices, receipts, self.TODAY, write=write)
+        return row
+
+    def test_new_receipt_is_written_and_a_sheet_price_change_waits_for_a_person(self):
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")])
+        row = self.settle(db, 100 + 20 - 50, [line(1, "AAAA1", unit=120)], [paid(30, 50, day="2026-11-20")])
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])   # trước 25/11: cả edit_trip_price lấy giá Sheet
+        self.assertEqual(db.trips[0]["unit_price_vnd"], "100")
+        self.assertEqual((row["reason"], row["status"], row["web_total_vnd"], row["difference_vnd"]), ("WEB_KEPT", "LECH_TONG", 50, -20))
+        self.assertEqual(row["kept"], [{"kind": "prices", "month": "2026-11", "count": 1, "delta_vnd": "20"}])
+        self.assertEqual(row["written"]["receipts"], 1)
+        self.settle(db, 100 + 20 - 50, [line(1, "AAAA1", unit=120)], [paid(30, 50, day="2026-11-20")])
+        self.assertEqual(len(db.writes), 1)   # lượt sau: phần để người vẫn để người, không ghi lại phiếu
+
+    def test_price_for_an_unpriced_trip_is_still_added(self):
+        db = BookDb(trips=[trip(1, "AAAA1")])
+        row = self.settle(db, 90, [line(1, "AAAA1", unit=90)])
+        self.assertEqual(([w[0] for w in db.writes], row["reason"], row["status"]), (["edit_trip_price"], "FIXED", "KHOP"))
+        self.assertNotIn("kept", row)
+
+    def test_receipt_the_sheet_dropped_is_not_voided(self):
+        old = {"pid": "PH-001", "date": "2026-11-10", "method": "THU TIỀN", "amount_vnd": "40", "reference": "Sheet: 10/11/2026 tt"}
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")], receipts=[old])
+        row = self.settle(db, 100, [line(1, "AAAA1", unit=100)])
+        self.assertEqual((db.writes, row["reason"], row["kept"][0]["kind"]), ([], "WEB_KEPT", "receipts_gone"))
+        self.assertIsNone(db.receipts[0].get("voided_by_event"))
+
+    def test_receipt_the_sheet_changed_keeps_the_old_slip_and_does_not_add_the_new_one(self):
+        """Sheet sửa số một phiếu web đã ghi từ Sheet: phiếu cũ thành "Sheet không còn", phiếu mới thành "sẵn sàng". Ghi riêng phiếu mới là
+        thu hai lần, nên cả hai chờ người."""
+        old = {"pid": "PH-001", "date": "2026-11-10", "method": "THU TIỀN", "amount_vnd": "40", "reference": "Sheet: 10/11/2026 tt"}
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")], receipts=[old])
+        row = self.settle(db, 100 - 45, [line(1, "AAAA1", unit=100)], [paid(31, 45, day="2026-11-10")])
+        self.assertEqual((db.writes, row["reason"]), ([], "WEB_KEPT"))
+        self.assertEqual(sorted(group["kind"] for group in row["kept"]), ["receipts", "receipts_gone"])
+
+    def test_money_row_without_container_is_not_turned_into_an_adjustment(self):
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")])
+        row = self.settle(db, 143, [line(1, "AAAA1", unit=100), line(2, "", unit=43)])
+        self.assertEqual((db.writes, db.adjustments, row["reason"]), ([], [], "WEB_KEPT"))
+        self.assertEqual(row["kept"], [{"kind": "fee_rows", "month": "2026-11", "count": 1, "delta_vnd": "43"}])
+
+    def test_machine_adjustment_whose_sheet_row_is_gone_is_not_deleted(self):
+        mine = {"id": 77, "month": "2026-11-01", "amount_vnd": "43", "note": job.fix.FEE_NOTE + ", dòng 2"}
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")], adjustments=[mine])
+        row = self.settle(db, 100, [line(1, "AAAA1", unit=100)])
+        self.assertEqual((db.writes, len(db.adjustments), row["reason"], row["kept"][0]["kind"]), ([], 1, "WEB_KEPT", "fee_undo"))
+
+    def test_matched_book_whose_sheet_changes_cancel_out_writes_nothing(self):
+        """Khách khớp tổng mà Sheet đổi giá hai chuyến bù nhau: trước 25/11 máy ghi cả hai theo Sheet, nay là việc của người."""
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100"), trip(2, "AAAA2", unit="80", month="2026-10")])
+        row = self.settle(db, 180, [line(1, "AAAA1", unit=110), line(2, "AAAA2", unit=70, month="2026-10")], matched=True)
+        self.assertEqual((db.writes, row["reason"], row["status"], row["detail_check"]), ([], "WEB_KEPT", "KHOP", True))
+
+    def test_matched_book_whose_additions_cancel_out_is_written_and_a_half_write_is_no_longer_matched(self):
+        """Khách khớp tổng mà Sheet thêm cả giá cho chuyến chưa giá lẫn một phiếu bằng đúng số đó: toàn việc thêm, máy ghi hết. Ghi dở
+        (phiếu xong, giá bị từ chối) thì tổng đã đổi, khách không còn tính là khớp."""
+        rows, slips = [line(1, "AAAA1", unit=100), line(2, "AAAA2", unit=50)], [paid(30, 50, day="2026-11-20")]
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100"), trip(2, "AAAA2")])
+        row = self.settle(db, 100, rows, slips, matched=True)
+        self.assertEqual(([w[0] for w in db.writes], row["reason"], row["status"]), (["record_receipt", "edit_trip_price"], "FIXED", "KHOP"))
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100"), trip(2, "AAAA2")], fail="edit_trip_price")
+        row = self.settle(db, 100, rows, slips, matched=True)
+        self.assertEqual((row["status"], row["reason"], row["difference_vnd"]), ("LECH_TONG", "WRITE_ERROR", -50))
+
+    def test_report_mode_still_says_it_would_add_and_names_what_waits(self):
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")])
+        row = self.settle(db, 70, [line(1, "AAAA1", unit=120)], [paid(30, 50, day="2026-11-20")], write=False)
+        self.assertEqual((db.writes, row["reason"], [group["kind"] for group in row["kept"]]), ([], "WOULD_FIX", ["prices"]))
+
+    def test_book_104_october_prices_changing_places_stays_shuffled_and_untouched(self):
+        """Sổ 104 tháng 10/2026 (thật, 25/11): Sheet đổi chỗ đơn giá giữa các chuyến, web đúng. Máy chỉ báo `SHEET_SHUFFLED`, không ghi."""
+        trips = [trip(1, "AAAA1", unit="50", month="2026-10"), trip(2, "AAAA2", unit="75", month="2026-10"),
+                 trip(3, "AAAA3", unit="65", month="2026-10"), trip(4, "AAAA4", unit="55", month="2026-10")]
+        rows = [line(1, "AAAA1", unit=75, month="2026-10"), line(2, "AAAA2", unit=65, month="2026-10"),
+                line(3, "AAAA3", unit=50, month="2026-10"), line(4, "AAAA4", unit=50, month="2026-10")]
+        slip = {"pid": "PH-1", "date": "2026-10-20", "method": "THU TIỀN", "amount_vnd": "45", "reference": "Sheet: tt"}
+        db = BookDb(trips=trips, receipts=[slip])
+        row = self.settle(db, 245 - 5 - 45, rows, [paid(30, 45, day="2026-10-20", month="2026-10")])
+        self.assertEqual((db.writes, row["reason"], row["shuffled_months"], row["status"]), ([], "SHEET_SHUFFLED", ["2026-10"], "LECH_TONG"))
+
+    def test_book_134_trip_moved_to_another_book_is_only_reported(self):
+        """Sổ 134 (thật, 25/11): chuyến đã chuyển sang sổ 85 trên web mà tab của sổ 134 còn ghi. Máy chỉ báo lệch tổng, không thêm lại
+        chuyến hay dòng tiền nào vào sổ 134."""
+        db = BookDb(trips=[trip(1, "AAAA1", unit="100")])
+        row = self.settle(db, 100 + 70, [line(1, "AAAA1", unit=100), line(109, "MOVE0000001", unit=70)])
+        self.assertEqual((db.writes, row["status"], row["reason"]), ([], "LECH_TONG", "NOTHING_TO_WRITE"))
+        self.assertNotIn("kept", row)
+
+
+class BookingOnlyTests(unittest.TestCase):
+    """WEB-CHINH-01, tắt máy 1/12/2026: `--booking-only` chỉ so sổ web với booking. Không tải Sheet, không đọc hay ghi reconcile.json,
+    không lệnh ghi DB nào."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.output = Path(self.temp.name) / "reconcile.json"
+
+    def run_job(self, db, env=None, *extra):
+        printed, seen = io.StringIO(), {}
+
+        def compare(books, output, sea, road):
+            seen.update(books=books, output=output)
+            return {"counts": {"khop": 1}, "booking": 1, "web_rows": 1, "paired": 1, "seconds": 0}
+        with patch.object(job, "PsqlDirect", return_value=db), patch.object(job.booking_check, "run_web_safely", compare), \
+                patch.object(job, "download", side_effect=AssertionError("không được tải Sheet")), \
+                patch.dict("os.environ", env or {"WEBDEBIT_BOOKING_CHECK": "on"}), redirect_stdout(printed), patch("sys.stderr"):
+            code = job.main(["--booking-only", "--output", str(self.output), *extra])
+        return code, json.loads(printed.getvalue()), seen
+
+    def test_compares_web_books_with_booking_and_touches_nothing_else(self):
+        db = Db()
+        code, printed, seen = self.run_job(db)
+        self.assertEqual((code, printed["mode"], printed["ok"], db.writes), (0, "booking-only", True, []))
+        self.assertEqual(([book["id"] for book in seen["books"]], [t["container"] for t in seen["books"][0]["trips"]]), ([1], ["FAKE-CONT-XY"]))
+        self.assertEqual(seen["output"], self.output.with_name("booking-web.json"))
+        self.assertFalse(self.output.exists())
+
+    def test_switched_off_and_wrong_combinations(self):
+        code, printed, seen = self.run_job(Db(), {"WEBDEBIT_BOOKING_CHECK": "off"})
+        self.assertEqual((code, printed["booking_web"], seen), (0, {"skipped": "OFF"}, {}))
+        with patch("sys.stderr"), self.assertRaises(SystemExit):
+            job.main(["--booking-only", "--fix", "--output", str(self.output)])
+        with patch("sys.stderr"), self.assertRaises(SystemExit):
+            job.main(["--output", str(self.output), "--xlsx", "x.xlsx"])   # chế độ đối soát vẫn cần --source-dir
 
 
 if __name__ == "__main__":

@@ -201,11 +201,19 @@ def import_book(pg: Pg, customer: int, cutover: int, amounts: list[int], key: st
                 openings, legacy, checks, sum(amounts) if total is None else total, "a" * 64)
 
 
+def booked(ledger: dict) -> list[dict]:
+    """months[] của get_ledger bỏ dòng tháng hiện tại mà SK-C1 thêm khi tháng đó chưa có gì (phát sinh, đã thu, còn nợ của kỳ
+    đều 0). Ca cũ so các tháng có ghi; ca SK-C1.01 kiểm riêng dòng thêm."""
+    today = ledger.get("today_month")
+    return [row for row in ledger["months"] if not (row["month"] == today and row["charges_vnd"] == "0"
+                                                    and row["received_vnd"] == "0" and row["outstanding_vnd"] == "0")]
+
+
 def months(pg: Pg, customer: int) -> list[tuple[str, str, str]]:
     ledger = call(pg, "get_ledger", customer)
     require(ledger["status"] == "active", "active fixture returned no baseline")
     return [(row["month"][:7], row["outstanding_vnd"], row["end_of_month_vnd"])
-            for row in ledger["months"]]
+            for row in booked(ledger)]
 
 
 def allocations(pg: Pg, customer: int, pid: str) -> list[tuple[str, str, str]]:
@@ -362,6 +370,8 @@ DIEU_CHINH_THEO_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/202
 # Audit SQL F4 23/11/2026: bản get_ledger, _ledger_events, keep_sheet_task, apply_sheet_price, undo_sheet_batch và schema_level hiện
 # hành; chạy sau DIEU_CHINH_THEO_GIA_MIGRATION và sau mọi lần chạy lại 2026-11-04-v7-ledger-events.sql.
 SO_GON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-23-v7-so-gon.sql"
+# SK-C1 25/11/2026: bản get_ledger hiện hành (tháng hiện tại luôn có dòng); chạy sau mọi lần chạy SO_GON_MIGRATION.
+THANG_HIEN_TAI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql"
 # BANG-GIA-02 5/11/2026: bản save_price_table hiện hành; ai chạy lại 2026-10-29-v7-bang-gia.sql thì chạy file này sau.
 GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"

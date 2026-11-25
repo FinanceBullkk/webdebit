@@ -797,7 +797,7 @@ Hằng ngày: `systemctl is-failed v7-backup-hourly.service`; `ls /srv/v7-backup
 Rollback: `sudo systemctl disable --now v7-backup-hourly.timer`, giữ các bản. Gỡ hẳn: xóa hai unit, `daemon-reload`;
 xóa `/srv/v7-backup-hourly` chỉ khi người dùng đồng ý.
 
-Còn mở: không có cảnh báo khi lượt lỗi (audit DevOps 31/10 #2); bản giờ không ra khỏi `hao`.
+Còn mở: không có cảnh báo khi lượt lỗi (audit DevOps 31/10 #2; máy canh có từ 5/11). Bản giờ ra ngoài từ 25/11/2026: [O7](#o7-bản-giờ-ra-ngoài--timer-v7-backup-offsite-hourly-bổ-sung-25112026).
 
 Map kiểm: như B (`v7_backup.daily`, `tests/test_v7_backup_daily.py`). Không chứng minh systemd hay lịch giờ VN.
 
@@ -1064,6 +1064,81 @@ Còn mở:
 Map kiểm: lệnh trên → `v7_backup.offsite/seal/sealed` → `tests/test_v7_backup_offsite.py` (dữ liệu giả, `age` giả; vòng
 `age` thật chạy khi máy có `age`) và `v7_offsite_pull.pull/fetch` → `tests/test_v7_offsite_pull.py` (SFTP giả), cả hai trong
 `npm run check`. Không chứng minh systemd, `authorized_keys`, Task Scheduler hay mạng tailnet.
+
+### O7. Bản giờ ra ngoài — timer `v7-backup-offsite-hourly` (bổ sung 25/11/2026)
+
+Lý do: từ 1/12/2026 web là sổ duy nhất ([`WEB-CHINH-01`](decisions/web-chinh-01.md)), không còn Sheet để dựng lại phần sau
+bản ngày. Trước bổ sung này bản mỗi giờ chỉ nằm trên ổ `hao`, PC chỉ kéo bản ngày: mất ổ là mất tới khoảng 26 giờ ghi. Cùng
+hộp chờ, cùng recipient, cùng khóa SSH và dòng `authorized_keys` như O2; không đổi DB, quyền hay tiền.
+
+| Mục | Chọn | Lý do |
+| --- | --- | --- |
+| Niêm | `v7_backup.py offsite --hourly --root /srv/v7-backup-hourly`: bản giờ mới nhất thành `v7-hourly-<ngày>-<giờ>.tar.age` + `.sha256`; thư mục trong tar vẫn tên `v7-<ngày>-<giờ>` nên `verify`, `restore` không đổi | tên riêng nên luật giữ của họ giờ không xóa bản ngày và ngược lại (`tests/test_v7_backup_offsite.py`) |
+| Giờ trên `hao` | :20 mỗi giờ, 6–22 giờ VN; bản giờ chạy :00 và mất khoảng 1 phút | có bản mới để niêm; lượt :20 không gặp bản đang ghi dở (chỉ bản có `MANIFEST.json`) |
+| Giữ trên `hao` | 24 bản giờ (khoảng 3 MB mỗi bản) | PC tắt qua đêm và sáng hôm sau vẫn kéo bù được bản cuối ngày trước |
+| Kéo trên PC | task riêng `Webdebit V7 Backup Pull Hourly`, `v7_offsite_pull.py --hourly`, đích riêng `<pc_dir>\gio`, giữ 24; mỗi giờ :35/:40/:45 (PC 1/2/3) từ 6:35 tới 22:45 | task, thư mục, `pull.log` riêng: lượt giờ không xóa `.partial` của lượt ngày, không đụng cửa sổ giữ của bản ngày |
+| Báo | một check chung `webdebit kéo bản giờ` trên healthchecks.io (lịch cron `45 6-22 * * *`, múi `Asia/Ho_Chi_Minh`, chờ 3 giờ), mọi PC ping cùng link; phía `hao` máy canh báo timer `v7-backup-offsite-hourly` (nhóm sao lưu, 12 giờ) | một PC nào kéo được là đủ; không PC nào kéo 3 giờ trong ngày thì email. Mọi PC tắt cả ngày cũng có email: là đúng, không bản giờ nào rời `hao` |
+
+**RPO sau bổ sung:** trong 6–22 giờ, tối đa khoảng 1 giờ 45 phút (bản :00, niêm :20, PC kéo :35–:45 giờ sau) khi ít nhất
+một PC bật. Ngoài giờ không có bản giờ (bản ngày 02:40 kéo 04:30–04:50), nên ghi sau 22:00 tới sáng chỉ an toàn khi lượt :20
+sáng hôm sau đã được kéo. PC đều tắt thì RPO quay về bản cuối cùng đã kéo.
+
+`/etc/systemd/system/v7-backup-offsite-hourly.service`:
+
+```ini
+[Unit]
+Description=V7 off-host copy of the newest hourly backup for the PC pull (v7_backup.py offsite --hourly)
+After=v7-backup-hourly.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+UMask=0027
+ExecStart=/usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py offsite --hourly --root /srv/v7-backup-hourly --outbox /srv/v7-backup-offsite --recipients /etc/webdebit-backup/v7-offsite.recipients --keep 24
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/v7-backup-offsite
+TimeoutStartSec=15min
+```
+
+`/etc/systemd/system/v7-backup-offsite-hourly.timer`:
+
+```ini
+[Unit]
+Description=V7 hourly off-host copy schedule (:20, 06-22 Vietnam time)
+
+[Timer]
+OnCalendar=*-*-* 06..22:20:00 Asia/Ho_Chi_Minh
+Persistent=true
+Unit=v7-backup-offsite-hourly.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Cài: ghim lại `v7_backup.py` theo B1 từ commit có `--hourly` (cũ không có cờ này, unit sẽ lỗi), rồi `systemd-analyze verify`,
+`daemon-reload`, `systemctl start v7-backup-offsite-hourly.service`. Đạt khi journal có JSON `"ok": true`, `sealed` là
+`v7-hourly-….tar.age`, và trong hộp chờ hai tệp 640 chủ `postgres` nhóm `<admin>`. Rồi `systemctl enable --now
+v7-backup-offsite-hourly.timer`. Cài trước khi `Deploy hao` đưa máy canh mới lên, không thì máy canh báo timer thiếu.
+
+Trên mỗi PC: chép `v7_offsite_pull.py` từ commit có `--hourly` (so hash như O4), tạo `<pc_dir>\gio` (thừa hưởng quyền của
+`<pc_dir>`), đặt link check chung vào `<pc_dir>\gio\ping-url.txt`, chạy tay một lượt bằng `python.exe` với `--hourly --dest
+"<pc_dir>\gio" --keep 24`. Đạt: mã thoát 0, `pull.log` trong `gio` có `PASS pulled=… newest=v7-hourly-….tar.age … | pinged`.
+Lịch (PC 2, 3 đổi `06:35` thành `06:40`, `06:45`):
+
+```powershell
+$trigger = New-ScheduledTaskTrigger -Daily -At 06:35; $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 06:35 -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Hours 16 -Minutes 30)).Repetition; Register-ScheduledTask -TaskName 'Webdebit V7 Backup Pull Hourly' -Description 'Kéo bản giờ V7 đã mã hóa age từ hao (v7_offsite_pull.py --hourly)' -Action (New-ScheduledTaskAction -Execute '<python_dir>\pythonw.exe' -Argument '-I "<pc_tools>\v7_offsite_pull.py" --hourly --host <hao_ip> --user <admin> --identity "<pc_ssh_dir>\webdebit-v7-offsite-pull-ed25519" --dest "<pc_dir>\gio" --keep 24 --sftp "C:\Windows\System32\OpenSSH\sftp.exe" --ping-url-file "<pc_dir>\gio\ping-url.txt"') -Trigger $trigger -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -MultipleInstances IgnoreNew) -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited)
+```
+
+Phục hồi từ bản giờ: như O5, thay `<ban>` bằng `v7-hourly-…`; sau `tar -xf` thư mục ra là `v7-<ngày>-<giờ>`. Rollback:
+`disable --now` timer, `Disable-ScheduledTask -TaskName 'Webdebit V7 Backup Pull Hourly'` trên PC, Pause check chung; bản
+ngày không bị ảnh hưởng.
+
+Map kiểm: `v7_backup.offsite(hourly=True)` → `tests/test_v7_backup_offsite.py` (tên riêng, hai họ không xóa nhau, thư mục
+trong tar); `v7_offsite_pull --hourly` → `tests/test_v7_offsite_pull.py` (chỉ kéo họ giờ, không xóa `.partial` của họ khác).
 
 ## Gói cấu hình và globals — timer `v7-backup-config`
 
@@ -2432,6 +2507,21 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
    Lệnh in các mục được chấp nhận rồi lấy mốc mới. **Sau mỗi migration hay loader đổi dữ liệu sổ hoặc Lịch sử mà không qua lệnh:** ngay sau đợt nâng chạy `--dry-run`, danh sách phải đúng phạm vi migration, rồi `--accept`. Lượt máy canh lỡ chạy trước thì có một email; chấp nhận xong lượt kế báo ổn lại.
 6. **Tắt:** xóa drop-in rồi `daemon-reload`: kiểm 3, 4 nghỉ, kiểm 1, 2 vẫn chạy. Gỡ hẳn mục: quay release. Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerprints(), sokhach._safety_events(bigint,interval);` (không gì phụ thuộc, không đụng dữ liệu); `/var/lib/v7-watchdog` xóa được.
 
+## Tháng hiện tại luôn có dòng trong GET sổ (SK-C1) — nâng DB đang có (ĐÃ CHẠY trên hao 25/11/2026)
+
+Đã nâng DB và đổi release 25/11/2026, xem [nhật ký](deploys/2026-11-25-thang-hien-tai.md).
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql` ([spec](../specs/v7-thang-hien-tai.md), mục SK-C1 của [audit Sổ khách](ux-audit-so-khach-2026-11-25.md)) chỉ thay thân `get_ledger(bigint)`: CTE `month_keys` thêm tháng hiện tại theo giờ VN. Giữ `SET jit = off`, chủ, quyền. Không đổi bảng, view, dữ liệu, hàm ghi, phân bổ hay `total_outstanding_vnd`. Không tăng `schema_level`. Chạy lại được. **Chạy lại `2026-11-23-v7-so-gon.sql` (hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_ledger`) thì phải chạy lại file này.**
+
+Thứ tự với release: chạy migration trước. Release cũ trên DB mới: chip tháng hiện tại có số (trang đã vẽ được dòng này). Release mới trên DB cũ: thẻ tháng hiện tại vẫn "–" như trước; không ghi gì sai.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử (thu `CONNECT` của PUBLIC), `ANALYZE`. Lưu `get_ledger` mọi sổ. Chạy migration hai lượt, rồi so: với mọi sổ, `total_outstanding_vnd`, `version` và mọi phần ngoài `months` trùng; `months` trùng sau khi bỏ dòng tháng hiện tại nếu trước đó không có; dòng thêm có phát sinh, đã thu, còn nợ của kỳ 0 và Nợ đầu tháng = Còn nợ cuối tháng = Còn nợ cuối của dòng liền trước. Dấu vân tiền trùng, `v7_post_deploy_check.sql` với bảng băm của release mới đạt.
+2. **DB thật:** hàm đọc nên không cần cửa sổ dừng ghi; vẫn dump kèm hash ngay trước, áp với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước/sau (phải bằng nhau), checker.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** mở sổ 10 chỉ xem: thẻ tháng hiện tại có Nợ đầu tháng bằng tổng còn nợ. Ghi nhật ký trong `docs/deploys/`.
+
+Rollback: chạy lại `2026-11-23-v7-so-gon.sql` dưới `sokhach_owner` (bản `get_ledger` đó đã mang `SET jit = off`, không cần chạy lại file JIT); thẻ tháng hiện tại về "–", số khác không đổi.
+
 ## Khách mới và tên chủ hàng booking trên web (KHACH-WEB-01) — nâng DB đang có (ĐÃ CHẠY trên hao 24/11/2026)
 
 Đã nâng DB và đổi release 24/11/2026, xem [nhật ký](deploys/2026-11-24-khach-web.md).
@@ -2856,3 +2946,101 @@ Nếu không đặt `PYTHONPATH`, lệnh `-m unittest discover -s cong-no-web-ha
 từ gốc worktree thiếu `cong-no-web-handoff` trên đường import, gây `No module named 'tools'`
 và `No module named 'pilot'`. Đây là yêu cầu thư mục chạy của bộ test hiện có;
 không thay đổi backend hoặc bốn test ngoài phạm vi để né lỗi import.
+
+## Tắt máy theo Sheet sổ nợ ngày 1/12/2026 (WEB-CHINH-01) — CHƯA CHẠY
+
+Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md): từ 1/12/2026 người nhập thôi gõ Sheet sổ nợ "2026 debit", web là sổ chính thức. Mục này tắt mọi đường đọc Sheet sổ nợ, **giữ** mọi đường đọc CHAU_HAO (chuyến biển `CONT_NGUON`, chuyến bộ `CONT_BO`, bảng PS của bộ lập bill): đó là nguồn nghiệp vụ, không phải sổ nợ. Chạy **sau** lượt đối soát cuối cùng có giá trị (lượt 22:05 ngày 30/11, hoặc lượt đối soát cuối tháng 11 nếu người dùng chọn giờ khác), trước 07:05 ngày 1/12. Không đổi DB, không đổi release. Nhật ký mới trong `deploys/`.
+
+| Thứ | Đọc từ | Ngày 1/12 |
+| --- | --- | --- |
+| Cờ `WEBDEBIT_AUTO_SHEET` (drop-in `v7-ledger-api.service.d/auto-sheet.conf`, đang `text,trips,prices,road,ps,headers`) | `prices`, `headers`: bản chụp giá = tab Sheet sổ nợ. `text`, `trips`: `snapshot.json` = `CONT_NGUON`. `road`: `road.json` = `CONT_BO`. `ps`: `ps.json` = bảng PS của bộ lập bill (cùng `sheet-sync.env` với chuyến) | bỏ `prices`, `headers`; **giữ** `text,trips,road,ps` |
+| `v7-reconcile-auto` (mỗi giờ 7–22): đối soát + tự ghi, KIEM-TONG-01, MAY-TAO-SO-01, KIEM-BOOKING-01 (Sheet ↔ booking) và phép so sổ web ↔ booking DU-CHUYEN-01 | xlsx Sheet sổ nợ; phần DU-CHUYEN-01 chỉ đọc DB + bản chụp booking | đổi sang `--booking-only`: chỉ còn DU-CHUYEN-01, không tải Sheet, không đọc hay ghi `reconcile.json` |
+| `webdebit-sheet-prices` (15 phút: `prices.json`, `receipts.json`) | Sheet sổ nợ | tắt timer. **Không xóa** `prices.json`: hàng chờ chuyến bộ vẫn học chủ hàng → sổ từ lịch sử tab (thiếu file cũng không lỗi từ 25/11, nhưng khi đó chỉ còn tên booking gán trên web) |
+| `webdebit-sheet-sync`, `webdebit-ps-snapshot` | CHAU_HAO | giữ |
+| File đánh dấu `/etc/webdebit/debt-sheet-off` (nội dung: ngày thôi dùng, `2026-12-01`) | | tạo. API đọc mỗi lần (không cần restart): hàng chờ giá/phiếu từ Sheet rỗng, không còn kết quả đối soát (Việc cần làm bỏ tab Số nợ lệch, cột phiếu thu từ Sheet, dòng đầu nói Sheet sổ nợ đã thôi dùng; Máy chạy có dòng báo, bỏ job giá Sheet, quản lý không nhận khách lệch cũ). Máy canh `v7-watchdog` đọc cùng file: bỏ canh `prices.json`, `receipts.json`, timer `webdebit-sheet-prices`, canh `booking-web.json` thay `reconcile.json`, cờ phải có mặc định thành `text,trips,road,ps` |
+
+**Chuẩn bị đã làm (25/11/2026):** 24 chủ hàng chuyến bộ máy học từ tab đã có tên booking gán trên web ([nhật ký](deploys/2026-11-25-ten-chu-hang.md)); đo trên `hao`: bỏ hẳn bản chụp giá thì cả 250 chuyến bộ từ 10/2026 vẫn vào đúng sổ cũ. Mã `--booking-only`, dự phòng thiếu `prices.json` và công tắc máy canh có từ PR "Chuẩn bị tắt máy theo Sheet sổ nợ". Diễn tập chỉ đọc trên `hao` 25/11 bằng mã nhánh đó, thư mục tạm: `--booking-only` thoát 0 sau 31 giây, ghi đúng một file `booking-web.json` (7.707 chuyến booking, 7.643 ghép được), không đụng `reconcile.json` thật; máy canh `--dry-run` với `WEBDEBIT_ALERT_DEBT_SHEET=off` và cờ `text,trips,road,ps` không còn dòng nào về Sheet sổ nợ, cờ hay đối soát (chỉ còn hai dòng có sẵn không liên quan, giống hệt khi để mặc định).
+
+### Lệnh (trên `hao`, theo thứ tự)
+
+1. **Ghi lại trạng thái trước:** `systemctl list-timers --all | grep -E 'reconcile|sheet|ps-snap'`, `systemctl cat v7-ledger-api.service | grep AUTO_SHEET`, chép `reconcile.json` của lượt cuối vào thư mục bằng chứng `/srv/v7/backup-20261201-tat-may/` (mode 700).
+2. **Đợi lượt đối soát đang chạy xong:** `systemctl is-active v7-reconcile-auto.service` phải là `inactive`.
+3. **Cờ máy 15 phút:** sửa `/etc/systemd/system/v7-ledger-api.service.d/auto-sheet.conf` thành `[Service]` `Environment=WEBDEBIT_AUTO_SHEET=text,trips,road,ps`, rồi `sudo systemctl daemon-reload && sudo systemctl restart v7-ledger-api.service`. Kiểm: `/api/v7/machine` (tab Máy chạy) hiện cờ `text,trips,road,ps`.
+4. **Runner giá:** `sudo systemctl disable --now webdebit-sheet-prices.timer && sudo systemctl mask webdebit-sheet-prices.service`. Phải `mask`: nút "Làm mới" (`webdebit-sheet-refresh.service`) kéo cả runner giá qua `Wants=`; service đã mask thì `Wants=` bỏ qua, hai runner CHAU_HAO vẫn chạy. Kiểm: `systemctl is-enabled webdebit-sheet-prices.service` là `masked`, bấm "Làm mới" một lần thì `snapshot.json` đổi giờ sửa còn `prices.json` không.
+5. **Lượt mỗi giờ sang chỉ so booking:** tạo `/etc/systemd/system/v7-reconcile-auto.service.d/60-booking-only.conf`:
+   ```ini
+   [Service]
+   ExecStart=
+   ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_reconcile_auto.py --booking-only
+   ```
+   rồi `sudo systemctl daemon-reload` và chạy một lượt tay: `sudo systemctl start v7-reconcile-auto.service`. Kiểm: journal in `"mode": "booking-only"`, `"ok": true`; `booking-web.json` có `checked_at` mới; `reconcile.json` không đổi giờ sửa.
+6. **Công tắc chung cho API và máy canh:** `echo 2026-12-01 | sudo tee /etc/webdebit/debt-sheet-off >/dev/null && sudo chown v7app:v7app /etc/webdebit/debt-sheet-off && sudo chmod 600 /etc/webdebit/debt-sheet-off`. Kiểm giao diện: Việc cần làm có dòng "Sheet sổ nợ đã thôi dùng từ 01/12/2026", không còn tab Số nợ lệch; Máy chạy có dòng báo và câu đầu trang là "So sổ với booking đang nghỉ…". Kiểm máy canh: `sudo systemd-run --wait --pipe --quiet -p EnvironmentFile=/etc/webdebit/alert.env /usr/bin/python3 <current>/cong-no-web-handoff/tools/v7_watchdog.py --dry-run` không có dòng nào về `prices.json`, `receipts.json`, `webdebit-sheet-prices`, đối soát hay cờ.
+7. **Sau một giờ:** lượt 08:05 ngày 1/12 thoát 0 ở chế độ `booking-only`; máy canh lượt kế không gửi email; số dư 250 sổ không đổi so với bước 1 (không đường nào vừa tắt ghi tiền nên phải giống hệt).
+
+### Lùi lại
+
+Từng bước lùi độc lập, theo thứ tự ngược: `sudo rm /etc/webdebit/debt-sheet-off` (giao diện và máy canh về như cũ ngay, không cần restart); xóa `60-booking-only.conf` rồi `daemon-reload` (lượt mỗi giờ lại đối soát + tự ghi theo Sheet, nhưng theo [nguyên tắc 3](decisions/web-chinh-01.md) chỉ thêm); `sudo systemctl unmask webdebit-sheet-prices.service && sudo systemctl enable --now webdebit-sheet-prices.timer`; trả `auto-sheet.conf` về `text,trips,prices,road,ps,headers`, `daemon-reload`, restart API. Chỉ lùi khi người nhập quay lại gõ Sheet; Sheet không còn được gõ mà bật lại thì máy chỉ thấy dữ liệu cũ, không hại nhưng vô ích.
+
+### CÒN MỞ (không thuộc lệnh ở trên)
+
+- Audit chuyển hẳn (`v7_cutover_audit.py`) vẫn đọc `reconcile.json` nếu ai chạy tay: sau 1/12 thôi dùng lệnh này (WEB-CHINH-01).
+- Chuyến bộ có chủ hàng mới (chưa có tên gán trên web) sau 1/12 nằm ở "chờ tab" mãi: cần nút chọn sổ (`AMBIGUOUS_TAB` / `TAB_FAR` / `NO_TAB`), thuộc phiên kiểm đường nhập web.
+- Tháng 11 tự khóa ngày 1/12 (WEB-CHINH-01 mục 5): xem mục [Giữ tháng 11 mở ở sổ còn chuyến chưa giá](#giữ-tháng-11-mở-ở-sổ-còn-chuyến-chưa-giá-web-chinh-01--chưa-chạy).
+
+## Giữ tháng 11 mở ở sổ còn chuyến chưa giá (WEB-CHINH-01) — CHƯA CHẠY
+
+Lịch đã đặt trên `hao` 25/11/2026, chưa lượt ghi nào chạy: [nhật ký](deploys/2026-11-25-giu-mo-thang-11.md). Tiêu đề giữ "CHƯA CHẠY" để link cũ không gãy, tới lượt 30/11.
+
+Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md) mục 5: từ 1/12/2026 giá và phụ phí tháng 11 nhập trễ phải gõ trên web, mà tháng không có cờ khóa thì hết tháng tự khóa ([`V7-SO`](decisions/v7-so.md)). Người dùng chốt 25/11/2026 "Mở sẵn T11": mở ở sổ còn chuyến chưa giá tới hết ngày 15/12/2026 rồi khóa lại; chạy thật từ tối 30/11, sau lượt chép Sheet cuối, không sớm hơn. Không đổi luật khóa, không đổi DB hay release: công cụ `cong-no-web-handoff/tools/v7_giu_mo_thang.py` gọi đúng lệnh ổ khóa của sổ (`set_month_lock`), mỗi lần một dòng Lịch sử "Mở khóa tháng"/"Khóa tháng" với người làm `giu-mo-thang`, như người bấm ổ khóa ([`V7-CSM`](decisions/v7-csm.md)).
+
+- `--open`: ghi cờ mở tháng ở sổ còn việc cần tháng mở: chuyến đã duyệt chưa giá (luật `is_missing_price` của server), chuyến chờ kiểm, dòng sổ gốc là chuyến chưa có đơn giá (đo 25/11: hai loại sau đang là 0). Bỏ qua sổ đã mở, sổ đủ giá, sổ lưu trữ, và sổ mà người đã chủ động khóa tháng đó.
+- `--relock`: khóa lại tháng mà lựa chọn gần nhất là của công cụ. Người đã mở hoặc khóa sau đó thì giữ ý người; sổ người mở lại in ở `opened_by_other` để người xem. In số việc còn lại ở các sổ vừa khóa.
+- "Lựa chọn gần nhất" là lần mở/khóa gần nhất không phải của máy theo Sheet: máy mở–ghi–khóa trong một lượt, không phải ý ai. Người khóa rồi máy mở–ghi–khóa thì công cụ vẫn coi là người đã khóa.
+- Sổ đổi phiên bản giữa lúc đọc và ghi (người đang gõ, máy đang ghi): đọc lại, xét lại, thử tới 3 lần. Vẫn lỗi thì sổ nằm ở `error_books`, mã thoát 1, lượt timer sau chạy lại.
+- Không `--apply` thì chỉ đếm. Stdout chỉ có số đếm và id sổ. Lượt nền của máy theo Sheet chỉ khóa lại tháng chính nó mở (`machine_left_open`), không đụng tháng công cụ mở.
+
+Chạy thử chỉ đếm trên `hao` 25/11/2026 (mã nhánh, thư mục tạm): 24 sổ cần mở, 113 chuyến tháng 11 chưa giá, 226 sổ đủ giá, 0 lỗi, 30 giây.
+
+`/etc/systemd/system/webdebit-giu-mo-thang.service`:
+
+```ini
+[Unit]
+Description=V7 giu thang 11 mo o so con chuyen chua gia (WEB-CHINH-01)
+After=postgresql@18-main.service
+
+[Service]
+Type=oneshot
+User=v7app
+Group=v7app
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/v7/auto-releases/current
+ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --open --apply
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+TimeoutStartSec=600
+```
+
+`/etc/systemd/system/webdebit-giu-mo-thang.timer` (lượt đầu sau lượt đối soát cuối 22:05 ngày 30/11; mỗi tối tới 15/12 để bắt chuyến tháng 11 vào sổ trễ). Không `Persistent`: máy tắt lỡ một lượt thì tối sau bù, và không có lượt chạy bù nào mở lại sổ sau lượt khóa 16/12:
+
+```ini
+[Unit]
+Description=V7 giu thang 11 mo, 30/11 den 15/12
+
+[Timer]
+OnCalendar=2026-11-30 23:30:00 Asia/Ho_Chi_Minh
+OnCalendar=2026-12-01..15 23:30:00 Asia/Ho_Chi_Minh
+
+[Install]
+WantedBy=timers.target
+```
+
+`/etc/systemd/system/webdebit-khoa-lai-thang.service` giống service trên, khác `Description=V7 khoa lai thang 11 da giu mo (WEB-CHINH-01)` và `ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --relock --apply`; `webdebit-khoa-lai-thang.timer` có `OnCalendar=2026-12-16..18 00:30:00 Asia/Ho_Chi_Minh`, `Persistent=true`: tháng mở hết ngày 15/12; lượt 17 và 18/12 khóa nốt sổ lượt trước lỗi (chạy lại an toàn: sổ đã khóa thì bỏ qua).
+
+1. **Chạy thử trên `hao`:** `sudo systemd-run --wait --pipe --quiet -p User=v7app /usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --open`. Đạt khi `errors` rỗng, `to_write` là các sổ Việc cần làm báo chưa giá tháng 11.
+2. **Đặt bốn unit:** `systemd-analyze verify` cả bốn, `daemon-reload`, `systemctl enable --now webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`. Kiểm `systemctl list-timers` có hai lượt kế: 30/11 23:30 và 16/12 00:30 giờ VN. Nhật ký trong `deploys/` ghi lời chốt của người dùng.
+3. **Sau lượt 30/11:** journal in `written` bằng `to_write`; ở một sổ trong danh sách, Lịch sử có "Mở khóa tháng 11/2026" của `giu-mo-thang`; sáng 1/12 ô giá tháng 11 ở sổ đó sửa được, còn sổ đủ giá thì tháng 11 khóa như mọi tháng cũ. Số dư 250 sổ không đổi (mở/khóa không ghi tiền).
+4. **Sau lượt 16/12:** journal in `written` bằng số sổ còn mở do công cụ, `error_books` rỗng (lượt 17, 18/12 khóa nốt nếu không). `unpriced_trips` là số việc còn lại, người nhập mở khóa từng sổ nếu cần. Sổ ở `opened_by_other` là sổ người mở lại sau công cụ: báo người dùng để xem có cần khóa không, công cụ không tự khóa. Sau lượt 18/12, `systemctl disable webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`.
+
+Lùi lại: `systemctl disable --now` hai timer; khóa lại ngay thì chạy service khóa lại (`systemctl start webdebit-khoa-lai-thang.service`). Cờ đã ghi chỉ là cờ mở/khóa, không có tiền phải hoàn.
