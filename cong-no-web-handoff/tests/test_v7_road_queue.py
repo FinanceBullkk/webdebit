@@ -259,5 +259,25 @@ class RoadProjectionApiTests(unittest.TestCase):
         self.assertEqual((pasted[0]["debt_month"], result["pasted"]), ("2026-10-01", [{"source_row": 2, "trip_id": 41}]))
 
 
+class RoadWithoutPriceSnapshotTests(unittest.TestCase):
+    """WEB-CHINH-01, tắt máy 1/12/2026: thôi đọc Sheet sổ nợ thì có thể không còn bản chụp giá. Chuyến bộ khi đó chỉ theo tên booking gán
+    trên web (KHACH-WEB-01), không ném lỗi; bản chụp có mà hỏng thì vẫn ném. Cùng dữ liệu với `RoadProjectionApiTests`."""
+
+    setUp = RoadProjectionApiTests.setUp
+    tearDown = RoadProjectionApiTests.tearDown
+
+    def test_missing_price_snapshot_is_not_an_error(self):
+        with patch.object(v7_api_sheet, "ROAD_SNAPSHOT_PATH", str(self.road)), \
+                patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(Path(self.dir.name) / "none.json")):
+            result = v7_api_sheet.road_projection(self.runner, ledger(), "t")
+        self.assertEqual(result["items"], [])   # không tab, không tên gán: chưa rõ sổ, chờ người
+
+    def test_broken_price_snapshot_still_raises(self):
+        self.prices.write_text("{", encoding="utf-8")
+        with patch.object(v7_api_sheet, "ROAD_SNAPSHOT_PATH", str(self.road)), \
+                patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(self.prices)), self.assertRaises(ValueError):
+            v7_api_sheet.road_projection(self.runner, ledger(), "t")
+
+
 if __name__ == "__main__":
     unittest.main()

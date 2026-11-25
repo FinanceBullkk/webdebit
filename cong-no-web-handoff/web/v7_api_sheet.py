@@ -332,6 +332,7 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
             "booking_prices": project_booking_prices(base, ledger)}
 
 
+NO_PRICE_SNAPSHOT: dict = {"rows": [], "sha256": None}   # thiếu bản chụp giá: một đối tượng cố định để bộ nhớ hàng chờ chuyến bộ vẫn trúng
 _ROAD: list = [None, None, None, None]   # [road.json, prices.json, khóa danh sách khách, hàng chờ chuyến bộ]
 _ROAD_LOCK = threading.Lock()
 
@@ -351,12 +352,14 @@ def cached_road_queue(road: dict, prices: dict, customers: list) -> dict:
 def road_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     """Chuyến bộ mới của một sổ (NGUON-CHUYEN-01 GĐ3): sổ theo tab khách trên Sheet, chặn trùng như hàng chờ chuyến biển.
 
-    Runner chưa ghi road.json thì không có việc (không phải lỗi); file hỏng thì hàm ném lỗi như ba hàm chiếu kia.
+    Runner chưa ghi road.json thì không có việc (không phải lỗi); file hỏng thì hàm ném lỗi như ba hàm chiếu kia. Bản chụp giá (tab
+    Sheet sổ nợ) chỉ là lịch sử tab để xếp chuyến vào sổ: thiếu file (đã thôi đọc Sheet, WEB-CHINH-01) thì chuyến bộ chỉ còn theo tên
+    booking gán trên web (KHACH-WEB-01), như thẻ Khách; file có mà hỏng thì vẫn ném lỗi, không đoán.
     """
     if not os.path.exists(ROAD_SNAPSHOT_PATH):
         return {"snapshot_sha256": None, "items": [], "new_count": 0, "conflict_count": 0, "source_missing": True}
     road = cached_load(load_road_snapshot, ROAD_SNAPSHOT_PATH)
-    prices = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
+    prices = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH) if os.path.exists(PRICE_SNAPSHOT_PATH) else NO_PRICE_SNAPSHOT
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     queue = cached_road_queue(road, prices, customers)

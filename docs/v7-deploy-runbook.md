@@ -2871,3 +2871,44 @@ Nếu không đặt `PYTHONPATH`, lệnh `-m unittest discover -s cong-no-web-ha
 từ gốc worktree thiếu `cong-no-web-handoff` trên đường import, gây `No module named 'tools'`
 và `No module named 'pilot'`. Đây là yêu cầu thư mục chạy của bộ test hiện có;
 không thay đổi backend hoặc bốn test ngoài phạm vi để né lỗi import.
+
+## Tắt máy theo Sheet sổ nợ ngày 1/12/2026 (WEB-CHINH-01) — CHƯA CHẠY
+
+Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md): từ 1/12/2026 người nhập thôi gõ Sheet sổ nợ "2026 debit", web là sổ chính thức. Mục này tắt mọi đường đọc Sheet sổ nợ, **giữ** mọi đường đọc CHAU_HAO (chuyến biển `CONT_NGUON`, chuyến bộ `CONT_BO`, bảng PS của bộ lập bill): đó là nguồn nghiệp vụ, không phải sổ nợ. Chạy **sau** lượt đối soát cuối cùng có giá trị (lượt 22:05 ngày 30/11, hoặc lượt đối soát cuối tháng 11 nếu người dùng chọn giờ khác), trước 07:05 ngày 1/12. Không đổi DB, không đổi release. Nhật ký mới trong `deploys/`.
+
+| Thứ | Đọc từ | Ngày 1/12 |
+| --- | --- | --- |
+| Cờ `WEBDEBIT_AUTO_SHEET` (drop-in `v7-ledger-api.service.d/auto-sheet.conf`, đang `text,trips,prices,road,ps,headers`) | `prices`, `headers`: bản chụp giá = tab Sheet sổ nợ. `text`, `trips`: `snapshot.json` = `CONT_NGUON`. `road`: `road.json` = `CONT_BO`. `ps`: `ps.json` = bảng PS của bộ lập bill (cùng `sheet-sync.env` với chuyến) | bỏ `prices`, `headers`; **giữ** `text,trips,road,ps` |
+| `v7-reconcile-auto` (mỗi giờ 7–22): đối soát + tự ghi, KIEM-TONG-01, MAY-TAO-SO-01, KIEM-BOOKING-01 (Sheet ↔ booking) và phép so sổ web ↔ booking DU-CHUYEN-01 | xlsx Sheet sổ nợ; phần DU-CHUYEN-01 chỉ đọc DB + bản chụp booking | đổi sang `--booking-only`: chỉ còn DU-CHUYEN-01, không tải Sheet, không đọc hay ghi `reconcile.json` |
+| `webdebit-sheet-prices` (15 phút: `prices.json`, `receipts.json`) | Sheet sổ nợ | tắt timer. **Không xóa** `prices.json`: hàng chờ chuyến bộ vẫn học chủ hàng → sổ từ lịch sử tab (thiếu file cũng không lỗi từ 25/11, nhưng khi đó chỉ còn tên booking gán trên web) |
+| `webdebit-sheet-sync`, `webdebit-ps-snapshot` | CHAU_HAO | giữ |
+| Máy canh `v7-watchdog` (`/etc/webdebit/alert.env`) | | thêm `WEBDEBIT_ALERT_DEBT_SHEET=off` (bỏ canh `prices.json`, `receipts.json`, timer `webdebit-sheet-prices`; canh `booking-web.json` thay `reconcile.json`) và `WEBDEBIT_ALERT_AUTO_FLAGS=text,trips,road,ps` |
+
+**Chuẩn bị đã làm (25/11/2026):** 24 chủ hàng chuyến bộ máy học từ tab đã có tên booking gán trên web ([nhật ký](deploys/2026-11-25-ten-chu-hang.md)); đo trên `hao`: bỏ hẳn bản chụp giá thì cả 250 chuyến bộ từ 10/2026 vẫn vào đúng sổ cũ. Mã `--booking-only`, dự phòng thiếu `prices.json` và công tắc máy canh có từ PR "Chuẩn bị tắt máy theo Sheet sổ nợ". Diễn tập chỉ đọc trên `hao` 25/11 bằng mã nhánh đó, thư mục tạm: `--booking-only` thoát 0 sau 31 giây, ghi đúng một file `booking-web.json` (7.707 chuyến booking, 7.643 ghép được), không đụng `reconcile.json` thật; máy canh `--dry-run` với `WEBDEBIT_ALERT_DEBT_SHEET=off` và cờ `text,trips,road,ps` không còn dòng nào về Sheet sổ nợ, cờ hay đối soát (chỉ còn hai dòng có sẵn không liên quan, giống hệt khi để mặc định).
+
+### Lệnh (trên `hao`, theo thứ tự)
+
+1. **Ghi lại trạng thái trước:** `systemctl list-timers --all | grep -E 'reconcile|sheet|ps-snap'`, `systemctl cat v7-ledger-api.service | grep AUTO_SHEET`, chép `reconcile.json` của lượt cuối vào thư mục bằng chứng `/srv/v7/backup-20261201-tat-may/` (mode 700).
+2. **Đợi lượt đối soát đang chạy xong:** `systemctl is-active v7-reconcile-auto.service` phải là `inactive`.
+3. **Cờ máy 15 phút:** sửa `/etc/systemd/system/v7-ledger-api.service.d/auto-sheet.conf` thành `[Service]` `Environment=WEBDEBIT_AUTO_SHEET=text,trips,road,ps`, rồi `sudo systemctl daemon-reload && sudo systemctl restart v7-ledger-api.service`. Kiểm: `/api/v7/machine` (tab Máy chạy) hiện cờ `text,trips,road,ps`.
+4. **Runner giá:** `sudo systemctl disable --now webdebit-sheet-prices.timer && sudo systemctl mask webdebit-sheet-prices.service`. Phải `mask`: nút "Làm mới" (`webdebit-sheet-refresh.service`) kéo cả runner giá qua `Wants=`; service đã mask thì `Wants=` bỏ qua, hai runner CHAU_HAO vẫn chạy. Kiểm: `systemctl is-enabled webdebit-sheet-prices.service` là `masked`, bấm "Làm mới" một lần thì `snapshot.json` đổi giờ sửa còn `prices.json` không.
+5. **Lượt mỗi giờ sang chỉ so booking:** tạo `/etc/systemd/system/v7-reconcile-auto.service.d/60-booking-only.conf`:
+   ```ini
+   [Service]
+   ExecStart=
+   ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_reconcile_auto.py --booking-only
+   ```
+   rồi `sudo systemctl daemon-reload` và chạy một lượt tay: `sudo systemctl start v7-reconcile-auto.service`. Kiểm: journal in `"mode": "booking-only"`, `"ok": true`; `booking-web.json` có `checked_at` mới; `reconcile.json` không đổi giờ sửa.
+6. **Máy canh:** thêm vào `/etc/webdebit/alert.env` hai dòng `WEBDEBIT_ALERT_DEBT_SHEET=off` và `WEBDEBIT_ALERT_AUTO_FLAGS=text,trips,road,ps`. Kiểm: `sudo systemd-run --wait --pipe --quiet -p EnvironmentFile=/etc/webdebit/alert.env /usr/bin/python3 <current>/cong-no-web-handoff/tools/v7_watchdog.py --dry-run` không có dòng nào về `prices.json`, `receipts.json`, `webdebit-sheet-prices`, đối soát hay cờ.
+7. **Sau một giờ:** lượt 08:05 ngày 1/12 thoát 0 ở chế độ `booking-only`; máy canh lượt kế không gửi email; số dư 250 sổ không đổi so với bước 1 (không đường nào vừa tắt ghi tiền nên phải giống hệt).
+
+### Lùi lại
+
+Từng bước lùi độc lập, theo thứ tự ngược: xóa hai dòng trong `alert.env`; xóa `60-booking-only.conf` rồi `daemon-reload` (lượt mỗi giờ lại đối soát + tự ghi theo Sheet, nhưng theo [nguyên tắc 3](decisions/web-chinh-01.md) chỉ thêm); `sudo systemctl unmask webdebit-sheet-prices.service && sudo systemctl enable --now webdebit-sheet-prices.timer`; trả `auto-sheet.conf` về `text,trips,prices,road,ps,headers`, `daemon-reload`, restart API. Chỉ lùi khi người nhập quay lại gõ Sheet; Sheet không còn được gõ mà bật lại thì máy chỉ thấy dữ liệu cũ, không hại nhưng vô ích.
+
+### CÒN MỞ (không thuộc lệnh ở trên)
+
+- Sau khi tắt, `reconcile.json` đứng ở lượt 30/11: tab Việc cần làm (dòng đầu "x/y khách khớp Sheet", "Số nợ lệch", nhãn "có thể cũ"), Máy chạy và audit chuyển hẳn vẫn đọc file này. Phải đổi giao diện cho phù hợp (thuộc phiên kiểm đường nhập web / Việc cần làm), hoặc chuyển file đi và để trang báo đã thôi đối soát Sheet.
+- Danh sách "Giá từ Sheet", "Phiếu thu Sheet" ở Việc cần làm vẫn đọc `prices.json` / `receipts.json` đóng băng: nút ghi đã bị chặn vì bản chụp cũ (O7) nhưng dòng còn hiện. Ẩn hai khối này khi thôi đọc Sheet.
+- Chuyến bộ có chủ hàng mới (chưa có tên gán trên web) sau 1/12 nằm ở "chờ tab" mãi: cần nút chọn sổ (`AMBIGUOUS_TAB` / `TAB_FAR` / `NO_TAB`), thuộc phiên kiểm đường nhập web.
+- Tháng 11 tự khóa ngày 1/12 (WEB-CHINH-01 mục 5): cách xử lý chờ người dùng chọn.

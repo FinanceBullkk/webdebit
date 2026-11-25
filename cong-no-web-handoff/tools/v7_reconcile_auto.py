@@ -4,6 +4,7 @@
 Chạy trên hao dưới user runner (timer v7-reconcile-auto, mỗi giờ từ 7 tới 22 giờ VN), cùng biến môi trường với runner giá:
 
     v7_reconcile_auto.py --source-dir /srv/v7/so-goc-20261020 [--fix]
+    v7_reconcile_auto.py --booking-only      # sau khi thôi theo Sheet sổ nợ (1/12/2026): chỉ so sổ web với booking
 
 Mỗi lượt: tải bản xlsx sổ gốc (chỉ đọc), làm sạch đúng như đối soát chính thức, đọc tổng từng khách trên web. Khách lệch thì tìm đúng
 một tổ hợp việc đang chờ (phiếu thu, giá) đưa tổng web về tổng Sheet tới từng đồng, tổng và việc đều lấy từ cùng bản tải. Khách có
@@ -607,6 +608,21 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
     }
 
 
+def booking_only(args: argparse.Namespace) -> int:
+    """Chỉ so sổ web với booking (DU-CHUYEN-01), không tải Sheet sổ nợ, không đọc hay ghi `reconcile.json`: chế độ của timer sau khi
+    thôi theo Sheet sổ nợ (WEB-CHINH-01, tắt máy ngày 1/12/2026). Chỉ đọc DB; kết quả ở `booking-web.json` như trong lượt đối soát."""
+    if not args.booking_check:
+        print(json.dumps({"ok": True, "mode": "booking-only", "booking_web": {"skipped": "OFF"}}))
+        return 0
+    started = time.monotonic()
+    db = PsqlDirect(args.socket_dir, args.database, args.db_user)
+    books: list[dict] = []
+    read_web(db, db.run("list_customers", {}, ACTOR).get("customers", []), books=books)
+    result = booking_check.run_web_safely(books, booking_check.web_path(args.booking_output), args.snapshot, args.road)
+    print(json.dumps({"ok": "error" not in result, "mode": "booking-only", "booking_web": result, "seconds": round(time.monotonic() - started)}))
+    return 2 if "error" in result else 0
+
+
 def fixed_earlier_today(output: Path, day: str) -> list[dict[str, Any]]:
     """Khách máy đã sửa ở các lượt trước trong ngày: giữ trên danh sách để chủ sổ soát đủ việc của cả ngày, không chỉ lượt cuối."""
     try:
@@ -644,7 +660,7 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source-dir", type=Path, required=True, help="thư mục CSV của mốc sổ gốc (như v7_export_clean)")
+    parser.add_argument("--source-dir", type=Path, help="thư mục CSV của mốc sổ gốc (như v7_export_clean); bắt buộc trừ --booking-only")
     parser.add_argument("--output", type=Path, default=Path(os.getenv("WEBDEBIT_RECONCILE_PATH") or OUTPUT))
     parser.add_argument("--work-dir", default=WORK, help="chỗ để bản tải trong lúc chạy; xóa ngay sau lượt")
     parser.add_argument("--xlsx", type=Path, help="dùng bản tải có sẵn thay vì tải Sheet")
@@ -655,12 +671,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", default="webdebit_v7")
     parser.add_argument("--db-user", default="v7_app")
     parser.add_argument("--fix", action="store_true", help="ghi tổ hợp đã chọn; không có thì chỉ báo")
+    parser.add_argument("--booking-only", action="store_true",
+                        help="chỉ so sổ web với booking (DU-CHUYEN-01), không tải Sheet sổ nợ; dùng sau khi thôi theo Sheet (1/12/2026)")
     parser.add_argument("--booking-output", type=Path, help="kết quả kiểm booking (KIEM-BOOKING-01); mặc định booking-check.json cạnh --output")
     parser.add_argument("--snapshot", type=Path, default=Path(os.getenv("WEBDEBIT_SNAPSHOT_PATH") or booking_check.FOLDER / "snapshot.json"))
     parser.add_argument("--road", type=Path, default=Path(os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH") or booking_check.FOLDER / "road.json"))
     args = parser.parse_args(argv)
     args.booking_output = args.booking_output or args.output.with_name("booking-check.json")
     args.booking_check = os.getenv("WEBDEBIT_BOOKING_CHECK", "on") != "off"   # tắt nhanh không cần release mới
+    if args.booking_only:
+        if args.fix or args.xlsx:
+            parser.error("--booking-only không đi cùng --fix hay --xlsx")
+        return booking_only(args)
+    if args.source_dir is None:
+        parser.error("cần --source-dir")
     if not args.xlsx and (not args.spreadsheet_id or not args.credentials):
         parser.error("cần --xlsx, hoặc --spreadsheet-id và --credentials (biến môi trường của runner)")
     started = time.monotonic()
