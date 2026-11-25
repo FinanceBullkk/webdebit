@@ -16,7 +16,9 @@
     const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
     return rule ? (data.trips ?? []).filter(trip => !trip.deleted && rule[1](trip)).map(trip => monthKey(trip.month)) : [];
   }
-  // Gọi sau mỗi lần vẽ sổ: tô lại các dòng và dựng lại thanh trên bảng tháng.
+  // Gọi sau mỗi lần vẽ sổ: tô lại các dòng và dựng lại mục ?loc= trong thanh việc.
+  // SK-N2 (audit 25/11/2026, người dùng chọn A): không còn dải riêng trên thẻ tháng; là một mục của thanh việc (SO-GON-06 (2)),
+  // đứng ngay sau nút "Điền giá theo bảng" khi đang tô chuyến thiếu giá. Trang không có thanh việc thì vẫn đặt trên sổ như cũ.
   function locAfterRender(data) {
     const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
     if (!rule) return;
@@ -26,11 +28,15 @@
     const bar = document.createElement('div');
     bar.className = 'loc-bar';
     bar.setAttribute('role', 'status');
+    const clear = label => `<button type="button" class="loc-clear" aria-label="${label}" title="${label}">×</button>`;
     bar.innerHTML = hits.length
-      ? `<span><b>${hits.length} ${rule[0]}</b> được tô vàng trong sổ.</span><button type="button" class="loc-next">Đến dòng tiếp ›</button>`
-        + '<button type="button" class="loc-clear">Bỏ đánh dấu</button>'
-      : `<span>Sổ này không còn ${rule[0]}.</span><a href="/dashboard-v7.html">Về Tổng quan</a><button type="button" class="loc-clear">Đóng</button>`;
-    root.querySelector('.layout')?.before(bar);
+      ? `<span title="Các dòng này được tô vàng trong sổ"><b>${hits.length}</b> ${rule[0]}</span><button type="button" class="loc-next">Đến dòng tiếp ›</button>${clear('Bỏ đánh dấu')}`
+      : `<span>Sổ này không còn ${rule[0]}.</span><a href="/dashboard-v7.html">Về Tổng quan</a>${clear('Đóng')}`;
+    const tasks = root.querySelector('.book-tasks');
+    const price = tasks?.querySelector('.price-table-apply');
+    if (price && locKind === 'thieu-gia') price.after(bar);
+    else if (tasks) tasks.prepend(bar);
+    else root.querySelector('.layout')?.before(bar);
     // Sổ có thể vẽ lại (tự cập nhật) giữa hai lần bấm: luôn đọc dòng đang có trên màn hình.
     const go = index => {
       const rows = [...root.querySelectorAll('tr.loc-hit')];

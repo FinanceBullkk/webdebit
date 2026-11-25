@@ -224,7 +224,7 @@ test('Ghi giá từ Sheet: Sheet đổi giữa chừng thì không ghi gì và m
 
 test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Sheet, khớp nhiều chuyến chỉ báo', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('.price-approve').count(), 0);
-  assert.match(await page.locator('.price-strip').innerText(), /Giá từ Sheet cần xem:\s*5/);
+  assert.match(await page.locator('.price-strip').innerText(), /Giá Sheet chưa ghi được:\s*5/);
   await page.locator('.price-review-toggle').click();
   const items = page.locator('.price-panel li');
   assert.equal(await items.count(), 5);
