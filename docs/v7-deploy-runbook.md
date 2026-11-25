@@ -2432,6 +2432,19 @@ Máy canh thêm mục "lưới an toàn": bốn phép kiểm chỉ đọc trên 
    Lệnh in các mục được chấp nhận rồi lấy mốc mới. **Sau mỗi migration hay loader đổi dữ liệu sổ hoặc Lịch sử mà không qua lệnh:** ngay sau đợt nâng chạy `--dry-run`, danh sách phải đúng phạm vi migration, rồi `--accept`. Lượt máy canh lỡ chạy trước thì có một email; chấp nhận xong lượt kế báo ổn lại.
 6. **Tắt:** xóa drop-in rồi `daemon-reload`: kiểm 3, 4 nghỉ, kiểm 1, 2 vẫn chạy. Gỡ hẳn mục: quay release. Gỡ hàm: `DROP FUNCTION sokhach.get_safety_net(jsonb), sokhach._safety_fingerprints(), sokhach._safety_events(bigint,interval);` (không gì phụ thuộc, không đụng dữ liệu); `/var/lib/v7-watchdog` xóa được.
 
+## Tháng hiện tại luôn có dòng trong GET sổ (SK-C1) — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql` ([spec](../specs/v7-thang-hien-tai.md), mục SK-C1 của [audit Sổ khách](ux-audit-so-khach-2026-11-25.md)) chỉ thay thân `get_ledger(bigint)`: CTE `month_keys` thêm tháng hiện tại theo giờ VN. Giữ `SET jit = off`, chủ, quyền. Không đổi bảng, view, dữ liệu, hàm ghi, phân bổ hay `total_outstanding_vnd`. Không tăng `schema_level`. Chạy lại được. **Chạy lại `2026-11-23-v7-so-gon.sql` (hoặc migration cũ hơn có `CREATE OR REPLACE` cho `get_ledger`) thì phải chạy lại file này.**
+
+Thứ tự với release: chạy migration trước. Release cũ trên DB mới: chip tháng hiện tại có số (trang đã vẽ được dòng này). Release mới trên DB cũ: thẻ tháng hiện tại vẫn "–" như trước; không ghi gì sai.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử (thu `CONNECT` của PUBLIC), `ANALYZE`. Lưu `get_ledger` mọi sổ. Chạy migration hai lượt, rồi so: với mọi sổ, `total_outstanding_vnd`, `version` và mọi phần ngoài `months` trùng; `months` trùng sau khi bỏ dòng tháng hiện tại nếu trước đó không có; dòng thêm có phát sinh, đã thu, còn nợ của kỳ 0 và Nợ đầu tháng = Còn nợ cuối tháng = Còn nợ cuối của dòng liền trước. Dấu vân tiền trùng, `v7_post_deploy_check.sql` với bảng băm của release mới đạt.
+2. **DB thật:** hàm đọc nên không cần cửa sổ dừng ghi; vẫn dump kèm hash ngay trước, áp với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước/sau (phải bằng nhau), checker.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** mở sổ 10 chỉ xem: thẻ tháng hiện tại có Nợ đầu tháng bằng tổng còn nợ. Ghi nhật ký trong `docs/deploys/`.
+
+Rollback: chạy lại `2026-11-23-v7-so-gon.sql` dưới `sokhach_owner` (bản `get_ledger` đó đã mang `SET jit = off`, không cần chạy lại file JIT); thẻ tháng hiện tại về "–", số khác không đổi.
+
 ## Khách mới và tên chủ hàng booking trên web (KHACH-WEB-01) — nâng DB đang có (ĐÃ CHẠY trên hao 24/11/2026)
 
 Đã nâng DB và đổi release 24/11/2026, xem [nhật ký](deploys/2026-11-24-khach-web.md).

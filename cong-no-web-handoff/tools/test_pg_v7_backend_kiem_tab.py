@@ -11,6 +11,7 @@ from pg_v7_harness import (
     KHOA_CHU_MIGRATION,
     KIEM_TAB_MIGRATION,
     SO_GON_MIGRATION,
+    THANG_HIEN_TAI_MIGRATION,
     call,
     fixture_open_month,
     months,
@@ -37,6 +38,7 @@ def check_kiem_tab(pg) -> str:
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
+    pg.sql(THANG_HIEN_TAI_MIGRATION.read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     require(pg.value(CATALOG) == fresh, "kiem-tab migration rerun changed function catalog")
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     require(pg.value(CATALOG) != fresh, "khoa-chu bodies must differ from the canonical ones (otherwise this check proves nothing)")
@@ -45,6 +47,7 @@ def check_kiem_tab(pg) -> str:
     pg.sql(AUDIT_SQL_MIGRATION.read_text(encoding="utf-8"))  # audit SQL 23/11: bản paste_trips/edit_trip_info/_change_legacy hiện hành
     pg.sql(DIEU_CHINH_THEO_GIA_MIGRATION.read_text(encoding="utf-8"))  # DIEU-CHINH-THEO-GIA-01: v_adjustment_current, schema_level hiện hành
     pg.sql(SO_GON_MIGRATION.read_text(encoding="utf-8"))  # audit SQL F4: get_ledger, ba lệnh ghi Sheet, schema_level hiện hành
+    pg.sql(THANG_HIEN_TAI_MIGRATION.read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     require(pg.value(CATALOG) == fresh, "kiem-tab migration did not restore the canonical bodies")
 
     c = new_book(pg, ("2026-01-01", 100))

@@ -59,7 +59,7 @@ def check_sheet_keep(pg):
     folder = ROOT / "cong-no-web-handoff/tools/migrations"
     migrations = [(folder / name).read_text(encoding="utf-8")
                   for name in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-16-v7-nguon-het-bao.sql",
-                               "2026-11-23-v7-so-gon.sql")]
+                               "2026-11-23-v7-so-gon.sql", "2026-11-25-v7-thang-hien-tai.sql")]
     catalog = "SELECT pg_get_functiondef('sokhach.keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)'::regprocedure)"
     original = pg.value(catalog)
     for _ in range(2):

@@ -12,6 +12,7 @@ from pg_v7_harness import (
     PsqlSession,
     allocations,
     assert_allocations,
+    booked,
     call,
     cutover_book,
     fixture_open_month,
@@ -423,7 +424,7 @@ def check_da_thu(pg: Pg) -> None:
 
     def rows() -> list[tuple[str, str, str, str, str, str]]:
         return [(m["month"][:7], m["prior_months_vnd"], m["charges_vnd"], m["received_vnd"], m["end_of_month_vnd"],
-                 m["outstanding_vnd"]) for m in call(pg, "get_ledger", customer)["months"]]
+                 m["outstanding_vnd"]) for m in booked(call(pg, "get_ledger", customer))]
     require(rows() == [("2026-01", "0", "100", "0", "100", "70"), ("2026-02", "100", "50", "30", "120", "50"),
                        ("2026-03", "120", "30", "0", "150", "30")], f"Sheet figures not used for month totals: {rows()}")
     # Thu 100 ngày 15/03: trừ nợ tháng 1 (70) và tháng 2 (30) nhưng nằm ở tháng 3; tháng 1, 2 giữ số như Sheet.

@@ -20,7 +20,7 @@ Bản chia sẻ đã lọc từ `codex/v7-opening-read` tại `011819e`, bổ su
 - POST `/api/v7/trips/paste`, `/api/v7/trips/price`, `/api/v7/trips/adjust`, `/api/v7/months/adjust`, `/api/v7/receipts`, `/api/v7/receipts/meta`, `/api/v7/receipts/void`, `/api/v7/months/lock`.
 - POST chỉ gửi ý định, `customer_id`, `expected_version`, `idempotency_key`; VND dạng chuỗi, `null` khác `"0"`. Không gửi actor, tổng hay phân bổ. Vẽ lại sau GET thành công.
 - `STALE_LEDGER`: GET lại và yêu cầu xem dữ liệu mới, không phát lại ý định cũ. Lỗi mạng/`RESULT_UNKNOWN`: giữ cùng payload/key để thử lại, không tạo key mới trước khi biết kết quả.
-- Mỗi tháng có `prior_months_vnd`, `charges_vnd`, `received_vnd`, `outstanding_vnd`, `end_of_month_vnd`. Gốc có `today_month`, `month_locks`; giờ Việt Nam từ server. Luôn hiện khối tháng hiện tại, ô tổng thiếu số hiện `–`.
+- Mỗi tháng có `prior_months_vnd`, `charges_vnd`, `received_vnd`, `outstanding_vnd`, `end_of_month_vnd`. Gốc có `today_month`, `month_locks`; giờ Việt Nam từ server. Từ 25/11/2026 (SK-C1, [spec](../v7-thang-hien-tai.md)) `months` của sổ có mốc luôn có dòng tháng hiện tại, tháng chưa có gì thì phát sinh/đã thu 0 và Nợ đầu tháng = Còn nợ cuối tháng = cuối tháng trước; ô tổng thiếu số (server cũ) vẫn hiện `–`.
 - Chỉ bật ghi khi baseline active; khách chưa có baseline chưa thể ghi. `legacy_rows` để xem, không cộng lại. Dòng “Theo sổ gốc” lấy số server để đối chiếu, không tham gia tính số dư. Cờ kỹ thuật giữ trong DB/báo cáo nạp theo V7-COPY.
 - Trang API dùng cùng origin cổng thử riêng; không thay route `so-khach-v7.html`, không dùng cổng 8777. Client không xác minh danh tính Tailscale thật; phần runtime còn mở.
 
