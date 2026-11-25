@@ -797,7 +797,7 @@ Hằng ngày: `systemctl is-failed v7-backup-hourly.service`; `ls /srv/v7-backup
 Rollback: `sudo systemctl disable --now v7-backup-hourly.timer`, giữ các bản. Gỡ hẳn: xóa hai unit, `daemon-reload`;
 xóa `/srv/v7-backup-hourly` chỉ khi người dùng đồng ý.
 
-Còn mở: không có cảnh báo khi lượt lỗi (audit DevOps 31/10 #2); bản giờ không ra khỏi `hao`.
+Còn mở: không có cảnh báo khi lượt lỗi (audit DevOps 31/10 #2; máy canh có từ 5/11). Bản giờ ra ngoài từ 25/11/2026: [O7](#o7-bản-giờ-ra-ngoài--timer-v7-backup-offsite-hourly-bổ-sung-25112026).
 
 Map kiểm: như B (`v7_backup.daily`, `tests/test_v7_backup_daily.py`). Không chứng minh systemd hay lịch giờ VN.
 
@@ -1064,6 +1064,81 @@ Còn mở:
 Map kiểm: lệnh trên → `v7_backup.offsite/seal/sealed` → `tests/test_v7_backup_offsite.py` (dữ liệu giả, `age` giả; vòng
 `age` thật chạy khi máy có `age`) và `v7_offsite_pull.pull/fetch` → `tests/test_v7_offsite_pull.py` (SFTP giả), cả hai trong
 `npm run check`. Không chứng minh systemd, `authorized_keys`, Task Scheduler hay mạng tailnet.
+
+### O7. Bản giờ ra ngoài — timer `v7-backup-offsite-hourly` (bổ sung 25/11/2026)
+
+Lý do: từ 1/12/2026 web là sổ duy nhất ([`WEB-CHINH-01`](decisions/web-chinh-01.md)), không còn Sheet để dựng lại phần sau
+bản ngày. Trước bổ sung này bản mỗi giờ chỉ nằm trên ổ `hao`, PC chỉ kéo bản ngày: mất ổ là mất tới khoảng 26 giờ ghi. Cùng
+hộp chờ, cùng recipient, cùng khóa SSH và dòng `authorized_keys` như O2; không đổi DB, quyền hay tiền.
+
+| Mục | Chọn | Lý do |
+| --- | --- | --- |
+| Niêm | `v7_backup.py offsite --hourly --root /srv/v7-backup-hourly`: bản giờ mới nhất thành `v7-hourly-<ngày>-<giờ>.tar.age` + `.sha256`; thư mục trong tar vẫn tên `v7-<ngày>-<giờ>` nên `verify`, `restore` không đổi | tên riêng nên luật giữ của họ giờ không xóa bản ngày và ngược lại (`tests/test_v7_backup_offsite.py`) |
+| Giờ trên `hao` | :20 mỗi giờ, 6–22 giờ VN; bản giờ chạy :00 và mất khoảng 1 phút | có bản mới để niêm; lượt :20 không gặp bản đang ghi dở (chỉ bản có `MANIFEST.json`) |
+| Giữ trên `hao` | 24 bản giờ (khoảng 3 MB mỗi bản) | PC tắt qua đêm và sáng hôm sau vẫn kéo bù được bản cuối ngày trước |
+| Kéo trên PC | task riêng `Webdebit V7 Backup Pull Hourly`, `v7_offsite_pull.py --hourly`, đích riêng `<pc_dir>\gio`, giữ 24; mỗi giờ :35/:40/:45 (PC 1/2/3) từ 6:35 tới 22:45 | task, thư mục, `pull.log` riêng: lượt giờ không xóa `.partial` của lượt ngày, không đụng cửa sổ giữ của bản ngày |
+| Báo | một check chung `webdebit kéo bản giờ` trên healthchecks.io (lịch cron `45 6-22 * * *`, múi `Asia/Ho_Chi_Minh`, chờ 3 giờ), mọi PC ping cùng link; phía `hao` máy canh báo timer `v7-backup-offsite-hourly` (nhóm sao lưu, 12 giờ) | một PC nào kéo được là đủ; không PC nào kéo 3 giờ trong ngày thì email. Mọi PC tắt cả ngày cũng có email: là đúng, không bản giờ nào rời `hao` |
+
+**RPO sau bổ sung:** trong 6–22 giờ, tối đa khoảng 1 giờ 45 phút (bản :00, niêm :20, PC kéo :35–:45 giờ sau) khi ít nhất
+một PC bật. Ngoài giờ không có bản giờ (bản ngày 02:40 kéo 04:30–04:50), nên ghi sau 22:00 tới sáng chỉ an toàn khi lượt :20
+sáng hôm sau đã được kéo. PC đều tắt thì RPO quay về bản cuối cùng đã kéo.
+
+`/etc/systemd/system/v7-backup-offsite-hourly.service`:
+
+```ini
+[Unit]
+Description=V7 off-host copy of the newest hourly backup for the PC pull (v7_backup.py offsite --hourly)
+After=v7-backup-hourly.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+UMask=0027
+ExecStart=/usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py offsite --hourly --root /srv/v7-backup-hourly --outbox /srv/v7-backup-offsite --recipients /etc/webdebit-backup/v7-offsite.recipients --keep 24
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/v7-backup-offsite
+TimeoutStartSec=15min
+```
+
+`/etc/systemd/system/v7-backup-offsite-hourly.timer`:
+
+```ini
+[Unit]
+Description=V7 hourly off-host copy schedule (:20, 06-22 Vietnam time)
+
+[Timer]
+OnCalendar=*-*-* 06..22:20:00 Asia/Ho_Chi_Minh
+Persistent=true
+Unit=v7-backup-offsite-hourly.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Cài: ghim lại `v7_backup.py` theo B1 từ commit có `--hourly` (cũ không có cờ này, unit sẽ lỗi), rồi `systemd-analyze verify`,
+`daemon-reload`, `systemctl start v7-backup-offsite-hourly.service`. Đạt khi journal có JSON `"ok": true`, `sealed` là
+`v7-hourly-….tar.age`, và trong hộp chờ hai tệp 640 chủ `postgres` nhóm `<admin>`. Rồi `systemctl enable --now
+v7-backup-offsite-hourly.timer`. Cài trước khi `Deploy hao` đưa máy canh mới lên, không thì máy canh báo timer thiếu.
+
+Trên mỗi PC: chép `v7_offsite_pull.py` từ commit có `--hourly` (so hash như O4), tạo `<pc_dir>\gio` (thừa hưởng quyền của
+`<pc_dir>`), đặt link check chung vào `<pc_dir>\gio\ping-url.txt`, chạy tay một lượt bằng `python.exe` với `--hourly --dest
+"<pc_dir>\gio" --keep 24`. Đạt: mã thoát 0, `pull.log` trong `gio` có `PASS pulled=… newest=v7-hourly-….tar.age … | pinged`.
+Lịch (PC 2, 3 đổi `06:35` thành `06:40`, `06:45`):
+
+```powershell
+$trigger = New-ScheduledTaskTrigger -Daily -At 06:35; $trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 06:35 -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Hours 16 -Minutes 30)).Repetition; Register-ScheduledTask -TaskName 'Webdebit V7 Backup Pull Hourly' -Description 'Kéo bản giờ V7 đã mã hóa age từ hao (v7_offsite_pull.py --hourly)' -Action (New-ScheduledTaskAction -Execute '<python_dir>\pythonw.exe' -Argument '-I "<pc_tools>\v7_offsite_pull.py" --hourly --host <hao_ip> --user <admin> --identity "<pc_ssh_dir>\webdebit-v7-offsite-pull-ed25519" --dest "<pc_dir>\gio" --keep 24 --sftp "C:\Windows\System32\OpenSSH\sftp.exe" --ping-url-file "<pc_dir>\gio\ping-url.txt"') -Trigger $trigger -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 20) -MultipleInstances IgnoreNew) -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited)
+```
+
+Phục hồi từ bản giờ: như O5, thay `<ban>` bằng `v7-hourly-…`; sau `tar -xf` thư mục ra là `v7-<ngày>-<giờ>`. Rollback:
+`disable --now` timer, `Disable-ScheduledTask -TaskName 'Webdebit V7 Backup Pull Hourly'` trên PC, Pause check chung; bản
+ngày không bị ảnh hưởng.
+
+Map kiểm: `v7_backup.offsite(hourly=True)` → `tests/test_v7_backup_offsite.py` (tên riêng, hai họ không xóa nhau, thư mục
+trong tar); `v7_offsite_pull --hourly` → `tests/test_v7_offsite_pull.py` (chỉ kéo họ giờ, không xóa `.partial` của họ khác).
 
 ## Gói cấu hình và globals — timer `v7-backup-config`
 

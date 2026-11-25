@@ -82,3 +82,11 @@ Audit vận hành chỉ đọc 23/11/2026 (mục O2, O4, O8) kết luận: mọi
   mà web vẫn 200).
 
 Cách cài: [runbook](../v7-deploy-runbook.md#máy-canh-báo-email-canh-bao-01--timer-v7-watchdog), tổng quan vận hành: [van-hanh.md](../van-hanh.md).
+
+## Bổ sung 25/11/2026: bản giờ ra ngoài
+
+Phiên điều phối giao làm trước 1/12/2026 vì từ ngày đó web là sổ duy nhất ([`WEB-CHINH-01`](web-chinh-01.md)); Claude đặt chi
+tiết. Không đổi kênh, DB, quyền hay tiền. Timer mới `v7-backup-offsite-hourly` vào nhóm sao lưu của máy canh (ngưỡng 12 giờ
+như bản giờ). PC kéo bản giờ ping **một check chung** `webdebit kéo bản giờ` (một PC kéo được là đủ; lịch cron mỗi giờ
+6–22, chờ 3 giờ), không thêm check theo từng PC. Mọi PC tắt cả ngày thì có email: là đúng, vì không bản giờ nào rời `hao`.
+Cách cài: [O7 của runbook](../v7-deploy-runbook.md#o7-bản-giờ-ra-ngoài--timer-v7-backup-offsite-hourly-bổ-sung-25112026).

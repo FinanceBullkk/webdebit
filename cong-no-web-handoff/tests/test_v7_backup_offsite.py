@@ -185,6 +185,34 @@ class OffsiteTests(unittest.TestCase):
         self.assertEqual(summary["pruned"], ["v7-20200101-024000.tar.age", "v7-20200102-024000.tar.age"])
         self.assertEqual(target.read_text(encoding="utf-8"), "keep")
 
+    def test_hourly_family_has_its_own_names_and_never_prunes_daily(self):
+        # RPO 25/11/2026: bản giờ chung hộp chờ với bản ngày; luật giữ mỗi họ chỉ đụng họ của nó.
+        make_backup(self.root, "v7-20200101-024000")
+        daily, _ = self.offsite(keep=1)
+        hourly = self.base / "hourly"
+        hourly.mkdir()
+        for hour in ("09", "10", "11"):
+            newest = make_backup(hourly, f"v7-20200102-{hour}0000", dump=f"hour {hour}".encode())
+            output = io.StringIO()
+            with redirect_stdout(output):
+                archive = backup.offsite(hourly, self.outbox, self.recipients, 2, hourly=True)
+            summary = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(archive.name, "v7-hourly-20200102-110000.tar.age")
+        self.assertEqual(summary["pruned"], ["v7-hourly-20200102-090000.tar.age"])
+        self.assertEqual(self.names(), sorted([daily.name, f"{daily.name}.sha256",
+                                               *(f"v7-hourly-20200102-{h}0000.tar.age{s}" for h in ("10", "11") for s in ("", ".sha256"))]))
+        _, payload = plain_tar(archive)
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:") as stream:
+            self.assertEqual(stream.getnames()[0], newest.name)  # folder keeps v7-<stamp>: `verify` works unchanged
+        make_backup(self.root, "v7-20200103-024000")
+        _, summary = self.offsite(keep=1)
+        self.assertEqual(summary["pruned"], [daily.name])
+        self.assertEqual(len([name for name in self.names() if name.startswith("v7-hourly-")]), 4)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(backup.main(["offsite", "--root", str(hourly), "--outbox", str(self.outbox),
+                                          "--recipients", str(self.recipients), "--keep", "1", "--hourly"]), 0)
+        self.assertEqual(len([name for name in self.names() if name.startswith("v7-hourly-")]), 2)
+
     def test_archive_named_before_existing_ones_is_still_kept(self):
         make_backup(self.root, "v7-20200101-024000")
         self.offsite()
