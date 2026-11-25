@@ -461,7 +461,6 @@
         try { plan = fee ? model.planFeePaste(parsed, ctx.snapshot, order, typeId) : model.planPricePaste(parsed, ctx.snapshot, order); }
         catch { parsed.errors.push('Chưa đọc được số tiền của sổ. Tải lại sổ rồi dán lại.'); }
       }
-      if (fee && sign === 'negative' && parsed.errors.length) parsed.errors.push(`${fee.name} nhập số âm.`);
       closePaste(false);
       pasteFrom = cell;
       pastePlan = plan?.writes.length ? { ...plan, fee } : null;

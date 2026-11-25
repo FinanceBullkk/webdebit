@@ -120,9 +120,10 @@ button.pill{font:inherit;font-weight:700}
 /* WEB-CHINH-01: danh sách sổ còn chuyến chưa giá, bung ngay dưới số Còn phải thu (người dùng không vào được Việc cần làm). */
 .missing-list{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
 .missing-list p{margin:0 0 6px;color:var(--ink-m);font-size:13px}
-.missing-list ul{margin:0;padding:0;list-style:none;columns:3 14em;column-gap:20px;max-height:220px;overflow-y:auto}
-.missing-list li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;break-inside:avoid}
-.missing-list a{color:var(--blue);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Lưới xếp theo hàng, cuộn dọc khi dài. Không dùng columns: có max-height thì cột tràn sang ngang (25 sổ thật trên hao 25/11). */
+.missing-list ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(15em,1fr));column-gap:20px;margin:0;padding:0;list-style:none;max-height:220px;overflow-y:auto}
+.missing-list li{display:flex;justify-content:space-between;gap:8px;min-width:0;padding:3px 0}
+.missing-list a{min-width:0;color:var(--blue);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .missing-list li span{color:var(--amber);font-variant-numeric:tabular-nums;white-space:nowrap}
 .brk{display:flex;gap:3px;margin-top:12px;font-size:13px;font-variant-numeric:tabular-nums}
 .brk>div{box-sizing:border-box;padding-bottom:3px;white-space:nowrap;overflow:hidden}
