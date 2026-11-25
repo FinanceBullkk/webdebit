@@ -36,8 +36,10 @@ Việc khác phải làm trước khi khóa Sheet (phiên kiểm toàn bộ webs
 
 ĐÃ CHỐT hướng (web là sổ chính thức). Nguyên tắc 1–5 và bảng là ĐỀ XUẤT của Claude. Quyết định này không đổi DB, quyền, luật tiền (FIFO, khóa tháng, NULL không phải 0) hay hành vi máy đang chạy; mỗi thay đổi máy là một PR riêng có test và nhật ký.
 
+**Ngày thôi gõ Sheet (người dùng chốt 25/11/2026, chat, chọn "Từ 1/12/2026" thay vì chuyển từng đầu vào):** từ **1/12/2026** người nhập thôi gõ Sheet sổ nợ; mọi đầu vào (khách mới, chuyến bộ chọn sổ, giá, phụ phí, phiếu thu) nhập trên web, kể cả giá hay phiếu của tháng 11 nhập trễ. Cách làm (ĐỀ XUẤT của Claude): cho tới hết 30/11 máy chép vẫn chạy theo nguyên tắc 3; lượt đối soát cuối tháng 11 là lượt so Sheet cuối cùng có giá trị; sau lượt đó tắt mọi đường chép (`WEBDEBIT_AUTO_SHEET`, timer đối soát ghi, `MAY-TAO-SO-01`) và `KIEM-TONG-01`, có nhật ký trong `docs/deploys/`. Trước 1/12 phải xong: đường nhập trên web cho từng đầu vào ở bảng trên dùng được, và người nhập đã đi thử từng đường trên `hao`.
+
 CÒN MỞ:
 
-- **Ngày người nhập thôi gõ Sheet**, theo từng đầu vào hay một lần, và ngày khóa Sheet chỉ xem. Trước ngày đó máy chép vẫn chạy (theo nguyên tắc 3) để web không thiếu dữ liệu người nhập gõ trên Sheet.
+- Ngày khóa Sheet chỉ xem (đề xuất: cùng 1/12/2026, để không ai lỡ tay gõ vào đó).
 - Các mục chưa đạt của [checklist chuyển hẳn](../chuyen-han-checklist.md) (người nhập làm trọn một ngày trên web, hai người cùng sửa, diễn tập phục hồi) không còn là điều kiện để coi web là chuẩn, nhưng vẫn là việc phải làm trước khi khóa Sheet.
 - Hai sổ lệch chưa giải thích lúc chốt: theo nguyên tắc 1, chỉ tra khi nghi web sai.
