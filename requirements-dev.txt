@@ -12,4 +12,4 @@ hypothesis==6.170.15
 sortedcontainers==2.4.0  # phụ thuộc duy nhất của hypothesis trên Python 3.11+, ghim cùng để lượt cài lặp lại được
 # Test che ảnh của máy Zalo (`cong-no-web-handoff/tests/test_zalo_agent_money_external.py`) vẽ điểm ảnh thật; thiếu gói này thì các ca đó tự bỏ qua.
 # Máy có Zalo dùng Pillow có sẵn của Python 3.13 ở đó, không cài từ file này.
-pillow==12.3.0
+pillow==13.0.0
