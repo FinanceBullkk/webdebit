@@ -146,23 +146,48 @@ test('?loc=thieu-gia: mở tháng cũ có chuyến thiếu giá; chip có chấm
   Object.assign(world.trips.find(trip => trip.month === `${MONTHS[1]}-01`), { unit_price_vnd: null, amount_vnd: null, is_missing_price: true });
 }));
 
-// SK-C1 + SK-N8: sổ có chuyến ở hai tháng liền cách đây 16 và 15 tháng, tháng hiện tại chưa có gì. Chip có năm ở chip đầu và khi
-// năm khác chip đứng trước, khoảng trống 14 tháng có dấu "… 14 tháng"; bấm chip tháng hiện tại thì Nợ đầu tháng và Còn nợ cuối
-// tháng là số của GET (dòng tháng hiện tại có phát sinh 0), không phải "–".
-test('SK-C1 + SK-N8: chip năm theo chip trước, dấu "… 14 tháng", tháng hiện tại có Nợ đầu tháng từ GET', async () => withPage(async ({ page, shot }) => {
+// SK-C1 + THANH-THANG-01: sổ có chuyến ở hai tháng liền cách đây 16 và 15 tháng, tháng hiện tại chưa có gì. Thanh tháng chia
+// nhóm theo năm: năm mới nhất mở đủ tháng (tháng trống là ô mờ), năm cũ thu gọn; bấm nút năm thì thu/mở nhóm đó.
+// Bấm chip tháng hiện tại thì Nợ đầu tháng và Còn nợ cuối tháng là số của GET (dòng tháng hiện tại có phát sinh 0), không "–".
+test('SK-C1 + THANH-THANG-01: thanh tháng chia nhóm năm, năm cũ gom lại, tháng hiện tại có Nợ đầu tháng từ GET', async () => withPage(async ({ page, shot }) => {
   const now = todayMonth.slice(0, 7);
   const [first, second] = [shift(now, 16), shift(now, 15)];
-  const tag = (key, prev) => `T${Number(key.slice(5, 7))}${prev && prev.slice(0, 4) === key.slice(0, 4) ? '' : `/${key.slice(0, 4)}`}`;
-  const names = await page.locator('.month-chips').evaluate(nav => [...nav.querySelectorAll('.chip-name,.month-gap')].map(node => node.textContent));
-  assert.deepEqual(names, [tag(first), `Tháng ${Number(second.slice(5, 7))}/${second.slice(0, 4)}`, '… 14 tháng', tag(now, second)]);
-  await shot('sk-n8-chip-tháng');
+  // Những gì đang thấy trên thanh: năm (nút), tên chip, ô tháng trống ("~").
+  const names = () => page.locator('.month-chips').evaluate(nav => [...nav.querySelectorAll('.month-year,.chip-name,.month-empty')]
+    .filter(node => node.checkVisibility())
+    .map(node => node.dataset.year ?? `${node.classList.contains('month-empty') ? '~' : ''}${node.textContent}`));
+  const m = key => Number(key.slice(5, 7));
+  const span = (from, to, mark) => Array.from({ length: to - from + 1 }, (_, index) => `${mark}T${from + index}`);
+  // Sổ mở tháng gần nhất có số liệu (second): năm của nó mở từ tháng đầu của sổ tới T12; năm cũ hơn (khi second là T1, first
+  // nằm ở năm trước) thu gọn chỉ còn nút năm; năm hiện tại mở từ T1 tới tháng hiện tại, các tháng trống là ô mờ.
+  const yearOf = key => key.slice(0, 4);
+  const head = yearOf(first) === yearOf(second) ? [yearOf(second), `T${m(first)}`, `T${m(second)}`]
+    : [yearOf(first), yearOf(second), `T${m(second)}`];
+  const all = await names();
+  assert.deepEqual(all.slice(0, head.length), head);
+  assert.deepEqual(all.slice(head.length, head.length + 12 - m(second)), span(m(second) + 1, 12, '~'));
+  assert.deepEqual(all.slice(-m(now) - 1), [yearOf(now), ...span(1, m(now) - 1, '~'), `T${m(now)}`]);
+  assert.equal(await page.locator('.month-chip').count(), 3);
+  await shot('thanh-thang-nhom-nam');
   await page.locator(`.month-chip[data-month="${now}"]`).click();
   const bar = (await page.locator(`#thang-${now} .month-stats`).innerText()).replace(/\s+/g, ' ');
   assert.match(bar, /^Nợ đầu tháng 2\.000\.000 \+ Phát sinh 0 − Khách trả 0 = Còn nợ cuối tháng 2\.000\.000 đ$/);
   // SK-N11: tháng hiện tại mở; tháng cũ khóa thì nút điều chỉnh tắt có chữ lý do.
   assert.equal(await page.locator(`#thang-${now} .month-lock`).getAttribute('title'), `Đang mở · bấm để khóa tháng ${Number(now.slice(5, 7))}/${now.slice(0, 4)}`);
   await shot('sk-c1-thang-hien-tai');
+  // Bấm nút năm hiện tại: nhóm thu lại (chip ẩn, sổ không vẽ lại), bấm lần nữa thì mở ra.
+  const nowYear = page.locator(`.month-year[data-year="${yearOf(now)}"]`);
+  await nowYear.click();
+  assert.equal(await nowYear.getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator(`.month-chip[data-month="${now}"]`).isVisible(), false);
+  assert.equal(await page.locator(`#thang-${now}`).count(), 1);
+  await nowYear.click();
+  assert.equal(await page.locator(`.month-chip[data-month="${now}"]`).isVisible(), true);
+  // Đang xem tháng hiện tại thì năm của second thu gọn (khác năm hiện tại): mở nhóm năm đó rồi bấm chip.
+  const secondYear = page.locator(`.month-year[data-year="${yearOf(second)}"]`);
+  if (await secondYear.getAttribute('aria-expanded') === 'false') await secondYear.click();
   await page.locator(`.month-chip[data-month="${second}"]`).click();
+  await page.waitForFunction(id => document.querySelector(`.month-chip[data-month="${id}"]`)?.getAttribute('aria-current') === 'true', second);
   assert.equal(await page.locator(`#thang-${second} .add-month-adjustment`).getAttribute('title'), 'Tháng đang khóa, mở khóa trước');
 }, world => {
   world.month = null;
