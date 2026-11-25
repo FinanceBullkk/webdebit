@@ -259,3 +259,70 @@ test('Review #675 lần 2: sổ trong lần chia đã có phiếu cùng tham chi
   await settled(page);
   assert.deepEqual(receiptPosts(world).map(body => body.customer_id), [1]);
 }, setup));
+
+test('Sau review #675: thiếu tham chiếu thì kiểm trùng theo số tiền và ngày ±3 ở từng sổ; phần trùng mặc định không ghi', async () => withPage(async ({ page, world }) => {
+  world.receiptBook = { days: [{ date: clock, rows: [{ source: 'web', pid: 'PH-B3', customer_id: 2, name: 'Khách Hai', amount_vnd: '20000000', date: clock, note: '' }] }], undated: [] };
+  await openWithTwo(page);
+  await split(page).locator('.split-reference').fill('');
+  await split(page).locator('.split-amount[data-index="0"]').fill('30.000.000');
+  await split(page).locator('.split-amount[data-index="1"]').fill('20.000.000');
+  await split(page).locator('.split-next').click();
+  const review = split(page).locator('.split-review');
+  await review.waitFor();
+  const text = await review.innerText();
+  assert.match(text, /Khách Hai: 20\.000\.000[^\n]*Không ghi/);
+  assert.match(text, /Vẫn ghi: sổ này đã có PH-B3 cùng số tiền, ngày gần nhau/);
+  assert.match(text, /Ghi 1 phiếu, tổng 30\.000\.000 đ/);
+}, setup));
+
+test('Sau review #675: bản lưu lần chia hỏng thì tự xóa, báo, nút Chia cho nhiều sổ vẫn mở khung mới', async () => withPage(async ({ page }) => {
+  await page.locator('.entry-open').click();
+  await page.locator('.entry-drawer .entry-split').click();
+  assert.equal(await split(page).locator('.split-form').isVisible(), true);
+  assert.equal(await page.evaluate(() => localStorage.getItem('webdebit:chia-do')), null);
+  assert.match(await page.locator('.cn-toast-text').innerText(), /Bản lưu lần chia nhiều sổ dở bị hỏng nên đã bỏ/);
+}, world => {
+  setup(world);
+  world.beforeOpen = page => page.addInitScript(() => {
+    if (sessionStorage.getItem('seeded')) return;
+    sessionStorage.setItem('seeded', '1');
+    localStorage.setItem('webdebit:chia-do', '{"parts":[{"customerId":1,"key":"x"}],"totalVnd":"abc"');
+  });
+}));
+
+test('Sau review #675: hai tab cùng lần chia dở — tab kia bỏ thì tab này đóng theo; tab khác đang ghi thì tab này không gửi', async () => withPage(async ({ page, world }) => {
+  await openWithTwo(page);
+  await split(page).locator('.split-amount[data-index="0"]').fill('30.000.000');
+  await split(page).locator('.split-amount[data-index="1"]').fill('20.000.000');
+  await split(page).locator('.split-next').click();
+  await split(page).locator('.split-review').waitFor();
+  world.books[2].failNext = { error: 'INVALID_RECEIPT', message: 'Phiếu không hợp lệ.' };
+  await split(page).locator('.split-save').click();
+  await split(page).locator('.split-review .split-st-error').waitFor();
+  // Tab này: giả như tab khác đang gửi (dấu mới trong bản lưu) thì Ghi tiếp không gửi.
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem('webdebit:chia-do'));
+    localStorage.setItem('webdebit:chia-do', JSON.stringify({ ...data, savingTab: 'tab-khac', savingAt: Date.now() }));
+  });
+  const before = receiptPosts(world).length;
+  await split(page).locator('.split-save').click();
+  assert.match(await page.locator('.cn-toast-text').innerText(), /đang ghi ở tab khác/);
+  await settled(page);
+  assert.equal(receiptPosts(world).length, before);
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem('webdebit:chia-do'));
+    localStorage.setItem('webdebit:chia-do', JSON.stringify({ ...data, savingTab: null, savingAt: null }));
+  });
+  // Tab thứ hai mở cùng sổ: "Chia cho nhiều sổ…" về đúng lần chia dở; bỏ ở đó thì tab đầu đóng khung và báo.
+  const other = await page.context().newPage();
+  await other.goto(page.url());
+  await other.locator('.book-head').waitFor();
+  await other.locator('.entry-open').click();
+  await other.locator('.entry-drawer .entry-split').click();
+  assert.match(await other.locator('.split-drawer .split-review').innerText(), /Khách Thử Sửa: 30\.000\.000[^\n]*Đã ghi PH-001/);
+  await other.locator('.split-drawer .split-review .split-close').click();
+  await other.locator('.split-drawer .split-drop').click();
+  await split(page).waitFor({ state: 'hidden' });
+  assert.match(await page.locator('.cn-toast-text').innerText(), /đã xong hay đã bỏ ở tab khác/);
+  await other.close();
+}, setup));
