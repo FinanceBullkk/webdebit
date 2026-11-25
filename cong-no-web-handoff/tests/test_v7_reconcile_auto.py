@@ -973,5 +973,43 @@ class WebKeptTests(unittest.TestCase):
         self.assertNotIn("kept", row)
 
 
+class BookingOnlyTests(unittest.TestCase):
+    """WEB-CHINH-01, tắt máy 1/12/2026: `--booking-only` chỉ so sổ web với booking. Không tải Sheet, không đọc hay ghi reconcile.json,
+    không lệnh ghi DB nào."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.output = Path(self.temp.name) / "reconcile.json"
+
+    def run_job(self, db, env=None, *extra):
+        printed, seen = io.StringIO(), {}
+
+        def compare(books, output, sea, road):
+            seen.update(books=books, output=output)
+            return {"counts": {"khop": 1}, "booking": 1, "web_rows": 1, "paired": 1, "seconds": 0}
+        with patch.object(job, "PsqlDirect", return_value=db), patch.object(job.booking_check, "run_web_safely", compare), \
+                patch.object(job, "download", side_effect=AssertionError("không được tải Sheet")), \
+                patch.dict("os.environ", env or {"WEBDEBIT_BOOKING_CHECK": "on"}), redirect_stdout(printed), patch("sys.stderr"):
+            code = job.main(["--booking-only", "--output", str(self.output), *extra])
+        return code, json.loads(printed.getvalue()), seen
+
+    def test_compares_web_books_with_booking_and_touches_nothing_else(self):
+        db = Db()
+        code, printed, seen = self.run_job(db)
+        self.assertEqual((code, printed["mode"], printed["ok"], db.writes), (0, "booking-only", True, []))
+        self.assertEqual(([book["id"] for book in seen["books"]], [t["container"] for t in seen["books"][0]["trips"]]), ([1], ["FAKE-CONT-XY"]))
+        self.assertEqual(seen["output"], self.output.with_name("booking-web.json"))
+        self.assertFalse(self.output.exists())
+
+    def test_switched_off_and_wrong_combinations(self):
+        code, printed, seen = self.run_job(Db(), {"WEBDEBIT_BOOKING_CHECK": "off"})
+        self.assertEqual((code, printed["booking_web"], seen), (0, {"skipped": "OFF"}, {}))
+        with patch("sys.stderr"), self.assertRaises(SystemExit):
+            job.main(["--booking-only", "--fix", "--output", str(self.output)])
+        with patch("sys.stderr"), self.assertRaises(SystemExit):
+            job.main(["--output", str(self.output), "--xlsx", "x.xlsx"])   # chế độ đối soát vẫn cần --source-dir
+
+
 if __name__ == "__main__":
     unittest.main()

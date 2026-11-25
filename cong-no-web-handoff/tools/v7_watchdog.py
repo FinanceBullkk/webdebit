@@ -59,6 +59,24 @@ MONEY_TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sh
                                          "webdebit-ps-snapshot": None}
 BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26}
 TIMERS: dict[str, float | None] = {**MONEY_TIMERS, **BACKUP_TIMERS}
+# WEB-CHINH-01, tắt máy ngày 1/12/2026: thôi đọc Sheet sổ nợ thì đặt `WEBDEBIT_ALERT_DEBT_SHEET=off` trong alert.env cùng lúc với tắt
+# runner giá và đổi timer đối soát sang `--booking-only`. Khi đó không canh bản chụp và timer của Sheet sổ nợ, và canh lượt so sổ web với
+# booking (`booking-web.json`) thay cho kết quả đối soát. Cờ máy 15 phút vẫn theo WEBDEBIT_ALERT_AUTO_FLAGS (bỏ `prices`, `headers`).
+DEBT_SHEET_SNAPSHOTS = ("prices.json", "receipts.json")
+DEBT_SHEET_TIMERS = ("webdebit-sheet-prices",)
+BOOKING_WEB = "booking-web.json"
+
+
+def debt_sheet_off(env: Mapping[str, str] = os.environ) -> bool:
+    return (env.get("WEBDEBIT_ALERT_DEBT_SHEET") or "on").strip() == "off"
+
+
+def snapshot_names(off: bool) -> tuple[str, ...]:
+    return tuple(name for name in SNAPSHOTS if not (off and name in DEBT_SHEET_SNAPSHOTS))
+
+
+def money_timers(off: bool) -> dict[str, float | None]:
+    return {name: hours for name, hours in MONEY_TIMERS.items() if not (off and name in DEBT_SHEET_TIMERS)}
 DISKS = ("/", "/srv", "/var/lib/postgresql")
 DISK_MIN_FREE = 0.10
 TEST_BODY = "Thử cảnh báo của máy công nợ, không có lỗi thật. Lượt kế sẽ báo ổn lại."
@@ -153,9 +171,27 @@ def check_reconcile(path: Path, now: dt.datetime) -> list[str]:
     return found
 
 
-def check_snapshots(folder: Path, now: float) -> list[str]:
+def check_booking_web(path: Path, now: dt.datetime) -> list[str]:
+    """Sau khi thôi theo Sheet sổ nợ, timer đối soát chỉ so sổ web với booking (`--booking-only`): canh lượt đó như canh lượt đối soát
+    (quá 3 giờ trong ngày hay quá 14 giờ là đã dừng). Lỗi của lượt nằm ở `last_error`, kết quả lượt đạt trước vẫn giữ."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        checked = dt.datetime.fromisoformat(data["checked_at"]) if data.get("checked_at") else None
+    except (OSError, ValueError, TypeError):
+        return ["Không đọc được kết quả so sổ web với booking."]
+    code = (data.get("last_error") or {}).get("reason")
+    tail = f" (lỗi gần nhất: {code})" if code else ""
+    if checked is None:
+        return [f"Phép so sổ web với booking chưa có lượt nào chạy được{tail}."]
+    hours = (now - checked).total_seconds() / 3600
+    if hours > 14 or (10 <= now.hour <= 22 and hours > 3):
+        return [f"Phép so sổ web với booking chưa chạy được từ {checked:%H:%M ngày %d/%m}{tail}."]
+    return []
+
+
+def check_snapshots(folder: Path, now: float, names: tuple[str, ...] = SNAPSHOTS) -> list[str]:
     found = []
-    for name in SNAPSHOTS:
+    for name in names:
         try:
             minutes = (now - (folder / name).stat().st_mtime) / 60
         except OSError:
@@ -503,11 +539,14 @@ def collect_groups(now: dt.datetime, *, healthz: str, reconcile: Path, snapshots
                    zalo_bot: Callable[[dt.datetime], list[str]] = check_zalo_bot) -> list[tuple[str, list[str]]]:
     """(nhóm, dòng) cho từng phép kiểm, theo thứ tự. Một phép kiểm hỏng không được che các phép kiểm khác."""
     moment = now.timestamp()
+    off = debt_sheet_off()
+    run_check: Callable[[], list[str]] = ((lambda: check_booking_web(reconcile.with_name(BOOKING_WEB), now)) if off
+                                          else (lambda: check_reconcile(reconcile, now)))
     checks: tuple[tuple[str, str, Callable[[], list[str]]], ...] = (
-        ("tien", "web", lambda: check_api(healthz)), ("tien", "đối soát", lambda: check_reconcile(reconcile, now)),
-        ("tien", "bản chụp", lambda: check_snapshots(snapshots, moment)),
+        ("tien", "web", lambda: check_api(healthz)), ("tien", "so booking" if off else "đối soát", run_check),
+        ("tien", "bản chụp", lambda: check_snapshots(snapshots, moment, snapshot_names(off))),
         ("tien", "nguồn chuyến", lambda: check_sources(snapshots, now.date())),
-        ("tien", "hộp việc", lambda: check_inbox(healthz)), ("tien", "timer", lambda: check_units(show, moment, MONEY_TIMERS)),
+        ("tien", "hộp việc", lambda: check_inbox(healthz)), ("tien", "timer", lambda: check_units(show, moment, money_timers(off))),
         ("saoluu", "timer sao lưu", lambda: check_units(show, moment, BACKUP_TIMERS)), ("saoluu", "đĩa", lambda: check_disks(DISKS)),
         ("luoi", "lưới an toàn", lambda: safety(now)), ("saoluu", "bản sao ngoài máy", lambda: offsite(now)),
         ("zalo", "máy Zalo", lambda: zalo(now)), ("zalo", "bot Zalo", lambda: zalo_bot(now)))
