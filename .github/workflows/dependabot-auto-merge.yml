@@ -1,0 +1,27 @@
+name: Dependabot auto-merge
+
+# Bản nâng patch/minor của Dependabot tự vào merge queue khi `ci-ok` xanh (MERGE-QUEUE-01, 25/11/2026).
+# Không bỏ qua cổng nào: PR vẫn chạy đủ Tests ở PR và ở hàng đợi, merge xong đi Deploy hao như PR khác.
+# Bản nâng major (hoặc nhóm có một gói nâng major) để người xem.
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'ThienThanhLogs/webdebit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - name: Bật auto-merge cho patch/minor
+        if: steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto "$PR_URL"

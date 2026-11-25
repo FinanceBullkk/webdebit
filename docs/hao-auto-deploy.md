@@ -10,6 +10,12 @@
 Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` tự chạy (Environment `hao`, không người duyệt từ 28/10/2026)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
 trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm sống, lỗi thì tự quay lại bản trước.
+
+Từ 25/11/2026 ([`MERGE-QUEUE-01`](decisions/merge-queue-01.md)) PR vào `main` qua merge queue, nên `Tests` đã xanh trên
+chính SHA đó ở sự kiện `merge_group`: `Deploy hao` chạy ngay khi push vào `main` (job `queue-checked` xác nhận lượt đó),
+không chờ lượt `Tests` chạy lại trên `main`. Lượt chạy lại vẫn còn và vẫn gọi `Deploy hao` (đường `workflow_run`), lúc đó
+bước kiểm diff thấy `hao` đã chạy SHA này nên bỏ qua; SHA cũ hơn bản đang chạy cũng bỏ qua, không deploy lùi.
+
 Gói mã theo danh sách cho phép [`scripts/deploy/release-paths.txt`](../scripts/deploy/release-paths.txt) (từ 23/11/2026,
 audit vận hành O9): `web`, `preview` trừ test trình duyệt, các máy trong `tools` và module chúng nạp, `tools/zalo_bot`, cùng
 `docs/business-rules.md`, `docs/decisions.md`, `docs/decisions/`, `specs/*.md` cho công cụ tra tài liệu của bot Zalo (chỉ đọc).
