@@ -32,6 +32,10 @@ test('phiếu chưa rõ: không cho Sửa lại sang phiếu khác; Thử lại 
   await drawer(page).locator('.entry-close').click();
   await page.locator('.entry-open').click();
   assert.equal(await drawer(page).locator('.entry-review').isVisible(), true);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-sum')), true, 'SK-C2: mở lại ở bước xem lại, tiêu điểm ở câu tóm tắt');
+  await page.keyboard.press('Enter');
+  await settled(page);
+  assert.equal(receiptPosts(world).length, 0, 'Enter ngay sau khi mở lại không gửi lệnh');
   await drawer(page).locator('.entry-retry').click();
   await page.locator('.saved-strip').waitFor();
   await settled(page);

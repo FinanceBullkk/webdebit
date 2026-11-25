@@ -199,7 +199,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .entry-drawer h2{margin:0;font-size:18px}.entry-drawer h2 small{display:block;color:#3e5871;font-size:14px;font-weight:400}
 .entry-drawer button{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;cursor:pointer}
 .entry-drawer header button{margin-left:auto}
-.entry-drawer button:focus-visible,.entry-drawer input:focus-visible,.entry-drawer select:focus-visible{outline:3px solid #145fa9;outline-offset:1px}
+.entry-drawer button:focus-visible,.entry-drawer input:focus-visible,.entry-drawer select:focus-visible,.entry-review .entry-sum:focus{outline:3px solid #145fa9;outline-offset:1px}
 .entry-body{flex:1;overflow-y:auto;padding:12px 14px}
 .entry-form{display:flex;flex-direction:column;gap:4px}.entry-form[hidden],.entry-review[hidden]{display:none}
 .entry-field{display:flex;flex-direction:column;gap:4px;margin-top:6px;font-size:15px;font-weight:600;color:#3e5871}
@@ -213,7 +213,8 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .entry-drawer .receipt-save:disabled{opacity:.6;cursor:default}
 .entry-review p{margin:0 0 10px;line-height:1.45}.entry-review .entry-sum{font-size:17px}
 .entry-review .entry-note{padding:6px 10px;border-radius:4px;background:#fff3d6;color:#5a3a00}
-.entry-review .entry-hint{color:#3e5871;font-size:14px}
+.entry-review .entry-hint,.entry-amount-hint{color:#3e5871;font-size:14px}
+.entry-amount-hint{min-height:20px;text-align:right;font-variant-numeric:tabular-nums}
 .entry-review .entry-error:empty{display:none}.entry-review .entry-error button{margin-left:6px}
 .saved-strip{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0;padding:8px 14px;border:1px solid #9fd3b0;border-left:4px solid #17663a;border-radius:6px;background:#e3f3e8;color:#123f26;font-size:15px}
 .saved-strip span{flex:1;min-width:260px}

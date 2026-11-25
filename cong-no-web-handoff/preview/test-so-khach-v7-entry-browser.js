@@ -37,12 +37,15 @@ test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (c
   assert.doesNotMatch(text, /khách dư|đang khóa/);
   await settled(page);
   assert.equal(world.requests.length, 0, 'bước xem lại chưa gửi lệnh nào');
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true, 'tiêu điểm ở nút Ghi phiếu');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-sum')), true, 'SK-C2: tiêu điểm ở câu tóm tắt, không ở nút Ghi phiếu');
   await shot('entry-xem-lai');
   // Sửa lại: về ô Số tiền, số đã gõ còn nguyên.
   await drawer(page).locator('.entry-back').click();
   assert.equal(await drawer(page).locator('.receipt-amount').inputValue(), '50.000.000');
   await drawer(page).locator('.receipt-amount').press('Enter');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true, 'Tab hai lần tới nút Ghi phiếu');
   await page.keyboard.press('Enter');
   await page.locator('.saved-strip').waitFor();
   await settled(page);
@@ -59,6 +62,58 @@ test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (c
   assert.equal(await drawer(page).locator('.receipt-amount').inputValue(), '');
   await shot('entry-da-ghi');
 }, world => { world.total = '1250000000'; }));
+
+test('SK-C2: gõ ngày, số tiền, Enter, Enter (kể cả giữ phím) không gửi lệnh ghi; Tab tới Ghi phiếu rồi Enter ghi đúng một lệnh', async () => withPage(async ({ page, world }) => {
+  await fill(page, today, '2000000');
+  const review = drawer(page).locator('.entry-review');
+  await review.waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('Enter');
+  await page.keyboard.down('Enter');   // phím giữ lặp (event.repeat)
+  await page.keyboard.up('Enter');
+  await settled(page);
+  assert.equal(world.requests.length, 0, 'Enter, Enter và giữ Enter không gửi lệnh nào');
+  assert.equal(await review.isVisible(), true, 'bước Xem lại vẫn mở');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('entry-sum')), true);
+  // Ghi có chủ ý: Tab tới Ghi phiếu rồi Enter.
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-save')), true);
+  await page.keyboard.press('Enter');
+  await page.locator('.saved-strip').waitFor();
+  await settled(page);
+  assert.equal(receiptPosts(world).length, 1);
+  assert.equal(receiptPosts(world)[0][1].amount_vnd, '2000000');
+}));
+
+test('SK-N10: ô Số tiền hiện số đã hiểu có nhóm nghìn khi gõ và khi rời ô; lỗi nói dạng đúng và tắt khi sửa ô', async () => withPage(async ({ page, world, shot }) => {
+  await page.locator('.entry-open').click();
+  const amount = drawer(page).locator('.receipt-amount');
+  const hint = drawer(page).locator('.entry-amount-hint');
+  const error = drawer(page).locator('.receipt-amount-error');
+  await amount.pressSequentially('1234567');
+  assert.equal(await hint.innerText(), 'Hiểu là 1.234.567 đ');
+  assert.equal(await amount.inputValue(), '1234567', 'đang gõ thì không đổi chữ trong ô');
+  await shot('entry-so-tien-hieu-la');
+  await drawer(page).locator('.receipt-reference').focus();   // rời ô
+  assert.equal(await amount.inputValue(), '1.234.567');
+  // Chữ chưa đọc được: giữ nguyên chữ gõ, không hiện số; lỗi chỉ khi bấm Xem lại.
+  await amount.fill('45tr');
+  assert.equal(await hint.innerText(), '');
+  await drawer(page).locator('.receipt-reference').focus();
+  assert.equal(await amount.inputValue(), '45tr');
+  await drawer(page).locator('.receipt-date').fill(today);
+  await amount.press('Enter');
+  assert.match(await error.innerText(), /^Số tiền không hợp lệ\. Chỉ gõ chữ số/);
+  await shot('entry-so-tien-loi');
+  // Sửa ô: lỗi cũ tắt ngay, không đợi lần Xem lại sau.
+  await amount.pressSequentially('0');
+  assert.equal(await error.innerText(), '');
+  await amount.fill('45.000.000');
+  assert.equal(await hint.innerText(), 'Hiểu là 45.000.000 đ');
+  await settled(page);
+  assert.equal(world.requests.length, 0);
+}));
 
 test('Bấm Ghi phiếu hai lần nhanh vẫn một phiếu; vượt tổng nợ thì xem lại báo khách dư', async () => withPage(async ({ page, world }) => {
   await fill(page, today, '30000000');
@@ -80,7 +135,7 @@ test('Chặn tại ô trước khi gửi: ngày sai, ngày sau hôm nay, thiếu
   await fill(page, today, '0');
   assert.equal(await drawer(page).locator('.receipt-amount-error').innerText(), 'Số tiền phải lớn hơn 0.');
   await fill(page, today, 'abc');
-  assert.equal(await drawer(page).locator('.receipt-amount-error').innerText(), 'Số tiền không hợp lệ.');
+  assert.match(await drawer(page).locator('.receipt-amount-error').innerText(), /^Số tiền không hợp lệ\. Chỉ gõ chữ số.*45\.000\.000.*không gõ chữ như tr, k/);
   assert.equal(await drawer(page).locator('.entry-review').isHidden(), true);
   await settled(page);
   assert.equal(world.requests.length, 0);

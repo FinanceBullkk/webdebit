@@ -35,6 +35,7 @@
       <label class="entry-field"><span>Hình thức</span><select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${escape(method)}</option>`).join('')}</select></label>
       <div class="offset-slot"></div>
       <label class="entry-field"><span>Số tiền (VND)</span><input class="receipt-amount" aria-label="Số tiền trả" inputmode="numeric" autocomplete="off"></label>
+      <span class="entry-amount-hint" role="status"></span>
       <span class="cell-error receipt-amount-error" role="status"></span>
       <label class="entry-field"><span>Tham chiếu</span><input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn" autocomplete="off"></label>
       <div class="entry-images"></div>
@@ -57,8 +58,16 @@
     drawer.hidden = false;
     paintImages();
     showStep(step);
-    (step === 'review' ? $('.receipt-save') : $(`.${$('.receipt-date').value ? 'receipt-amount' : 'receipt-date'}`)).focus();
+    (step === 'review' ? $('.entry-sum') : $(`.${$('.receipt-date').value ? 'receipt-amount' : 'receipt-date'}`)).focus();
   }
+  // SK-C2: sang bước xem lại thì tiêu điểm vào câu tóm tắt, không vào nút Ghi phiếu: Enter, Enter theo thói quen Sheet không
+  // ghi tiền khi người gõ chưa đọc dòng trước → sau. Muốn ghi phải Tab tới Ghi phiếu (hay bấm), rồi Enter.
+  const focusReview = () => $('.entry-sum')?.focus();
+  // Số đã hiểu có nhóm nghìn hiện ngay dưới ô khi gõ (SK-N10); chưa đọc được thì để trống, lỗi chỉ báo khi bấm Xem lại.
+  const paintAmountHint = () => {
+    const shown = model.readMoneyInput($('.receipt-amount').value);
+    $('.entry-amount-hint').textContent = shown ? `Hiểu là ${shown} đ` : '';
+  };
   function close() {
     if (!isOpen()) return;
     drawer.hidden = true;
@@ -68,7 +77,7 @@
   // Khung về trống cho phiếu sau; hình thức về THU TIỀN (sự kiện change để ô chọn sổ cấn trừ tự ẩn).
   function resetForm() {
     for (const box of drawer.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference')) box.value = '';
-    for (const box of drawer.querySelectorAll('.cell-error')) box.textContent = '';
+    for (const box of drawer.querySelectorAll('.cell-error,.entry-amount-hint')) box.textContent = '';
     const method = $('.receipt-method');
     if (method.value !== methods[0]) { method.value = methods[0]; method.dispatchEvent(new Event('change', { bubbles: true })); }
     review = null;
@@ -91,12 +100,12 @@
     catch { fieldError('receipt-date', 'Ngày trả phải dạng dd/mm/yyyy.'); return; }
     if (date > ctx.todayIso()) { fieldError('receipt-date', 'Ngày trả không được sau hôm nay.'); return; }
     if (!$('.receipt-amount').value.trim()) { fieldError('receipt-amount', 'Nhập số tiền khách trả.'); return; }
-    try { amount = moneyText($('.receipt-amount').value); } catch (error) { fieldError('receipt-amount', error.message); return; }
+    try { amount = moneyText($('.receipt-amount').value); } catch { fieldError('receipt-amount', model.MONEY_INPUT_HELP); return; }
     if (amount === '0') { fieldError('receipt-amount', 'Số tiền phải lớn hơn 0.'); return; }
     review = { date, method, amount, reference: referenceFields(form).reference ?? null };
     paintReview();
     showStep('review');
-    $('.receipt-save').focus();
+    focusReview();
   }
   // Bước xem lại (H5): phiếu nằm ở tháng của ngày trả; tổng còn nợ trước → sau từ model; phân bổ từng tháng do server quyết định
   // nên chỉ hiện sau khi ghi. Tháng khóa vẫn ghi được phiếu (ghi phiếu không xét ổ khóa).
@@ -107,7 +116,7 @@
     const lock = (data.month_locks ?? []).find(row => monthKey(row.month) === key);
     const locked = lock ? lock.locked : key !== (monthKey(data.today_month) || liveOpenMonth);
     const images = drawer.querySelectorAll('.entry-images .image-thumb').length;
-    $('.entry-review').innerHTML = `<p class="entry-sum">Ghi phiếu <b>${fmt(review.amount)} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}, nằm ở tháng ${monthLabel(key)}.</p>`
+    $('.entry-review').innerHTML = `<p class="entry-sum" tabindex="-1">Ghi phiếu <b>${fmt(review.amount)} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}, nằm ở tháng ${monthLabel(key)}.</p>`
       + `<p>Tổng còn nợ: ${model.formatVnd(plan.beforeVnd)} đ → <b>${model.formatVnd(plan.afterVnd)} đ</b>.</p>`
       + (plan.creditVnd > 0n ? `<p class="entry-note">Sau phiếu này khách dư ${model.formatVnd(plan.creditVnd)} đ.</p>` : '')
       + (locked ? `<p class="entry-note">Tháng ${monthLabel(key)} đang khóa; phiếu vẫn ghi được.</p>` : '')
@@ -281,7 +290,17 @@
       if (event.target.matches('.receipt-amount,.receipt-reference')) { event.preventDefault(); await next(); }
     });
     drawer.addEventListener('input', event => {
+      // Sửa ô thì lỗi cũ của ô đó tắt ngay (không đợi lần Xem lại sau); số tiền hiện số đã hiểu có nhóm nghìn.
+      if (event.target.matches('.receipt-date')) $('.receipt-date-error').textContent = '';
+      if (event.target.matches('.receipt-amount')) { $('.receipt-amount-error').textContent = ''; paintAmountHint(); }
       if (event.target.matches('.receipt-date') && event.target.value.length === 10) $('.receipt-amount').focus();
+    });
+    // Rời ô Số tiền: số đọc được thì ghi lại có nhóm nghìn (cùng số, dễ soát thừa thiếu số 0); chưa đọc được thì giữ nguyên chữ gõ.
+    drawer.addEventListener('focusout', event => {
+      if (!event.target.matches('.receipt-amount')) return;
+      const shown = model.readMoneyInput(event.target.value);
+      if (shown) event.target.value = shown;
+      paintAmountHint();
     });
   }
 
