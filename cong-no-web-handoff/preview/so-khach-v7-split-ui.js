@@ -89,10 +89,48 @@
     paintOptions();
   }
 
+  // Lần chia dở lưu ở máy (localStorage) từ lúc gửi lệnh đầu tới khi mọi phần xong hay người bỏ: tải lại trang hay sang sổ khác
+  // thì mở lại "Chia cho nhiều sổ…" là về đúng các khóa cũ. Trang không biết login (danh tính chỉ ở máy chủ, qua Tailscale), nên
+  // lưu theo trình duyệt của máy đó. Trình duyệt chặn lưu thì vẫn còn trong bộ nhớ và câu hỏi khi rời trang.
+  const STORE = 'webdebit:chia-do';
+  function persist() {
+    try {
+      if (!review?.started || review.parts.every(done)) { localStorage.removeItem(STORE); return; }
+      localStorage.setItem(STORE, JSON.stringify({ ...review, ask: false, totalVnd: review.totalVnd.toString(),
+        parts: review.parts.map(({ fixText: _typing, ...part }) => ({ ...part, amountVnd: part.amountVnd.toString() })) }));
+    } catch { /* không lưu được: còn bộ nhớ và beforeunload */ }
+  }
+  function forget() { try { localStorage.removeItem(STORE); } catch { /* không có gì để xóa */ } }
+  function restore() {
+    try {
+      const data = JSON.parse(localStorage.getItem(STORE) ?? 'null');
+      if (!Array.isArray(data?.parts) || !data.parts.length || !/^[0-9]+$/.test(String(data.totalVnd))) return null;
+      return { ...data, totalVnd: BigInt(data.totalVnd), parts: data.parts.map(part => ({ ...part, amountVnd: BigInt(part.amountVnd),
+        status: part.status === 'new' ? 'waiting' : part.status })) };
+    } catch { return null; }
+  }
+  if (typeof addEventListener === 'function') {
+    addEventListener('beforeunload', event => {
+      if (!review?.started || review.parts.every(done)) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+  }
+
   /** Mở khung; `seed` là chữ đang gõ ở khung Ghi phiếu thu (ngày, hình thức, số tiền, tham chiếu) để không gõ lại. */
   function openSplit(seed = {}) {
     if (!drawer || ctx.snapshot?.status !== 'active') return;
-    if (step === 'result' && review?.parts.some(part => part.status !== 'saved')) { drawer.hidden = false; $('.split-review button')?.focus(); return; }
+    // Lần chia dở (đã gửi ít nhất một lệnh): trong bộ nhớ, hoặc lưu ở máy khi trang vừa tải lại hay đang ở sổ khác. Mở lại đúng
+    // bước kết quả với các khóa cũ, không bắt đầu lần chia mới (khóa mới sẽ ghi lần hai các sổ đã lưu).
+    if (!review) { const kept = restore(); if (kept) { review = kept; step = 'result'; } }
+    if (step === 'result' && review && !review.parts.every(done)) {
+      if (!drawer.firstChild) drawer.innerHTML = formHtml();
+      paintReview();
+      showStep('result');
+      drawer.hidden = false;
+      $('.split-review button')?.focus();
+      return;
+    }
     drawer.innerHTML = formHtml();
     $('.split-date').value = seed.date ?? '';
     if (METHODS.includes(seed.method)) $('.split-method').value = seed.method;
@@ -146,9 +184,17 @@
       const closed = ledgers.findIndex(data => data?.status !== 'active');
       if (closed >= 0) { $('.split-error').textContent = `Sổ ${parts[closed].label} chưa có số dư đầu, chưa ghi phiếu được.`; return; }
       const reference = $('.split-reference').value.trim() || null;
-      review = { date, method: $('.split-method').value, reference, warn: await usedElsewhere(reference, date), totalVnd: plan.totalVnd, ask: false,
-        parts: plan.parts.map((part, index) => ({ customerId: part.customerId, label: parts[index].label, amountVnd: part.amountVnd,
-          version: ledgers[index].version, beforeVnd: ledgers[index].total_outstanding_vnd, key: crypto.randomUUID(), status: 'new' })) };
+      const used = await usedElsewhere(reference, date);
+      // Sổ trong lần chia đã có phiếu chưa hủy cùng tham chiếu và cùng số tiền (Bảng thu của tháng): phần đó mặc định không ghi,
+      // người bấm "Vẫn ghi" mới ghi (review #675 lần 2: lần chia trước bị mất trạng thái rồi nhập lại).
+      const same = part => used.rows.find(row => String(row.customer_id) === String(part.customerId) && String(row.amount_vnd) === part.amountVnd.toString());
+      review = { date, method: $('.split-method').value, reference, warn: used.warn, totalVnd: plan.totalVnd, ask: false, started: false,
+        parts: plan.parts.map((part, index) => {
+          const dup = same(part);
+          return { customerId: part.customerId, label: parts[index].label, amountVnd: part.amountVnd, version: ledgers[index].version,
+            beforeVnd: ledgers[index].total_outstanding_vnd, key: crypto.randomUUID(), status: 'new',
+            ...(dup ? { dup: { pid: dup.pid ?? null, date: dup.date ?? null }, skip: true } : {}) };
+        }) };
     } catch (error) { $('.split-error').textContent = CongNoNet.messageOf(error); return; }
     finally { button.disabled = false; }
     paintReview();
@@ -158,33 +204,40 @@
   // Tham chiếu đã có ở phiếu web khác trong tháng của ngày trả (Bảng thu gom mọi sổ): chỉ cảnh báo, không chặn — cùng một lần
   // chuyển ghi lại là nhầm, nhưng hai lần chuyển cùng chữ "CK" là thường. Không đọc được Bảng thu thì nói rõ là chưa kiểm.
   async function usedElsewhere(reference, date) {
-    if (!reference) return '';
+    const none = { warn: '', rows: [] };
+    if (!reference) return none;
     const key = F.fold(F.receiptNote(reference).text);
-    if (!key) return '';
+    if (!key) return none;
     let book;
     try { book = await CongNoNet.fetchJson(`/api/v7/receipt-book?month=${date.slice(0, 7)}-01`, { what: 'phiếu thu trong tháng' }); }
-    catch { return 'Chưa kiểm được tham chiếu này ở sổ khác (không đọc được Bảng thu).'; }
+    catch { return { warn: 'Chưa kiểm được tham chiếu này ở sổ khác (không đọc được Bảng thu).', rows: [] }; }
     const rows = [...(book?.days ?? []).flatMap(day => day.rows ?? []), ...(book?.undated ?? [])]
       .filter(row => row.source === 'web' && F.fold(row.note ?? '') === key);
-    if (!rows.length) return '';
+    if (!rows.length) return none;
     const one = row => `sổ ${escape(row.name)} (${escape(row.pid ?? '')}, ${F.full(row.amount_vnd)}${row.date ? `, ngày ${escape(dateText(row.date))}` : ''})`;
-    return `Tham chiếu này đã có ở ${rows.slice(0, 3).map(one).join('; ')}${rows.length > 3 ? ` và ${rows.length - 3} phiếu khác` : ''}. Kiểm lại có phải cùng một lần chuyển đã ghi rồi không.`;
+    return { rows, warn: `Tham chiếu này đã có ở ${rows.slice(0, 3).map(one).join('; ')}${rows.length > 3 ? ` và ${rows.length - 3} phiếu khác` : ''}. Kiểm lại có phải cùng một lần chuyển đã ghi rồi không.` };
   }
   const STATUS = { saved: 'Đã ghi', new: '', error: 'Không ghi được', unknown: 'Chưa rõ đã lưu', stale: 'Sổ vừa thay đổi', waiting: 'Chưa ghi' };
+  // Phần xong: đã ghi, hoặc người để "không ghi" vì sổ đó đã có phiếu cùng tham chiếu và số tiền.
+  const done = part => part.status === 'saved' || Boolean(part.skip);
   function paintReview() {
-    const total = review.parts.reduce((sum, part) => sum + part.amountVnd, 0n);
-    const count = review.parts.length;
+    const writing = review.parts.filter(part => !part.skip);
+    const total = writing.reduce((sum, part) => sum + part.amountVnd, 0n);
+    const count = writing.length;
     const lines = review.parts.map((part, index) => {
       const plan = model.planReceiptPreview(part.beforeVnd, part.amountVnd.toString());
-      const status = STATUS[part.status] ? ` <b class="split-status split-st-${part.status}">${STATUS[part.status]}${part.pid ? ` ${escape(part.pid)}` : ''}</b>` : '';
+      const status = part.skip && part.status !== 'saved' ? ' <b class="split-status split-st-skip">Không ghi</b>'
+        : STATUS[part.status] ? ` <b class="split-status split-st-${part.status}">${STATUS[part.status]}${part.pid ? ` ${escape(part.pid)}` : ''}</b>` : '';
+      const dup = part.dup && part.status !== 'saved'
+        ? `<label class="paste-flag"><input type="checkbox" class="split-dup" data-index="${index}"${part.skip ? '' : ' checked'}${part.status === 'unknown' ? ' disabled' : ''}> Vẫn ghi: sổ này đã có ${escape(part.dup.pid ?? 'phiếu')} cùng tham chiếu và số tiền${part.dup.date ? `, ngày ${escape(dateText(part.dup.date))}` : ''}</label>` : '';
       const amount = step === 'result' && fixable(part)
         ? `<input class="split-fix receipt-amount" data-index="${index}" aria-label="Số tiền cho sổ ${escape(part.label)}" inputmode="numeric" autocomplete="off" value="${escape(part.fixText ?? money(part.amountVnd))}"> đ`
         : `${money(part.amountVnd)} đ`;
       return `<li><strong>${escape(part.label)}</strong>: ${amount} · còn nợ ${money(plan.beforeVnd)} → <b>${money(plan.afterVnd)}</b> đ`
         + (plan.creditVnd > 0n ? ` (khách dư ${money(plan.creditVnd)} đ)` : '') + status
-        + (part.message ? `<small class="cell-error">${escape(part.message)}</small>` : '') + '</li>';
+        + (part.message ? `<small class="cell-error">${escape(part.message)}</small>` : '') + dup + '</li>';
     }).join('');
-    const left = review.parts.filter(part => part.status !== 'saved').length;
+    const left = review.parts.filter(part => !done(part)).length;
     const unknown = review.parts.some(part => part.status === 'unknown');
     const actions = step === 'result' && left && review.ask
       ? `<div class="lock-ask split-ask" role="group" aria-label="Đóng khi còn phiếu chưa ghi"><span>Còn ${left} phiếu chưa ghi. Đóng thì giữ nguyên: bấm lại "Chia cho nhiều sổ…" để ghi tiếp.</span>`
@@ -244,11 +297,18 @@
       if (problem) { $('.split-fix-error').textContent = problem; return; }
     }
     if (api.hasPending()) { showNotice('Còn thao tác khác chưa rõ kết quả. Xong việc đó (nút Thử lại ở đầu sổ) rồi ghi.'); return; }
+    if (!review.parts.some(part => !done(part))) return;
     saving = true;
+    review.started = true;
     for (const button of drawer.querySelectorAll('.split-review button')) button.disabled = true;
     try {
       for (const part of review.parts) {
-        if (part.status === 'saved') continue;
+        if (done(part)) continue;
+        // Trước khi gửi: lưu phần này là "chưa rõ" cùng khóa của nó, để trang tải lại giữa chừng vẫn gửi lại đúng lệnh này.
+        const before = part.status;
+        part.status = 'unknown';
+        persist();
+        part.status = before;
         let outcome = await post(part);
         // Sổ đổi từ lúc xem lại (người khác vừa ghi): đọc phiên bản mới rồi gửi lại một lần cùng khóa. Số tiền phiếu không đổi;
         // phần trừ nợ do server tính theo sổ lúc ghi.
@@ -262,11 +322,12 @@
           break;
         }
       }
-    } finally { saving = false; }
+    } finally { saving = false; persist(); }
     step = 'result';
     const saved = review.parts.filter(part => part.status === 'saved');
     if (saved.some(part => String(part.customerId) === String(customerId))) await api.read().catch(() => showNotice('Đã ghi; không tải được sổ mới. Tải lại trang để kiểm tra.'));
-    if (saved.length === review.parts.length) {
+    if (review.parts.every(done)) {
+      forget();
       drawer.hidden = true;
       showNotice(`Đã ghi ${saved.length} phiếu, tổng ${money(saved.reduce((sum, part) => sum + part.amountVnd, 0n))} đ: `
         + saved.map(part => `${part.label} ${part.pid ?? ''} ${money(part.amountVnd)} đ`.replace(/\s+/g, ' ')).join('; ') + '.');
@@ -285,7 +346,7 @@
       if (button.matches('.split-close')) {
         // Còn phiếu chưa ghi (bị từ chối, chưa gửi, chưa rõ đã lưu): hỏi trước, không bỏ lần chia dở. Bỏ rồi mở lại với khóa mới
         // sẽ ghi lần hai các sổ đã lưu.
-        if (step === 'result' && review?.parts.some(part => part.status !== 'saved')) { readFixes(); review.ask = true; paintReview(); $('.split-stay').focus(); return; }
+        if (step === 'result' && review && !review.parts.every(done)) { readFixes(); review.ask = true; paintReview(); $('.split-stay').focus(); return; }
         if (step === 'result') { review = null; step = 'form'; }
         close();
       }
@@ -296,6 +357,7 @@
         if (review.parts.some(part => part.status === 'unknown')) return;
         const saved = review.parts.filter(part => part.status === 'saved');
         showNotice(`Đã bỏ phần chưa ghi của lần chia. Đã ghi ${saved.length} phiếu: ` + (saved.map(part => `${part.label} ${part.pid ?? ''}`.trim()).join('; ') || 'không có') + '.');
+        forget();
         review = null; step = 'form'; close();
       }
       else if (button.matches('.split-today')) { $('.split-date').value = dateText(ctx.todayIso()); $('.split-total').focus(); }
@@ -316,6 +378,15 @@
     drawer.addEventListener('input', event => {
       if (event.target.matches('.split-search')) { paintOptions(); return; }
       if (event.target.matches('.split-fix')) { readFixes(); $('.split-fix-error').textContent = ''; return; }
+      if (event.target.matches('.split-dup')) {
+        const part = review.parts[Number(event.target.dataset.index)];
+        part.skip = !event.target.checked;
+        readFixes();
+        paintReview();
+        drawer.querySelector(`.split-dup[data-index="${event.target.dataset.index}"]`)?.focus();
+        persist();
+        return;
+      }
       if (event.target.matches('.split-amount')) { readParts(); event.target.closest('.split-row').querySelector('.split-part-error').textContent = ''; }
       if (event.target.matches('.split-total')) $('.split-total-error').textContent = '';
       if (event.target.matches('.split-date')) $('.split-date-error').textContent = '';

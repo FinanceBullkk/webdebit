@@ -20,6 +20,8 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
    - **Đóng khi còn phiếu chưa ghi thì hỏi trước, không bỏ lần chia dở** (review độc lập 25/11/2026: bỏ rồi chia lại với khóa mới sẽ ghi lần hai các sổ đã lưu). "Đóng, ghi sau" giữ nguyên các khóa, bấm lại "Chia cho nhiều sổ…" là về đúng bước kết quả. Nút "Bỏ N phiếu chưa ghi" chỉ có khi không còn phiếu "chưa rõ đã lưu".
    - Phần bị từ chối hay chưa gửi sửa được số tiền ngay ở bước kết quả. Tổng mọi phần vẫn phải bằng tổng chuyển. Phần đổi số nhận khóa mới, phần đã ghi giữ nguyên. Phần "chưa rõ đã lưu" không sửa được, chỉ gửi lại đúng lệnh cũ.
    - Thiếu tham chiếu thì bước xem lại nhắc ghi mã giao dịch ngân hàng (không chặn).
+   - **Lần chia dở lưu ở máy** (localStorage của trình duyệt, từ lúc gửi lệnh đầu tới khi mọi phần xong hay người bỏ). Tải lại trang hay sang sổ khác rồi mở lại "Chia cho nhiều sổ…" thì về đúng bước kết quả với các khóa cũ. Trước khi gửi mỗi lệnh, phần đó được lưu là "chưa rõ" cùng khóa của nó. Trang không biết login (danh tính chỉ ở máy chủ, qua Tailscale), nên trạng thái gắn với trình duyệt của máy. Còn phần chưa xong thì trình duyệt hỏi trước khi rời trang.
+   - Sổ trong lần chia đã có phiếu web chưa hủy cùng tham chiếu và cùng số tiền (Bảng thu của tháng): phần đó mặc định **không ghi**, người bấm "Vẫn ghi" mới ghi.
    - Phiếu không rõ ngày không đi đường này: chia nhiều sổ cần ngày cụ thể.
 
 Các mục sau (dán nhiều phiếu một lần, ghi phiếu từ ảnh Thu chi) thêm vào file này theo từng PR.
