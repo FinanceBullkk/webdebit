@@ -131,8 +131,8 @@ Mọi lệnh như lát 1: người làm từ `tien.actor`, khóa lặp, khóa d�
 - [x] Ký đối soát khi chưa ký số dư → `DAY_NOT_READY`; ký được khi còn khoản chưa phân bổ, số đếm vào snapshot; mở lại số dư kéo theo đối soát.
 - [x] Vai: người chỉ `tien_xem` đọc được thẻ, ngày, giao dịch không mô tả; không đọc file gốc, không xuất; mọi lệnh ký cần `tien_review`.
 - [x] API (unittest): cờ off → 404; shadow chặn người không đủ vai; bot chỉ-đọc bị chặn cả GET; thân lệnh lạ → 422 trước DB; mọi mã `RAISE` của hai migration có trong `ERRORS`; bộ đọc `demo-csv@1` đúng/sai; Excel ba sheet đọc lại đúng.
-- [ ] Trình duyệt (dữ liệu giả): đi hết luồng nhập → quyết nghi trùng → ghi; ký số dư; phân bổ; ký đối soát; mở lại; mất mạng giữ dữ liệu; vai thiếu không thấy nút; xem ở 1280×720.
-- [ ] `npm run check` xanh; `node scripts/check-secrets.js` sạch; harness có trong CI.
+- [x] Trình duyệt (dữ liệu giả): đi hết luồng nhập → quyết nghi trùng → ghi; ký số dư; phân bổ; ký đối soát; mở lại; mất mạng giữ dữ liệu; vai thiếu không thấy nút; xem ở 1280×720.
+- [x] `npm run check` xanh; `node scripts/check-secrets.js` sạch; harness có trong CI.
 
 ## Bằng chứng
 
@@ -141,7 +141,7 @@ Mọi lệnh như lát 1: người làm từ `tien.actor`, khóa lặp, khóa d�
 - **Harness** `tools/test_pg_tien.py` (PostgreSQL 18.6 dùng một lần, chạy lát 1 + lát 2): 40 nhóm ca xanh, 53,7 giây, container và volume đã dọn (`verified_and_removed`).
 - **Đột biến SQL** (sửa hỏng đúng chỗ, harness phải đỏ): m1 trigger ngày đã ký không làm gì, m2 mọi file đều "dùng để ký", m3 bỏ lý do `PENDING_IMPORT`, m4 chỉ chặn đúng ngày đã ký, m5 tính file chỉ có số dư đầu là bằng chứng — cả năm đỏ đúng nhóm ca.
 - **Chuỗi migration V7** `test_pg_v7_backend.py --migration-test` (file lát 2 ở `outside_chain`): SCHEMA 10/10, BEHAVIOR 78/78, 2 SKIPPED_OPEN có từ trước.
-- **`npm run check`** (bản sau review): ruff, luật nghiệp vụ, link tài liệu, cỡ chữ, `check-secrets --all`, eslint xanh; unittest 2083 ca OK (19 bỏ qua có từ trước); test JS 350/350.
+- **`npm run check`** (bản sau review): ruff, luật nghiệp vụ, link tài liệu, cỡ chữ, `check-secrets --all`, eslint xanh (chạy lại trên bản đã commit); unittest 2083 ca OK (19 bỏ qua có từ trước); test JS 350/350; bộ trình duyệt **586/586**. Bộ trình duyệt chạy lại riêng (`--test-concurrency=3`): lượt đầu đỏ hàng loạt ở các trang không liên quan vì máy dev cạn bộ nhớ cam kết khi harness chạy song song (Windows không tạo được tiến trình, Chromium không khởi động); lượt đủ trước đó với cùng `app-nav.js` đã xanh 581/581.
 - **Trình duyệt** (máy chủ giả làm theo luật `commit_import`, `set_allocation`, `reopen_day` thật): `test-so-tien-model.js` 7/7, `test-so-tien-browser.js` 12/12; ảnh 1280×720 đã xem (thẻ số dư, xem trước lô, cảnh báo ngày đã ký, Đối soát ngày, hộp phân bổ). **Đột biến giao diện** — U chỉ gồm giao dịch file không có, mã chân kia gửi dạng số, bỏ cả hai lớp chặn số ngày cũ, lý do chỉ cắt hai đầu, cảnh báo ngày đã ký thành chỗ chặn — cả năm làm ca liên quan đỏ.
 
 ## Phạm vi agent
