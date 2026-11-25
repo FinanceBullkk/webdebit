@@ -362,6 +362,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-panel{margin:8px 0;padding:12px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:15px}
 .price-panel.confirm{border-left:4px solid #1e4e8c}.price-panel.err{border-left:4px solid #b91c1c;background:#fff4f4}
 .price-panel p{margin:0 0 10px}.price-actions{display:flex;gap:10px}
+.road-choice-panel .road-book{min-height:40px;max-width:280px;font:inherit;font-size:15px}.road-choice-panel .road-choice-ask{flex:none}
 .price-panel ul{list-style:none;margin:0;padding:0}.price-panel li{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid #e3eaf2}
 .price-panel .what{flex:1;padding:6px 0}.price-panel .what small{display:block;margin-top:2px;color:#4a5b6d;font-size:14px}
 .price-conflict-actions{display:flex;flex-wrap:wrap;gap:10px;padding:0 0 10px}.price-panel .price-conflict-select{width:18px;height:18px;flex:none}.price-panel .price-conflict-select:focus-visible{outline:3px solid #145fa9;outline-offset:2px}.price-panel.confirm ul{max-height:300px;overflow:auto}

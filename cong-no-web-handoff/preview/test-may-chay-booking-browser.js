@@ -122,7 +122,7 @@ test('Kiểm booking: tháng này tách "web chưa có" với "web có, Sheet ch
   await page.locator('[data-group="recent_web"]').click();
   assert.equal(await page.locator('#bk-list-name').innerText(), 'Web có, Sheet chưa ghi · 2');
   const rows = await page.locator('#bk-body tr').allInnerTexts();
-  assert.ok(rows[0].includes('KHACH CHIN') && rows[0].includes('Đã vào sổ web ngày 11/11/2026, chờ Sheet ghi giá') && !rows[0].includes('gợi ý'), rows[0]);
+  assert.ok(rows[0].includes('KHACH CHIN') && rows[0].includes('Đã vào sổ web ngày 11/11/2026; giá nhập ở Sổ khách') && !rows[0].includes('gợi ý'), rows[0]);
   assert.equal(await page.locator('#bk-body tr').first().locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=9&month=2026-11');
   await page.locator('#bk-book').selectOption('KHACH BAY');
   assert.deepEqual((await page.locator('#bk-body tr').allInnerTexts()).map(text => text.includes('WEBU2222222')), [true]);

@@ -79,7 +79,7 @@ function ledger(world) {
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     ...(world.psFees ? { ps_fees: world.psFees } : {}), ...(world.details ? { sheet_details: world.details } : {}),
-    ...(world.bookingMissing ? { booking_missing: world.bookingMissing } : {}) };
+    ...(world.bookingMissing ? { booking_missing: world.bookingMissing } : {}), ...(world.sheetRoad ? { sheet_road: world.sheetRoad } : {}) };
 }
 
 // Lệnh phụ phí giả: một đích (chuyến web / dòng sổ gốc); tháng khóa và dòng sổ gốc chưa có đơn giá bị chặn như server.
@@ -373,6 +373,10 @@ function apply(world, url, body) {
     if (!row) return [422, { error: 'ADJUSTMENT_NOT_FOUND', message: 'Không tìm thấy dòng điều chỉnh cả tháng, có thể đã xóa. Tải lại sổ.' }];
     world.adjustments = world.adjustments.filter(item => item !== row);
     event('adjust_month_delete', { adjustment: { ...row } }, { adjustment: { id: row.id, month: row.month, amount_vnd: '0', deleted: true } });
+  } else if (url === '/api/v7/sheet/road/assign') {
+    // WEB-CHINH-01: chuyến bộ chờ chọn sổ vào sổ khác; sổ đang mở không đổi tiền, dòng chờ thôi hiện.
+    world.sheetRoad = { ...world.sheetRoad, items: world.sheetRoad.items.filter(item => item.source_fingerprint !== body.source_fingerprint) };
+    return [200, { approved: 1, remaining: 0, complete: true, review_count: 0, pending_review: [], pasted: [], target_customer_id: body.target_customer_id }];
   } else if (url === '/api/v7/trips/paste') {
     for (const trip of body.trips) {
       const [d, m, y] = trip.date.split('/');

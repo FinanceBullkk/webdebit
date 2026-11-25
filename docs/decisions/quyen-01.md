@@ -18,7 +18,10 @@ Web V7 có hai vai trò theo login Tailscale:
    khách, cùng mọi API đọc/ghi sổ.
 5. **Quyền ghi tiền không đổi**: người dùng sửa, dán lô, ghi thu trong Sổ khách như trước. Vai trò chỉ chia màn hình.
 6. Chỗ trên trang người dùng từng dẫn sang Việc cần làm (viên chuyến chưa giá ở Tổng quan, viên phiếu Sheet chưa ghi
-   ở Bảng thu, lý do "người xử lý" ở Báo cáo tháng) vẫn hiện số nhưng không còn là link.
+   ở Bảng thu, lý do "người xử lý" ở Báo cáo tháng) vẫn hiện số nhưng không còn là link. Từ 25/11/2026 ([`WEB-CHINH-01`](web-chinh-01.md),
+   người dùng tự gõ giá trên web từ 1/12): viên chuyến chưa giá của người dùng là nút bung danh sách sổ còn chuyến chưa giá
+   ngay tại khối (số đếm có sẵn trong API Tổng quan), mỗi sổ mở Sổ khách tô chuyến thiếu giá (`?loc=thieu-gia`). Không mở
+   Việc cần làm cho người dùng.
 
 Danh sách quản lý là cấu hình vận hành trên máy chạy, **ngoài Git** vì chứa login: biến `WEBDEBIT_ADMIN_LOGINS`
 (phân cách bằng dấu phẩy hoặc khoảng trắng) trong drop-in của unit API, hoặc cờ `--admin-login` lặp. Mỗi login quản lý

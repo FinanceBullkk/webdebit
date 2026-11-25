@@ -68,6 +68,8 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 .subtotal td:first-child{position:relative}.add-month-adjustment{margin:0 0 0 8px;min-height:30px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font-size:13px}
 .trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}.trip-list .row-delete{color:#6f6d67}.fee-pick{position:absolute;width:1px;height:1px;opacity:0}.trip-list tr:hover .fee-pick,.fee-pick:focus{position:static;width:auto;height:auto;opacity:1}
 .ledger td.missing{background:var(--warning-soft);color:#6b4000;font-size:14px;font-weight:600}
+/* GIA-BOOKING-01: giá booking gợi ý dưới chữ "chưa có giá"; bấm ô là điền sẵn, Enter mới ghi. */
+.ledger td.missing>.booking-fill{display:block;color:var(--ink-2);font-size:13px;font-weight:400;white-space:nowrap;text-decoration:underline dotted;text-underline-offset:3px}
 .route-cell{white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis}.route-cell .info-edit{display:inline;padding:0;cursor:pointer}.route-cell .info-edit:focus-visible{outline:2px solid #2a78d6}.route-cell input.info-input{display:inline-block;width:100%;min-width:70px}.route-arrow{color:var(--ink-2)}
 /* SK-N5: Tuyến không vừa thì cắt nơi đi trước (còn một hai chữ và "…"), giữ nơi đến; chữ đủ ở chữ rê chuột (so-khach-v7-ui.js).
    Ô là hộp flex (con: nơi đi, mũi tên, nơi đến — so-khach-v7-trips-ui.js route()), cao như ô khác của dòng. */

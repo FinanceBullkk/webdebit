@@ -531,6 +531,7 @@
       conflictsAfterRender(data);
       decoratePrices(data, active);
       ctx.removedAfterRender?.(data, active);
+      ctx.roadChoicesAfterRender?.(data, active);
       ctx.receiptsAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);

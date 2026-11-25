@@ -23,4 +23,4 @@ Cùng đợt, mọi ô gõ số tiền (Thu chi "Số đúng", Chat Zalo "Đánh
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT 23/11/2026. Bảng giá (so-khach-v7-price-ui.js) chưa dùng luật này; ô phụ phí chưa có ngưỡng.
+ĐÃ CHỐT 23/11/2026. Bảng giá (so-khach-v7-price-ui.js) chưa dùng luật này. Ô phụ phí gõ tay chưa có ngưỡng. Dán cả cột phụ phí riêng ở Sổ khách (từ 25/11/2026, WEB-CHINH-01, ĐỀ XUẤT của Claude) ghi cờ "nghi sai đơn vị" ở dòng xem lại khi một ô ngoài 10.000 đ – 100 triệu đ (trị tuyệt đối, `feeDoubt`); cũng chỉ hỏi, không chặn.

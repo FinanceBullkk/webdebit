@@ -66,6 +66,7 @@ JOBS = (
     {"id": "backup-daily", "name": "Sao lưu ngày", "does": "Sao lưu đêm", "unit": "v7-backup-daily", "every": "Mỗi đêm", "late_after": 26 * 3600},
     {"id": "backup-config", "name": "Sao lưu cấu hình", "does": "Sao lưu đêm", "unit": "v7-backup-config", "every": "Mỗi đêm", "late_after": 26 * 3600},
     {"id": "backup-offsite", "name": "Bản sao ngoài máy", "does": "Chuẩn bị bản kéo về", "unit": "v7-backup-offsite", "every": "Mỗi đêm", "late_after": 26 * 3600},
+    {"id": "backup-offsite-hourly", "name": "Bản giờ ra ngoài", "does": "Chuẩn bị bản giờ kéo về", "unit": "v7-backup-offsite-hourly", "every": "Mỗi giờ, 6–22 giờ", "late_after": 12 * 3600},
 )
 _jobs_cache: dict[str, Any] = {"at": 0.0, "rows": []}
 SHEET_OFF_JOBS = ("prices",)
