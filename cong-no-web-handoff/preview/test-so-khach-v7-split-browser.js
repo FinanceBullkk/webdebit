@@ -53,7 +53,7 @@ test('Chia một lần chuyển cho hai sổ: mang chữ đã gõ sang, chặn k
   const review = split(page).locator('.split-review');
   await review.waitFor();
   const text = await review.innerText();
-  assert.match(text, new RegExp(`Ghi 2 phiếu, tổng 50\\.000\\.000 đ · THU TIỀN · ngày ${today.replace(/\//g, '\\/')}`));
+  assert.ok(text.includes(`Ghi 2 phiếu, tổng 50.000.000 đ · THU TIỀN · ngày ${today}`));
   assert.match(text, /Khách Thử Sửa: 30\.000\.000 đ · còn nợ 40\.000\.000 → 10\.000\.000 đ/);
   assert.match(text, /Khách Hai: 20\.000\.000 đ · còn nợ 25\.000\.000 → 5\.000\.000 đ/);
   assert.match(text, /Tham chiếu \(cả 2 phiếu\): UNC 777/);
