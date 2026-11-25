@@ -574,6 +574,24 @@ class ReconcileAutoTest(unittest.TestCase):
                          [("Tab mới", "500", "2026-10", "NOT_ON_TONG"), ("Lệch TONG", "300", "2026-10", "TONG_DIFFERS"),
                           ("Không đọc được", "200", "2026-10", "TAB_UNREADABLE")])
 
+    def test_web_created_book_without_a_tab_is_not_a_difference(self):
+        """KHACH-WEB-01: sổ quản lý tạo trên web (có tên booking) không có tab là đúng thiết kế; sổ không tên booking mà mất tab vẫn báo."""
+        fixture(self.source)
+
+        class WebBooks(Db):
+            def run(self, function, payload, actor):
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "name": FAKE_NAME, "status": "active"},
+                                          {"id": 5, "name": "SO WEB MOI", "status": "active", "booking_names": ["SO WEB MOI"]},
+                                          {"id": 6, "name": "SO MAT TAB", "status": "active", "booking_names": []}]}
+                return super().run(function, payload, actor)
+        db = WebBooks()
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(db.writes, [])
+        rows = {row["customer"]: (row["status"], row["reason"]) for row in self.result()["customers"]}
+        self.assertEqual(rows["SO WEB MOI"], ("CHI_CO_WEB", "WEB_BOOK"))
+        self.assertEqual(rows["SO MAT TAB"], ("CHI_CO_WEB", "CHI_CO_WEB"))
+
     def test_held_customer_is_named_with_reason_and_never_touched(self):
         fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])   # chuỗi số dư trên Sheet không khớp
         db = Db()

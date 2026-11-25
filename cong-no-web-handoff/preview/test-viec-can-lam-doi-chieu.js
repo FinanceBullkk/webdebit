@@ -59,8 +59,10 @@ test('khách phải xem: bỏ máy đã sửa và web đi trước, máy ghi sai
     { customer_id: 6, reason: 'HELD', status: 'CHI_CO_WEB', difference_vnd: null },
     { customer_id: 7, reason: 'VERIFY_FAILED', status: 'LECH_TONG', difference_vnd: '1' },
     { customer_id: 8, reason: 'BOOK_CREATED', status: 'KHOP', difference_vnd: '0' },
+    { customer_id: 9, reason: 'WEB_BOOK', status: 'CHI_CO_WEB', difference_vnd: null },   // sổ tạo trên web (KHACH-WEB-01)
+    { customer_id: 10, reason: 'CHI_CO_WEB', status: 'CHI_CO_WEB', difference_vnd: null },
   ] });
-  assert.deepEqual(rows.map(row => row.customer_id), [7, 5, 1, 6]);
+  assert.deepEqual(rows.map(row => row.customer_id), [7, 5, 1, 6, 10]);
   assert.deepEqual([...M.openIds({ customers: [{ customer_id: null, reason: 'CHI_CO_SHEET' }, { customer_id: 9, reason: 'HELD' }] })], [9]);
 });
 

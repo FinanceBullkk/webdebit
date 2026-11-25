@@ -22,6 +22,7 @@ globalThis.DoiChieuView = (() => {
     HELD: 'Sheet của khách này có chỗ máy chưa đọc được (số dư tự lệch hoặc thiếu số), chưa so được. Mở dòng để xem ô cần sửa.',
     CHI_CO_SHEET: 'Có trên Sheet, chưa có sổ trên web.',
     CHI_CO_WEB: 'Có sổ trên web, không thấy trên Sheet.',
+    WEB_BOOK: 'Sổ tạo trên web, không cần tab Sheet.',
     THIEU_SO: 'Một bên chưa có tổng.',
   };
   const OUTSIDE_TEXT = { NOT_ON_TONG: 'Tab còn nợ, chưa có trên TONG, máy chưa tạo được sổ.', TONG_DIFFERS: 'Số trên TONG khác số trên tab, máy chưa tạo được sổ.', TAB_UNREADABLE: 'Tab có chỗ máy chưa đọc được, chưa tạo được sổ.' };

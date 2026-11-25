@@ -45,6 +45,7 @@ OPEN_REASONS = {
     "HELD": "Tab đọc không được, khách bị giữ lại",
     "WEB_AHEAD": "Web đi trước Sheet",
     "CHI_CO_WEB": "Có sổ trên web, không thấy trên Sheet",
+    "WEB_BOOK": "Sổ tạo trên web, không cần tab Sheet",
     "CHI_CO_SHEET": "Có trên Sheet, chưa có sổ web",
     "THIEU_SO": "Thiếu số để so",
     "BOOK_OVERLAP": "Tab mới trùng chuyến với sổ khác",

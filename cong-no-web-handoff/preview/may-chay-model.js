@@ -23,6 +23,7 @@ const MayChayModel = (() => {
     HELD: { tag: 'Bị giữ', tone: 'warn', why: 'Tab đọc không được, khách này không đưa vào so. Cần người xem.' },
     WEB_AHEAD: { tag: 'Web đi trước', tone: 'info', why: 'Web có việc Sheet chưa có. Chênh đúng bằng phần đó, không cần ghi.' },
     CHI_CO_WEB: { tag: 'Chỉ báo', tone: 'warn', why: 'Có sổ trên web mà không thấy trên Sheet. Máy không tự xóa.' },
+    WEB_BOOK: { tag: 'Sổ web', tone: 'info', why: 'Sổ tạo trên web (KHACH-WEB-01), không cần tab Sheet.' },
     THIEU_SO: { tag: 'Chỉ báo', tone: 'warn', why: 'Thiếu số để so.' },
     BOOK_OVERLAP: { tag: 'Không tạo sổ', tone: 'warn', why: 'Tab mới trùng chuyến với sổ khác. Cần người xem.' },
     TOO_MANY_NEW_BOOKS: { tag: 'Không tạo sổ', tone: 'warn', why: 'Quá nhiều tab mới cùng lúc. Cần người xem.' },
