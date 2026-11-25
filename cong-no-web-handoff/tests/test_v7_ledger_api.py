@@ -908,12 +908,17 @@ class LedgerApiTest(unittest.TestCase):
                 status, page = call(staff, "/thu-chi.html")
                 self.assertEqual(status, 200)
                 self.assertIn(b'data-role="user"', page)
-                for path in ("/api/v7/cash-chat", "/api/v7/cash-chat/targets"):
-                    with self.subTest(path=path):
-                        self.assertNotEqual(call(staff, path)[0], 403)
-                for path in ("/api/v7/cash-chat/review", "/api/v7/cash-chat/review/"):
-                    with self.subTest(path=path):
+                with patch.object(api.v7_cash_chat, "handle_get", return_value={"items": []}), \
+                        patch.object(api.v7_cash_chat, "handle_targets", return_value={"so": [], "xe": [], "tai_xe": []}):
+                    for path in ("/api/v7/cash-chat", "/api/v7/cash-chat/targets"):
+                        with self.subTest(path=path):
+                            self.assertEqual(call(staff, path)[0], 200)
+                for path in ("/api/v7/cash-chat/review", "/api/v7/cash-chat/review/", "/api/v7/cash-chat/review/x"):
+                    with self.subTest(path=path, method="POST"):
                         status, body = call(staff, path, {"action": "confirm"})
+                        self.assertEqual((status, body["error"]), (403, "ADMIN_ONLY"))
+                    with self.subTest(path=path, method="GET"):
+                        status, body = call(staff, path)
                         self.assertEqual((status, body["error"]), (403, "ADMIN_ONLY"))
                 self.assertEqual(call(boss, "/thu-chi.html")[0], 200)
                 self.assertNotEqual(call(boss, "/api/v7/cash-chat/review", {"action": "confirm"})[1].get("error"), "ADMIN_ONLY")

@@ -34,7 +34,7 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
    - **Người vẫn xem lại và tự bấm ghi.** Tin hay ảnh không tự ghi tiền ([`ZALO-THU-CHI-01`](zalo-thu-chi-01.md)).
    - Phiếu nháp sang trang sổ qua `sessionStorage` (không đưa số tiền lên địa chỉ trang), dùng một lần, hết hạn sau 15 phút, chỉ nhận ở đúng sổ.
    - Ảnh ghi ngày quá cũ (`old_txn`) không có nút.
-   - **Trang Thu chi hiện chỉ quản lý vào được** ([`QUYEN-01`](quyen-01.md): API `/api/v7/cash-chat` có số chi, ứng của Đội xe). Nút này không đổi quyền. Có mở Thu chi, hay một phần thu của nó, cho login người dùng hay không là CÒN MỞ, chờ phiên điều phối hoặc người dùng quyết.
+   - **Quyền:** người dùng chốt 25/11/2026 mở cả trang Thu chi cho login người dùng ([`QUYEN-01`](quyen-01.md) sửa đổi 25/11/2026), nên người nhập thấy nút Ghi phiếu. Lệnh ghi kết luận xem xét (`POST /api/v7/cash-chat/review`, nút "Xử lý") vẫn chỉ quản lý.
 
 ## Ngày / nguồn
 
