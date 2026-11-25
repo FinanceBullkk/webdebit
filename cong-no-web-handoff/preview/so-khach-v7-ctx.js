@@ -105,6 +105,7 @@ const SoKhachV7Ctx = (() => {
     afterOffsetSaved: ['entry', 'hàm', 'offset', 'cấn trừ ghi xong: khung Ghi phiếu thu về trống và đóng'],
     // Móc: lõi/phần khác gọi bằng ?. — phần không cài được (thiếu DOM, thiếu Presence) thì không có.
     removedAfterRender: ['sheet', 'móc', 'core', 'báo dòng Sheet không còn, sau khi vẽ'],
+    roadChoicesAfterRender: ['sheet', 'móc', 'core', 'chuyến bộ chờ chọn sổ (WEB-CHINH-01): dải và khung chọn sổ, sau khi vẽ'],
     feeAfterRender: ['fee', 'móc', 'core', 'khôi phục khung phụ phí sau khi vẽ'],
     presenceStale: ['presence', 'móc', 'core', 'thêm tên người cùng mở sổ vào câu "Sổ vừa thay đổi"'],
     imagesOnSnapshot: ['images', 'móc', 'core', 'nạp danh sách ảnh chứng từ khi có bản GET mới'],

@@ -417,5 +417,67 @@
       row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="cancel-delete">Thôi</button> <button type="button" class="confirm-delete">Xóa hẳn</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }));
-    Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved });
+    // ---- Chuyến bộ chờ chọn sổ (WEB-CHINH-01): tab Sheet ghi container ở nhiều dòng/sổ hay lệch ngày nên máy không tự đưa vào.
+    // Hiện ở sổ ứng viên đầu (server chọn), cùng lệnh với Việc cần làm (`/api/v7/sheet/road/assign`), để login người nhập cũng làm được.
+    const roadRows = data => (data.sheet_road?.items ?? []).filter(item => item.sync_reason === 'NEEDS_BOOK' && item.source_fingerprint && item.candidate_books?.length);
+    let roadView = false;
+    let roadAsk = null;   // { fingerprint, target, version, body } khi đang hỏi xác nhận; giữ khóa để bấm lại không ghi trùng
+    function decorateRoad(data, active) {
+      const items = active ? roadRows(data) : [];
+      if (!items.length) { roadView = false; roadAsk = null; return; }
+      root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip road-choice-strip">Chuyến bộ chờ chọn sổ: <strong>${items.length}</strong> <button type="button" class="road-choice-toggle" aria-expanded="${roadView}">${roadView ? 'Đóng' : 'Xem'}</button></div>`);
+      if (!roadView) return;
+      const line = item => {
+        const asked = roadAsk?.fingerprint === item.source_fingerprint ? item.candidate_books.find(book => book.id === roadAsk.target) : null;
+        const options = item.candidate_books.map(book => `<option value="${escape(book.id)}"${asked?.id === book.id ? ' selected' : ''}>${escape(book.name)}</option>`).join('');
+        const act = asked
+          ? `<span class="road-choice-ask">Đưa vào sổ <strong>${escape(asked.name)}</strong>? Chưa có giá, nợ không đổi.</span><button type="button" class="road-choice-write primary" data-fp="${escape(item.source_fingerprint)}">Vào sổ</button><button type="button" class="road-choice-cancel">Thôi</button>`
+          : `<select class="road-book" data-fp="${escape(item.source_fingerprint)}" aria-label="Sổ nhận chuyến ${escape(item.container)}"><option value="">Chọn sổ</option>${options}</select><button type="button" class="road-choice-pick" data-fp="${escape(item.source_fingerprint)}">Vào sổ</button>`;
+        return `<li><div class="what">${escape(item.container)} · ${escape(dateText(item.event_date))}<small>${escape(item.message || 'Máy chưa chắc chuyến này vào sổ nào')}</small></div>${act}</li>`;
+      };
+      root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', `<div class="price-panel road-choice-panel" role="region" aria-label="Chuyến bộ chờ chọn sổ"><ul>${items.map(line).join('')}</ul></div>`);
+    }
+    root.addEventListener('click', api.tracked(async event => {
+      const button = event.target.closest('.road-choice-toggle,.road-choice-pick,.road-choice-cancel,.road-choice-write');
+      if (!button || button.disabled || !ctx.snapshot) return;
+      event.stopImmediatePropagation();
+      if (button.matches('.road-choice-toggle,.road-choice-cancel')) {
+        if (button.matches('.road-choice-toggle')) roadView = !roadView;
+        roadAsk = null;
+        renderSnapshot(ctx.snapshot);
+        root.querySelector('.road-choice-toggle')?.focus();
+        return;
+      }
+      const item = roadRows(ctx.snapshot).find(entry => entry.source_fingerprint === button.dataset.fp);
+      if (!item) return;
+      if (button.matches('.road-choice-pick')) {
+        const target = Number(root.querySelector(`.road-book[data-fp="${CSS.escape(item.source_fingerprint)}"]`)?.value);
+        if (!item.candidate_books.some(book => book.id === target)) { showNotice('Chọn sổ nhận chuyến trước.'); return; }
+        button.disabled = true;
+        try {
+          const other = target === customerId ? ctx.snapshot : await fetch(`/api/v7/ledger?customer=${target}`).then(response => response.ok ? response.json() : null);
+          if (!Number.isInteger(other?.version)) throw Error();
+          roadAsk = { fingerprint: item.source_fingerprint, target, body: { customer_id: customerId, expected_version: ctx.snapshot.version,
+            idempotency_key: crypto.randomUUID(), target_customer_id: target, target_version: other.version, source_fingerprint: item.source_fingerprint } };
+        } catch { showNotice('Chưa đọc được sổ được chọn. Thử lại.'); button.disabled = false; return; }
+        renderSnapshot(ctx.snapshot);
+        root.querySelector('.road-choice-write')?.focus();
+        return;
+      }
+      if (roadAsk?.fingerprint !== item.source_fingerprint) return;
+      if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
+      const book = item.candidate_books.find(entry => entry.id === roadAsk.target);
+      button.disabled = true;
+      let response, result;
+      try {
+        response = await fetch('/api/v7/sheet/road/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roadAsk.body) });
+        result = await response.json();
+      } catch { button.disabled = false; showNotice('Chưa rõ kết quả. Bấm "Vào sổ" lần nữa để thử lại cùng thao tác.'); return; }
+      roadAsk = null;
+      if (!response.ok) { showNotice(result.message || 'Chưa đưa được chuyến vào sổ. Tải lại sổ rồi thử lại.'); await api.read().catch(() => {}); return; }
+      try { await api.read(); } catch { showNotice('Đã đưa chuyến vào sổ; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+      showNotice(result.review_count ? `Đã đưa ${item.container} vào sổ ${book?.name ?? ''}, nhưng nghi trùng nên đang chờ kiểm ở sổ đó.`
+        : `Đã đưa ${item.container} vào sổ ${book?.name ?? ''}. Chưa có giá; mở sổ đó để ghi giá.`);
+    }));
+    Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved, roadChoicesAfterRender: decorateRoad });
 };
