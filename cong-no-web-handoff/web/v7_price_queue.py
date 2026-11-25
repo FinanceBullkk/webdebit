@@ -66,6 +66,16 @@ def money(value: Any) -> int | None:
     return None
 
 
+def adds_only(row: dict) -> bool:
+    """Ghi dòng giá này chỉ thêm cái web chưa có, không đổi số web đang giữ (WEB-CHINH-01 (3), 25/11/2026): web chưa có đơn giá, phụ
+    phí web trống hoặc đúng bằng phụ phí Sheet, và dòng sổ gốc đã tính nợ (khác 0, như `total_only_rows`) thì số tính lại phải đúng bằng
+    số đã tính. Máy theo Sheet chỉ tự ghi dòng như vậy; đổi giảm trừ âm, thay phụ phí web hay đổi số sổ gốc đã tính là đè web, để người."""
+    unit, fee = money(row.get("sheet_unit_price_vnd")), money(row.get("sheet_other_fee_vnd"))
+    web_fee, counted = money(row.get("web_other_fee_vnd")), money(row.get("web_total_vnd"))
+    return (unit is not None and money(row.get("web_unit_price_vnd")) is None and (web_fee is None or web_fee == fee)
+            and (not counted or counted == unit + (fee or 0)))
+
+
 def load_price_snapshot(path: str | Path) -> dict[str, Any]:
     return read_snapshot(path, "Sheet price snapshot")
 

@@ -34,3 +34,5 @@ Giá máy đã ghi hiện ở mục "Máy đã tự làm hôm nay" của tab Vi�
 Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ chính, không còn "theo Sheet".
 
 **Cập nhật 4/11/2026:** máy ghi giá 15 phút một lần giữ nguyên phạm vi trên. [`MAY-DOI-SOAT-01`](may-doi-soat-01.md) thêm một đường riêng theo giờ: giá Sheet khác giá web ở mọi tháng được ghi khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet.
+
+**Cập nhật 25/11/2026 ([`WEB-CHINH-01`](web-chinh-01.md) (3)):** máy chỉ ghi dòng thêm cái web chưa có: web chưa có đơn giá, phụ phí web trống hoặc bằng đúng phụ phí Sheet, dòng sổ gốc đã tính nợ thì số tính lại phải bằng đúng số cũ (`adds_only` trong `v7_price_queue.py`). Vế "hoặc chỉ đổi giảm trừ âm khi đơn giá giữ nguyên" ở trên bỏ khỏi máy: dòng đó vẫn hiện sẵn sàng để người bấm. Cập nhật 4/11 (giá khác web qua máy đối soát) cũng hết: máy đối soát không còn tự ghi giá khác web.

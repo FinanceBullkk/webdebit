@@ -241,6 +241,14 @@ def brief(group: dict[str, Any], chosen: list[dict[str, Any]]) -> dict[str, Any]
             "chosen": any(group is item for item in chosen)}
 
 
+def keep_for_person(row: dict[str, Any], kept: list[dict[str, Any]], *, conclude: bool = True) -> None:
+    """Phần của tổ hợp máy không tự ghi vì nó đè web (WEB-CHINH-01 (3)): liệt kê để người xem ở bảng đối chiếu, kết luận `WEB_KEPT`
+    (chế độ chỉ kiểm giữ `WOULD_FIX` để còn thấy máy sẽ ghi phần thêm)."""
+    row["kept"] = [{key: value for key, value in brief(group, []).items() if key != "chosen"} for group in kept]
+    if conclude:
+        row["reason"] = "WEB_KEPT"
+
+
 def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], prices: dict, receipts: dict, today: dt.date,
            *, write: bool, trace: run_trace.RunTrace | None = None) -> None:
     """Kết luận cho một khách lệch; `write` thì ghi đúng tổ hợp đã chọn rồi đọc lại sổ để kiểm. Cập nhật `row` tại chỗ."""
@@ -273,13 +281,20 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row["reason"] = "SHEET_SHUFFLED" if shuffled else verdict
         attach_hints(row, ledger, prices, receipts, customers, target - total)
         return
+    adding, kept = fix.machine_part(chosen)
+    target -= sum(group["delta_vnd"] for group in kept)   # phần để người không ghi: web giữ số của mình ở phần đó
+    if not adding:
+        keep_for_person(row, kept)
+        return
     if not write:
         row["reason"] = "WOULD_FIX"
+        if kept:
+            keep_for_person(row, kept, conclude=False)
         return
     trace.stage("ghi")
     trace.customer(customer_id, writing=True)
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, adding, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)
@@ -293,6 +308,8 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row["reason"] = "VERIFY_FAILED"
     else:
         row.update(reason="FIXED", status="KHOP" if target == sheet else "LECH_TONG")
+        if kept:
+            keep_for_person(row, kept)
 
 
 def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[dict], prices: dict, receipts: dict, today: dt.date,
@@ -320,11 +337,18 @@ def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[di
     if not complete:
         row["reason"] = "DETAIL_DIFFERS"
         return
+    adding, kept = fix.machine_part(active)
+    need -= sum(group["delta_vnd"] for group in kept)   # phần để người không ghi (WEB-CHINH-01 (3))
+    if not adding:
+        keep_for_person(row, kept)
+        return
     if not write:
         row["reason"] = "WOULD_FIX"
+        if kept:
+            keep_for_person(row, kept, conclude=False)
         return
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, active, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, adding, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)
@@ -339,6 +363,8 @@ def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[di
         row["reason"] = "VERIFY_FAILED"
     else:
         row["reason"] = "FIXED"
+        if kept:
+            keep_for_person(row, kept)
 
 
 def settle_all_matched(db, results: list[dict[str, Any]], ids: dict, held_names: dict, rows: list[dict],
@@ -574,7 +600,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         # Khớp tổng mà Sheet còn khoản web chưa theo thì không ẩn việc chờ của sổ (THAY-PHIEU-SHEET-01).
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched
-                    if row["customer_id"] and row.get("reason") != "DETAIL_DIFFERS"},
+                    if row["customer_id"] and row.get("reason") not in ("DETAIL_DIFFERS", "WEB_KEPT")},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
         "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
         "booking_web": booking_web, "details": details,

@@ -13,6 +13,7 @@ globalThis.DoiChieuView = (() => {
     SHEET_SHUFFLED: 'Đơn giá của vài chuyến đổi chỗ trên Sheet, có thể do xếp lệch cột, nên máy không ghi.',
     AMBIGUOUS_FIX: 'Có nhiều cách khớp, máy không tự chọn.',
     DETAIL_DIFFERS: 'Tổng khớp Sheet, nhưng Sheet đã đổi vài khoản mà web chưa theo, và các khoản đó cộng lại không bù đủ nên máy chưa ghi.',
+    WEB_KEPT: 'Sheet đã sửa hoặc bỏ khoản web đang có. Web là sổ chính nên máy không sửa theo; mở dòng xem từng khoản, chỉ ghi khi chắc web sai.',
     NOTHING_TO_WRITE: 'Trên Sheet không có việc nào giải thích được số lệch.',
     TOO_MANY_GROUPS: 'Quá nhiều loại việc, máy không dò.',
     TOO_MANY_DIFFERENT: 'Quá nhiều khách lệch cùng lúc, máy chỉ báo, không ghi.',

@@ -94,14 +94,29 @@ class SummarizeTests(unittest.TestCase):
         self.assertEqual((book["trips_new"], book["trips_check"]), (1, {"count": 1, "reasons": {"AMBIGUOUS_MATCH": 1}}))
 
     def test_machine_price_rows_from_october_open_or_locked(self):
-        prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
-                  "review": [{"status": "MONTH_LOCKED", "month": "2026-10"}, {"status": "MONTH_LOCKED", "month": "2026-09"},
+        new = {"sheet_unit_price_vnd": "100", "sheet_other_fee_vnd": None, "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
+        prices = {"ready": [{**new, "month": "2026-11"}, {**new, "month": "2026-09"}],
+                  "review": [{**new, "status": "MONTH_LOCKED", "month": "2026-10"}, {**new, "status": "MONTH_LOCKED", "month": "2026-09"},
                              {"status": "CONFLICT", "month": "2026-10"}, {"status": "MANUAL", "month": "2026-10"},
                              {"status": "AMBIGUOUS", "month": "2026-10"}]}
         # Trước 10/2026 sổ gốc là chuẩn; giá khác web, phụ phí gõ tay, nhiều chuyến khớp để người quyết.
         self.assertEqual([r["month"] for r in v7_inbox.auto_prices(prices)], ["2026-11", "2026-10"])
         book = v7_inbox.summarize(7, projection(sheet_prices=prices))
         self.assertEqual((book["prices"], book["prices_auto"]), ({"ready": 2, "review": 5}, 2))
+
+    def test_machine_price_rows_only_add_what_the_web_lacks(self):
+        """WEB-CHINH-01 (3): dòng sẵn sàng mà ghi vào là đè số web đang có thì máy giá 15 phút không ghi, để người bấm."""
+        new = {"status": "MONTH_LOCKED", "month": "2026-10", "sheet_unit_price_vnd": "100", "sheet_other_fee_vnd": None,
+               "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
+        rows = {"chuyến chưa giá": new,
+                "phụ phí web bằng Sheet": {**new, "sheet_other_fee_vnd": "7", "web_other_fee_vnd": "7"},
+                "sổ gốc chưa tính đồng nào": {**new, "target_kind": "legacy", "web_total_vnd": "0"},
+                "sổ gốc đã tính đúng bằng": {**new, "target_kind": "legacy", "sheet_other_fee_vnd": "5", "web_total_vnd": "105"},
+                "đổi giảm trừ âm": {**new, "web_unit_price_vnd": "100", "sheet_other_fee_vnd": "-9", "web_other_fee_vnd": "-5"},
+                "thay phụ phí web": {**new, "web_other_fee_vnd": "7"},
+                "đổi số sổ gốc đã tính": {**new, "target_kind": "legacy", "web_total_vnd": "90"}}
+        written = {name for name, row in rows.items() if v7_inbox.auto_prices({"review": [row]})}
+        self.assertEqual(written, {"chuyến chưa giá", "phụ phí web bằng Sheet", "sổ gốc chưa tính đồng nào", "sổ gốc đã tính đúng bằng"})
 
     def test_receipt_details_for_writing_at_the_inbox(self):
         ledger = projection(sheet_receipts={"snapshot_sha256": "b" * 64,
