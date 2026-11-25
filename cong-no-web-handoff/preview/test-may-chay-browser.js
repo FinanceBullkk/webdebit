@@ -265,6 +265,18 @@ test('Máy chạy: bảng job hiện tình trạng, thiếu lịch là gạch; k
 const zaloView = (over = {}, processors = [{ id: 'bundle', state: 'ok', lag: 0, minutes: null, error: null }]) => ({
   state: 'ok', at: at(9, 39), silent_minutes: 1, selected_groups: 2, identity: 'attached', quiet_minutes: 1, processors, push_error: null, ...over,
 });
+test('Máy chạy: thôi dùng Sheet sổ nợ (WEB-CHINH-01) thì một dòng nói rõ lượt vẽ ở đây là lượt cũ; chưa thôi thì không có dòng đó', async () => {
+  await withPage({ data: () => base() }, async page => {
+    assert.equal(await page.locator('#sheet-off').isHidden(), true);
+  });
+  await withPage({ data: () => ({ ...base(), debt_sheet_off: '2026-12-01' }) }, async page => {
+    await page.locator('#sheet-off').waitFor();
+    assert.match(await page.locator('#sheet-off').innerText(), /^Sheet sổ nợ đã thôi dùng từ 01\/12\/2026\. Lượt mỗi giờ chỉ còn so sổ web với booking/);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/may-chay-thoi-sheet.png` });
+  });
+});
+
 const withZalo = zalo => ({ data: () => ({ ...base(), ...(zalo ? { zalo } : {}) }) });
 const zaloRows = page => page.locator('#zalo-rows li').allInnerTexts().then(rows => rows.map(row => row.replace(/\s+/g, ' ').trim()));
 const noOverflow = page => page.evaluate(() => {

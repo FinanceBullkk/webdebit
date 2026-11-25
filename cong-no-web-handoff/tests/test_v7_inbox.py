@@ -370,6 +370,23 @@ class InboxTests(unittest.TestCase):
             os.utime(reconcile, (1, 1))
             self.assertIsNone(self.inbox.view(runner)["reconcile"])
 
+    def test_after_the_debt_sheet_is_retired_the_last_reconcile_is_not_shown(self):
+        """WEB-CHINH-01: file đánh dấu có thì không còn kết quả đối soát (file đứng ở lượt cuối), hộp việc báo ngày thôi dùng."""
+        folder = Path(self.dir.name)
+        reconcile, marker = folder / "reconcile.json", folder / "debt-sheet-off"
+        reconcile.write_text(json.dumps({"version": 1, "checked_at": "2026-11-30T22:05:00+07:00", "counts": {"KHOP": 1},
+                                         "matched": {"1": "500"}, "customers": []}), encoding="utf-8")
+        runner = Runner([1])
+        with patch.object(v7_inbox, "RECONCILE_PATH", str(reconcile)), patch("v7_price_queue.DEBT_SHEET_OFF_PATH", str(marker)):
+            self.inbox.start(runner)
+            wait_idle(self.inbox)
+            self.assertEqual((self.inbox.view(runner)["reconcile"]["checked_at"], self.inbox.view(runner)["debt_sheet_off"]),
+                             ("2026-11-30T22:05:00+07:00", None))
+            marker.write_text("2026-12-01", encoding="utf-8")
+            view = self.inbox.view(runner)
+            self.assertEqual((view["reconcile"], view["debt_sheet_off"]), (None, "2026-12-01"))
+            self.assertFalse(any(book["sheet_matched"] for book in view["books"]))
+
     def test_missing_snapshot_is_unavailable(self):
         for path in self.paths:
             path.unlink()

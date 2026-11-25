@@ -17,6 +17,7 @@ exactly as the Sheet shows it.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 from collections import Counter
 from functools import lru_cache
@@ -64,6 +65,33 @@ def money(value: Any) -> int | None:
     if isinstance(value, str) and re.fullmatch(r"-?[0-9]+", value.strip()):
         return int(value)
     return None
+
+
+# WEB-CHINH-01, tắt máy ngày 1/12/2026: file đánh dấu này có thì Sheet sổ nợ đã thôi dùng. Nội dung là ngày thôi dùng (yyyy-mm-dd).
+# API (hàng chờ giá/phiếu từ Sheet, kết quả đối soát, Máy chạy) và máy canh cùng đọc file này, nên một bước runbook đổi cả hai, không cần
+# khởi động lại. Đặt trong /etc/webdebit để gói cấu hình (`v7-backup-config`) giữ nó khi dựng lại máy.
+DEBT_SHEET_OFF_PATH = os.getenv("WEBDEBIT_DEBT_SHEET_OFF_PATH") or "/etc/webdebit/debt-sheet-off"
+SHEET_OFF_DATE = re.compile(r"20[0-9]{2}-[01][0-9]-[0-3][0-9]")
+
+
+def debt_sheet_off(path: str | None = None) -> str | None:
+    """Ngày thôi dùng Sheet sổ nợ (yyyy-mm-dd), "?" khi có file mà không đọc được ngày, None khi chưa thôi. Có file mà đọc lỗi cũng coi
+    là đã thôi: hiện việc cũ như việc đang chờ hại hơn là giấu chúng."""
+    try:
+        with open(path or DEBT_SHEET_OFF_PATH, encoding="utf-8") as stream:
+            text = stream.read(64).strip()[:10]
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError):
+        return "?"
+    return text if SHEET_OFF_DATE.fullmatch(text) else "?"
+
+
+def sheet_off_projection(off: str) -> dict:
+    """Hàng chờ giá hay phiếu từ Sheet sau khi thôi dùng Sheet sổ nợ: rỗng, cùng hình với hàng chờ thật, kèm ngày thôi dùng. Bản chụp cũ
+    đứng yên nên mọi dòng trong đó là việc cũ, không còn ai ghi theo."""
+    return {"snapshot_sha256": None, "snapshot_created_at": None, "ready": [], "review": [], "ready_count": 0, "review_count": 0,
+            "closable_sources": [], "gone": [], "tab_health": {"status": "ok", "findings": []}, "sheet_off": off}
 
 
 def adds_only(row: dict) -> bool:

@@ -792,6 +792,18 @@ class DebtSheetOffTests(Base):
         self.assertEqual(set(dog.money_timers(True)), {"v7-reconcile-auto", "webdebit-sheet-sync", "webdebit-ps-snapshot"})
         self.assertEqual(dog.money_timers(False), dog.MONEY_TIMERS)
 
+    def test_the_marker_file_shared_with_the_api_also_turns_it_off(self):
+        marker = self.root / "debt-sheet-off"
+        env = {"WEBDEBIT_DEBT_SHEET_OFF_PATH": str(marker)}
+        self.assertFalse(dog.debt_sheet_off(env))
+        marker.write_text("2026-12-01", encoding="utf-8")
+        self.assertTrue(dog.debt_sheet_off(env))
+        self.assertEqual(dog.auto_flags(False), dog.AUTO_FLAGS)
+        with patch.object(dog, "AUTO_FLAGS_SET", None):
+            self.assertEqual(dog.auto_flags(True), ("text", "trips", "road", "ps"))
+        with patch.object(dog, "AUTO_FLAGS_SET", "text,trips"), patch.object(dog, "AUTO_FLAGS", ("text", "trips")):
+            self.assertEqual(dog.auto_flags(True), ("text", "trips"))   # đặt biến thì theo đúng biến
+
     def test_booking_run_is_watched_like_the_reconcile_run(self):
         self.booking(checked_at="2026-11-04T11:10:00+07:00")
         self.assertEqual(dog.check_booking_web(self.root / "booking-web.json", NOON), [])

@@ -126,7 +126,7 @@
   function setText(id, value) { const node = $(id); if (node.textContent !== value) node.textContent = value; }
 
   function paintEmpty() {
-    setText('now', state.offline ? 'Mất kết nối máy chủ.' : state.data ? M.idleLine({ run: null, next: jobsById().get('reconcile')?.next, now: state.data.now, jobs: state.data.jobs ?? [] }) : 'Đang tải…');
+    setText('now', state.offline ? 'Mất kết nối máy chủ.' : state.data ? M.idleLine({ run: null, next: jobsById().get('reconcile')?.next, now: state.data.now, jobs: state.data.jobs ?? [], sheetOff: Boolean(state.data.debt_sheet_off) }) : 'Đang tải…');
     setText('run-title', 'Máy chạy');
     paintPill();
   }
@@ -152,7 +152,7 @@
     const jobs = state.data?.jobs ?? [], next = jobsById().get('reconcile')?.next;
     let line;
     if (state.offline) line = 'Mất kết nối máy chủ. Số dưới đây có thể cũ, hình đứng yên.';
-    else if (live && !running) line = M.idleLine({ run, next, now: state.data.now, jobs });
+    else if (live && !running) line = M.idleLine({ run, next, now: state.data.now, jobs, sheetOff: Boolean(state.data.debt_sheet_off) });
     else if (idle) {
       const done = state.day.runs.filter(item => item.start + item.sec <= state.day.clock).pop();
       line = `${state.day.next ? `Máy đang nghỉ. Lượt kế lúc ${M.clockOf(state.day.next).slice(0, 5)}.` : 'Hết lượt trong ngày.'}${done ? ` Lượt trước: ${done.khop ?? '—'}/${done.total ?? '—'} khớp.` : ''}`;
@@ -344,6 +344,7 @@
     state.offline = false;
     state.paintedAt = 0;   // số mới thì vẽ ngay, khoảng giãn chỉ để khung hình không dựng lại HTML liên tục
     rememberJobRuns();
+    paintSheetOff();
     paintJobs();
     paintZalo();
     paintBot();
@@ -353,6 +354,15 @@
     if (full || running !== state.wasRunning) paintSlots();
     state.wasRunning = running;
     return !full && finished !== null && finished !== state.fullFinished;
+  }
+  // WEB-CHINH-01: đã thôi dùng Sheet sổ nợ thì lượt mỗi giờ chỉ so sổ web với booking; các lượt đối soát vẽ ở đây là lượt cũ.
+  function paintSheetOff() {
+    const day = state.data?.debt_sheet_off, note = $('sheet-off');
+    if (!note) return;
+    note.hidden = !day;
+    if (!day) return;
+    const since = /^\d{4}-\d{2}-\d{2}$/.test(day) ? ` từ ${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}` : '';
+    note.textContent = `Sheet sổ nợ đã thôi dùng${since}. Lượt mỗi giờ chỉ còn so sổ web với booking, không ghi gì; các lượt đối soát vẽ ở đây là lượt cũ, chỉ để xem lại.`;
   }
   let timer = null;
   async function poll(full = false) {

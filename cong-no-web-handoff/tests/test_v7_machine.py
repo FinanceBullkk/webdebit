@@ -161,6 +161,23 @@ class MachineTests(unittest.TestCase):
         self.assertEqual(rows["backup-hourly"]["state"], "late")
         self.assertEqual(rows["ps"]["state"], "unknown")
 
+    def test_after_the_debt_sheet_is_retired_jobs_and_manager_summary_change(self):
+        """WEB-CHINH-01: không còn job giá Sheet, lượt mỗi giờ chỉ so booking, quản lý không nhận khách lệch của lượt đối soát cuối."""
+        self.history(trace(T0, T0, {"7": lech(7)}))
+        done = subprocess.CompletedProcess([], 0, stdout=SHOW)
+        now = machine._when("2026-11-06T09:40:00+07:00").timestamp()
+        marker = self.dir / "debt-sheet-off"
+        marker.write_text("2026-12-01", encoding="utf-8")
+        with mock.patch.object(machine.subprocess, "run", return_value=done), mock.patch.dict(machine._jobs_cache, {"at": 0.0, "rows": []}), \
+                patch("v7_price_queue.DEBT_SHEET_OFF_PATH", str(marker)):
+            rows = {job["id"]: job for job in machine.jobs(now)}
+            summary = machine.summary(now)
+            view = machine.now_view(now)
+        self.assertNotIn("prices", rows)
+        self.assertEqual((rows["reconcile"]["name"], rows["reconcile"]["state"]), ("So sổ với booking", "ok"))
+        self.assertEqual((summary["open"], summary["debt_sheet_off"], view["debt_sheet_off"]), ([], "2026-12-01", "2026-12-01"))
+        self.assertNotIn("prices", summary["jobs"])
+
     def job_rows(self, *blocks):
         done = subprocess.CompletedProcess([], 0, stdout="\n\n".join(blocks))
         with mock.patch.object(machine.subprocess, "run", return_value=done), mock.patch.dict(machine._jobs_cache, {"at": 0.0, "rows": []}):
