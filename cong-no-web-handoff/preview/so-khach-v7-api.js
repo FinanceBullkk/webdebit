@@ -481,7 +481,7 @@
           try { await read(); } catch { /* sổ không đọc lại được: câu báo dưới đây vẫn nói rõ đã ghi bao nhiêu */ }
           series = null;
           outcome = { status: 'stopped', done: run.index, total, result };
-          return { notice: `Ghi được ${run.index}/${total} giá rồi dừng: ${result?.message || 'không lưu được thao tác.'} Kiểm tra các chuyến còn lại.` };
+          return { notice: `Ghi được ${run.index}/${total} ${run.noun} rồi dừng: ${result?.message || 'không lưu được thao tác.'} ${run.noun === 'phiếu' ? 'Các dòng chưa ghi còn trong khung.' : 'Kiểm tra các chuyến còn lại.'}` };
         }
         run.version = result.version; run.index += 1; pending = null;
       }
@@ -490,9 +490,10 @@
       try { await read(); } catch { readBack = false; }
       series = null;
       outcome = { status: 'saved', done: total, total };
-      return { notice: readBack ? `Đã ghi ${total} giá.` : `Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.` };
+      return { notice: readBack ? `Đã ghi ${total} ${run.noun}.` : `Đã ghi ${total} ${run.noun} nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.` };
     }
-    async function submitSeries(action, list) {
+    // `what`: chữ trong câu báo ("phiếu" cho dán phiếu thu, PHIEU-WEB-01 mục 3); không truyền thì "giá" hay "ô phụ phí" theo lệnh.
+    async function submitSeries(action, list, what) {
       if (queueRun) await queueRun;
       if (running) throw Error(busyText);
       if (pending || series) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
@@ -504,7 +505,7 @@
       for (const intent of items) for (const name of ['unit_price_vnd', 'other_fee_vnd']) {
         if (Object.hasOwn(intent, name) && intent[name] !== null && typeof intent[name] !== 'string') throw Error('Số tiền phải là chuỗi VND.');
       }
-      series = { path: route[0], items, index: 0, version: snapshot.version };
+      series = { path: route[0], items, index: 0, version: snapshot.version, noun: what ?? (action === 'feeSet' ? 'ô phụ phí' : 'giá') };
       return await runSeries();
     }
     // Lệnh cấn trừ: trả {status: saved|error|stale|unknown, result} để giao diện biết đóng khung hay giữ lại.

@@ -148,6 +148,9 @@
       ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}&amp;from=thu-chi">Mở tin</a>` : '';
     const can = M.reviewable(item, state.data.items);
     const act = ADMIN && can.ok ? `<button type="button" class="tc-act" data-act="open" data-k="${esc(key)}" aria-expanded="${edit.open === key}">Xử lý</button>` : '';
+    // PHIEU-WEB-01 mục 4: khoản thu chưa vào sổ đã gắn sổ → mở khung Ghi phiếu thu của sổ đó, điền sẵn; người xem rồi tự bấm ghi.
+    const draft = M.receiptDraft(item);
+    const write = draft ? `<a class="tc-write" href="/so-khach-v7-live.html?customer=${encodeURIComponent(draft.customerId)}&amp;ghi-phieu=1" data-k="${esc(key)}">Ghi phiếu</a>` : '';
     const note = [status.note, can.ok || item.source === 'mark' ? '' : can.why].filter(Boolean).join(' ');
     const amount = item.amount_vnd == null ? '<span class="dash">—</span>' : esc(money(item.amount_vnd));
     const from = item.amount_from === 'anh' ? 'đọc từ ảnh' : item.amount_from === 'sua' ? 'đã sửa tay' : '';
@@ -161,7 +164,7 @@
       + `<span class="tc-amt">${amount}${from ? `<small class="tc-src">${from}</small>` : ''}</span>`
       + `<div class="tc-target">${esc(targetText(item.target))}${item.target_from === 'sua' ? ' <small class="tc-src">gắn tay</small>' : ''}<span class="tc-text" title="${esc(text)}">${esc(text)}</span></div>`
       + `<div class="tc-status ${status.tone}"><b>${esc(status.text)}</b>${note ? `<small>${esc(note)}</small>` : ''}${reviewLine(item)}${ledgerLink(item)}</div>`
-      + `<div class="tc-side">${thumbs(item)}${act}${open}</div></div>`
+      + `<div class="tc-side">${thumbs(item)}${write}${act}${open}</div></div>`
       + (edit.open === key ? panel(item) : '');
   }
 
@@ -492,6 +495,15 @@
     if (!document.hidden) load().then(schedule);   // tab hiện lại: hỏi ngay một lượt rồi theo nhịp 5 giây; tab ẩn thì ngừng
   });
   root.addEventListener('click', event => {
+    // Ghi phiếu: phiếu nháp sang Sổ khách qua sessionStorage (không đưa số tiền lên địa chỉ trang). Không lưu được thì vẫn mở sổ,
+    // khung trống.
+    const write = event.target.closest('.tc-write');
+    if (write) {
+      const item = state.data?.items?.find(row => M.keyOf(row) === write.dataset.k);
+      const draft = item && M.receiptDraft(item);
+      try { if (draft) sessionStorage.setItem('webdebit:phieu-nhap', JSON.stringify({ ...draft, at: Date.now() })); } catch { /* không lưu được thì mở sổ trống */ }
+      return;
+    }
     const chip = event.target.closest('[data-f]');
     if (chip) {
       state.filter = chip.dataset.f;

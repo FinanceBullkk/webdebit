@@ -50,5 +50,5 @@ Không đổi DB, lệnh ghi hay quyền. Triển khai tự động khi merge qu
 
 Giới hạn:
 - Chỉ chuyến biển trong hàng chờ `CONT_NGUON` từ năm 2026 (`QUEUE_FIRST_YEAR`).
-- Chỉ ở Việc cần làm, chưa có ở Sổ khách.
+- Từ 25/11/2026 (WEB-CHINH-01, ĐỀ XUẤT của Claude): ô giá Sổ khách của chuyến chưa giá, tháng mở, hiện "booking 45 tr" dưới chữ "chưa có giá" cho mọi login, kể cả người dùng không vào được Việc cần làm. Mở ô là điền sẵn đơn giá booking, chọn cả để gõ đè; chỉ Enter mới ghi, vẫn qua câu hỏi đơn vị của [`GIA-DON-VI-01`](gia-don-vi-01.md); rời ô mà chưa sửa thì không ghi. Ô Sổ khách chỉ điền đơn giá: phụ phí booking (nếu có) hiện ở dòng nhắc để gõ ở cột phụ phí, không ghi kèm. Luật đọc gợi ý dùng chung (`bookingHint` trong `so-khach-v7-model.js`).
 - Nhóm tuyến chưa tách theo hãng tàu: việc sau, lý do ở spec.

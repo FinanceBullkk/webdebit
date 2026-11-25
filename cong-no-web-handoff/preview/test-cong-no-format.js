@@ -163,6 +163,24 @@ test('receiptNote hiện chữ đọc được: không mã máy, không lặp ng
   assert.equal(label(null), '');
 });
 
+test('symbolicDate cùng luật month_end của máy Sheet: cuối tháng, không sau hôm nay (ca chung tests/golden)', () => {
+  const golden = JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'tests', 'golden', 'ngay-tuong-trung.json'), 'utf8'));
+  assert.ok(golden.cases.length >= 5);
+  for (const { month, today, date } of golden.cases) assert.equal(F.symbolicDate(month, today), date, `${month} / ${today}`);
+  assert.throws(() => F.symbolicDate('2026-13', '2026-11-04'), /Tháng không hợp lệ/);
+  assert.throws(() => F.symbolicDate('2026-10', ''), /Tháng không hợp lệ/);
+});
+
+test('symbolicReference: đuôi "(ngày tượng trưng)" mà Bảng thu và receiptNote nhận ra, không lặp, không quá 500 ký tự', () => {
+  assert.equal(F.symbolicReference(' UNC 123 '), 'UNC 123 (ngày tượng trưng)');
+  assert.equal(F.symbolicReference(''), 'Không rõ ngày (ngày tượng trưng)', 'server cắt khoảng trắng: chữ trống vẫn giữ được đuôi');
+  assert.equal(F.symbolicReference('CK (ngày tượng trưng)'), 'CK (ngày tượng trưng)', 'không gắn đuôi hai lần');
+  const long = F.symbolicReference('x'.repeat(600));
+  assert.equal(long.length, 500);
+  assert.match(long, / \(ngày tượng trưng\)$/);
+  assert.equal(F.receiptNote(F.symbolicReference('UNC 123'), '2026-10-31').label, 'UNC 123 · ngày tượng trưng');
+});
+
 test('receiptReference giữ tiền tố và đuôi của máy khi sửa chữ, máy vẫn nhận ra phiếu', () => {
   const hash = 'Sheet #abc: ';
   const tail = ' · ngày theo cuối tháng khối Sheet';

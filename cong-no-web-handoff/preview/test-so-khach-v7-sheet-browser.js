@@ -55,7 +55,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
   await viewMonth(page, clock);
-  assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
+  assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), 'chưa có giá');   // WEB-CHINH-01: trước đây để trống
   assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
