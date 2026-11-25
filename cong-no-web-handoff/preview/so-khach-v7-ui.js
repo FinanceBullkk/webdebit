@@ -419,14 +419,15 @@
       destination: 'nơi đến', unit_price_vnd: 'đơn giá', other_fee_vnd: 'phụ phí' };
     // PHU-PHI-01: cột phụ phí riêng của sổ (fee_columns, đọc lại mỗi lần vẽ) và danh mục loại phụ phí (so-khach-v7-fee-ui.js nạp).
     let feeColumnIds = [];
-    // SO-GON-07 (23/11/2026, người dùng chọn A): cột riêng không có khoản nào trong tháng đang xem thì ẩn; cấu hình cột của sổ
-    // (feeColumnIds) giữ nguyên. Nút "Hiện n cột phí trống" ở thanh bảng chuyến mở lại mọi cột để gõ phí như Sheet (giữ tới khi
-    // bấm "Ẩn cột phí trống"; trình duyệt nhớ lựa chọn, người hay gõ phí bật một lần là giữ); phí loại đó cũng nhập được qua ô Khác.
-    const FEE_KEY = 'so-khach.cot-phi-trong';
+    // SO-GON-07 (sửa đổi 25/11/2026, người dùng chọn A; SK-G7): tháng đang mở hiện đủ cột phụ phí riêng để gõ thẳng vào lưới như
+    // Sheet; tháng khóa ẩn cột riêng không có khoản nào trong tháng. Cấu hình cột của sổ (feeColumnIds) giữ nguyên. Nút ở thanh
+    // bảng chuyến đổi tạm cho tháng đang xem (feeOverride), đổi tháng hay tải lại thì về mặc định; không nhớ theo trình duyệt nữa
+    // để mọi máy thấy cùng một bảng (khóa cũ 'so-khach.cot-phi-trong' bị xóa).
     let shownFeeIds = [];
-    let feeHidden = 0;
+    let feeEmpty = 0;
     let feeShowAll = false;
-    try { feeShowAll = localStorage.getItem(FEE_KEY) === 'hien'; } catch { /* trình duyệt chặn lưu: mặc định ẩn */ }
+    let feeOverride = null;   // { month, showAll } khi người dùng bấm nút ở tháng đang xem
+    try { localStorage.removeItem('so-khach.cot-phi-trong'); } catch { /* trình duyệt chặn lưu: không có gì để xóa */ }
     let feeTypes = [];
     const feeTypeName = id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`;
     // Vẽ lại sổ từ bản đang có (không tải lại). Khung Ghi phiếu thu nằm ngoài #app (so-khach-v7-entry-ui.js) nên chữ đang gõ
@@ -506,7 +507,8 @@
       const usedTypes = new Set([...(data.trips ?? []).filter(row => !row.deleted), ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted)]
         .filter(inShown).flatMap(row => row.fee_lines ?? []).map(line => Number(line.fee_type_id)));
       const used = feeColumnIds.filter(id => usedTypes.has(id));
-      feeHidden = feeColumnIds.length - used.length;
+      feeEmpty = feeColumnIds.length - used.length;
+      feeShowAll = feeOverride?.month === shownKey ? feeOverride.showAll : ctx.shownMonthOpen(data);
       shownFeeIds = feeShowAll ? feeColumnIds : used;
       const road = live.customerRow?.(customerId)?.transport_mode === 'BO';
       fieldNames.carrier = road ? 'xe' : 'hãng tàu';
@@ -606,10 +608,9 @@
       liveOpenMonth, methods, fieldNames, moved, ghosts, sheetFieldLabel, resolvableSheetFields, moneyText, referenceFields,
       showNotice, renderSnapshot, redraw, redrawWhenFree, submit, columns, feeTypeName,
       get feeTypes() { return feeTypes; }, set feeTypes(value) { feeTypes = value; },
-      get feeColumnIds() { return feeColumnIds; }, get shownFeeIds() { return shownFeeIds; }, get feeHidden() { return feeShowAll ? 0 : feeHidden; }, get feeShowAll() { return feeShowAll; },
+      get feeColumnIds() { return feeColumnIds; }, get shownFeeIds() { return shownFeeIds; }, get feeEmpty() { return feeEmpty; }, get feeShowAll() { return feeShowAll; },
       toggleFeeColumns: () => {
-        feeShowAll = !feeShowAll;
-        try { localStorage.setItem(FEE_KEY, feeShowAll ? 'hien' : 'an'); } catch { /* không lưu được: chỉ giữ tới khi tải lại */ }
+        feeOverride = { month: ctx.shownMonthKey(snapshot), showAll: !feeShowAll };
         redraw();
       }, get snapshot() { return snapshot; },
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },

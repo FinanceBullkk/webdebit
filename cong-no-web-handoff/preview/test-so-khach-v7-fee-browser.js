@@ -19,23 +19,38 @@ test('sổ mặc định chỉ có cột Khác; ba cột riêng vẫn vừa 1280
   world.feeColumns = [1, 2, 3];
   world.version += 1;
   await reload(page);
-  // SO-GON-07: ba cột riêng chưa có khoản nào trong tháng thì ẩn; nút ở thanh bảng chuyến mở lại để gõ phí.
-  assert.equal(await page.locator('td.fee.own').count(), 0);
-  await page.getByRole('button', { name: 'Hiện 3 cột phí trống' }).click();
-  await page.locator('td.fee.own').first().waitFor();
+  // SO-GON-07 sửa đổi 25/11/2026 (SK-G7): tháng đang mở hiện đủ cột riêng, kể cả cột trống, để gõ thẳng vào lưới.
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Neo', 'Điện', 'Ghép', 'Khác']);
+  assert.equal(await page.locator('td.fee.own').first().isVisible(), true);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.equal(await page.locator('.ledger-book.fee-over').count(), 0, 'ba cột vừa màn: tiêu đề cột vẫn dính, không cuộn trong khung');
   assert.equal(await page.locator('#thang-2026-09 .subtotal td.fee').count(), 4);
   assert.equal(await page.locator('text=sổ gốc').count(), 0);
-}, world => { world.feeHideEmpty = true; }));
+}));
 
-test('COT-PHU-PHI-01 + SO-GON-07: bảy cột riêng trống ẩn; bấm Hiện thì cột hẹp, bảng cuộn ngang, Thành tiền ghim phải', async () => withPage(async ({ page }) => {
-  await page.locator('.fee-other').first().waitFor();
+test('SK-G7: tháng mở hiện đủ cột phí, tháng khóa ẩn cột trống; nút chỉ đổi tạm, không nhớ theo trình duyệt', async () => withPage(async ({ page, world }) => {
+  await page.locator('td.fee.own').first().waitFor();
+  assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Neo', 'Điện', 'Ghép', 'Khác']);
+  assert.equal(await page.evaluate(() => localStorage.getItem('so-khach.cot-phi-trong')), null, 'khóa nhớ cũ bị xóa');
+  await page.getByRole('button', { name: 'Ẩn 3 cột phí trống' }).click();
+  await page.getByRole('button', { name: 'Hiện 3 cột phí trống' }).waitFor();
+  assert.equal(await page.locator('td.fee.own').count(), 0);
+  // Tải lại: về mặc định của tháng mở, không giữ lựa chọn vừa bấm.
+  await reload(page);
+  await page.getByRole('button', { name: 'Ẩn 3 cột phí trống' }).waitFor();
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(key => key.includes('cot-phi')).length), 0);
+  // Tháng khóa: cột trống ẩn để đọc gọn; nút mở lại được.
+  world.locks = [{ month: '2026-09-01', locked: true }];
+  world.version += 1;
+  await reload(page);
+  await page.getByRole('button', { name: 'Hiện 3 cột phí trống' }).waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Khác']);
-  assert.equal(await page.locator('.ledger-book.fee-over').count(), 0, 'cột trống ẩn: bảng vừa khung');
-  assert.equal(await page.evaluate(() => [...document.querySelectorAll('#thang-2026-09 .trip-list tr[data-row]')].every(tr => tr.getBoundingClientRect().height <= 40)), true, 'mỗi chuyến một dòng');
-  await page.getByRole('button', { name: 'Hiện 7 cột phí trống' }).click();
+  await page.getByRole('button', { name: 'Hiện 3 cột phí trống' }).click();
+  await page.locator('td.fee.own').first().waitFor();
+  assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Neo', 'Điện', 'Ghép', 'Khác']);
+}, world => { world.feeColumns = [1, 2, 3]; world.beforeOpen = page => page.addInitScript(() => { try { localStorage.setItem('so-khach.cot-phi-trong', 'an'); } catch { /* about:blank */ } }); }));
+
+test('COT-PHU-PHI-01 + SO-GON-07: tháng mở hiện bảy cột riêng trống, cột hẹp, bảng cuộn ngang, Thành tiền ghim phải; bấm Ẩn thì gọn', async () => withPage(async ({ page }) => {
   await page.locator('td.fee.own').first().waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').evaluateAll(list => list.map(th => th.textContent)),
     ['Lưu bãi', 'Ghép', 'Điện', 'Neo', 'Health + KĐ', 'Phí hủy', 'Sửa bill', 'Khác']);
@@ -59,14 +74,16 @@ test('COT-PHU-PHI-01 + SO-GON-07: bảy cột riêng trống ẩn; bấm Hiện 
     return amount.right <= card.getBoundingClientRect().right + 1 && amount.left >= card.getBoundingClientRect().left;
   });
   assert.equal(pinned, true, 'Thành tiền thấy được khi chưa cuộn ngang');
-  await page.getByRole('button', { name: 'Ẩn cột phí trống' }).click();
+  await page.getByRole('button', { name: 'Ẩn 7 cột phí trống' }).click();
   await page.getByRole('button', { name: 'Hiện 7 cột phí trống' }).waitFor();
+  assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Khác']);
+  assert.equal(await page.locator('.ledger-book.fee-over').count(), 0, 'cột trống ẩn: bảng vừa khung');
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('#thang-2026-09 .trip-list tr[data-row]')].every(tr => tr.getBoundingClientRect().height <= 40)), true, 'mỗi chuyến một dòng');
 }, world => {
   for (const [id, name, sort] of [[10, 'Health + KĐ', 7], [11, 'Lưu bãi', 8], [12, 'Phí hủy', 9], [13, 'Sửa bill', 10]]) {
     world.feeTypes.splice(world.feeTypes.length - 3, 0, { id, name, kind: 'service', sign: 'positive', system_key: null, active: true, sort });
   }
   world.feeColumns = [11, 3, 2, 1, 10, 12, 13];
-  world.feeHideEmpty = true;
 }));
 
 // SK-N1 + SK-N5 (audit Sổ khách 25/11/2026): sổ bảy cột phí đều có khoản, 24 chuyến, tên nơi dài. Khung 1265×560 = màn 1280×560
@@ -76,7 +93,6 @@ const wideBook = world => {
     world.feeTypes.splice(world.feeTypes.length - 3, 0, { id, name, kind: 'service', sign: 'positive', system_key: null, active: true, sort });
   }
   world.feeColumns = [11, 3, 2, 1, 10, 12, 13];
-  world.feeHideEmpty = true;
   const places = ['Kho hàng khu công nghiệp thử số một', 'Cảng A', 'Bãi container thử phía Nam', 'Cửa khẩu B'];
   world.trips = Array.from({ length: 24 }, (_, i) => {
     const fees = world.feeColumns.filter((_, k) => (i + k) % 3 === 0).map((type, k) => ({ id: 700 + i * 10 + k, fee_type_id: type, amount_vnd: '1500000', note: null }));
@@ -243,6 +259,9 @@ test('tháng khóa: ô cột riêng chỉ đọc, khung không có form, không 
   await reload(page);
   await other(page, 'trip:11').waitFor();
   assert.equal(await page.locator('#thang-2026-09 .fee-pick').count(), 0);
+  // SO-GON-07 sửa đổi 25/11/2026: tháng khóa ẩn cột riêng trống; mở lại để thấy ô đó vẫn chỉ đọc.
+  assert.equal(await own(page, 'trip:11', 1).count(), 0);
+  await page.getByRole('button', { name: 'Hiện 1 cột phí trống' }).click();
   assert.equal(await own(page, 'trip:11', 1).getAttribute('tabindex'), null);
   await own(page, 'trip:11', 1).click();
   assert.equal(await page.locator('.fee-own-input').count(), 0);

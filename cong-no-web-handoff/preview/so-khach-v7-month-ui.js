@@ -200,9 +200,10 @@
     const badge = missing ? `<button type="button" class="month-missing" data-missing-month="${escape(key)}" title="Xem ${missing} chuyến chưa có giá">ⓘ ${missing} chưa giá</button>` : '';
     const heading = detailed ? `<h3>${ctx.detailCount(data, key)} chuyến trong tháng</h3>`
       : `<h3>Chuyến trong tháng <span>· ${sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3>`;
-    // SO-GON-07: cột phụ phí riêng trống cả tháng đang ẩn; nút mở lại để gõ phí vào lưới (bảng chi tiết có cột riêng của nó).
-    const feeToggle = detailed || (!ctx.feeHidden && !ctx.feeShowAll) ? ''
-      : `<button type="button" class="fee-cols-toggle" aria-pressed="${ctx.feeShowAll}">${ctx.feeShowAll ? 'Ẩn cột phí trống' : `Hiện ${ctx.feeHidden} cột phí trống`}</button>`;
+    // SO-GON-07 (sửa đổi 25/11/2026): tháng mở hiện đủ cột phụ phí riêng, tháng khóa ẩn cột trống; nút đổi tạm cho tháng đang xem
+    // (bảng chi tiết có cột riêng của nó). Nút ghi số cột sẽ ẩn/hiện để người dùng biết bảng đang thiếu cột nào.
+    const feeToggle = detailed || !ctx.feeEmpty ? ''
+      : `<button type="button" class="fee-cols-toggle" aria-pressed="${ctx.feeShowAll}">${ctx.feeShowAll ? `Ẩn ${ctx.feeEmpty} cột phí trống` : `Hiện ${ctx.feeEmpty} cột phí trống`}</button>`;
     const toolbar = `<div class="trip-toolbar">${heading}${feeToggle}${ctx.detailTools(data, key)}<div class="trip-tools"></div></div>`;
     const body = `${payBlock}<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
       + (detailed ? ctx.detailTable(data, key) : `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
@@ -328,6 +329,14 @@
     const { groups, openKey } = bookMonths(data, data.status === 'active');
     return openMonths(data, groups, openKey);
   }
+  // Tháng đang xem có sửa được không (cùng luật khóa của monthSection): SO-GON-07 sửa đổi 25/11/2026 hiện đủ cột phí ở tháng mở.
+  function shownMonthOpen(data) {
+    const active = data.status === 'active';
+    const { groups, openKey } = bookMonths(data, active);
+    const key = openMonths(data, groups, openKey);
+    const lock = (data.month_locks ?? []).find(row => monthKey(row.month) === key);
+    return active && !(lock ? lock.locked : key !== openKey);
+  }
 
-  Object.assign(ctx, { monthSections, monthsAfterRender, showMonth, bookWork, shownMonthKey });
+  Object.assign(ctx, { monthSections, monthsAfterRender, showMonth, bookWork, shownMonthKey, shownMonthOpen });
 };
