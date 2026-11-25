@@ -89,7 +89,8 @@ test('Lỗi giữa chừng: dừng, báo phần đã ghi; Ghi tiếp chỉ gửi
   let text = await split(page).locator('.split-review').innerText();
   assert.match(text, /Khách Thử Sửa: 10\.000\.000[^\n]*Đã ghi PH-001/);
   assert.match(text, /Khách Hai: 20\.000\.000[^\n]*Chưa rõ đã lưu/);
-  assert.match(text, /Khách Ba: 20\.000\.000[^\n]*Chưa ghi/);
+  assert.match(text, /Khách Ba:[^\n]*Chưa ghi/);
+  assert.equal(await split(page).locator('.split-fix[data-index="2"]').inputValue(), '20.000.000');
   assert.match(text, /Còn 2 phiếu chưa ghi/);
   assert.equal(await split(page).locator('.split-save').innerText(), 'Ghi tiếp 2 phiếu');
   // Sổ thứ ba vừa đổi (người khác ghi): trang đọc phiên bản mới rồi gửi lại cùng khóa.
@@ -113,9 +114,71 @@ test('Lỗi giữa chừng: dừng, báo phần đã ghi; Ghi tiếp chỉ gửi
   await split(page).locator('.split-save').click();
   await split(page).locator('.split-review .split-st-error').waitFor();
   text = await split(page).locator('.split-review').innerText();
-  assert.match(text, /Khách Thử Sửa: 25\.000\.000[^\n]*Không ghi được\s*Phiếu không hợp lệ\./);
-  assert.match(text, /Khách Hai: 25\.000\.000[^\n]*Chưa ghi/);
+  assert.match(text, /Khách Thử Sửa:[^\n]*Không ghi được\s*Phiếu không hợp lệ\./);
+  assert.match(text, /Khách Hai:[^\n]*Chưa ghi/);
+  assert.equal(await split(page).locator('.split-fix[data-index="0"]').inputValue(), '25.000.000', 'phần bị từ chối sửa được số');
   assert.equal(receiptPosts(world).length, 6, 'dừng ở sổ lỗi, sổ sau chưa gửi');
+}, setup));
+
+test('Đóng khi còn phiếu chưa ghi: hỏi trước, giữ lần chia dở; mở lại ghi tiếp; phần bị từ chối sửa số với khóa mới', async () => withPage(async ({ page, world, shot }) => {
+  await openWithTwo(page);
+  await split(page).locator('.split-add').click();
+  await split(page).locator('.split-search').fill('ba');
+  await split(page).locator('.split-search').press('Enter');
+  await split(page).locator('.split-amount[data-index="0"]').fill('20.000.000');
+  await split(page).locator('.split-amount[data-index="1"]').fill('15.000.000');
+  await split(page).locator('.split-amount[data-index="2"]').fill('15.000.000');
+  await split(page).locator('.split-next').click();
+  await split(page).locator('.split-review').waitFor();
+  world.books[2].failNext = { error: 'INVALID_RECEIPT', message: 'Phiếu không hợp lệ.' };
+  await split(page).locator('.split-save').click();
+  await split(page).locator('.split-review .split-st-error').waitFor();
+  // Đóng: hỏi, không bỏ. "Đóng, ghi sau" giữ nguyên; mở lại từ khung Ghi phiếu thu thì về đúng bước kết quả.
+  await split(page).locator('.split-review .split-close').click();
+  const ask = split(page).locator('.split-ask');
+  assert.match(await ask.innerText(), /Còn 2 phiếu chưa ghi\. Đóng thì giữ nguyên/);
+  assert.equal(await ask.locator('.split-drop').innerText(), 'Bỏ 2 phiếu chưa ghi');
+  await shot('chia-nhieu-so-dong-hoi');
+  await ask.locator('.split-stop').click();
+  assert.equal(await split(page).isHidden(), true);
+  await page.locator('.entry-open').click();
+  await page.locator('.entry-drawer .entry-split').click();
+  const text = await split(page).locator('.split-review').innerText();
+  assert.match(text, /Khách Thử Sửa: 20\.000\.000[^\n]*Đã ghi PH-001/);
+  assert.match(text, /Khách Hai:[^\n]*Không ghi được/);
+  // Sửa số: tổng phải vẫn bằng tổng chuyển; phần đổi số nhận khóa mới, phần đã ghi không gửi lại.
+  await split(page).locator('.split-fix[data-index="1"]').fill('10.000.000');
+  await split(page).locator('.split-save').click();
+  assert.match(await split(page).locator('.split-fix-error').innerText(), /Tổng các phần 45\.000\.000 đ khác tổng chuyển 50\.000\.000 đ\./);
+  await split(page).locator('.split-fix[data-index="2"]').fill('20.000.000');
+  await split(page).locator('.split-save').click();
+  await split(page).waitFor({ state: 'hidden' });
+  await settled(page);
+  const sent = receiptPosts(world);
+  assert.deepEqual(sent.map(body => [body.customer_id, body.amount_vnd]), [[1, '20000000'], [2, '15000000'], [2, '10000000'], [3, '20000000']]);
+  assert.notEqual(sent[1].idempotency_key, sent[2].idempotency_key, 'phần đổi số là lệnh mới');
+  assert.equal(world.receipts.length, 1, 'sổ đã ghi không bị ghi lần hai');
+  assert.deepEqual([world.books[2].receipts.length, world.books[3].receipts.length], [1, 1]);
+}, setup));
+
+test('Đóng khi có phiếu chưa rõ đã lưu: không có nút bỏ; thiếu tham chiếu thì nhắc ở bước xem lại', async () => withPage(async ({ page, world }) => {
+  await openWithTwo(page);
+  await split(page).locator('.split-reference').fill('');
+  await split(page).locator('.split-amount[data-index="0"]').fill('25.000.000');
+  await split(page).locator('.split-amount[data-index="1"]').fill('25.000.000');
+  await split(page).locator('.split-next').click();
+  await split(page).locator('.split-review').waitFor();
+  assert.match(await split(page).locator('.split-review').innerText(), /Chưa có tham chiếu\. Nên ghi mã giao dịch ngân hàng/);
+  world.books[2].dropNext = true;
+  await split(page).locator('.split-save').click();
+  await split(page).locator('.split-review .split-st-unknown').waitFor();
+  assert.equal(await split(page).locator('.split-fix').count(), 0, 'phần chưa rõ không sửa số: phải gửi lại đúng lệnh cũ');
+  await split(page).locator('.split-review .split-close').click();
+  assert.equal(await split(page).locator('.split-ask .split-drop').count(), 0);
+  await split(page).locator('.split-ask .split-stay').click();
+  await split(page).locator('.split-save').click();
+  await split(page).waitFor({ state: 'hidden' });
+  assert.equal(world.books[2].receipts.length, 1);
 }, setup));
 
 test('Chặn tại chỗ: ngày sau hôm nay, thiếu tổng, chỉ một sổ, phần trống; Esc lần lượt đóng ô tìm, khung', async () => withPage(async ({ page, world }) => {

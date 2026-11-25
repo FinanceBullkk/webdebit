@@ -79,7 +79,7 @@
     $('.receipt-date').disabled = unknown;
     $('.entry-today').disabled = unknown;
     $('.entry-month').hidden = !unknown;
-    if (unknown && !select.options.length) {
+    if (unknown) {   // dựng lại mỗi lần đánh dấu: trang mở qua nửa đêm ngày 1 vẫn có tháng mới (review #671)
       const today = ctx.todayIso();
       let n = Number(today.slice(0, 4)) * 12 + Number(today.slice(5, 7)) - 1;
       const months = Array.from({ length: 12 }, () => { const key = `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, '0')}`; n -= 1; return key; });

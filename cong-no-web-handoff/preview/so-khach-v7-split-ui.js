@@ -113,6 +113,10 @@
   function readParts() {
     for (const input of drawer.querySelectorAll('.split-amount')) parts[Number(input.dataset.index)].amountText = input.value;
   }
+  // Chữ đang gõ ở ô sửa số tiền của bước kết quả: giữ qua lần vẽ lại.
+  function readFixes() {
+    for (const input of drawer.querySelectorAll('.split-fix')) review.parts[Number(input.dataset.index)].fixText = input.value;
+  }
   function clearErrors() { for (const box of drawer.querySelectorAll('.cell-error')) box.textContent = ''; }
 
   // Bước nhập → xem lại: kiểm ngày, tổng, từng phần; đọc phiên bản và tổng nợ của từng sổ; chưa gửi lệnh nào.
@@ -142,7 +146,7 @@
       const closed = ledgers.findIndex(data => data?.status !== 'active');
       if (closed >= 0) { $('.split-error').textContent = `Sổ ${parts[closed].label} chưa có số dư đầu, chưa ghi phiếu được.`; return; }
       const reference = $('.split-reference').value.trim() || null;
-      review = { date, method: $('.split-method').value, reference, warn: await usedElsewhere(reference, date),
+      review = { date, method: $('.split-method').value, reference, warn: await usedElsewhere(reference, date), totalVnd: plan.totalVnd, ask: false,
         parts: plan.parts.map((part, index) => ({ customerId: part.customerId, label: parts[index].label, amountVnd: part.amountVnd,
           version: ledgers[index].version, beforeVnd: ledgers[index].total_outstanding_vnd, key: crypto.randomUUID(), status: 'new' })) };
     } catch (error) { $('.split-error').textContent = CongNoNet.messageOf(error); return; }
@@ -170,23 +174,32 @@
   function paintReview() {
     const total = review.parts.reduce((sum, part) => sum + part.amountVnd, 0n);
     const count = review.parts.length;
-    const lines = review.parts.map(part => {
+    const lines = review.parts.map((part, index) => {
       const plan = model.planReceiptPreview(part.beforeVnd, part.amountVnd.toString());
       const status = STATUS[part.status] ? ` <b class="split-status split-st-${part.status}">${STATUS[part.status]}${part.pid ? ` ${escape(part.pid)}` : ''}</b>` : '';
-      return `<li><strong>${escape(part.label)}</strong>: ${money(part.amountVnd)} đ · còn nợ ${money(plan.beforeVnd)} → <b>${money(plan.afterVnd)}</b> đ`
+      const amount = step === 'result' && fixable(part)
+        ? `<input class="split-fix receipt-amount" data-index="${index}" aria-label="Số tiền cho sổ ${escape(part.label)}" inputmode="numeric" autocomplete="off" value="${escape(part.fixText ?? money(part.amountVnd))}"> đ`
+        : `${money(part.amountVnd)} đ`;
+      return `<li><strong>${escape(part.label)}</strong>: ${amount} · còn nợ ${money(plan.beforeVnd)} → <b>${money(plan.afterVnd)}</b> đ`
         + (plan.creditVnd > 0n ? ` (khách dư ${money(plan.creditVnd)} đ)` : '') + status
         + (part.message ? `<small class="cell-error">${escape(part.message)}</small>` : '') + '</li>';
     }).join('');
     const left = review.parts.filter(part => part.status !== 'saved').length;
-    const actions = step === 'result' && left
-      ? `<div class="entry-actions"><button type="button" class="split-stop">Để sau</button><button type="button" class="split-save receipt-save">Ghi tiếp ${left} phiếu</button></div>`
+    const unknown = review.parts.some(part => part.status === 'unknown');
+    const actions = step === 'result' && left && review.ask
+      ? `<div class="lock-ask split-ask" role="group" aria-label="Đóng khi còn phiếu chưa ghi"><span>Còn ${left} phiếu chưa ghi. Đóng thì giữ nguyên: bấm lại "Chia cho nhiều sổ…" để ghi tiếp.</span>`
+        + '<button type="button" class="split-stop">Đóng, ghi sau</button><button type="button" class="split-stay">Ở lại</button>'
+        + (unknown ? '' : `<button type="button" class="split-drop">Bỏ ${left} phiếu chưa ghi</button>`) + '</div>'
+      : step === 'result' && left
+      ? `<div class="entry-actions"><button type="button" class="split-close">Đóng</button><button type="button" class="split-save receipt-save">Ghi tiếp ${left} phiếu</button></div>`
       : step === 'result' ? '<div class="entry-actions"><button type="button" class="split-close">Đóng</button></div>'
         : `<div class="entry-actions"><button type="button" class="split-back">Sửa lại</button><button type="button" class="split-save receipt-save">Ghi ${count} phiếu</button></div>`;
     $('.split-review').innerHTML = `<p class="entry-sum" tabindex="-1">Ghi <b>${count} phiếu</b>, tổng <b>${money(total)} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}, nằm ở tháng ${monthLabel(review.date.slice(0, 7))}.</p>`
       + `<ul class="split-lines">${lines}</ul>`
       + (review.reference ? `<p>Tham chiếu (cả ${count} phiếu): ${escape(review.reference)}</p>` : '')
       + (review.warn ? `<p class="entry-note">${review.warn}</p>` : '')
-      + (step === 'result' && left ? `<p class="entry-note">Còn ${left} phiếu chưa ghi. Bấm Ghi tiếp: phiếu đã lưu không bị ghi lại.</p>` : '')
+      + (review.reference ? '' : '<p class="entry-note">Chưa có tham chiếu. Nên ghi mã giao dịch ngân hàng cho lần chia nhiều sổ: sau này đối chiếu và nhận ra ghi trùng dễ hơn.</p>')
+      + (step === 'result' && left ? `<p class="entry-note">Còn ${left} phiếu chưa ghi. Bấm Ghi tiếp: phiếu đã lưu không bị ghi lại.${review.parts.some(fixable) ? ' Phiếu bị từ chối hay chưa gửi sửa được số tiền; tổng các phần vẫn phải bằng tổng chuyển.' : ''}</p><p class="cell-error split-fix-error" role="alert"></p>` : '')
       + '<p class="entry-hint">Mỗi sổ một phiếu riêng, trừ nợ cũ trước ở sổ đó.</p>' + actions;
   }
 
@@ -204,8 +217,32 @@
     if (result?.error === 'RESULT_UNKNOWN') return { status: 'unknown' };
     return { status: 'error', message: result?.message || 'Không ghi được phiếu.' };
   }
+  // Phần sửa được ở bước kết quả: bị từ chối dứt khoát hay chưa gửi. Phần "chưa rõ đã lưu" thì không: phải gửi lại đúng lệnh cũ.
+  const fixable = part => part.status === 'error' || part.status === 'waiting';
+  // Số tiền sửa ở bước kết quả: tổng mọi phần (cả phần đã ghi) phải bằng tổng chuyển. Phần đổi số nhận khóa mới (lệnh khác,
+  // phiếu khác); phần giữ số giữ khóa cũ. Trả câu lỗi, hoặc '' khi hợp lệ.
+  function applyFixes() {
+    const next = review.parts.map(part => {
+      if (!fixable(part) || part.fixText == null) return part.amountVnd;
+      try { const value = model.parseVnd(part.fixText); return value > 0n ? value : null; } catch { return null; }
+    });
+    const bad = next.findIndex(value => value === null);
+    if (bad >= 0) return `Số tiền cho sổ ${review.parts[bad].label} không đọc được. ${model.MONEY_INPUT_HELP}`;
+    const sum = next.reduce((total, value) => total + value, 0n);
+    if (sum !== review.totalVnd) return `Tổng các phần ${money(sum)} đ khác tổng chuyển ${money(review.totalVnd)} đ.`;
+    review.parts.forEach((part, index) => {
+      if (next[index] !== part.amountVnd) Object.assign(part, { amountVnd: next[index], key: crypto.randomUUID(), status: 'waiting', message: '' });
+      delete part.fixText;
+    });
+    return '';
+  }
   async function save() {
     if (saving || !review) return;
+    if (step === 'result') {
+      readFixes();
+      const problem = applyFixes();
+      if (problem) { $('.split-fix-error').textContent = problem; return; }
+    }
     if (api.hasPending()) { showNotice('Còn thao tác khác chưa rõ kết quả. Xong việc đó (nút Thử lại ở đầu sổ) rồi ghi.'); return; }
     saving = true;
     for (const button of drawer.querySelectorAll('.split-review button')) button.disabled = true;
@@ -245,8 +282,22 @@
     drawer.addEventListener('click', async event => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
-      if (button.matches('.split-close')) { if (step === 'result') { review = null; step = 'form'; } close(); }
-      else if (button.matches('.split-stop')) close();
+      if (button.matches('.split-close')) {
+        // Còn phiếu chưa ghi (bị từ chối, chưa gửi, chưa rõ đã lưu): hỏi trước, không bỏ lần chia dở. Bỏ rồi mở lại với khóa mới
+        // sẽ ghi lần hai các sổ đã lưu.
+        if (step === 'result' && review?.parts.some(part => part.status !== 'saved')) { readFixes(); review.ask = true; paintReview(); $('.split-stay').focus(); return; }
+        if (step === 'result') { review = null; step = 'form'; }
+        close();
+      }
+      else if (button.matches('.split-stop')) { readFixes(); review.ask = false; paintReview(); close(); }
+      else if (button.matches('.split-stay')) { review.ask = false; paintReview(); $('.split-save').focus(); }
+      else if (button.matches('.split-drop')) {
+        // Chỉ khi không còn phiếu chưa rõ: phần bị từ chối hay chưa gửi chưa ghi gì ở sổ, bỏ không mất phiếu nào.
+        if (review.parts.some(part => part.status === 'unknown')) return;
+        const saved = review.parts.filter(part => part.status === 'saved');
+        showNotice(`Đã bỏ phần chưa ghi của lần chia. Đã ghi ${saved.length} phiếu: ` + (saved.map(part => `${part.label} ${part.pid ?? ''}`.trim()).join('; ') || 'không có') + '.');
+        review = null; step = 'form'; close();
+      }
       else if (button.matches('.split-today')) { $('.split-date').value = dateText(ctx.todayIso()); $('.split-total').focus(); }
       else if (button.matches('.split-add')) { readParts(); picking = true; paintParts(); $('.split-search').focus(); await loadBooks(); }
       else if (button.matches('.split-option')) {
@@ -264,6 +315,7 @@
     });
     drawer.addEventListener('input', event => {
       if (event.target.matches('.split-search')) { paintOptions(); return; }
+      if (event.target.matches('.split-fix')) { readFixes(); $('.split-fix-error').textContent = ''; return; }
       if (event.target.matches('.split-amount')) { readParts(); event.target.closest('.split-row').querySelector('.split-part-error').textContent = ''; }
       if (event.target.matches('.split-total')) $('.split-total-error').textContent = '';
       if (event.target.matches('.split-date')) $('.split-date-error').textContent = '';
