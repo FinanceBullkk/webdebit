@@ -1,6 +1,6 @@
 # Checklist chuyển hẳn khỏi Sheet sổ nợ
 
-Lập 11/11/2026 (Claude). **ĐỀ XUẤT**: danh mục do Claude đặt theo câu hỏi của người dùng ("cần audit những gì để nói web thay được Sheet"), chưa được duyệt từng mục. Phạm vi theo [`CHUYEN-HAN-01`](decisions/chuyen-han-01.md): thay Sheet sổ nợ (tab TONG và các tab khách); file nguồn chuyến CHAU_HAO vẫn dùng. Tiếp nối [checklist chạy song song](song-song-checklist.md) mục F4.
+Lập 11/11/2026 (Claude). **ĐỀ XUẤT**: danh mục do Claude đặt theo câu hỏi của người dùng ("cần audit những gì để nói web thay được Sheet"), chưa được duyệt từng mục. Phạm vi theo [`CHUYEN-HAN-01`](decisions/chuyen-han-01.md): thay Sheet sổ nợ (tab TONG và các tab khách); file nguồn chuyến CHAU_HAO vẫn dùng. Tiếp nối [checklist chạy song song](song-song-checklist.md) mục F4. **Từ 25/11/2026 web là sổ chính thức** ([`WEB-CHINH-01`](decisions/web-chinh-01.md)): checklist này không còn là điều kiện để coi web là chuẩn, chỉ còn là việc phải xong trước khi khóa Sheet.
 
 Trạng thái một mục chỉ đổi khi có bằng chứng đúng môi trường, ghi ngày. Tên khách và số tiền giữ ngoài Git; ở đây chỉ có số đếm.
 
