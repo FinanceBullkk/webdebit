@@ -151,6 +151,20 @@
     }).join('');
   };
 
+  // DONG-MO-BOOKING-01: chuyến booking có mà sổ chưa có, theo lượt so sổ web mỗi giờ. Chỉ để xem, không nút ghi: "Xem" mở
+  // danh sách "web chưa có" của Báo cáo tháng, nơi ghi vì sao máy chưa đưa vào sổ. Tháng trước 10/2026 máy không tự thêm (DU-CHUYEN-01 (3)).
+  // Chỉ một nhãn trên màn (góp ý 25/11/2026: bớt chữ); câu giải thích ở chữ rê chuột.
+  const bookingTip = month => month < '2026-10'
+    ? 'Booking có chuyến này mà sổ chưa có. Tháng cũ máy không tự thêm: chủ sổ kết luận sót tiền, booking ghi lặp hay không tính.'
+    : 'Booking có chuyến này mà sổ chưa có. Máy thường tự đưa vào sổ ở lượt mỗi giờ; bấm Xem để biết vì sao chưa.';
+  const bookingMissingRows = rows => rows.map(row => {
+    const month = String(row.date).slice(0, 7);
+    return `<tr class="booking-missing" title="${escape(bookingTip(month))}">${empty()}<td>${escape(row.container)}`
+      + `<small class="sheet-tag">CHƯA VÀO SỔ</small></td>${cell('')}${shipperCell(cell(''))}${cell(dateText(row.date))}`
+      + `${empty()}${empty('num')}${feeEmpty()}<td class="num"><a class="booking-missing-go" `
+      + `href="/bao-cao-thang.html?month=${escape(month)}&amp;webchua=1" aria-label="Xem vì sao chuyến ${escape(row.container)} chưa vào sổ">Xem</a></td></tr>`;
+  }).join('');
+
   // Dòng trong sổ mà Sheet có dữ liệu khác: tô KHÁC và nút Xem (khung đối chiếu ở so-khach-v7-sheet-ui.js).
   function conflictsAfterRender(data) {
     const sheetRows = data.sheet_sync?.items ?? [];
@@ -169,5 +183,5 @@
     }
   }
 
-  Object.assign(ctx, { legacyTripRow, webTripRow, sheetPendingRows, conflictsAfterRender });
+  Object.assign(ctx, { legacyTripRow, webTripRow, sheetPendingRows, bookingMissingRows, conflictsAfterRender });
 };

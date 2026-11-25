@@ -83,6 +83,32 @@ test('CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet hiện xám ở tháng của n�
   ] };
 }));
 
+test('DONG-MO-BOOKING-01: chuyến booking sổ chưa có hiện mờ cuối bảng, không nút ghi; dòng đã hiện từ Sheet không lặp', async () => withPage(async ({ page, shot }) => {
+  await viewMonth(page, '2026-09');
+  const row = page.locator('tr.booking-missing');
+  assert.equal(await row.count(), 1, 'BOTHU0000002 đã hiện thành dòng chờ tab Sheet nên không vẽ lần hai');
+  assert.match(await row.innerText(), /MISSU0000001[\s\S]*CHƯA VÀO SỔ[\s\S]*18\/09\/2026/);
+  assert.doesNotMatch(await row.innerText(), /→/, 'không có tuyến thì không vẽ mũi tên');
+  assert.match(await row.getAttribute('title'), /Tháng cũ máy không tự thêm/);
+  assert.equal(await row.locator('button, input').count(), 0);
+  assert.equal(await row.locator('a.booking-missing-go').getAttribute('href'), '/bao-cao-thang.html?month=2026-09&webchua=1');
+  // Bảng vẫn đếm chuyến thật của sổ; dòng mờ không thêm việc trên chip tháng.
+  assert.doesNotMatch(await page.locator('#app').innerHTML(), /từ Sheet cần xem/);
+  await shot('dong-mo-booking');
+  await viewMonth(page, clock);
+  assert.match(await page.locator('tr.booking-missing').getAttribute('title'), /Máy thường tự đưa vào sổ/);
+}, world => {
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, waiting_count: 1, items: [], waiting_items: [
+    { sync_state: 'WAITING', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', source_row: 12, event_date: '2026-09-20', container: 'BOTHU0000002',
+      carrier: 'WH', origin: 'Nơi A', destination: 'Nơi B', changed_fields: [], existing_kind: null, existing_id: null },
+  ] };
+  world.bookingMissing = { checked_at: '2026-11-25T15:05:00+07:00', items: [
+    { container: 'MISSU0000001', date: '2026-09-18', kind: 'BIEN', ref: 'BK1' },
+    { container: 'BOTH U0000002', date: '2026-09-21', kind: 'BIEN', ref: 'BK2' },
+    { container: 'NOWU0000003', date: clock, kind: 'BIEN', ref: 'BK3' },
+  ] };
+}));
+
 const dateBookingConflict = world => {
   world.trips[0].booking = 'BK-OLD';
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 1, items: [

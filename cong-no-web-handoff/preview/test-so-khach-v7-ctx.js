@@ -100,6 +100,6 @@ test('install(): cài theo PARTS, dừng khi lõi/phần sai hợp đồng', () 
   fails(coreCtx(), noPay, /thiếu phần "pay" \(thẻ <script src="so-khach-v7-pay-ui\.js">\)/);
   fails(coreCtx(), { ...parts, extra: () => {} }, /phần "extra" chưa khai trong PARTS/);
   fails(coreCtx(), { ...parts, history: ctx => { fake('history')(ctx); ctx.order = order; } }, /phần "history" ghi trường không khai: order/);
-  fails(coreCtx(), { ...parts, trips: () => {} }, /phần "month" cần legacyTripRow, webTripRow, sheetPendingRows ngay lúc cài/);
+  fails(coreCtx(), { ...parts, trips: () => {} }, /phần "month" cần legacyTripRow, webTripRow, sheetPendingRows, bookingMissingRows ngay lúc cài/);
   fails(coreCtx(), { ...parts, loc: () => {} }, /chưa phần nào ghi locAfterRender/);
 });

@@ -278,6 +278,7 @@ def evaluate_web(books: list[dict[str, Any]], sea_path: Path, road_path: Path, n
     rows, hidden, in_window = page_rows(sheet, source, s_pair, b_pair, found, end, window)
     if not in_window:   # đọc sổ web hỏng thì không được ra "0/0, không thấy gì lệch"
         raise CheckError("WEB_EMPTY")
+    book_ids(rows, books)
     early = {id(b) for code, s, b, _note in found if s is None and code == "TRUOC_KHI_CO_SO"}
     counted = [j for j, b in enumerate(source) if match.in_window(b["family"], b["date"][:7], end, window) and id(b) not in early]
     return {
@@ -288,6 +289,18 @@ def evaluate_web(books: list[dict[str, Any]], sea_path: Path, road_path: Path, n
         "dup_groups": dup_counts.get("nhom_trung", 0), "hidden": dict(hidden),
         "rows": rows, "booking_fix": fix,
     }
+
+
+def book_ids(rows: list[dict[str, Any]], books: list[dict[str, Any]]) -> None:
+    """Gắn mã sổ web vào sổ gợi ý của chuyến booking chưa có trên web (DONG-MO-BOOKING-01): Sổ khách vẽ chuyến đó thành dòng mờ
+    cuối bảng chuyến. Phía sổ web, "tab" là tên sổ; tên trùng hai sổ thì không gắn, vì không biết sổ nào."""
+    ids: dict[str, list[Any]] = defaultdict(list)
+    for book in books:
+        ids[str(book.get("name") or "")].append(book.get("id"))
+    for row in rows:
+        suggest = row.get("suggest")
+        if suggest and len(found := ids.get(str(suggest.get("tab") or ""), ())) == 1:
+            suggest["customer_id"] = found[0]
 
 
 def web_path(output: Path) -> Path:
