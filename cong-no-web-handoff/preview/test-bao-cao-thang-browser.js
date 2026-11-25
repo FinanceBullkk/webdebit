@@ -152,7 +152,7 @@ test('Báo cáo tháng: bấm "Booking có, web chưa có" mới tải lý do; m
     assert.match(page.url(), /webchua=1/);
     const text = await page.locator('#missing').innerText();
     assert.match(text, /Chuyến booking có, web chưa có \(3\)/);
-    assert.match(text, /03\/10\/2026\s+GIAU1000002\s+Biển\s+CHU HANG GIA · sổ KHACH GIA A\s+Container đã dùng[^\n]*\s+Tự hết khi Sheet ghi · Mở sổ/);
+    assert.match(text, /03\/10\/2026\s+GIAU1000002\s+Biển\s+CHU HANG GIA · sổ KHACH GIA A\s+Sổ đã có container này ở ngày khác[^\n]*\s+Xem trong sổ · Mở sổ/);
     assert.ok(await page.evaluate(() => document.getElementById('missing').getBoundingClientRect().top < 560), 'bấm mở thì danh sách vào khung');
     assert.match(text, /GIAU1000003[\s\S]*Mặt hàng trên booking khác mặt hàng của sổ\s+Cần người · Việc cần làm/);
     assert.match(text, /GIAU3000001\s+Biển\s+CHU HANG LA\s+Tên chủ hàng chưa gắn sổ web[^\n]*\s+Cần người$/m);
