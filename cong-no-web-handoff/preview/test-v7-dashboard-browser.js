@@ -199,7 +199,7 @@ test('QUYEN-01 + WEB-CHINH-01: người dùng không có link sang Việc cần 
   assert.equal(await page.locator('#missing-list').count(), 0);
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'missing-price', 'Esc trả tiêu điểm về viên');
   assert.deepEqual((await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]),
-    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
 }));
 
 test('WEB-CHINH-01: danh sách chưa giá nhiều sổ xếp theo hàng, cuộn dọc, không tràn ngang (25 sổ như hao 25/11)', async () => withDashboard({ role: 'user',

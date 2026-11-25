@@ -10,15 +10,18 @@ from __future__ import annotations
 ADMIN = "admin"
 USER = "user"
 
-# Trang người dùng mở được. Chat Zalo vào từ thẻ Liên hệ của Sổ khách nên cũng thuộc phần người dùng.
+# Trang người dùng mở được. Chat Zalo vào từ thẻ Liên hệ của Sổ khách nên cũng thuộc phần người dùng. Thu chi mở cho người dùng
+# từ 25/11/2026 (người dùng chốt, QUYEN-01 sửa đổi): xem cả trang, bấm Ghi phiếu sang Sổ khách (PHIEU-WEB-01 mục 4).
 USER_PAGES = frozenset({
     "/", "/dashboard-v7.html", "/cong-no-theo-thang.html", "/so-khach-v7-live.html",
-    "/bang-thu.html", "/bao-cao-thang.html", "/zalo-chat.html",
+    "/bang-thu.html", "/bao-cao-thang.html", "/zalo-chat.html", "/thu-chi.html",
 })
 # API chỉ trang quản lý gọi: Máy chạy, Đội xe, Nhật ký công việc. API mà trang người dùng cần (company-info cho
 # debit note, inbox cho việc Sheet trong Sổ khách…) vẫn mở cho mọi login được vào.
-ADMIN_API_PREFIXES = ("/api/v7/machine", "/api/v7/doixe", "/api/v7/nhat-ky", "/api/v7/admin",   # admin: QUYEN-02
-                      "/api/v7/cash-chat")   # ZALO-THU-CHI-01: có số chi và ứng của Đội xe, cùng quyền với Đội xe
+ADMIN_API_PREFIXES = ("/api/v7/machine", "/api/v7/doixe", "/api/v7/nhat-ky", "/api/v7/admin")   # admin: QUYEN-02
+# Đường đúng tên chỉ quản lý dù nằm dưới nhánh mở cho người dùng. Thu chi: người dùng đọc được (GET /api/v7/cash-chat,
+# /api/v7/cash-chat/targets); lệnh ghi kết luận xem xét (xác nhận, sửa số, gắn đối tượng, loại) vẫn chỉ quản lý.
+ADMIN_API_PATHS = frozenset({"/api/v7/cash-chat/review"})
 
 FORBIDDEN_MESSAGE = "Mục này chỉ dành cho quản lý."
 _HTML_OPEN = b'<html lang="vi"'
@@ -34,11 +37,11 @@ def _under(path: str, prefix: str) -> bool:
 
 
 def admin_api(path: str) -> bool:
-    return any(_under(path, prefix) for prefix in ADMIN_API_PREFIXES)
+    return any(_under(path, prefix) for prefix in (*ADMIN_API_PREFIXES, *ADMIN_API_PATHS))
 
 
 def allowed(path: str, current: str, pages) -> bool:
-    """Trang HTML ngoài USER_PAGES và API của ADMIN_API_PREFIXES chỉ cho quản lý; file .js/.css và API khác mở cho mọi login."""
+    """Trang HTML ngoài USER_PAGES và API của ADMIN_API_PREFIXES, ADMIN_API_PATHS chỉ cho quản lý; file .js/.css và API khác mở cho mọi login."""
     if current == ADMIN:
         return True
     if path in pages:
