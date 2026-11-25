@@ -6,11 +6,11 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .topbar .brand{display:none}
 .nav-toggle{display:flex;flex:none;align-items:center;justify-content:center;gap:12px;min-height:40px;margin:0 4px 2px;padding:0;border:0;border-radius:10px;background:transparent;color:#c3d1e0;font:inherit;cursor:pointer}
 .nav-toggle:hover{background:#21405f;color:#fff}
-.topbar>nav{display:flex;flex:1;flex-direction:column;align-self:auto;gap:4px;margin-top:6px;padding-top:8px;background:linear-gradient(#ffffff24,#ffffff24) 14px 0/calc(100% - 28px) 1px no-repeat}
-/* Cùng khuôn với menu chung app-nav.css (25/11/2026): ô 58px cách đều 4px, Quản trị ở đáy dải. */
-.topbar>nav a,.topbar .picker-open{--ring:#16324f;position:relative;display:flex;flex:none;flex-direction:column;justify-content:center;align-items:center;gap:4px;min-height:58px;margin:0 4px;padding:6px 1px;border:0;border-radius:10px;background:transparent;color:#c3d1e0;text-decoration:none}
+.topbar>nav{display:flex;flex:1;flex-direction:column;align-self:auto;gap:4px;margin-top:4px;padding-top:6px;background:linear-gradient(#ffffff24,#ffffff24) 14px 0/calc(100% - 28px) 1px no-repeat}
+/* Cùng khuôn với menu chung app-nav.css (25/11/2026): ô tối thiểu 56px cách đều 4px, Quản trị ở đáy dải. */
+.topbar>nav a,.topbar .picker-open{--ring:#16324f;position:relative;display:flex;flex:none;flex-direction:column;justify-content:center;align-items:center;gap:4px;min-height:56px;margin:0 4px;padding:4px 1px;border:0;border-radius:10px;background:transparent;color:#c3d1e0;text-decoration:none}
 .topbar>nav a.nav-admin,.topbar.expanded>nav a.nav-admin{margin-top:auto}
-.topbar .picker-open{min-height:56px;padding:4px 1px}
+.topbar .picker-open{min-height:52px;padding:4px 1px}
 .topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:none;overflow:visible;clip-path:none;white-space:normal;font-size:13px;font-weight:600;line-height:1.15;text-align:center;text-wrap:balance}
 .topbar>nav a.active{--ring:#2a5179;background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{--ring:#21405f;background:#21405f;color:#fff}
 .topbar.expanded{width:240px;box-shadow:6px 0 24px #0d1b2a40}.topbar.expanded .brand{display:block;padding:0 16px}

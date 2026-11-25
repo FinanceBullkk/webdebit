@@ -5,14 +5,14 @@
   font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 .app-nav svg{flex:none;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
 /* Góp ý 25/11/2026 "vướng, xấu": mục cao lệch nhau (44–64px), dính sát (cách 1px — số đo cũ ép cho chín mục), ☰ là khối nền
-   đậm, số việc đè biểu tượng. Nay còn sáu mục: mọi ô cùng khuôn 58px cách đều 4px, ☰ không nền, một vạch mảnh tách công cụ
+   đậm, số việc đè biểu tượng. Nay còn sáu mục: mọi ô cùng khuôn tối thiểu 56px cách đều 4px, ☰ không nền, một vạch mảnh tách công cụ
    (☰, Tìm khách) với các trang, Quản trị xuống đáy dải vì khác loại với năm trang làm sổ. Sáu mục + ☰ + Tìm khách lọt 1280×560
    kể cả khi nhãn xuống hai dòng (CI Ubuntu không có Segoe UI, chữ rộng hơn). */
 .app-nav>button{display:flex;flex:none;align-items:center;justify-content:center;width:68px;height:40px;margin:0 4px 2px;border:0;border-radius:10px;background:transparent;color:#c3d1e0;cursor:pointer}
 .app-nav>button:hover{background:#21405f;color:#fff}
-.app-nav nav{display:flex;flex:1;flex-direction:column;gap:4px;margin-top:6px;padding-top:8px;
+.app-nav nav{display:flex;flex:1;flex-direction:column;gap:4px;margin-top:4px;padding-top:6px;
   background:linear-gradient(#ffffff24,#ffffff24) 14px 0/calc(100% - 28px) 1px no-repeat}
-.app-nav nav a{--ring:#16324f;position:relative;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:58px;margin:0 4px;padding:6px 1px;
+.app-nav nav a{--ring:#16324f;position:relative;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:56px;margin:0 4px;padding:4px 1px;
   border-radius:10px;font-size:13px;line-height:1.15;font-weight:600;text-align:center;text-wrap:balance;color:#c3d1e0;text-decoration:none}
 .app-nav nav a:hover{--ring:#21405f;background:#21405f;color:#fff}
 .app-nav nav a.active{--ring:#2a5179;background:#2a5179;color:#fff}
@@ -21,7 +21,7 @@
 .app-nav .badge{position:absolute;top:3px;left:calc(50% + 5px);min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e8a33d;color:#1a1a19;
   box-shadow:0 0 0 2px var(--ring);font-size:13px;font-weight:700;line-height:18px;text-align:center}
 .app-nav .badge[hidden]{display:none}
-.app-nav .search{position:relative;margin:0 4px;padding:4px 1px;width:68px;min-width:0;height:56px;border:0;border-radius:10px;background:transparent;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:text;color:#c3d1e0}
+.app-nav .search{position:relative;margin:0 4px;padding:4px 1px;width:68px;min-width:0;height:52px;border:0;border-radius:10px;background:transparent;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:text;color:#c3d1e0}
 .app-nav .search:hover{background:#21405f;color:#fff}
 .page.app-page > .page-head.topbar .asof{margin-left:auto}
 .page.app-page > .page-head.topbar .asof + .live-controls{margin-left:0}
@@ -31,7 +31,7 @@
 .app-nav .search:focus-within{width:280px;padding:8px 12px;flex-direction:row;background:#16324f;box-shadow:6px 0 20px #16324f33}
 .app-nav .search:focus-within .search-label{display:none}
 .app-nav .search:focus-within input{position:static;opacity:1;font-size:15px;text-align:left;color:#fff}
-.app-nav .search #customer-results{position:absolute;z-index:5;left:0;top:60px;min-width:300px;max-height:300px;overflow:auto;background:#fff;border:1px solid #d7dce3;border-radius:8px;box-shadow:0 8px 24px #1f293733}
+.app-nav .search #customer-results{position:absolute;z-index:5;left:0;top:56px;min-width:300px;max-height:300px;overflow:auto;background:#fff;border:1px solid #d7dce3;border-radius:8px;box-shadow:0 8px 24px #1f293733}
 .app-nav .search #customer-results a{display:block;padding:10px 12px;color:#1a1a19;border-bottom:1px solid #eef0f3;text-decoration:none;font-size:14px;font-weight:400}
 .app-nav .search #customer-results a:hover,.app-nav .search #customer-results a:focus{background:#eaf2fc;outline:none}
 .app-nav.menu-open{width:240px;box-shadow:6px 0 24px #0d1b2a40}
