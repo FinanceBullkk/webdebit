@@ -1,6 +1,6 @@
 # GET sổ luôn có dòng tháng hiện tại (SK-C1)
 
-Trạng thái: ĐÃ CHỐT. Người dùng bảo làm theo hướng ĐỀ XUẤT của [audit Sổ khách 25/11/2026](../docs/ux-audit-so-khach-2026-11-25.md) mục SK-C1 (25/11/2026, qua phiên điều phối, đợt 2). Phạm vi: hàm đọc `sokhach.get_ledger` và thẻ tháng của Sổ khách. Không đổi luật tiền, phân bổ, khóa tháng, bảng, view, quyền, hàm ghi hay dữ liệu.
+Trạng thái: ĐÃ CHỐT. Người dùng bảo làm theo hướng ĐỀ XUẤT của [audit Sổ khách 25/11/2026](../docs/ux-audit-so-khach-2026-11-25.md) mục SK-C1 (25/11/2026, qua phiên điều phối, đợt 2). Phạm vi: hàm đọc `sokhach.get_ledger` và thẻ tháng của Sổ khách. Không đổi luật tiền, phân bổ, khóa tháng, bảng, view, quyền, hàm ghi hay dữ liệu. ĐÃ TRIỂN KHAI trên `hao` 25/11/2026 lúc 03:24 UTC, bản `24d14fc0` (#655), [nhật ký](../docs/deploys/2026-11-25-thang-hien-tai.md).
 
 ## Người dùng và luồng
 
