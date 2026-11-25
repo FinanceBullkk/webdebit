@@ -851,3 +851,25 @@ test('F1 audit 23/11: đơn giá dưới 1.000.000 đ hay trên 1 tỷ đ bị h
   for (const bad of ['1,5', '45.000.000,50', '1.234.56', '4 500 000', '-5']) assert.throws(() => model.parseVnd(bad), /Invalid VND/, bad);
   assert.equal(model.parseVnd('45.000.000'), 45000000n);
 });
+
+test('planReceiptSplit: một lần chuyển chia nhiều sổ chỉ ghi khi tổng các phần đúng bằng tổng chuyển (PHIEU-WEB-01)', () => {
+  const plan = (total, ...parts) => model.planReceiptSplit(total, parts.map(([customerId, amountText]) => ({ customerId, amountText })));
+  const ok = plan('50.000.000', [1, '30.000.000'], [2, '20000000']);
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.parts, [{ customerId: 1, amountVnd: 30000000n }, { customerId: 2, amountVnd: 20000000n }]);
+  assert.equal(ok.restVnd, 0n);
+  const short = plan('50.000.000', [1, '30.000.000'], [2, '15.000.000']);
+  assert.equal(short.code, 'SUM_MISMATCH');
+  assert.equal(short.restVnd, 5000000n);
+  assert.match(short.message, /Tổng các phần 45\.000\.000 đ khác tổng chuyển 50\.000\.000 đ: còn thiếu 5\.000\.000 đ\./);
+  assert.match(plan('50.000.000', [1, '30.000.000'], [2, '25.000.000']).message, /thừa 5\.000\.000 đ/);
+  assert.equal(plan('', [1, '1'], [2, '1']).code, 'TOTAL_REQUIRED');
+  assert.equal(plan('5tr', [1, '1'], [2, '1']).code, 'TOTAL_INVALID');
+  assert.equal(plan('2', [1, '2']).code, 'TOO_FEW');
+  assert.deepEqual([plan('2', [1, '1'], [1, '1']).code, plan('2', [1, '1'], [1, '1']).index], ['DUPLICATE_BOOK', 1]);
+  assert.deepEqual([plan('2', [1, '2'], [2, '']).code, plan('2', [1, '2'], [2, '']).index], ['PART_REQUIRED', 1]);
+  assert.equal(plan('2', [1, '2'], [2, '0']).code, 'PART_INVALID', 'phần 0 đ không thành phiếu');
+  // Đang gõ: tổng đã chia và phần còn lại vẫn có để hiện dưới danh sách, cả khi một phần chưa đọc được.
+  const typing = plan('10.000', [1, '4.000'], [2, 'abc']);
+  assert.deepEqual([typing.sumVnd, typing.restVnd], [4000n, 6000n]);
+});

@@ -43,7 +43,7 @@
       <span class="cell-error receipt-amount-error" role="status"></span>
       <label class="entry-field"><span>Tham chiếu</span><input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn" autocomplete="off"></label>
       <div class="entry-images"></div>
-      <div class="entry-actions"><button type="button" class="entry-next">Xem lại</button></div>
+      <div class="entry-actions"><button type="button" class="entry-split">Chia cho nhiều sổ…</button><button type="button" class="entry-next">Xem lại</button></div>
     </div><div class="entry-review" role="region" aria-label="Xem lại phiếu thu trước khi ghi" hidden></div></div>`;
   const paintImages = () => { if (drawer?.firstChild) $('.entry-images').innerHTML = ctx.imageEntryBox?.(KEY) ?? ''; };
   function showStep(next) {
@@ -79,7 +79,7 @@
     $('.receipt-date').disabled = unknown;
     $('.entry-today').disabled = unknown;
     $('.entry-month').hidden = !unknown;
-    if (unknown && !select.options.length) {
+    if (unknown) {   // dựng lại mỗi lần đánh dấu: trang mở qua nửa đêm ngày 1 vẫn có tháng mới (review #671)
       const today = ctx.todayIso();
       let n = Number(today.slice(0, 4)) * 12 + Number(today.slice(5, 7)) - 1;
       const months = Array.from({ length: 12 }, () => { const key = `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, '0')}`; n -= 1; return key; });
@@ -294,6 +294,16 @@
       if (button.matches('.entry-close')) close();
       else if (button.matches('.entry-today')) { $('.receipt-date').value = dateText(ctx.todayIso()); $('.receipt-amount').focus(); }
       else if (button.matches('.entry-next')) await next();
+      else if (button.matches('.entry-split')) {
+        // PHIEU-WEB-01 mục 2: một lần chuyển cho nhiều sổ mở khung riêng, mang theo chữ đang gõ; khung này về trống và đóng.
+        // Phiếu chưa rõ đã lưu thì xử lý trước, như nút Sửa lại.
+        if (own) { if (api.pendingKey() !== own.key) await resolveOwn(); else $('.entry-error').innerHTML = ownWaiting; return; }
+        const seed = { date: $('.receipt-unknown').checked ? '' : $('.receipt-date').value.trim(), method: $('.receipt-method').value,
+          amount: $('.receipt-amount').value.trim(), reference: $('.receipt-reference').value.trim() };
+        resetForm();
+        drawer.hidden = true;
+        ctx.openSplit(seed);
+      }
       else if (button.matches('.entry-back')) {
         // Phiếu chưa rõ: không cho sửa (sửa rồi Thử lại sẽ lẫn ảnh và số của hai phiếu); có kết quả rồi thì xử lý kết quả trước.
         if (own) { if (api.pendingKey() !== own.key) await resolveOwn(); else $('.entry-error').innerHTML = ownWaiting; return; }

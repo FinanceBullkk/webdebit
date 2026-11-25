@@ -612,6 +612,33 @@ const SoKhachV7Model = (() => {
     return { beforeVnd, afterVnd, creditVnd: afterVnd < 0n ? -afterVnd : 0n };
   }
 
+  /** Một lần chuyển chia cho nhiều sổ (PHIEU-WEB-01 mục 2). `totalText` là tổng tiền chuyển gõ vào; `parts` là
+   *  [{ customerId, amountText }]. Luôn trả tổng đã chia và phần còn lệch (để hiện khi gõ); ok chỉ khi mọi phần đọc được, lớn
+   *  hơn 0, không sổ nào hai lần, ít nhất hai sổ và tổng các phần đúng bằng tổng chuyển. Lỗi trả code, message và index của phần. */
+  function planReceiptSplit(totalText, parts) {
+    const read = text => { try { const amount = parseVnd(String(text ?? "")); return amount > 0n ? amount : null; } catch { return null; } };
+    const totalVnd = String(totalText ?? "").trim() ? read(totalText) : null;
+    const amounts = (parts ?? []).map(part => String(part.amountText ?? "").trim() ? read(part.amountText) : null);
+    const sumVnd = amounts.reduce((sum, amount) => sum + (amount ?? 0n), 0n);
+    const base = { totalVnd, sumVnd, restVnd: totalVnd === null ? null : totalVnd - sumVnd };
+    const fail = (code, message, index = null) => ({ ...base, ok: false, code, message, index });
+    if (!String(totalText ?? "").trim()) return fail("TOTAL_REQUIRED", "Nhập tổng tiền khách chuyển.");
+    if (totalVnd === null) return fail("TOTAL_INVALID", MONEY_INPUT_HELP);
+    if ((parts ?? []).length < 2) return fail("TOO_FEW", "Chọn ít nhất hai sổ. Một sổ thì ghi phiếu thường.");
+    const seen = new Set();
+    for (const [index, part] of parts.entries()) {
+      if (seen.has(String(part.customerId))) return fail("DUPLICATE_BOOK", "Sổ này đã có ở dòng trên.", index);
+      seen.add(String(part.customerId));
+      if (!String(part.amountText ?? "").trim()) return fail("PART_REQUIRED", "Nhập số tiền cho sổ này.", index);
+      if (amounts[index] === null) return fail("PART_INVALID", MONEY_INPUT_HELP, index);
+    }
+    if (sumVnd !== totalVnd) {
+      const gap = totalVnd - sumVnd;
+      return fail("SUM_MISMATCH", `Tổng các phần ${formatVnd(sumVnd)} đ khác tổng chuyển ${formatVnd(totalVnd)} đ: ${gap > 0n ? "còn thiếu" : "thừa"} ${formatVnd(gap > 0n ? gap : -gap)} đ.`);
+    }
+    return { ...base, ok: true, parts: parts.map((part, index) => ({ customerId: part.customerId, amountVnd: amounts[index] })) };
+  }
+
   function offsetErrorMessage(code, detail) {
     if (code === "OFFSET_EXCEEDS_CREDIT") {
       const credit = detail && typeof detail.available_credit_vnd === "string" ? vnd(detail.available_credit_vnd) : null;
@@ -1234,7 +1261,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, planReceiptSplit, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();
