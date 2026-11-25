@@ -93,30 +93,42 @@
   // thì mở lại "Chia cho nhiều sổ…" là về đúng các khóa cũ. Trang không biết login (danh tính chỉ ở máy chủ, qua Tailscale), nên
   // lưu theo trình duyệt của máy đó. Trình duyệt chặn lưu thì vẫn còn trong bộ nhớ và câu hỏi khi rời trang.
   const STORE = 'webdebit:chia-do';
+  // Bản lưu là của đúng một lần chia (`id`). Chỉ tab đang giữ khung (xem `acquire`) ghi bản lưu, và chỉ khi bản trên máy là trống
+  // hay cùng lần chia: lệch thì không ghi đè (trả false) để nơi gọi dừng, không gửi lệnh theo bản đã cũ.
   function persist() {
     try {
-      if (!review?.started || review.parts.every(done)) { localStorage.removeItem(STORE); return; }
-      localStorage.setItem(STORE, JSON.stringify({ ...review, ask: false, tab: TAB, savingTab: saving ? TAB : null, savingAt: saving ? Date.now() : null,
-        totalVnd: review.totalVnd.toString(),
+      const current = stored();
+      if (current && current.id !== review?.id) return false;
+      if (!review?.started || review.parts.every(done)) { localStorage.removeItem(STORE); return true; }
+      localStorage.setItem(STORE, JSON.stringify({ ...review, ask: false, totalVnd: review.totalVnd.toString(),
         parts: review.parts.map(({ fixText: _typing, ...part }) => ({ ...part, amountVnd: part.amountVnd.toString() })) }));
-    } catch { /* không lưu được: còn bộ nhớ và beforeunload */ }
+      return true;
+    } catch { return true; /* trình duyệt chặn lưu: còn bộ nhớ và câu hỏi khi rời trang */ }
   }
   function forget() { try { localStorage.removeItem(STORE); } catch { /* không có gì để xóa */ } }
-  // Bản lưu đọc lại phải đủ và đúng kiểu (khóa, số tiền, phiên bản, trạng thái); hỏng thì xóa và báo, nút "Chia cho nhiều sổ…"
-  // vẫn mở được khung mới (review lần cuối #675). Bản hỏng không dùng được, nên người kiểm Bảng thu trước khi chia lại.
+  // Bản lưu đọc lại phải đủ và đúng kiểu; hỏng thì xóa và báo, nút "Chia cho nhiều sổ…" vẫn mở được khung mới (review #679). Bản hỏng
+  // không dùng được, nên người kiểm Bảng thu trước khi chia lại.
   const KEPT_STATUSES = new Set(['new', 'waiting', 'saved', 'error', 'unknown', 'stale']);
   const digits = (value, signed = false) => (signed ? /^-?[0-9]+$/ : /^[1-9][0-9]*$/).test(String(value ?? ''));
+  const textOrNull = value => value === null || value === undefined || typeof value === 'string';
   function stored() {
     try { return JSON.parse(localStorage.getItem(STORE) ?? 'null'); } catch { return undefined; }
+  }
+  function validKept(data) {
+    if (!data || typeof data.id !== 'string' || !Array.isArray(data.parts) || data.parts.length < 2 || !digits(data.totalVnd)
+      || !/^\d{4}-\d\d-\d\d$/.test(String(data.date)) || typeof data.method !== 'string' || !textOrNull(data.reference)) return false;
+    const okPart = part => part && digits(part.customerId) && typeof part.label === 'string' && typeof part.key === 'string' && part.key.length >= 8
+      && digits(part.amountVnd) && digits(part.beforeVnd, true) && Number.isSafeInteger(part.version) && KEPT_STATUSES.has(part.status)
+      && (part.skip === undefined || typeof part.skip === 'boolean') && textOrNull(part.pid) && textOrNull(part.message)
+      && (part.dup === undefined || (part.dup && textOrNull(part.dup.pid) && textOrNull(part.dup.date) && ['reference', 'amount', undefined].includes(part.dup.by)));
+    if (!data.parts.every(okPart)) return false;
+    // Mỗi sổ một phần, tổng các phần bằng tổng chuyển: cùng phép kiểm của bước nhập (model, ARCH-03).
+    return model.planReceiptSplit(String(data.totalVnd), data.parts.map(part => ({ customerId: part.customerId, amountText: String(part.amountVnd) }))).ok;
   }
   function restore() {
     const data = stored();
     if (data === null) return null;
-    const valid = data && Array.isArray(data.parts) && data.parts.length >= 2 && digits(data.totalVnd) && /^\d{4}-\d\d-\d\d$/.test(String(data.date))
-      && typeof data.method === 'string' && data.parts.every(part => part && digits(part.customerId) && typeof part.label === 'string'
-        && typeof part.key === 'string' && part.key.length >= 8 && digits(part.amountVnd) && digits(part.beforeVnd, true)
-        && Number.isSafeInteger(part.version) && KEPT_STATUSES.has(part.status));
-    if (!valid) {
+    if (!validKept(data)) {
       forget();
       showNotice('Bản lưu lần chia nhiều sổ dở bị hỏng nên đã bỏ. Kiểm Bảng thu (phiếu nào đã ghi) trước khi chia lại.');
       return null;
@@ -124,27 +136,53 @@
     return { ...data, ask: false, totalVnd: BigInt(data.totalVnd), parts: data.parts.map(part => ({ ...part, amountVnd: BigInt(part.amountVnd),
       status: part.status === 'new' ? 'waiting' : part.status })) };
   }
-  // Hai tab cùng một lần chia (review lần cuối #675): mỗi tab một mã. Tab đang gửi ghi dấu vào bản lưu; tab khác không gửi trong lúc
-  // đó (dấu còn mới dưới 60 giây). Tab khác đổi bản lưu (sửa số, bỏ, xong) thì tab này nhận theo sự kiện storage, không giữ khóa cũ.
+  // Một khung chia ở một tab (review #679): giữ khóa trình duyệt `navigator.locks` suốt lúc khung mở; tab khác mở thì chỉ xem, không
+  // sửa hay gửi. Trình duyệt không có `navigator.locks` thì dùng dấu nhịp trong localStorage (tab mở khung ghi 5 giây một lần; dấu của
+  // tab khác còn mới dưới 15 giây thì tab này chỉ xem). Đóng khung, ghi xong hay đóng tab là nhả khóa.
+  const LOCK = 'webdebit-chia-do', BEAT = 'webdebit:chia-do-mo';
   const TAB = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : String(Math.random());
-  const busyElsewhere = () => {
-    const data = stored();
-    return Boolean(data?.savingTab && data.savingTab !== TAB && Date.now() - Number(data.savingAt) < 60000);
-  };
-  if (typeof addEventListener === 'function') {
-    addEventListener('storage', event => {
-      if (event.key !== STORE || saving || (review && !review.started)) return;
-      if (event.newValue === null) {
-        if (!review) return;
-        review = null; step = 'form';
-        if (isOpen()) { drawer.hidden = true; showNotice('Lần chia nhiều sổ đã xong hay đã bỏ ở tab khác.'); }
-        return;
-      }
-      const kept = restore();
-      if (!kept) return;
-      review = kept; step = 'result';
-      if (isOpen()) { paintReview(); showStep('result'); }
-    });
+  let held = false, release = () => {};
+  function acquire() {
+    if (held) return Promise.resolve(true);
+    const locks = globalThis.navigator?.locks;
+    if (locks?.request) {
+      return new Promise(resolve => {
+        locks.request(LOCK, { ifAvailable: true }, lock => {
+          if (!lock) { resolve(false); return undefined; }
+          held = true;
+          resolve(true);
+          return new Promise(done => { release = () => { held = false; release = () => {}; done(); }; });
+        }).catch(() => resolve(false));
+      });
+    }
+    try {
+      const other = JSON.parse(localStorage.getItem(BEAT) ?? 'null');
+      if (other && other.tab !== TAB && Date.now() - Number(other.at) < 15000) return Promise.resolve(false);
+      const beat = () => { try { localStorage.setItem(BEAT, JSON.stringify({ tab: TAB, at: Date.now() })); } catch { /* bỏ qua */ } };
+      beat();
+      const timer = setInterval(beat, 5000);
+      held = true;
+      release = () => { clearInterval(timer); try { localStorage.removeItem(BEAT); } catch { /* bỏ qua */ } held = false; release = () => {}; };
+    } catch { held = true; release = () => { held = false; release = () => {}; }; }
+    return Promise.resolve(true);
+  }
+  // Tab chỉ xem: hiện lần chia dở đang lưu (nếu có) mà mọi nút ghi, ô sửa đều tắt; chỉ còn Đóng.
+  function paintElsewhere() {
+    drawer.innerHTML = formHtml();
+    const kept = stored();
+    const viewing = kept && validKept(kept) ? restore() : null;
+    $('.split-form').hidden = true;
+    $('.split-review').hidden = false;
+    if (viewing) {
+      const mine = review, mineStep = step;
+      review = viewing; step = 'result';
+      paintReview();
+      review = mine; step = mineStep;
+    }
+    $('.split-review').insertAdjacentHTML('afterbegin', '<p class="entry-note split-elsewhere" role="status">Khung chia nhiều sổ đang mở ở tab khác. Đóng khung ở tab đó rồi mở lại ở đây để ghi.</p>');
+    for (const node of drawer.querySelectorAll('.split-review input,.split-review button')) node.disabled = true;
+    drawer.hidden = false;
+    $('.split-close').focus();
   }
   if (typeof addEventListener === 'function') {
     addEventListener('beforeunload', event => {
@@ -155,8 +193,9 @@
   }
 
   /** Mở khung; `seed` là chữ đang gõ ở khung Ghi phiếu thu (ngày, hình thức, số tiền, tham chiếu) để không gõ lại. */
-  function openSplit(seed = {}) {
+  async function openSplit(seed = {}) {
     if (!drawer || ctx.snapshot?.status !== 'active') return;
+    if (!await acquire()) { paintElsewhere(); return; }
     // Lần chia dở (đã gửi ít nhất một lệnh): trong bộ nhớ, hoặc lưu ở máy khi trang vừa tải lại hay đang ở sổ khác. Mở lại đúng
     // bước kết quả với các khóa cũ, không bắt đầu lần chia mới (khóa mới sẽ ghi lần hai các sổ đã lưu).
     if (!review) { const kept = restore(); if (kept) { review = kept; step = 'result'; } }
@@ -183,6 +222,7 @@
   function close() {
     if (!isOpen() || saving) return;
     drawer.hidden = true;
+    release();
     root.querySelector('.entry-open')?.focus();
   }
   function readParts() {
@@ -228,12 +268,12 @@
       const near = row => row.date && Math.abs(Date.parse(`${row.date}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) <= 3 * 86400000;
       const same = part => used.rows.find(row => String(row.customer_id) === String(part.customerId) && String(row.amount_vnd) === part.amountVnd.toString()
         && (reference || near(row)));
-      review = { date, method: $('.split-method').value, reference, warn: used.warn, totalVnd: plan.totalVnd, ask: false, started: false,
+      review = { id: crypto.randomUUID(), date, method: $('.split-method').value, reference, warn: used.warn, totalVnd: plan.totalVnd, ask: false, started: false,
         parts: plan.parts.map((part, index) => {
           const dup = same(part);
           return { customerId: part.customerId, label: parts[index].label, amountVnd: part.amountVnd, version: ledgers[index].version,
             beforeVnd: ledgers[index].total_outstanding_vnd, key: crypto.randomUUID(), status: 'new',
-            ...(dup ? { dup: { pid: dup.pid ?? null, date: dup.date ?? null, by: reference ? 'reference' : 'amount' }, skip: true } : {}) };
+            ...(dup ? { dup: { pid: dup.pid ?? (dup.source === 'sheet' ? 'dòng thu sổ gốc' : null), date: dup.date ?? null, by: reference ? 'reference' : 'amount' }, skip: true } : {}) };
         }) };
     } catch (error) { $('.split-error').textContent = CongNoNet.messageOf(error); return; }
     finally { button.disabled = false; }
@@ -253,9 +293,10 @@
     let books;
     try { books = await Promise.all(months.map(month => CongNoNet.fetchJson(`/api/v7/receipt-book?month=${month}-01`, { what: 'phiếu thu trong tháng' }))); }
     catch { return { warn: reference ? 'Chưa kiểm được tham chiếu này ở sổ khác (không đọc được Bảng thu).' : 'Chưa kiểm được phiếu trùng ở các sổ (không đọc được Bảng thu).', rows: [] }; }
-    const all = books.flatMap(book => [...(book?.days ?? []).flatMap(day => day.rows ?? []), ...(book?.undated ?? [])]).filter(row => row.source === 'web');
+    const all = books.flatMap(book => [...(book?.days ?? []).flatMap(day => day.rows ?? []), ...(book?.undated ?? [])]);
+    // Không tham chiếu: so cả dòng thu sổ gốc (Sheet) lẫn phiếu web. Có tham chiếu: chỉ phiếu web (dòng sổ gốc không có tham chiếu web).
     if (!reference) return { warn: '', rows: all };
-    const rows = all.filter(row => F.fold(row.note ?? '') === key);
+    const rows = all.filter(row => row.source === 'web' && F.fold(row.note ?? '') === key);
     if (!rows.length) return none;
     // Chữ thường (không HTML): trang thoát khi vẽ, kể cả khi lần chia dở khôi phục từ localStorage.
     const one = row => `sổ ${row.name} (${row.pid ?? ''}, ${F.full(row.amount_vnd)}${row.date ? `, ngày ${dateText(row.date)}` : ''})`;
@@ -343,14 +384,13 @@
     if (api.hasPending()) { showNotice('Còn thao tác khác chưa rõ kết quả. Xong việc đó (nút Thử lại ở đầu sổ) rồi ghi.'); return; }
     if (!review.parts.some(part => !done(part))) return;
     const error = text => { const box = $('.split-fix-error') ?? $('.split-review .entry-hint'); if (box) box.textContent = text; showNotice(text); };
-    if (busyElsewhere()) { error('Lần chia này đang ghi ở tab khác. Chờ tab đó xong rồi mở lại.'); return; }
-    if (!review.started) {
-      // Lần chia mới mà máy còn lần chia dở khác (tab khác hay trước khi tải lại): không chồng lên, khóa của lần kia sẽ mất.
-      const other = stored();
-      if (other && other.parts?.some(part => part.status !== 'saved' && !part.skip)) {
-        error('Còn một lần chia nhiều sổ dở chưa xong. Đóng khung, mở lại "Chia cho nhiều sổ…" để ghi tiếp hay bỏ lần đó trước.');
-        return;
-      }
+    if (!held) { error('Khung chia nhiều sổ đang mở ở tab khác. Đóng ở tab đó rồi mở lại ở đây.'); return; }
+    // Bản lưu trên máy là của lần chia khác (lần chia dở trước đó, hay bản đã đổi ở nơi khác): không ghi chồng, khóa của lần kia sẽ mất.
+    const other = stored();
+    if (other && other.id !== review.id) {
+      error(review.started ? 'Bản lưu lần chia đã đổi ở nơi khác. Đóng khung rồi mở lại "Chia cho nhiều sổ…" để xem bản đang lưu.'
+        : 'Còn một lần chia nhiều sổ dở chưa xong. Đóng khung, mở lại "Chia cho nhiều sổ…" để ghi tiếp hay bỏ lần đó trước.');
+      return;
     }
     saving = true;
     review.started = true;
@@ -358,18 +398,13 @@
     try {
       for (const part of review.parts) {
         if (done(part)) continue;
-        // Tab khác vừa đổi phần này (sửa số thành khóa mới, bỏ): dừng, không gửi khóa cũ.
-        const now = stored();
-        const theirs = now?.parts?.find(item => String(item.customerId) === String(part.customerId));
-        if (review.started && now && now.tab !== TAB && (!theirs || theirs.key !== part.key)) {
-          part.message = 'Tab khác vừa đổi lần chia này. Đóng rồi mở lại "Chia cho nhiều sổ…" để xem bản mới.';
-          break;
-        }
-        // Trước khi gửi: lưu phần này là "chưa rõ" cùng khóa của nó, để trang tải lại giữa chừng vẫn gửi lại đúng lệnh này.
+        // Trước khi gửi: lưu phần này là "chưa rõ" cùng khóa của nó, để trang tải lại giữa chừng vẫn gửi lại đúng lệnh này. Bản lưu đã
+        // là của lần chia khác thì dừng, không gửi.
         const before = part.status;
         part.status = 'unknown';
-        persist();
+        const kept = persist();
         part.status = before;
+        if (!kept) { part.message = 'Bản lưu lần chia đã đổi ở nơi khác. Đóng khung rồi mở lại để xem bản đang lưu.'; break; }
         let outcome = await post(part);
         // Sổ đổi từ lúc xem lại (người khác vừa ghi): đọc phiên bản mới rồi gửi lại một lần cùng khóa. Số tiền phiếu không đổi;
         // phần trừ nợ do server tính theo sổ lúc ghi.
@@ -388,8 +423,9 @@
     const saved = review.parts.filter(part => part.status === 'saved');
     if (saved.some(part => String(part.customerId) === String(customerId))) await api.read().catch(() => showNotice('Đã ghi; không tải được sổ mới. Tải lại trang để kiểm tra.'));
     if (review.parts.every(done)) {
-      forget();
+      persist();   // xong hết: xóa bản lưu nếu là của lần chia này
       drawer.hidden = true;
+      release();
       showNotice(`Đã ghi ${saved.length} phiếu, tổng ${money(saved.reduce((sum, part) => sum + part.amountVnd, 0n))} đ: `
         + saved.map(part => `${part.label} ${part.pid ?? ''} ${money(part.amountVnd)} đ`.replace(/\s+/g, ' ')).join('; ') + '.');
       review = null; step = 'form';
@@ -418,7 +454,7 @@
         if (review.parts.some(part => part.status === 'unknown')) return;
         const saved = review.parts.filter(part => part.status === 'saved');
         showNotice(`Đã bỏ phần chưa ghi của lần chia. Đã ghi ${saved.length} phiếu: ` + (saved.map(part => `${part.label} ${part.pid ?? ''}`.trim()).join('; ') || 'không có') + '.');
-        forget();
+        if (stored()?.id === review.id) forget();
         review = null; step = 'form'; close();
       }
       else if (button.matches('.split-today')) { $('.split-date').value = dateText(ctx.todayIso()); $('.split-total').focus(); }
