@@ -505,6 +505,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                        if args.booking_check else {"skipped": "OFF"})
         trace.stage("so", total=len(rows))
         results, _, _ = rec.reconcile(sheet, web, compare_months=False)
+        web_books = {rec.name(row["name"]) for row in rows if row.get("booking_names")}   # KHACH-WEB-01: sổ quản lý tạo trên web
         by_month, _, _ = rec.reconcile(sheet, web, compare_months=True, can_du=True)
         months_differ = [row["customer"] for row in by_month if row["status"] == "CHI_LECH_THANG"]
         different = [row for row in results if row["status"] == "LECH_TONG"]
@@ -549,6 +550,8 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
                 row.update(reason="HELD", held_reasons=item["reasons"])
                 if item["chain_break"]:
                     row["hints"] = [hints.money_fields(item["chain_break"])]
+            elif row["status"] == "CHI_CO_WEB" and row["customer"] in web_books:
+                row["reason"] = "WEB_BOOK"
             elif row["status"] != "LECH_TONG":
                 row.setdefault("reason", row["status"])
         count_sheet_fixes(db, results, rows, sheet_snapshots)   # còn trong `with`: bản chụp dựng từ bản tải ở thư mục tạm
