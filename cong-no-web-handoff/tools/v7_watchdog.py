@@ -57,7 +57,9 @@ AUTO_FLAGS = tuple(flag.strip() for flag in (AUTO_FLAGS_SET or "text,trips,price
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
 MONEY_TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
                                          "webdebit-ps-snapshot": None}
-BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26}
+# v7-backup-offsite-hourly (RPO 25/11/2026): bản giờ ra hộp chờ cho PC kéo; 6–22 giờ nên đêm trống 8 giờ, ngưỡng 12 như bản giờ.
+BACKUP_TIMERS: dict[str, float | None] = {"v7-backup-hourly": 12, "v7-backup-daily": 26, "v7-backup-config": 26, "v7-backup-offsite": 26,
+                                          "v7-backup-offsite-hourly": 12}
 TIMERS: dict[str, float | None] = {**MONEY_TIMERS, **BACKUP_TIMERS}
 # WEB-CHINH-01, tắt máy ngày 1/12/2026: thôi đọc Sheet sổ nợ khi có file đánh dấu (cùng file API đọc, `v7_price_queue.debt_sheet_off`)
 # hoặc `WEBDEBIT_ALERT_DEBT_SHEET=off` trong alert.env. Khi đó không canh bản chụp và timer của Sheet sổ nợ, canh lượt so sổ web với

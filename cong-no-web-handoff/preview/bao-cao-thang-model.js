@@ -66,18 +66,20 @@ const BaoCaoThangModel = (() => {
   // BAO-CAO-THANG-02: lý do máy chưa đưa chuyến booking vào sổ web (mã từ GET /api/v7/report/month/missing) → câu cho người đọc
   // và việc phải làm: `sheet` tự hết khi Sheet ghi chuyến, `person` cần người, `machine` máy tự làm ở lượt sau, `book` xem trong sổ.
   const REASONS = {
-    CONTAINER_REUSED_OR_CHANGED: ['Container đã dùng ở chuyến trước; chờ tab khách ghi riêng', 'sheet'],
+    // WEB-CHINH-01: Sheet sổ nợ đứng yên từ 1/12/2026. Từ 10/2026 máy đếm số dòng booking của container (DU-CHUYEN-01): booking không có
+    // thêm dòng thì là cùng chuyến sổ đã tính ở ngày khác; là chuyến khác thật thì người nhập tay trong sổ.
+    CONTAINER_REUSED_OR_CHANGED: ['Sổ đã có container này ở ngày khác, booking không có thêm dòng: máy coi là cùng chuyến. Nếu là chuyến khác, nhập tay trong sổ', 'book'],
     NO_BOOK: ['Tên chủ hàng chưa gắn sổ web (khách mới hoặc tên khác)', 'person'],
     COMMODITY_MISMATCH: ['Mặt hàng trên booking khác mặt hàng của sổ', 'person'],
     COMMODITY_UNKNOWN: ['Booking chưa ghi mặt hàng', 'person'],
     ROAD_BOOK: ['Tên trên booking biển trùng một sổ đường bộ', 'person'],
     // WEB-CHINH-01: Sheet sổ nợ thôi dùng từ 1/12/2026 nên ba ca chuyến bộ dưới không tự hết nữa; người gán tên hoặc chọn sổ trên web.
     ROAD_NO_TAB: ['Chủ hàng chưa gắn sổ web: gán tên chủ hàng cho sổ ở thẻ Khách (Quản trị)', 'person'],
-    ROAD_TAB_FAR: ['Tab khách có dòng cùng container nhưng lệch ngày: chọn sổ ở Việc cần làm', 'person'],
-    ROAD_AMBIGUOUS_TAB: ['Nhiều tab khách cùng ghi container này: chọn sổ ở Việc cần làm', 'person'],
+    ROAD_TAB_FAR: ['Tab khách có dòng cùng container nhưng lệch ngày: chọn sổ ở Sổ khách hoặc Việc cần làm', 'person'],
+    ROAD_AMBIGUOUS_TAB: ['Nhiều tab khách cùng ghi container này: chọn sổ ở Sổ khách hoặc Việc cần làm', 'person'],
     ROAD_NO_BOOK: ['Tab khách ghi chuyến này chưa có sổ web', 'person'],
     ROAD_AMBIGUOUS_SOURCE: ['Booking bộ ghi container này hai lần', 'person'],
-    ROAD_EARLY: ['Trước tháng 10/2026: chuyến bộ theo sổ gốc', 'sheet'],
+    ROAD_EARLY: ['Trước tháng 10/2026: chuyến bộ đã tính theo sổ gốc', 'book'],
     NEEDS_REVIEW: ['Khác thông tin với sổ, cần người xem', 'person'],
     MONTH_LOCKED: ['Tháng đã khóa, cần người duyệt', 'person'],
     NEXT_RUN: ['Đủ điều kiện; máy đưa vào ở lượt tới', 'machine'],

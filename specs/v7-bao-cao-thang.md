@@ -77,10 +77,11 @@ Lỗi tải thì trang hiện câu theo mẫu `loadError` và nút Thử lại.
 
 | Mã | Nguồn | Ai làm |
 | --- | --- | --- |
-| `CONTAINER_REUSED_OR_CHANGED` | chiếu sổ (WAITING) | Tự hết khi Sheet ghi |
+| `CONTAINER_REUSED_OR_CHANGED` | chiếu sổ (WAITING): sổ đã có container ở ngày khác, booking không có thêm dòng (DU-CHUYEN-01, từ 10/2026) | Xem trong sổ (máy coi là cùng chuyến; chuyến khác thật thì nhập tay) |
 | `NO_BOOK` | hàng chờ biển: tên chủ hàng không ra sổ | Cần người |
 | `COMMODITY_MISMATCH`, `COMMODITY_UNKNOWN`, `ROAD_BOOK` | hàng chờ biển (`book_match`) | Cần người |
-| `ROAD_NO_TAB`, `ROAD_TAB_FAR`, `ROAD_AMBIGUOUS_TAB`, `ROAD_EARLY` | hàng chờ bộ (`skipped`) | Tự hết khi Sheet ghi |
+| `ROAD_NO_TAB`, `ROAD_TAB_FAR`, `ROAD_AMBIGUOUS_TAB` | hàng chờ bộ (`skipped`) | Cần người: gán tên chủ hàng ở thẻ Khách; chọn sổ ở Sổ khách hoặc Việc cần làm ([`WEB-CHINH-01`](../docs/decisions/web-chinh-01.md), 25/11/2026) |
+| `ROAD_EARLY` | hàng chờ bộ (`skipped`) | Xem trong sổ (trước 10/2026 đã tính theo sổ gốc) |
 | `ROAD_NO_BOOK`, `ROAD_AMBIGUOUS_SOURCE` | hàng chờ bộ (`skipped`) | Cần người |
 | `NEEDS_REVIEW` | chiếu sổ (CONFLICT hay đã đóng) | Cần người |
 | `MONTH_LOCKED` | chiếu sổ: tháng khóa trước 10/2026 | Cần người |
