@@ -361,3 +361,31 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ l�
   await reload(page);
   await page.waitForSelector('[data-row="trip-11"].sheet-removed');
 }, world => removedTrip(world, { month_locked: true })));
+
+test('WEB-CHINH-01: chuyến bộ chờ chọn sổ hiện ở sổ ứng viên đầu, người nhập chọn sổ và xác nhận ngay trên Sổ khách', async () => withPage(async ({ page, world, shot }) => {
+  const strip = page.locator('.road-choice-strip');
+  assert.match(await strip.innerText(), /Chuyến bộ chờ chọn sổ:\s*1/);
+  assert.equal(await page.locator('.road-choice-panel').count(), 0);   // gọn: chỉ dải, bấm Xem mới mở
+  await strip.locator('.road-choice-toggle').click();
+  const panel = page.locator('.road-choice-panel');
+  assert.match(await panel.innerText(), /MAUU0000041[\s\S]*chọn sổ nhận chuyến/);
+  assert.deepEqual(await panel.locator('.road-book option').allTextContents(), ['Chọn sổ', 'Khách Thử Sửa', 'Công ty Mẫu Phú Gia']);
+  await panel.locator('.road-choice-pick').click();   // chưa chọn sổ: không gửi gì
+  assert.equal(world.requests.length, 0);
+  await panel.locator('.road-book').selectOption('2');
+  await panel.locator('.road-choice-pick').click();
+  await page.locator('.road-choice-write').waitFor();   // đọc phiên bản sổ được chọn xong mới hỏi xác nhận
+  assert.match(await panel.innerText(), /Đưa vào sổ Công ty Mẫu Phú Gia\? Chưa có giá, nợ không đổi/);
+  await shot('chuyen-bo-chon-so');
+  await page.locator('.road-choice-write').click();
+  await page.locator('.road-choice-strip').waitFor({ state: 'detached' });
+  const [path, body] = posts(world).at(-1);
+  assert.equal(path, '/api/v7/sheet/road/assign');
+  assert.deepEqual([body.customer_id, body.target_customer_id, body.source_fingerprint], [1, 2, 'e'.repeat(64)]);
+  assert.ok(Number.isInteger(body.expected_version) && Number.isInteger(body.target_version));
+  assert.match(await page.locator('.live-notice').innerText(), /Đã đưa MAUU0000041 vào sổ Công ty Mẫu Phú Gia/);
+}, world => {
+  world.sheetRoad = { snapshot_sha256: 'a'.repeat(64), items: [{ sync_state: 'CONFLICT', sync_reason: 'NEEDS_BOOK', source_fingerprint: 'e'.repeat(64),
+    container: 'MAUU0000041', event_date: `${clock.slice(0, 7)}-05`, message: 'Tab Sheet ghi container này ở nhiều dòng hoặc nhiều sổ · chọn sổ nhận chuyến',
+    candidate_books: [{ id: 1, name: 'Khách Thử Sửa' }, { id: 2, name: 'Công ty Mẫu Phú Gia' }] }] };
+}));
