@@ -97,6 +97,35 @@
       labelled: customers.some(row => row.commodity) };
   }
 
+  // SK-N7 (audit Sổ khách 25/11/2026): dòng nằm dưới tiêu đề nhóm bỏ phần mặt hàng cho gọn, nhưng cùng một tên ở hai nhóm
+  // ("X" dưới Bán cước và dưới Chuối) thì hai dòng giống hệt, không biết là một sổ hay hai. Tên rút gọn trùng thì giữ nhãn đủ
+  // "X · Chuối". Trả Map String(id) → chữ hiện trong danh sách (không gồm đuôi "(chưa có số dư đầu)").
+  function listLabels(customers) {
+    const names = customerLabels(customers);
+    const labelled = customers.some(row => row.commodity);
+    const short = row => (labelled ? names.get(String(row.id)).replace(` · ${groupLabel(row)}`, '') : names.get(String(row.id)));
+    const counts = new Map();
+    for (const row of customers) counts.set(short(row), (counts.get(short(row)) ?? 0) + 1);
+    return new Map(customers.map(row => [String(row.id), counts.get(short(row)) > 1 ? names.get(String(row.id)) : short(row)]));
+  }
+
+  // SK-N7: "Gần đây" ở đầu danh sách — khách vừa mở, mới nhất trước, bỏ khách đang mở và id không còn trong danh sách.
+  const RECENT_KEY = 'webdebit.recentCustomers.v1';
+  const RECENT_SHOWN = 5;
+  function recentRows(customers, ids, currentId) {
+    const byId = new Map(customers.map(row => [String(row.id), row]));
+    return [...new Set(ids.map(String))].filter(id => id !== String(currentId) && byId.has(id)).slice(0, RECENT_SHOWN).map(id => byId.get(id));
+  }
+  const readRecent = () => {
+    try {
+      const saved = JSON.parse(globalThis.localStorage?.getItem(RECENT_KEY) ?? '[]');
+      return Array.isArray(saved) ? saved.filter(id => Number.isSafeInteger(id)) : [];
+    } catch { return []; }   // chế độ riêng tư hoặc dữ liệu hỏng: coi như chưa có khách gần đây
+  };
+  function noteRecent(id) {
+    try { globalThis.localStorage?.setItem(RECENT_KEY, JSON.stringify([id, ...readRecent().filter(other => other !== id)].slice(0, 10))); } catch { /* không lưu được thì thôi */ }
+  }
+
   async function loadCustomers(fetcher = fetch) {
     const search = document.querySelector('#customer-search');
     const list = document.querySelector('#customer-list');
@@ -122,37 +151,53 @@
       // Plain links, not a <select>: the embedded app browser does not open native select popups.
       const current = new URLSearchParams(location.search).get('customer');
       const href = row => `/so-khach-v7-live.html?customer=${encodeURIComponent(row.id)}`;
-      let found = [];
+      const labels = listLabels(customers);
+      if (customerRows.has(Number(current))) noteRecent(Number(current));
       let listAll = !current;
+      const makeLink = (row, text) => {
+        const link = document.createElement('a');
+        link.href = href(row);
+        link.textContent = row.status === 'active' ? text : `${text} (chưa có số dư đầu)`;
+        if (String(row.id) === current) link.setAttribute('aria-current', 'page');
+        return link;
+      };
+      const makeHead = text => {
+        const head = document.createElement('div');
+        head.className = 'customer-group';
+        head.textContent = text;
+        return head;
+      };
+      // SK-N6: một dòng được tô tại một lúc (is-active) — con trỏ ở lại ô tìm nên gõ tiếp được; ↓ ↑ dời dòng, Enter mở dòng tô.
+      const links = () => [...list.querySelectorAll('a')];
+      const setActive = link => {
+        for (const other of list.querySelectorAll('a.is-active')) other.classList.remove('is-active');
+        if (!link) return;
+        link.classList.add('is-active');
+        link.scrollIntoView?.({ block: 'nearest' });
+      };
       const render = () => {
         const query = search.value.trim();
         const grouped = groupCustomers(customers, query);
-        found = grouped.found;
+        const { found } = grouped;
         // Before typing, list everyone only when no customer is open yet or the search box is in use.
         // Trang chọn khách (chưa mở sổ) đủ chỗ nên hiện mọi sổ; hộp đổi khách nhỏ chỉ hiện 50 dòng đầu.
         const shown = new Set(query || listAll ? (current ? found.slice(0, 50) : found) : []);
         const items = [];
+        // SK-N7: chưa gõ thì năm khách mở gần nhất ở đầu (nhãn đủ mặt hàng, vì nằm ngoài nhóm).
+        if (!query && listAll) {
+          const recent = recentRows(customers, readRecent(), current);
+          if (recent.length) items.push(makeHead('Gần đây'), ...recent.map(row => makeLink(row, customerNames.get(String(row.id)))));
+        }
         for (const group of grouped.groups) {
           const rows = group.rows.filter(row => shown.has(row));
           if (!rows.length) continue;
-          if (grouped.labelled) {
-            const head = document.createElement('div');
-            head.className = 'customer-group';
-            head.textContent = `${group.label} (${group.rows.length})`;
-            items.push(head);
-          }
-          for (const row of rows) {
-            const link = document.createElement('a');
-            link.href = href(row);
-            // Dòng đã nằm dưới nhóm mặt hàng: bỏ phần mặt hàng lặp lại, giữ " · sổ <id>" để phân biệt sổ trùng tên.
-            const label = customerNames.get(String(row.id));
-            const display = grouped.labelled ? label.replace(` · ${group.label}`, '') : label;
-            link.textContent = row.status === 'active' ? display : `${display} (chưa có số dư đầu)`;
-            if (String(row.id) === current) link.setAttribute('aria-current', 'page');
-            items.push(link);
-          }
+          if (grouped.labelled) items.push(makeHead(`${group.label} (${group.rows.length})`));
+          // Dòng đã nằm dưới nhóm mặt hàng: bỏ phần mặt hàng lặp lại (listLabels giữ lại khi tên trùng ở nhóm khác).
+          for (const row of rows) items.push(makeLink(row, labels.get(String(row.id))));
         }
         list.replaceChildren(...items);
+        // Có gõ thì dòng đầu là dòng Enter sẽ mở; chưa gõ thì chưa dòng nào được tô.
+        setActive(query ? links()[0] : null);
         document.querySelector('#customer-count').textContent = query && !found.length
           ? `Không có khách nào khớp “${query}”`
           : query || listAll
@@ -162,8 +207,29 @@
       search.addEventListener('input', render);
       search.addEventListener('focus', () => { listAll = true; render(); });
       showCustomers = () => { listAll = true; render(); search.focus(); };
+      const inPopover = () => document.querySelector('#customer-picker')?.hasAttribute('popover');
       search.addEventListener('keydown', event => {
-        if (event.key === 'Enter' && found.length) location.href = href(found[0]);
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          const all = links(), at = all.findIndex(link => link.classList.contains('is-active'));
+          setActive(all[at < 0 ? 0 : Math.min(all.length - 1, Math.max(0, at + (event.key === 'ArrowDown' ? 1 : -1)))]);
+        } else if (event.key === 'Enter') {
+          const target = list.querySelector('a.is-active');
+          if (target) location.href = target.href;
+        } else if (event.key === 'Escape' && !inPopover() && search.value) {   // trong hộp đổi khách, Esc đóng hộp (trình duyệt lo)
+          search.value = '';
+          render();
+        }
+      });
+      // Tab hay chuột tới một dòng thì dòng đó thành dòng tô duy nhất (hết cảnh hai dòng cùng tô); ↓ ↑ khi đang ở dòng thì dời tiêu điểm.
+      list.addEventListener('focusin', event => { const link = event.target.closest?.('a'); if (link) setActive(link); });
+      list.addEventListener('mousemove', event => { const link = event.target.closest?.('a'); if (link && !link.classList.contains('is-active')) setActive(link); });
+      list.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !inPopover()) { search.focus(); return; }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        event.preventDefault();
+        const all = links(), next = all[all.indexOf(document.activeElement) + (event.key === 'ArrowDown' ? 1 : -1)];
+        if (next) next.focus(); else if (event.key === 'ArrowUp') search.focus();
       });
       render();
       redraw?.();
@@ -588,7 +654,7 @@
       // CHO-GHI-01: phần gửi lệnh thẳng (không qua submit) đăng ký việc của mình; tracked bọc trình nghe sự kiện async.
       track, tracked: handler => (...args) => track(handler(...args)) };
   }
-  const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),
+  const api = { create, stale, unknown, groupCustomers, listLabels, recentRows, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),
     sheetName, showCustomers: () => showCustomers(), track, idle, busyCount: () => work.size };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;

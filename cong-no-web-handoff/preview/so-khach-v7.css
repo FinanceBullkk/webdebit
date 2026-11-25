@@ -26,7 +26,8 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 #customer-list{max-height:240px;overflow-y:auto;margin-top:6px;max-width:min(600px,90vw)}
 #customer-list:empty{display:none}
 #customer-list a{display:block;min-height:40px;line-height:40px;padding:0 10px;color:#123;text-decoration:none;border-bottom:1px solid #dde6ef}
-#customer-list a:hover,#customer-list a:focus{background:#eaf2fb;outline:2px solid #2d6cb5;outline-offset:-2px}
+/* SK-N6: một dòng được tô tại một lúc (.is-active do so-khach-v7-api.js đặt: gõ, ↓ ↑, Tab, rê chuột); scroll-margin chừa chỗ cho tiêu đề nhóm dính trên. */
+#customer-list a{scroll-margin-top:32px}#customer-list a.is-active{background:#eaf2fb;outline:2px solid #2d6cb5;outline-offset:-2px}
 #customer-list a[aria-current=page]{font-weight:700}
 #customer-list .customer-group{position:sticky;top:0;padding:4px 10px;background:#e3ecf5;color:#28496b;font-size:14px;font-weight:700;border-bottom:1px solid #b9cbdd}
 .head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:14px}.head-item strong{font-size:16px}.head-item.total{flex:none;margin-left:auto;align-items:flex-end;line-height:1.2;white-space:nowrap}.head-item.total strong{font-size:20px;color:#123f79}

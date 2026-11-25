@@ -791,6 +791,24 @@ test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm
   ])], [['10', 'SHEET · Chuối · sổ 10'], ['11', 'SHEET · Chuối · sổ 11']]);
 });
 
+test('SK-N7: tên rút gọn trùng ở hai nhóm thì giữ nhãn đủ mặt hàng; tên duy nhất vẫn rút gọn', () => {
+  const { listLabels } = require('./so-khach-v7-api.js');
+  const rows = [
+    { id: 1, name: 'X', commodity: 'Bán cước' }, { id: 2, name: 'X', commodity: 'Chuối' }, { id: 3, name: 'Y', commodity: 'Chuối' },
+    { id: 4, name: 'Z', commodity: null }, { id: 5, name: 'W', commodity: 'Dừa' }, { id: 6, name: 'W', commodity: 'Dừa' },
+  ];
+  assert.deepEqual([...listLabels(rows)], [['1', 'X · Bán cước'], ['2', 'X · Chuối'], ['3', 'Y'], ['4', 'Z'], ['5', 'W · sổ 5'], ['6', 'W · sổ 6']]);
+  // Chưa sổ nào có mặt hàng: danh sách phẳng, nhãn nguyên.
+  assert.deepEqual([...listLabels([{ id: 1, name: 'A' }, { id: 2, name: 'B' }])], [['1', 'A'], ['2', 'B']]);
+});
+
+test('SK-N7: khách gần đây — mới nhất trước, bỏ khách đang mở và id không còn, tối đa năm', () => {
+  const { recentRows } = require('./so-khach-v7-api.js');
+  const rows = Array.from({ length: 9 }, (_, i) => ({ id: i + 1 }));
+  assert.deepEqual(recentRows(rows, [3, 9, 3, 99, 5, 1, 2, 4, 6], '9').map(row => row.id), [3, 5, 1, 2, 4]);
+  assert.deepEqual(recentRows(rows, [], null), []);
+});
+
 // ---- Audit 19/11/2026 (A05): GET trả chậm không ghi đè bản sổ mới hơn ----
 test('A05: lần đọc bắt đầu trước lần đọc lại sau lệnh ghi mà về sau thì bị bỏ; lần đọc mới nhất cùng version vẫn cài', async () => {
   let get = 0, release;
