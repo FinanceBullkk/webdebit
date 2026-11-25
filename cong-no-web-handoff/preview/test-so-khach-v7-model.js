@@ -873,3 +873,20 @@ test('planReceiptSplit: một lần chuyển chia nhiều sổ chỉ ghi khi t�
   const typing = plan('10.000', [1, '4.000'], [2, 'abc']);
   assert.deepEqual([typing.sumVnd, typing.restVnd], [4000n, 6000n]);
 });
+
+test('parseReceiptPaste: bảng dán Tab từ Sheet → phiếu; dòng tiêu đề bỏ, dòng lỗi nêu số dòng (PHIEU-WEB-01 mục 3)', () => {
+  const T = '\t';
+  const plan = model.parseReceiptPaste(['Ngày' + T + 'Số tiền', `1/11/2026${T}5.000.000${T}CK VCB`, `02/11/2026${T}3000000${T}Ứng trước${T}UNC 1${T}ghi chú`,
+    `6/11/2026${T}2.000 đ${T}thu tiền`, '', `3/11/2026${T}abc`, `31/02/2026${T}1`, `4/11/2099${T}1`, `5/11/2026${T}1${T}cấn trừ`].join('\r\n'), '2026-11-25');
+  assert.deepEqual(plan.rows, [
+    { line: 2, date: '2026-11-01', method: 'THU TIỀN', amountVnd: 5000000n, reference: 'CK VCB' },
+    { line: 3, date: '2026-11-02', method: 'ỨNG TRƯỚC', amountVnd: 3000000n, reference: 'UNC 1 · ghi chú' },
+    { line: 4, date: '2026-11-06', method: 'THU TIỀN', amountVnd: 2000n, reference: null }]);
+  assert.deepEqual(plan.errors, ['Dòng 6: “abc” không đọc được thành số tiền.', 'Dòng 7: ngày “31/02/2026” phải dạng dd/mm/yyyy.',
+    'Dòng 8: ngày 4/11/2099 sau hôm nay.', 'Dòng 9: cấn trừ phải ghi từng phiếu (chọn sổ lấy tiền).']);
+  assert.deepEqual(model.parseReceiptPaste('', '2026-11-25').rows, []);
+  assert.match(model.parseReceiptPaste(' \n', '2026-11-25').errors[0], /Chưa có dòng nào/);
+  assert.match(model.parseReceiptPaste(`1/11/2026${T}0`, '2026-11-25').errors[0], /Dòng 1: “0” không đọc được/, 'phiếu 0 đ không ghi');
+  assert.match(model.parseReceiptPaste(`hôm qua${T}5`, '2026-11-25').errors[0], /Chưa có dòng nào/, 'dòng đầu không có chữ số là tiêu đề, không phải lỗi');
+  assert.match(model.parseReceiptPaste(`1/11/2026${T}5\nhôm qua${T}5`, '2026-11-25').errors[0], /Dòng 2: ngày “hôm qua”/, 'sau dòng đầu thì không còn là tiêu đề');
+});
