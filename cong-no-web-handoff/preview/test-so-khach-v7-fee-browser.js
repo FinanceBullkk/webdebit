@@ -124,12 +124,17 @@ test('SK-N5: ô bị cắt "…" có chữ rê chuột đủ chữ; Tuyến cắ
     .filter(td => [td, ...td.children].some(box => box.scrollWidth > box.clientWidth)).map(td => td.title));
   assert.ok(cells.length >= 24, `phải có ô bị cắt để kiểm (${cells.length})`);
   assert.equal(cells.filter(title => !title).length, 0, 'mọi ô bị cắt có title');
-  // Chuyến 200: nơi đi dài, nơi đến ngắn → nơi đi bị cắt, nơi đến còn đủ; chữ rê chuột ghép cả tuyến.
+  // Chuyến 200: nơi đi dài, nơi đến ngắn → nơi đi co trước (về bề rộng tối thiểu 2em) rồi nơi đến mới co; chữ rê chuột ghép cả
+  // tuyến. Không đo "nơi đến còn đủ" thẳng vì font Ubuntu của CI rộng hơn Segoe UI (ở Windows "Cảng A" còn đủ chữ).
   const route = await page.locator('tr[data-row="trip-200"] td.route-cell').evaluate(td => {
     const [from, , to] = td.children;
-    return { from: from.scrollWidth > from.clientWidth, to: to.scrollWidth > to.clientWidth, toText: to.textContent, title: td.title };
+    const originFirst = to.scrollWidth <= to.clientWidth || from.clientWidth <= parseFloat(getComputedStyle(from).minWidth) + 1;
+    return { from: from.scrollWidth > from.clientWidth, originFirst, toText: to.textContent, title: td.title };
   });
-  assert.deepEqual(route, { from: true, to: false, toText: 'Cảng A', title: 'Kho hàng khu công nghiệp thử số một → Cảng A' });
+  assert.deepEqual(route, { from: true, originFirst: true, toText: 'Cảng A', title: 'Kho hàng khu công nghiệp thử số một → Cảng A' });
+  if (process.platform === 'win32') {
+    assert.equal(await page.locator('tr[data-row="trip-200"] td.route-cell>:last-child').evaluate(to => to.scrollWidth <= to.clientWidth), true, 'Segoe UI: nơi đến còn đủ chữ');
+  }
   assert.equal(await page.locator('tr[data-row="trip-200"] td[data-field="shipper"]').getAttribute('title'), 'Chủ hàng thử có tên khá dài');
   assert.equal(await page.locator('tr[data-row="trip-200"]').evaluate(tr => tr.getBoundingClientRect().height), 35, 'ô Tuyến không làm dòng cao thêm');
 }, wideBook));
