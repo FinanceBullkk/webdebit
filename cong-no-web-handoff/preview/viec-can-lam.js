@@ -998,9 +998,9 @@
         const next = SoKhachV7Model.tripAmount({ container: row.container, status: 'confirmed', unitPriceVnd: row.sheet_unit_price_vnd, otherFeeVnd: row.sheet_other_fee_vnd }).amountVnd;
         if (next == null || (current.amount_vnd ?? current.counted_vnd) == null) { inbox.action = null; return; }
         const after = globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, current.amount_vnd ?? current.counted_vnd, next.toString());
-        Object.assign(inbox.action, { title: 'Lấy giá Sheet', path: '/api/v7/sheet/tasks/price',
+        Object.assign(inbox.action, { title: 'Đổi sang giá Sheet', path: '/api/v7/sheet/tasks/price',
           text: `Đơn giá ${F.full(row.web_unit_price_vnd)} → ${F.full(row.sheet_unit_price_vnd)}, phụ phí ${row.web_other_fee_vnd == null ? '—' : F.full(row.web_other_fee_vnd)} → ${row.sheet_other_fee_vnd == null ? '—' : F.full(row.sheet_other_fee_vnd)}. Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(after)}.`,
-          inlineText: `Lấy giá Sheet ${globalThis.InboxTable.million(row.sheet_unit_price_vnd)} tr · nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(after)} tr` });
+          inlineText: `Đổi sang giá Sheet ${globalThis.InboxTable.million(row.sheet_unit_price_vnd)} tr · nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(after)} tr` });
       }
       paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus(); return;
     }

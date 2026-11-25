@@ -65,16 +65,8 @@ globalThis.InboxTable = (() => {
     }
     return list.sort((a, b) => b.trips.length - a.trips.length || (a.trips[0].event_date ?? '').localeCompare(b.trips[0].event_date ?? ''));
   }
-  // GIA-BOOKING-01: gợi ý giá booking của một chuyến (`sheet_sync.booking_prices` của GET sổ). `unit` là đơn giá (đồng) khi máy
-  // đọc chắc được chữ; `fee` là phụ phí booking sẽ điền, chỉ khi chuyến chưa có phụ phí (đã có thì giữ). Chữ không đọc được: chỉ `text`.
-  function bookingHint(ledger, row) {
-    const hint = ledger?.sheet_sync?.booking_prices?.[String(row?.id)];
-    const text = typeof hint?.text === 'string' ? hint.text.trim() : '';
-    if (!text) return null;
-    const digits = value => typeof value === 'string' && /^\d+$/.test(value);
-    if (!digits(hint.unit_price_vnd) || BigInt(hint.unit_price_vnd) <= 0n || !(hint.other_fee_vnd == null || digits(hint.other_fee_vnd))) return { text, unit: null, fee: null };
-    return { text, unit: hint.unit_price_vnd, fee: row.other_fee_vnd == null ? hint.other_fee_vnd ?? null : null };
-  }
+  // GIA-BOOKING-01: gợi ý giá booking của một chuyến; luật chung ở model (cùng dùng cho ô giá Sổ khách).
+  const bookingHint = (ledger, row) => SoKhachV7Model.bookingHint(ledger, row);
   // Hàng tuyến có nút booking khi mọi chuyến của tuyến có cùng gợi ý (cùng đơn giá và cùng phụ phí sẽ điền).
   function groupBooking(ledger, group) {
     const hints = group.trips.map(row => bookingHint(ledger, row)), first = hints[0];
@@ -187,7 +179,7 @@ globalThis.InboxTable = (() => {
     const fee = value => (value == null ? 'trống' : million(value));
     const conflictText = r => (r.web_unit_price_vnd === r.sheet_unit_price_vnd ? `Đơn giá ${million(r.web_unit_price_vnd)} · phụ phí web ${fee(r.web_other_fee_vnd)} → Sheet ${fee(r.sheet_other_fee_vnd)}` : `Trên web ${million(r.web_unit_price_vnd)} · trên Sheet ${million(r.sheet_unit_price_vnd)}`);
     const priceWhy = r => (r.status === 'CONFLICT' ? conflictText(r) : r.status === 'AMBIGUOUS' ? 'Khớp nhiều chuyến, máy không biết ghi giá vào chuyến nào' : r.status === 'MANUAL' && r.closable ? 'Phụ phí gõ tay hoặc giá âm, máy không tự ghi' : 'Cần đối chiếu giá trong sổ');
-    const prices = (book.inStatement ? [] : ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, priceWhy(r), null, r.status === 'CONFLICT' && r.source_fingerprint ? `${r.month_locked ? '' : btn('Lấy giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : `${r.closable ? closeBtn('price', r.source_fingerprint) : ''}${link('Mở để đối chiếu')}`, r.closable ? `source:${r.source_fingerprint}` : `sheet-price:${r.target_kind}:${r.target_id}`));
+    const prices = (book.inStatement ? [] : ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, priceWhy(r), null, r.status === 'CONFLICT' && r.source_fingerprint ? `${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${r.month_locked ? '' : btn('Đổi sang giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : `${r.closable ? closeBtn('price', r.source_fingerprint) : ''}${link('Mở để đối chiếu')}`, r.closable ? `source:${r.source_fingerprint}` : `sheet-price:${r.target_kind}:${r.target_id}`));
     const suggestedOf = r => {
       const rate = ledger.price_status?.trips?.find(p => p.trip_id === r.id && p.ready)?.lookup?.unit_price_vnd;
       return rate == null ? '' : millionInput(rate);

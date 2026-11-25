@@ -36,6 +36,17 @@ const SoKhachV7Model = (() => {
       : `${shown} đ là trên 1 tỷ đ một chuyến: có thể gõ thừa số 0.`;
   }
 
+  // Phụ phí một loại của một chuyến hợp lý từ 10.000 đ tới 100 triệu đ (trị tuyệt đối). Ngoài khoảng đó thường là nhầm đơn vị
+  // ("1,5" triệu gõ "15", hay thừa số 0). Như priceDoubt: chỉ hỏi (dán lô ghi cờ ở dòng xem lại), máy chủ không chặn.
+  const FEE_LOW = 10000n;
+  const FEE_HIGH = 100000000n;
+  function feeDoubt(value) {
+    const amount = typeof value === "bigint" ? value : BigInt(String(value));
+    const size = amount < 0n ? -amount : amount;
+    if (size < FEE_LOW) return "small";
+    return size > FEE_HIGH ? "large" : null;
+  }
+
   function formatVnd(amount) {
     if (typeof amount !== "bigint") throw new Error("Invalid VND amount");
     const digits = (amount < 0n ? -amount : amount).toString();
@@ -1014,7 +1025,8 @@ const SoKhachV7Model = (() => {
   // Một cột: mỗi dòng một giá, theo thứ tự. Hai cột có số container: ghép theo container (cột nào trước cũng được).
   // Dòng trống là bỏ qua (null), không phải 0; dòng cuối trống do Sheet thêm thì bỏ. Ô không đọc được thành số tiền > 0 thì lỗi kèm số dòng.
   const PASTE_CONTAINER = /^[A-Z]{4}\d{7}$/;
-  function parsePricePaste(text) {
+  // `read(raw)`: chữ một ô → chuỗi VND, hoặc null khi không đọc được.
+  function parsePaste(text, read) {
     const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
     const rows = lines.map((line, index) => {
@@ -1033,12 +1045,26 @@ const SoKhachV7Model = (() => {
       const container = mode === "container" && row.containerAt >= 0 ? row.cells[row.containerAt].replace(/\s+/g, "").toUpperCase() : null;
       const raw = others[0] ?? "";
       if (!raw) { out.push({ line: row.line, container, priceVnd: null }); continue; }
-      let value;
-      try { value = parseVnd(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { value = null; }
-      if (value === null || value <= 0n || value > 9223372036854775807n) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
-      out.push({ line: row.line, container, priceVnd: value.toString() });
+      const value = read(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, ""));
+      if (value === null) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
+      out.push({ line: row.line, container, priceVnd: value });
     }
     return { mode, rows: out, errors };
+  }
+  function parsePricePaste(text) {
+    return parsePaste(text, raw => {
+      let value;
+      try { value = parseVnd(raw); } catch { return null; }
+      return value <= 0n || value > 9223372036854775807n ? null : value.toString();
+    });
+  }
+  // Dán cột phụ phí riêng (PHU-PHI-01): như dán giá, đọc theo dấu của loại phí (Giảm trừ số âm). Ô 0 hay sai dấu là lỗi kèm số dòng.
+  function parseFeePaste(text, sign) {
+    return parsePaste(text, raw => {
+      let value;
+      try { value = parseFeeInput(raw, sign); } catch { return null; }
+      return value < -9223372036854775807n || value > 9223372036854775807n ? null : value.toString();
+    });
   }
 
   // Kế hoạch ghi từ chữ đã đọc. `order`: khóa dòng của bảng tháng từ dòng đang đứng trở xuống ("trip-11", "legacy-21").
@@ -1094,6 +1120,65 @@ const SoKhachV7Model = (() => {
     return { items, writes: finalWrites, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
   }
 
+  // Kế hoạch dán cột phụ phí riêng `typeId`: cùng cách chọn dòng và cùng luật bỏ qua như dán giá (chỉ chuyến web đã duyệt, có container,
+  // tháng mở). Mỗi chuyến một lệnh "đặt loại = số" (feeSet): mọi khoản cùng loại thay bằng số dán. Chuyến chưa có đơn giá chưa tính nợ
+  // nên nợ không đổi; chuyến có giá thì nợ đổi đúng phần chênh của loại đó.
+  function planFeePaste(parsed, snapshot, order = [], typeId) {
+    const trips = (snapshot?.trips ?? []).filter(trip => !trip.deleted);
+    const legacy = (snapshot?.legacy_rows ?? []).filter(row => row.kind !== "receipt");
+    const box = value => String(value ?? "").replace(/\s+/g, "").toUpperCase();
+    const items = parsed.rows.map((pasted, index) => {
+      const base = { line: pasted.line, amountVnd: pasted.priceVnd, container: pasted.container };
+      if (pasted.priceVnd === null) return { ...base, status: "empty" };
+      let kind, row;
+      if (parsed.mode === "container") {
+        const hits = [...trips.filter(trip => box(trip.container) === pasted.container).map(item => ["trip", item]),
+          ...legacy.filter(item => box(item.current?.container ?? item.display?.container) === pasted.container).map(item => ["legacy", item])];
+        if (hits.length !== 1) return { ...base, status: "skip", reason: hits.length ? "container có nhiều dòng trong sổ" : "không có trong sổ" };
+        [kind, row] = hits[0];
+      } else {
+        if (index >= order.length) return { ...base, status: "skip", reason: "thừa, hết chuyến trong bảng tháng" };
+        const key = order[index], dash = key.indexOf("-"), id = key.slice(dash + 1);
+        kind = key.slice(0, dash);
+        row = kind === "trip" ? trips.find(trip => String(trip.id) === id) : legacy.find(item => String(item.id) === id);
+      }
+      const info = { ...base, container: (kind === "trip" ? row?.container : row?.current?.container ?? row?.display?.container) || base.container,
+        date: kind === "trip" ? row?.event_date : row?.current?.event_date };
+      if (!row) return { ...info, status: "skip", reason: "không có trong sổ" };
+      if (kind === "legacy") return { ...info, status: "skip", reason: "dòng sổ gốc: sửa từng ô" };
+      if (row.status === "pending_review") return { ...info, status: "skip", reason: "chờ kiểm" };
+      if (row.status !== "confirmed") return { ...info, status: "skip", reason: "đã loại" };
+      if (row.is_fee_only || !row.container) return { ...info, status: "skip", reason: "dòng phí lẻ" };
+      if (row.editable !== true) return { ...info, status: "skip", reason: "tháng khóa" };
+      const oldVnd = feeCells(row.fee_lines, [typeId]).own[0];
+      const amount = vnd(pasted.priceVnd, true);
+      if (oldVnd === amount) return { ...info, status: "same", tripId: row.id };
+      const counted = row.unit_price_vnd != null;
+      return { ...info, status: "write", tripId: row.id, oldVnd, counted, deltaVnd: counted ? amount - (oldVnd ?? 0n) : 0n,
+        doubt: feeDoubt(amount), overwrite: oldVnd !== null };
+    });
+    const matched = items.filter(item => item.status === "write" || item.status === "same");
+    const seen = new Map();
+    for (const item of matched) seen.set(item.tripId, (seen.get(item.tripId) ?? 0) + 1);
+    for (const item of matched) if (seen.get(item.tripId) > 1) Object.assign(item, { status: "skip", reason: "dán hai lần cho cùng chuyến" });
+    const writes = items.filter(item => item.status === "write");
+    const beforeVnd = vnd(snapshot?.total_outstanding_vnd ?? "0", true);
+    const deltaVnd = writes.reduce((sum, item) => sum + item.deltaVnd, 0n);
+    return { items, writes, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
+  }
+
+  // GIA-BOOKING-01: gợi ý giá booking của một chuyến (`sheet_sync.booking_prices` của GET sổ). `unit` là đơn giá (đồng) khi máy
+  // đọc chắc được chữ; `fee` là phụ phí booking sẽ điền, chỉ khi chuyến chưa có phụ phí (đã có thì giữ). Chữ không đọc được: chỉ `text`.
+  // Dùng chung cho Việc cần làm và ô giá Sổ khách: chỉ là gợi ý, người bấm mới điền, vẫn phải lưu.
+  function bookingHint(ledger, row) {
+    const hint = ledger?.sheet_sync?.booking_prices?.[String(row?.id)];
+    const text = typeof hint?.text === "string" ? hint.text.trim() : "";
+    if (!text) return null;
+    const digits = value => typeof value === "string" && /^\d+$/.test(value);
+    if (!digits(hint.unit_price_vnd) || BigInt(hint.unit_price_vnd) <= 0n || !(hint.other_fee_vnd == null || digits(hint.other_fee_vnd))) return { text, unit: null, fee: null };
+    return { text, unit: hint.unit_price_vnd, fee: row.other_fee_vnd == null ? hint.other_fee_vnd ?? null : null };
+  }
+
   // NHAP-NHANH-01 (specs/nhap-nhanh-01.md): bản sổ đã vá theo một lệnh vừa gõ, để ô hiện ngay trong lúc lệnh còn ghi nền.
   // Không đổi bản gốc; lệnh có thể đổi tiền (đơn giá, phụ phí, ô *_vnd) thì dòng mang `saving: true` (ô Thành tiền hiện "…");
   // sửa chữ, ngày thì không. Không tính tiền: Thành tiền, số tổng tháng
@@ -1142,7 +1227,7 @@ const SoKhachV7Model = (() => {
     return done ? copy : null;
   }
 
-  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, MONEY_INPUT_HELP, readMoneyInput, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, MONEY_INPUT_HELP, readMoneyInput, priceDoubt, priceDoubtText, PRICE_LOW, PRICE_HIGH, feeDoubt, FEE_LOW, FEE_HIGH, parsePricePaste, planPricePaste, parseFeePaste, planFeePaste, bookingHint, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
