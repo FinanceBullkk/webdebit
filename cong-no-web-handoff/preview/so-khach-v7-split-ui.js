@@ -196,9 +196,18 @@
   async function openSplit(seed = {}) {
     if (!drawer || ctx.snapshot?.status !== 'active') return;
     if (!await acquire()) { paintElsewhere(); return; }
-    // Lần chia dở (đã gửi ít nhất một lệnh): trong bộ nhớ, hoặc lưu ở máy khi trang vừa tải lại hay đang ở sổ khác. Mở lại đúng
-    // bước kết quả với các khóa cũ, không bắt đầu lần chia mới (khóa mới sẽ ghi lần hai các sổ đã lưu).
-    if (!review) { const kept = restore(); if (kept) { review = kept; step = 'result'; } }
+    // Lần chia dở (đã gửi ít nhất một lệnh) lưu ở máy. Mỗi lần giữ được khung thì nạp lại từ bản lưu, bỏ bản trong bộ nhớ (review
+    // #679): lúc khung đóng, tab khác có thể đã sửa số (khóa mới) hay ghi xong; gửi theo bản trong bộ nhớ là gửi lại khóa cũ, thành phiếu
+    // thứ hai. Bản lưu trống mà tab này đã gửi thì lần chia đã xong hay đã bỏ ở nơi khác: không gửi gì, về khung mới.
+    if (!review || review.started) {
+      const mine = review?.started;
+      const kept = restore();
+      if (kept) { review = kept; step = 'result'; }
+      else if (mine) {
+        review = null; step = 'form';
+        showNotice('Lần chia nhiều sổ trước đã xong hay đã bỏ ở tab khác. Xem Bảng thu nếu cần kiểm phiếu đã ghi.');
+      }
+    }
     if (step === 'result' && review && !review.parts.every(done)) {
       if (!drawer.firstChild) drawer.innerHTML = formHtml();
       paintReview();

@@ -398,3 +398,75 @@ test('Review #679: bản lưu đúng cú pháp JSON mà sai kiểu (số tiền 
     await split(page).locator('.split-close').click();
   }
 }, setup));
+
+test('Review #679 lần 2: tab đầu đóng khung, tab sau sửa số rồi ghi; tab đầu mở lại nạp bản lưu, không gửi lại khóa cũ (cả khi bản lưu đã trống)', async () => withPage(async ({ page, world }) => {
+  const three = async tab => {
+    await tab.locator('.entry-open').click();
+    await tab.locator('.entry-drawer .receipt-date').fill(today);
+    await tab.locator('.entry-drawer .receipt-amount').fill('50.000.000');
+    await tab.locator('.entry-drawer .receipt-reference').fill('UNC 900');
+    await tab.locator('.entry-drawer .entry-split').click();
+    await tab.locator('.split-drawer .split-form').waitFor();
+    for (const name of ['hai', 'ba']) {
+      await tab.locator('.split-drawer .split-add').click();
+      await tab.locator('.split-drawer .split-search').fill(name);
+      await tab.locator('.split-drawer .split-search').press('Enter');
+    }
+    for (const [index, amount] of [[0, '20.000.000'], [1, '15.000.000'], [2, '15.000.000']]) await tab.locator(`.split-drawer .split-amount[data-index="${index}"]`).fill(amount);
+    await tab.locator('.split-drawer .split-next').click();
+    await tab.locator('.split-drawer .split-review').waitFor();
+  };
+  const reopen = async tab => {
+    await tab.locator('.entry-open').click();
+    await tab.locator('.entry-drawer .entry-split').click();
+    await tab.locator('.split-drawer').waitFor({ state: 'visible' });   // mở khung chờ khóa tab
+  };
+  // Lượt 1: tab A ghi được sổ đang mở, sổ Hai bị từ chối; A đóng, ghi sau.
+  await three(page);
+  world.books[2].failNext = { error: 'INVALID_RECEIPT', message: 'Phiếu không hợp lệ.' };
+  await split(page).locator('.split-save').click();
+  await split(page).locator('.split-review .split-st-error').waitFor();
+  await split(page).locator('.split-review .split-close').click();
+  await split(page).locator('.split-ask .split-stop').click();
+  // Tab B giữ khung, sửa số sổ Hai và Ba (khóa mới), ghi; sổ Ba lại bị từ chối nên bản lưu vẫn còn, cùng mã lần chia.
+  const other = await page.context().newPage();
+  await other.goto(page.url());
+  await other.locator('.book-head').waitFor();
+  await reopen(other);
+  await other.locator('.split-drawer .split-fix[data-index="1"]').fill('10.000.000');
+  await other.locator('.split-drawer .split-fix[data-index="2"]').fill('20.000.000');
+  world.books[3].failNext = { error: 'INVALID_RECEIPT', message: 'Phiếu không hợp lệ.' };
+  await other.locator('.split-drawer .split-save').click();
+  await other.locator('.split-drawer .split-lines li', { hasText: 'Khách Ba' }).locator('.split-st-error').waitFor();
+  await other.locator('.split-drawer .split-lines li', { hasText: 'Khách Hai' }).locator('.split-st-saved').waitFor();
+  await other.locator('.split-drawer .split-review .split-close').click();
+  await other.locator('.split-drawer .split-ask .split-stop').click();
+  // Tab A mở lại: thấy bản của B (Hai đã ghi 10 triệu), Ghi tiếp chỉ gửi sổ Ba bằng khóa của B.
+  await reopen(page);
+  const text = await split(page).locator('.split-review').innerText();
+  assert.match(text, /Khách Hai: 10\.000\.000[^\n]*Đã ghi/);
+  const sent = receiptPosts(world).length;
+  await split(page).locator('.split-save').click();
+  await split(page).waitFor({ state: 'hidden' });
+  await settled(page);
+  const posts = receiptPosts(world);
+  assert.deepEqual(posts.slice(sent).map(body => [body.customer_id, body.amount_vnd]), [[3, '20000000']]);
+  assert.deepEqual([world.books[2].receipts.map(body => body.amount_vnd), world.books[3].receipts.map(body => body.amount_vnd)], [['10000000'], ['20000000']]);
+  // Lượt 2 (bản lưu trống): A bỏ dở một lần chia mới, B ghi xong; A mở lại không gửi gì.
+  await three(page);
+  world.books[2].failNext = { error: 'INVALID_RECEIPT', message: 'Phiếu không hợp lệ.' };
+  await split(page).locator('.split-save').click();
+  await split(page).locator('.split-review .split-st-error').waitFor();
+  await split(page).locator('.split-review .split-close').click();
+  await split(page).locator('.split-ask .split-stop').click();
+  await reopen(other);
+  await other.locator('.split-drawer .split-save').click();
+  await other.locator('.split-drawer').waitFor({ state: 'hidden' });
+  const before = receiptPosts(world).length;
+  await reopen(page);
+  await split(page).locator('.split-form').waitFor();
+  assert.match(await page.locator('.cn-toast-text').innerText(), /đã xong hay đã bỏ ở tab khác/);
+  await settled(page);
+  assert.equal(receiptPosts(world).length, before, 'tab A không gửi lại');
+  await other.close();
+}, setup));
