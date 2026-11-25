@@ -2914,10 +2914,12 @@ Từng bước lùi độc lập, theo thứ tự ngược: `sudo rm /etc/webdeb
 
 ## Giữ tháng 11 mở ở sổ còn chuyến chưa giá (WEB-CHINH-01) — CHƯA CHẠY
 
-Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md) mục 5: từ 1/12/2026 giá và phụ phí tháng 11 nhập trễ phải gõ trên web, mà tháng không có cờ khóa thì hết tháng tự khóa ([`V7-SO`](decisions/v7-so.md)). Không đổi luật khóa, không đổi DB hay release: công cụ `cong-no-web-handoff/tools/v7_giu_mo_thang.py` gọi đúng lệnh ổ khóa của sổ (`set_month_lock`), mỗi lần một dòng Lịch sử "Mở khóa tháng"/"Khóa tháng" với người làm `giu-mo-thang`, như người bấm ổ khóa ([`V7-CSM`](decisions/v7-csm.md)).
+Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md) mục 5: từ 1/12/2026 giá và phụ phí tháng 11 nhập trễ phải gõ trên web, mà tháng không có cờ khóa thì hết tháng tự khóa ([`V7-SO`](decisions/v7-so.md)). Người dùng chốt 25/11/2026 "Mở sẵn T11": mở ở sổ còn chuyến chưa giá tới hết ngày 15/12/2026 rồi khóa lại; chạy thật từ tối 30/11, sau lượt chép Sheet cuối, không sớm hơn. Không đổi luật khóa, không đổi DB hay release: công cụ `cong-no-web-handoff/tools/v7_giu_mo_thang.py` gọi đúng lệnh ổ khóa của sổ (`set_month_lock`), mỗi lần một dòng Lịch sử "Mở khóa tháng"/"Khóa tháng" với người làm `giu-mo-thang`, như người bấm ổ khóa ([`V7-CSM`](decisions/v7-csm.md)).
 
-- `--open`: ghi cờ mở tháng ở sổ còn chuyến chưa giá (cùng luật `is_missing_price` của server, chuyến chờ kiểm không tính). Bỏ qua sổ đã mở, sổ đủ giá, và sổ mà người (không phải máy theo Sheet) đã chủ động khóa tháng đó.
-- `--relock`: khóa lại tháng mà lần đổi khóa gần nhất là của công cụ. Người đã mở hoặc khóa sau đó thì giữ ý người. In số chuyến còn chưa giá ở các sổ vừa khóa.
+- `--open`: ghi cờ mở tháng ở sổ còn việc cần tháng mở: chuyến đã duyệt chưa giá (luật `is_missing_price` của server), chuyến chờ kiểm, dòng sổ gốc là chuyến chưa có đơn giá (đo 25/11: hai loại sau đang là 0). Bỏ qua sổ đã mở, sổ đủ giá, sổ lưu trữ, và sổ mà người đã chủ động khóa tháng đó.
+- `--relock`: khóa lại tháng mà lựa chọn gần nhất là của công cụ. Người đã mở hoặc khóa sau đó thì giữ ý người; sổ người mở lại in ở `opened_by_other` để người xem. In số việc còn lại ở các sổ vừa khóa.
+- "Lựa chọn gần nhất" là lần mở/khóa gần nhất không phải của máy theo Sheet: máy mở–ghi–khóa trong một lượt, không phải ý ai. Người khóa rồi máy mở–ghi–khóa thì công cụ vẫn coi là người đã khóa.
+- Sổ đổi phiên bản giữa lúc đọc và ghi (người đang gõ, máy đang ghi): đọc lại, xét lại, thử tới 3 lần. Vẫn lỗi thì sổ nằm ở `error_books`, mã thoát 1, lượt timer sau chạy lại.
 - Không `--apply` thì chỉ đếm. Stdout chỉ có số đếm và id sổ. Lượt nền của máy theo Sheet chỉ khóa lại tháng chính nó mở (`machine_left_open`), không đụng tháng công cụ mở.
 
 Chạy thử chỉ đếm trên `hao` 25/11/2026 (mã nhánh, thư mục tạm): 24 sổ cần mở, 113 chuyến tháng 11 chưa giá, 226 sổ đủ giá, 0 lỗi, 30 giây.
@@ -2943,26 +2945,25 @@ ProtectHome=true
 TimeoutStartSec=600
 ```
 
-`/etc/systemd/system/webdebit-giu-mo-thang.timer` (lượt đầu sau lượt đối soát cuối 22:05 ngày 30/11; mỗi tối tới 14/12 để bắt chuyến tháng 11 vào sổ trễ):
+`/etc/systemd/system/webdebit-giu-mo-thang.timer` (lượt đầu sau lượt đối soát cuối 22:05 ngày 30/11; mỗi tối tới 15/12 để bắt chuyến tháng 11 vào sổ trễ). Không `Persistent`: máy tắt lỡ một lượt thì tối sau bù, và không có lượt chạy bù nào mở lại sổ sau lượt khóa 16/12:
 
 ```ini
 [Unit]
-Description=V7 giu thang 11 mo, 30/11 den 14/12
+Description=V7 giu thang 11 mo, 30/11 den 15/12
 
 [Timer]
 OnCalendar=2026-11-30 23:30:00 Asia/Ho_Chi_Minh
-OnCalendar=2026-12-01..14 23:30:00 Asia/Ho_Chi_Minh
-Persistent=true
+OnCalendar=2026-12-01..15 23:30:00 Asia/Ho_Chi_Minh
 
 [Install]
 WantedBy=timers.target
 ```
 
-`/etc/systemd/system/webdebit-khoa-lai-thang.service` giống service trên, khác `Description=V7 khoa lai thang 11 da giu mo (WEB-CHINH-01)` và `ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --relock --apply`; `webdebit-khoa-lai-thang.timer` có một dòng `OnCalendar=2026-12-15 00:30:00 Asia/Ho_Chi_Minh`, `Persistent=true`.
+`/etc/systemd/system/webdebit-khoa-lai-thang.service` giống service trên, khác `Description=V7 khoa lai thang 11 da giu mo (WEB-CHINH-01)` và `ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --relock --apply`; `webdebit-khoa-lai-thang.timer` có `OnCalendar=2026-12-16..18 00:30:00 Asia/Ho_Chi_Minh`, `Persistent=true`: tháng mở hết ngày 15/12; lượt 17 và 18/12 khóa nốt sổ lượt trước lỗi (chạy lại an toàn: sổ đã khóa thì bỏ qua).
 
 1. **Chạy thử trên `hao`:** `sudo systemd-run --wait --pipe --quiet -p User=v7app /usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --open`. Đạt khi `errors` rỗng, `to_write` là các sổ Việc cần làm báo chưa giá tháng 11.
-2. **Đặt bốn unit:** `systemd-analyze verify` cả bốn, `daemon-reload`, `systemctl enable --now webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`. Kiểm `systemctl list-timers` có hai lượt kế: 30/11 23:30 và 15/12 00:30 giờ VN.
+2. **Đặt bốn unit:** `systemd-analyze verify` cả bốn, `daemon-reload`, `systemctl enable --now webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`. Kiểm `systemctl list-timers` có hai lượt kế: 30/11 23:30 và 16/12 00:30 giờ VN. Nhật ký trong `deploys/` ghi lời chốt của người dùng.
 3. **Sau lượt 30/11:** journal in `written` bằng `to_write`; ở một sổ trong danh sách, Lịch sử có "Mở khóa tháng 11/2026" của `giu-mo-thang`; sáng 1/12 ô giá tháng 11 ở sổ đó sửa được, còn sổ đủ giá thì tháng 11 khóa như mọi tháng cũ. Số dư 250 sổ không đổi (mở/khóa không ghi tiền).
-4. **Sau lượt 15/12:** journal in `written` bằng số sổ còn mở do công cụ; `unpriced_trips` là số chuyến còn chưa giá, người nhập mở khóa từng sổ nếu cần. Rồi `systemctl disable webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`.
+4. **Sau lượt 16/12:** journal in `written` bằng số sổ còn mở do công cụ, `error_books` rỗng (lượt 17, 18/12 khóa nốt nếu không). `unpriced_trips` là số việc còn lại, người nhập mở khóa từng sổ nếu cần. Sổ ở `opened_by_other` là sổ người mở lại sau công cụ: báo người dùng để xem có cần khóa không, công cụ không tự khóa. Sau lượt 18/12, `systemctl disable webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`.
 
 Lùi lại: `systemctl disable --now` hai timer; khóa lại ngay thì chạy service khóa lại (`systemctl start webdebit-khoa-lai-thang.service`). Cờ đã ghi chỉ là cờ mở/khóa, không có tiền phải hoàn.
