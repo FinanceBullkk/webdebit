@@ -43,14 +43,14 @@ Việc khác phải làm trước khi khóa Sheet (phiên kiểm toàn bộ webs
 Sửa 25/11/2026 theo phiên kiểm toàn bộ website, Claude đã đối chiếu mã trên `main`. Câu cũ "tắt `WEBDEBIT_AUTO_SHEET`" là sai. Cờ đó điều khiển cả việc tự dán chuyến từ booking, mà booking vẫn là nguồn chuyến. Vì vậy chỉ tắt phần lấy từ Sheet sổ nợ:
 
 1. **Cờ `WEBDEBIT_AUTO_SHEET`:**
-   - bỏ `prices`, `ps`, `headers`;
-   - **giữ `trips`, `road`**: chuyến biển `CONT_NGUON` và chuyến bộ `CONT_BO` tự vào sổ;
-   - `text` (chữ nơi đi, nơi đến…) xét theo nguồn: nếu chép từ tab Sheet sổ nợ thì bỏ.
+   - bỏ `prices`, `headers`;
+   - **giữ `trips`, `road`, `ps`, `text`**. Chuyến biển `CONT_NGUON` và chuyến bộ `CONT_BO` vẫn tự vào sổ. Bảng PS đọc từ bộ lập bill CHAU_HAO, chữ nơi đi/nơi đến đọc từ `CONT_NGUON`. Cả bốn không phải Sheet sổ nợ. Phiên đổi máy kiểm lại 25/11.
 2. **Lượt đối soát mỗi giờ:**
    - thôi ghi theo Sheet và thôi so Sheet, kéo theo `KIEM-TONG-01` và `MAY-TAO-SO-01`;
    - phép so sổ web với booking ([`DU-CHUYEN-01`](du-chuyen-01.md)) đang chạy trong lượt này, sau bước tải bản xlsx Sheet. Phải tách ra chạy riêng từ bản chụp booking và DB **trước** khi tắt lượt, không thì mất lưới booking.
 3. **Bản chụp:**
    - runner bản chụp vẫn đọc CHAU_HAO;
+   - runner giá của Sheet sổ nợ phải `mask`, không chỉ dừng: nút "Làm mới" kéo nó chạy lại qua `Wants=`;
    - bản chụp giá của Sheet sổ nợ đang là lịch sử tab để xếp chuyến bộ vào sổ. Thiếu file thì mọi chuyến bộ thành `NO_TAB`. Phải đóng băng file đó, hoặc thêm dự phòng như đường của thẻ Khách, trước khi thôi đọc tab.
 4. **Máy canh ([`CANH-BAO-01`](canh-bao-01.md)):** sửa cùng lúc danh sách timer tiền, danh sách bản chụp và cờ phải có, không thì báo động giả.
 5. **Trước 1/12:**
@@ -60,6 +60,8 @@ Sửa 25/11/2026 theo phiên kiểm toàn bộ website, Claude đã đối chi�
    - gợi ý giá booking ([`GIA-BOOKING-01`](gia-booking-01.md)) và danh sách "Chưa giá" mọi sổ hiện chỉ có ở trang Việc cần làm, mà login người dùng ([`QUYEN-01`](quyen-01.md)) không vào được trang này. Phải đưa gợi ý vào ô giá của Sổ khách, hoặc mở trang cho người dùng;
    - chữ còn coi Sheet là nơi ghi giá ("chờ Sheet ghi giá", "Lấy giá Sheet", "Máy tự tách ở lượt chạy sau") phải đổi; ô giá trống nên ghi rõ là chưa có giá.
 6. **Phiếu chỉ ghi trên web:** máy đối soát coi đó là sổ lệch, quá ngưỡng thì dừng ghi cả lượt và gửi email. Từ nay tới 30/11, phiếu người nhập thử trên web làm lệch là đúng dự kiến, không phải lỗi.
+
+Mã và runbook cho các bước trên: ThienThanhLogs/webdebit#663 (chỉ thêm, không đè), ThienThanhLogs/webdebit#665 (`--booking-only`, dự phòng bản chụp giá, công tắc máy canh, runbook 7 bước trong [runbook triển khai](../v7-deploy-runbook.md)). Tên chủ hàng → sổ chuyến bộ đã ghi trên `hao` 25/11, nhật ký `docs/deploys/2026-11-25-ten-chu-hang.md`.
 
 CÒN MỞ:
 
