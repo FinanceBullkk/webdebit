@@ -12,7 +12,14 @@ Từ 1/12/2026 mọi phiếu thu nhập trên web ([`WEB-CHINH-01`](web-chinh-01
    - bước xem lại ghi rõ "(ngày tượng trưng)". Biết ngày thật sau thì sửa ngày ở dòng phiếu như phiếu thường.
    Cấn trừ cần ngày cụ thể: hình thức CẤN TRỪ không đi cùng "Không rõ ngày trả".
 
-Các mục sau (một lần chuyển chia nhiều sổ, dán nhiều phiếu một lần, ghi phiếu từ ảnh Thu chi) thêm vào file này theo từng PR.
+2. **Một lần chuyển cho nhiều sổ.** Nút "Chia cho nhiều sổ…" của khung mở khung riêng, mang sẵn chữ đang gõ. Người nhập ngày, hình thức (trừ CẤN TRỪ), tổng tiền khách chuyển, tham chiếu, rồi chia: sổ đang mở đứng đầu, thêm sổ đang hoạt động bằng ô tìm (sổ lưu trữ, sổ đã có trong danh sách không hiện).
+   - **Chặn ở trang** khi tổng các phần khác tổng chuyển (nói rõ còn thiếu hay thừa bao nhiêu), phần trống hay 0 đ, một sổ hai lần, ít hơn hai sổ, ngày sau hôm nay.
+   - **Mỗi phần là một phiếu riêng ở sổ đó**: một lệnh `record_receipt` mỗi sổ như phiếu thường (FIFO trong sổ đó, người làm, Lịch sử), cùng ngày, hình thức và tham chiếu. Khóa chống ghi trùng riêng từng sổ, đặt lúc xem lại.
+   - **Không có giao dịch chung nhiều sổ** (không thêm hàm SQL, không đổi đường ghi tiền). Trang gửi lần lượt; lệnh lỗi thì dừng, bước xem lại ghi từng sổ "Đã ghi PH-…", "Không ghi được" kèm câu của máy chủ, "Chưa rõ đã lưu" hay "Chưa ghi". "Ghi tiếp" chỉ gửi phần chưa ghi, bằng đúng khóa cũ, nên phần máy chủ đã lưu mà trang chưa nhận được không thành hai phiếu. Sổ đổi từ lúc xem lại thì trang đọc phiên bản mới và gửi lại một lần cùng khóa.
+   - Bước xem lại hiện còn nợ trước → sau của từng sổ, và **cảnh báo** (không chặn) khi tham chiếu đã có ở phiếu web khác trong tháng của ngày trả, đọc từ Bảng thu. Hai lần chuyển cùng chữ "CK" là thường, nên chỉ hỏi người.
+   - Phiếu không rõ ngày không đi đường này: chia nhiều sổ cần ngày cụ thể.
+
+Các mục sau (dán nhiều phiếu một lần, ghi phiếu từ ảnh Thu chi) thêm vào file này theo từng PR.
 
 ## Ngày / nguồn
 
@@ -20,4 +27,4 @@ Các mục sau (một lần chuyển chia nhiều sổ, dán nhiều phiếu m�
 
 ## Hiệu lực và giới hạn
 
-ĐỀ XUẤT của Claude trong phạm vi việc được giao; mục 1 không đổi DB, API hay quyền. ĐÃ KIỂM CHỨNG bằng test trang (`test-cong-no-format.js`, `test-so-khach-v7-entry-browser.js`) và unittest `test_v7_sheet_fix.py`. Người nhập đi thử trên `hao` là bước còn lại.
+ĐỀ XUẤT của Claude trong phạm vi việc được giao; mục 1 và 2 không đổi DB, API hay quyền. ĐÃ KIỂM CHỨNG bằng test trang (`test-cong-no-format.js`, `test-so-khach-v7-model.js`, `test-so-khach-v7-entry-browser.js`, `test-so-khach-v7-split-browser.js`) và unittest `test_v7_sheet_fix.py`. Người nhập đi thử trên `hao` là bước còn lại.

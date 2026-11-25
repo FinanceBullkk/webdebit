@@ -130,6 +130,21 @@ function applyFee(world, url, body) {
   return [200, { ok: true, version: world.version }];   // như _change_trip_fees → _finish_command
 }
 
+// Phiếu ghi vào sổ khác (PHIEU-WEB-01 mục 2): giữ khóa chống trùng như _begin_command (cùng khóa trả kết quả cũ), sai phiên bản
+// thì STALE_LEDGER; book.failNext / book.dropNext (mất mạng: máy chủ đã lưu mà trang không nhận được) do test đặt.
+function applyBook(book, body) {
+  book.keys ??= new Map();
+  if (book.keys.has(body.idempotency_key)) return [200, book.keys.get(body.idempotency_key)];
+  if (book.failNext) { const fail = book.failNext; book.failNext = null; return [422, fail]; }
+  if (body.expected_version !== book.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi.' }];
+  (book.receipts ??= []).push(body);
+  book.version += 1;
+  const result = { pid: `PH-B${book.receipts.length}`, version: book.version };
+  book.keys.set(body.idempotency_key, result);
+  if (book.dropNext) { book.dropNext = false; return [503, { error: 'RESULT_UNKNOWN', message: 'Chưa rõ kết quả.' }]; }
+  return [200, result];
+}
+
 function apply(world, url, body) {
   const fail = world.failNext;
   if (fail) { world.failNext = null; return [422, fail]; }
@@ -389,6 +404,14 @@ async function withPage(fn, setup = () => {}) {
       });
       return;
     }
+    // PHIEU-WEB-01 mục 2: sổ khác do test đặt (world.books, khóa là mã sổ: { version, total }) cho một lần chuyển chia nhiều sổ;
+    // Bảng thu giả (world.receiptBook) để cảnh báo tham chiếu đã dùng ở sổ khác.
+    const otherBook = world.books?.[url.searchParams.get('customer')];
+    if (url.pathname === '/api/v7/ledger' && otherBook) {
+      send(200, { customer_id: Number(url.searchParams.get('customer')), version: otherBook.version, status: otherBook.status ?? 'active', total_outstanding_vnd: otherBook.total });
+      return;
+    }
+    if (url.pathname === '/api/v7/receipt-book') { (world.bookReads ??= []).push(url.search); send(200, world.receiptBook ?? { days: [], undated: [] }); return; }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
     // MO-SO-NHANH-02: Lịch sử đọc riêng như server thật. world.eventsFail: lỗi một lần để thử nút Thử lại.
     if (url.pathname === '/api/v7/ledger/events') {
@@ -466,7 +489,8 @@ async function withPage(fn, setup = () => {}) {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         // NHAP-NHANH-01: WEBDEBIT_TEST_WRITE_DELAY_MS=<ms> làm mọi lệnh ghi tới máy chủ giả chậm như runner CI chậm, để lộ
         // test còn đọc world.requests trước khi hàng đợi ghi nền gửi hết (chạy: set biến rồi npm run test:browser).
-        const run = () => { world.requests.push({ path: url.pathname, body }); send(...apply(world, url.pathname, body)); };
+        const book = url.pathname === '/api/v7/receipts' ? world.books?.[body.customer_id] : null;
+        const run = () => { world.requests.push({ path: url.pathname, body }); send(...(book ? applyBook(book, body) : apply(world, url.pathname, body))); };
         if (WRITE_DELAY) setTimeout(run, WRITE_DELAY); else run();
       });
       return;
