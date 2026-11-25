@@ -202,6 +202,17 @@ test('QUYEN-01 + WEB-CHINH-01: người dùng không có link sang Việc cần 
     ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
 }));
 
+test('WEB-CHINH-01: danh sách chưa giá nhiều sổ xếp theo hàng, cuộn dọc, không tràn ngang (25 sổ như hao 25/11)', async () => withDashboard({ role: 'user',
+  payload: { ...dashboard, todo: { ...dashboard.todo, missing_price: Array.from({ length: 25 }, (_, i) => ({ customer_id: 100 + i, name: `Sổ thử có tên khá dài số ${i + 1}`, count: 30 - i })) } } }, async page => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator('button#missing-price').click();
+  const box = await page.locator('#missing-list ul').evaluate(ul => ({ items: ul.children.length, wide: ul.scrollWidth - ul.clientWidth, tall: ul.scrollHeight > ul.clientHeight }));
+  assert.equal(box.items, 25);
+  assert.ok(box.wide <= 0, `không tràn ngang (${box.wide}px)`);
+  assert.equal(box.tall, true, 'dài thì cuộn dọc trong khung');
+  assert.equal(await page.locator('#missing-list li').first().locator('span').innerText(), '30 chuyến', 'nhiều chuyến đứng đầu');
+}));
+
 test('Tổng quan không có khách đang nợ: không bịa số', async () => withDashboard({
   payload: { ...dashboard, receivable: { total_vnd: '0', customers: 0 }, credit: { total_vnd: '0', customers: 0 }, todo: { missing_price: [], pending_review: [], no_baseline: [], credit: [] } },
   debtPayload: { ...debt, receivable_vnd: '0', customers: [], due_tiers: debt.due_tiers.map(t => ({ ...t, receivable_vnd: '0' })),

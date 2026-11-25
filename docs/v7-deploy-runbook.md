@@ -2989,6 +2989,8 @@ Từng bước lùi độc lập, theo thứ tự ngược: `sudo rm /etc/webdeb
 
 ## Giữ tháng 11 mở ở sổ còn chuyến chưa giá (WEB-CHINH-01) — CHƯA CHẠY
 
+Lịch đã đặt trên `hao` 25/11/2026, chưa lượt ghi nào chạy: [nhật ký](deploys/2026-11-25-giu-mo-thang-11.md). Tiêu đề giữ "CHƯA CHẠY" để link cũ không gãy, tới lượt 30/11.
+
 Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md) mục 5: từ 1/12/2026 giá và phụ phí tháng 11 nhập trễ phải gõ trên web, mà tháng không có cờ khóa thì hết tháng tự khóa ([`V7-SO`](decisions/v7-so.md)). Người dùng chốt 25/11/2026 "Mở sẵn T11": mở ở sổ còn chuyến chưa giá tới hết ngày 15/12/2026 rồi khóa lại; chạy thật từ tối 30/11, sau lượt chép Sheet cuối, không sớm hơn. Không đổi luật khóa, không đổi DB hay release: công cụ `cong-no-web-handoff/tools/v7_giu_mo_thang.py` gọi đúng lệnh ổ khóa của sổ (`set_month_lock`), mỗi lần một dòng Lịch sử "Mở khóa tháng"/"Khóa tháng" với người làm `giu-mo-thang`, như người bấm ổ khóa ([`V7-CSM`](decisions/v7-csm.md)).
 
 - `--open`: ghi cờ mở tháng ở sổ còn việc cần tháng mở: chuyến đã duyệt chưa giá (luật `is_missing_price` của server), chuyến chờ kiểm, dòng sổ gốc là chuyến chưa có đơn giá (đo 25/11: hai loại sau đang là 0). Bỏ qua sổ đã mở, sổ đủ giá, sổ lưu trữ, và sổ mà người đã chủ động khóa tháng đó.
