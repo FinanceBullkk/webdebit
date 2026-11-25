@@ -1025,7 +1025,7 @@ const SoKhachV7Model = (() => {
   // Một cột: mỗi dòng một giá, theo thứ tự. Hai cột có số container: ghép theo container (cột nào trước cũng được).
   // Dòng trống là bỏ qua (null), không phải 0; dòng cuối trống do Sheet thêm thì bỏ. Ô không đọc được thành số tiền > 0 thì lỗi kèm số dòng.
   const PASTE_CONTAINER = /^[A-Z]{4}\d{7}$/;
-  // `read(raw)`: chữ một ô → chuỗi VND, hoặc null khi không đọc được.
+  // `read(raw)`: chữ một ô → chuỗi VND; null khi không đọc được; ném Error khi có câu riêng cho ô đó (ví dụ sai dấu phụ phí).
   function parsePaste(text, read) {
     const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
@@ -1045,7 +1045,9 @@ const SoKhachV7Model = (() => {
       const container = mode === "container" && row.containerAt >= 0 ? row.cells[row.containerAt].replace(/\s+/g, "").toUpperCase() : null;
       const raw = others[0] ?? "";
       if (!raw) { out.push({ line: row.line, container, priceVnd: null }); continue; }
-      const value = read(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, ""));
+      let value;
+      try { value = read(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); }
+      catch (problem) { errors.push(`Dòng ${row.line}: “${raw}”: ${problem.message}.`); continue; }
       if (value === null) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
       out.push({ line: row.line, container, priceVnd: value });
     }
@@ -1062,7 +1064,8 @@ const SoKhachV7Model = (() => {
   function parseFeePaste(text, sign) {
     return parsePaste(text, raw => {
       let value;
-      try { value = parseFeeInput(raw, sign); } catch { return null; }
+      try { value = parseFeeInput(raw, sign); }
+      catch (problem) { if (/nhập số (âm|dương)/.test(problem.message)) throw problem; return null; }   // sai dấu: nói đúng lỗi
       return value < -9223372036854775807n || value > 9223372036854775807n ? null : value.toString();
     });
   }
