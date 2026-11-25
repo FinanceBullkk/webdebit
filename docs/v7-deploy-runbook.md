@@ -2910,4 +2910,59 @@ Từng bước lùi độc lập, theo thứ tự ngược: `sudo rm /etc/webdeb
 
 - Audit chuyển hẳn (`v7_cutover_audit.py`) vẫn đọc `reconcile.json` nếu ai chạy tay: sau 1/12 thôi dùng lệnh này (WEB-CHINH-01).
 - Chuyến bộ có chủ hàng mới (chưa có tên gán trên web) sau 1/12 nằm ở "chờ tab" mãi: cần nút chọn sổ (`AMBIGUOUS_TAB` / `TAB_FAR` / `NO_TAB`), thuộc phiên kiểm đường nhập web.
-- Tháng 11 tự khóa ngày 1/12 (WEB-CHINH-01 mục 5): cách xử lý chờ người dùng chọn.
+- Tháng 11 tự khóa ngày 1/12 (WEB-CHINH-01 mục 5): xem mục [Giữ tháng 11 mở ở sổ còn chuyến chưa giá](#giữ-tháng-11-mở-ở-sổ-còn-chuyến-chưa-giá-web-chinh-01--chưa-chạy).
+
+## Giữ tháng 11 mở ở sổ còn chuyến chưa giá (WEB-CHINH-01) — CHƯA CHẠY
+
+Theo [`WEB-CHINH-01`](decisions/web-chinh-01.md) mục 5: từ 1/12/2026 giá và phụ phí tháng 11 nhập trễ phải gõ trên web, mà tháng không có cờ khóa thì hết tháng tự khóa ([`V7-SO`](decisions/v7-so.md)). Không đổi luật khóa, không đổi DB hay release: công cụ `cong-no-web-handoff/tools/v7_giu_mo_thang.py` gọi đúng lệnh ổ khóa của sổ (`set_month_lock`), mỗi lần một dòng Lịch sử "Mở khóa tháng"/"Khóa tháng" với người làm `giu-mo-thang`, như người bấm ổ khóa ([`V7-CSM`](decisions/v7-csm.md)).
+
+- `--open`: ghi cờ mở tháng ở sổ còn chuyến chưa giá (cùng luật `is_missing_price` của server, chuyến chờ kiểm không tính). Bỏ qua sổ đã mở, sổ đủ giá, và sổ mà người (không phải máy theo Sheet) đã chủ động khóa tháng đó.
+- `--relock`: khóa lại tháng mà lần đổi khóa gần nhất là của công cụ. Người đã mở hoặc khóa sau đó thì giữ ý người. In số chuyến còn chưa giá ở các sổ vừa khóa.
+- Không `--apply` thì chỉ đếm. Stdout chỉ có số đếm và id sổ. Lượt nền của máy theo Sheet chỉ khóa lại tháng chính nó mở (`machine_left_open`), không đụng tháng công cụ mở.
+
+Chạy thử chỉ đếm trên `hao` 25/11/2026 (mã nhánh, thư mục tạm): 24 sổ cần mở, 113 chuyến tháng 11 chưa giá, 226 sổ đủ giá, 0 lỗi, 30 giây.
+
+`/etc/systemd/system/webdebit-giu-mo-thang.service`:
+
+```ini
+[Unit]
+Description=V7 giu thang 11 mo o so con chuyen chua gia (WEB-CHINH-01)
+After=postgresql@18-main.service
+
+[Service]
+Type=oneshot
+User=v7app
+Group=v7app
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/v7/auto-releases/current
+ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --open --apply
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+TimeoutStartSec=600
+```
+
+`/etc/systemd/system/webdebit-giu-mo-thang.timer` (lượt đầu sau lượt đối soát cuối 22:05 ngày 30/11; mỗi tối tới 14/12 để bắt chuyến tháng 11 vào sổ trễ):
+
+```ini
+[Unit]
+Description=V7 giu thang 11 mo, 30/11 den 14/12
+
+[Timer]
+OnCalendar=2026-11-30 23:30:00 Asia/Ho_Chi_Minh
+OnCalendar=2026-12-01..14 23:30:00 Asia/Ho_Chi_Minh
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+`/etc/systemd/system/webdebit-khoa-lai-thang.service` giống service trên, khác `Description=V7 khoa lai thang 11 da giu mo (WEB-CHINH-01)` và `ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --relock --apply`; `webdebit-khoa-lai-thang.timer` có một dòng `OnCalendar=2026-12-15 00:30:00 Asia/Ho_Chi_Minh`, `Persistent=true`.
+
+1. **Chạy thử trên `hao`:** `sudo systemd-run --wait --pipe --quiet -p User=v7app /usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_giu_mo_thang.py --month 2026-11 --open`. Đạt khi `errors` rỗng, `to_write` là các sổ Việc cần làm báo chưa giá tháng 11.
+2. **Đặt bốn unit:** `systemd-analyze verify` cả bốn, `daemon-reload`, `systemctl enable --now webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`. Kiểm `systemctl list-timers` có hai lượt kế: 30/11 23:30 và 15/12 00:30 giờ VN.
+3. **Sau lượt 30/11:** journal in `written` bằng `to_write`; ở một sổ trong danh sách, Lịch sử có "Mở khóa tháng 11/2026" của `giu-mo-thang`; sáng 1/12 ô giá tháng 11 ở sổ đó sửa được, còn sổ đủ giá thì tháng 11 khóa như mọi tháng cũ. Số dư 250 sổ không đổi (mở/khóa không ghi tiền).
+4. **Sau lượt 15/12:** journal in `written` bằng số sổ còn mở do công cụ; `unpriced_trips` là số chuyến còn chưa giá, người nhập mở khóa từng sổ nếu cần. Rồi `systemctl disable webdebit-giu-mo-thang.timer webdebit-khoa-lai-thang.timer`.
+
+Lùi lại: `systemctl disable --now` hai timer; khóa lại ngay thì chạy service khóa lại (`systemctl start webdebit-khoa-lai-thang.service`). Cờ đã ghi chỉ là cờ mở/khóa, không có tiền phải hoàn.
