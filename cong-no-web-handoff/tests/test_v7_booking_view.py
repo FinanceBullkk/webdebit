@@ -182,17 +182,18 @@ def missing(cont, day, book=7, code="THANG_CUOI"):
             "suggest": {"tab": "SO GIA", "customer_id": book}}
 
 
+BOOK_LEDGER = {"customer_id": 7,
+               "trips": [{"container": "HAVU1000001", "event_date": "2026-11-05", "month": "2026-11-01"},
+                         {"container": "REJU1000003", "event_date": "2026-11-09", "month": "2026-11-01", "status": "rejected"},
+                         {"container": "DELU1000004", "event_date": "2026-11-10", "month": "2026-11-01", "deleted": True}],
+               "legacy_rows": [{"kind": "trip", "month": "2026-10-01", "current": {"container": "OLDU1000005", "event_date": None, "month": "2026-10-01"}}]}
+
+
 class BookMissingTests(unittest.TestCase):
     """DONG-MO-BOOKING-01: chuyến booking sổ này chưa có thành dòng mờ; bỏ chuyến sổ nay đã có, không đoán khi file hỏng."""
 
-    LEDGER = {"customer_id": 7,
-              "trips": [{"container": "HAVU1000001", "event_date": "2026-11-05", "month": "2026-11-01"},
-                        {"container": "REJU1000003", "event_date": "2026-11-09", "month": "2026-11-01", "status": "rejected"},
-                        {"container": "DELU1000004", "event_date": "2026-11-10", "month": "2026-11-01", "deleted": True}],
-              "legacy_rows": [{"kind": "trip", "month": "2026-10-01", "current": {"container": "OLDU1000005", "event_date": None, "month": "2026-10-01"}}]}
-
     def result(self, *rows, checked="2026-11-25T15:05:00+07:00"):
-        return view.book_missing(self.LEDGER, {"checked_at": checked, "rows": list(rows)})
+        return view.book_missing(BOOK_LEDGER, {"checked_at": checked, "rows": list(rows)})
 
     def test_only_this_book_and_only_trips_still_missing(self):
         body = self.result(
@@ -210,7 +211,7 @@ class BookMissingTests(unittest.TestCase):
 
     def test_no_or_broken_file_draws_nothing(self):
         for data in (None, {}, {"checked_at": "x", "rows": []}, {"checked_at": "2026-11-25T15:05:00+07:00", "rows": None}):
-            self.assertEqual(view.book_missing(self.LEDGER, data), {"unavailable": True, "items": []})
+            self.assertEqual(view.book_missing(BOOK_LEDGER, data), {"unavailable": True, "items": []})
         with tempfile.TemporaryDirectory() as folder:
             self.assertIsNone(view.load_web(Path(folder) / "booking-web.json"))
             (Path(folder) / "booking-web.json").write_text("[1]", encoding="utf-8")
