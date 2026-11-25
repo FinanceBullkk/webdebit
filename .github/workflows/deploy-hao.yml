@@ -1,11 +1,18 @@
 name: Deploy hao
 
-# Deploy chỉ chạy sau Tests xanh trên đúng SHA của main.
+# Deploy chỉ chạy sau Tests xanh trên đúng SHA của main. Hai đường (MERGE-QUEUE-01):
+# - push vào main: deploy ngay nếu merge queue đã chạy Tests xanh trên chính SHA này (sự kiện merge_group);
+#   commit hàng đợi đẩy lên main là commit đã kiểm, không chờ lượt Tests chạy lại thêm ~10 phút.
+# - workflow_run: sau lượt Tests trên push main (đường cũ, và đường dự phòng khi đường push lỗi hoặc không qua hàng đợi).
+# Hai đường cùng SHA không deploy hai lần (bước kiểm diff bỏ qua khi hao đã chạy SHA đó) và không deploy lùi
+# (bỏ qua khi SHA là tổ tiên của bản đang chạy).
 # GitHub-hosted runner vào tailnet bằng Tailscale; production `hao` chỉ nhận release qua forced-command SSH.
 # Chỉ đổi release app. Migration/SQL/loader bị chặn ở bước kiểm diff và phải theo gate thủ công.
 # Environment `hao` không có người duyệt (người dùng bỏ 28/10/2026, dự án một người làm); chỉ giữ luật nhánh main.
 # Cài đặt: docs/hao-auto-deploy.md.
 on:
+  push:
+    branches: [main]
   workflow_run:
     workflows: [Tests]
     types: [completed]
@@ -24,13 +31,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Đường push chỉ đi tiếp khi lượt Tests của merge queue trên đúng SHA này đã xanh. Job này không có secret.
+  queue-checked:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      ok: ${{ steps.q.outputs.ok }}
+    steps:
+      - id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          n=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA&event=merge_group&status=success" \
+                --jq '[.workflow_runs[] | select(.name == "Tests")] | length')
+          echo "Lượt Tests merge_group xanh trên $SHA: $n"
+          if [[ $n -gt 0 ]]; then echo "ok=1" >> "$GITHUB_OUTPUT"
+          else echo "Không qua hàng đợi: chờ đường workflow_run sau lượt Tests trên main"; echo "ok=0" >> "$GITHUB_OUTPUT"; fi
+
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main')
+    needs: queue-checked
+    if: >-
+      always() && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && needs.queue-checked.outputs.ok == '1') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: hao
     env:
-      SHA: ${{ github.event.inputs.sha || github.event.workflow_run.head_sha }}
+      SHA: ${{ github.event.inputs.sha || github.event.workflow_run.head_sha || github.sha }}
+      EVENT: ${{ github.event_name }}
       SSH_TARGET: ${{ secrets.HAO_SSH_USER }}@${{ vars.HAO_SSH_HOST }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,6 +108,9 @@ jobs:
           [[ $prev == "$SHA" ]] && { echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; }
           [[ $prev =~ ^[0-9a-f]{40}$ ]] || { echo "hao chưa có release dạng SHA: cần chuyển thủ công lần đầu"; exit 1; }
           git cat-file -e "$prev^{commit}" || { echo "không thấy $prev trong lịch sử"; exit 1; }
+          if [[ $EVENT != workflow_dispatch ]] && git merge-base --is-ancestor "$SHA" "$prev"; then
+            echo "$SHA cũ hơn bản đang chạy, không deploy lùi"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           changed=$(git diff --name-only "$prev" "$SHA")
           if grep -E '^specs/v7-backend/|^cong-no-web-handoff/tools/migrations/|\.sql$|^cong-no-web-handoff/tools/v7_load' <<< "$changed"; then
             echo "::error::Diff có migration/SQL/loader/deploy: cần gate thủ công, không tự động"; exit 1
@@ -100,7 +139,7 @@ jobs:
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
         run: |
           if [[ $DIFF_OUTCOME == failure ]]; then kq="DỪNG ở kiểm diff (gate SQL/migration hoặc thiếu mốc): triển khai tay theo runbook"
-          elif [[ $SKIP == 1 ]]; then kq="BỎ QUA: không đổi mã app hoặc đã chạy đúng SHA"
+          elif [[ $SKIP == 1 ]]; then kq="BỎ QUA: không đổi mã app, đã chạy đúng SHA hoặc SHA cũ hơn bản đang chạy"
           elif [[ $DEPLOY_OUTCOME == success ]]; then kq="ĐÃ TRIỂN KHAI lên hao, kiểm sống đạt"
           else kq="LỖI khi triển khai ($DEPLOY_OUTCOME); script trên hao tự quay lại bản trước nếu kiểm sống lỗi"; fi
           {
