@@ -77,7 +77,8 @@
       for (const key of conflictSelection) if (!available.has(key)) conflictSelection.delete(key);
       if (priceView === 'conflict-confirm' && !conflictSelection.size) priceView = 'review';
       if (!review.length && priceView === 'review') priceView = null;
-      const strip = review.length ? `<div class="price-strip">Giá từ Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
+      // SK-N2: nói rõ khác "chờ điền giá" của bảng giá — đây là giá Sheet máy không tự ghi được (lệch web, tháng khóa, nhiều chuyến…).
+      const strip = review.length ? `<div class="price-strip">Giá Sheet chưa ghi được: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
       // SO-GON-06: dải "cần xem" là một ô trong thanh việc; khung mở ra nằm ngay dưới thanh.
       root.querySelector('.book-tasks')?.insertAdjacentHTML('afterbegin', newStrip(data, active));
       root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', strip);

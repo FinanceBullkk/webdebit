@@ -404,7 +404,7 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày
   const sept = await payRows(page, '2026-09');
   assert.equal(sept.length, 4);
   assert.equal(sept[0].date, '10/01/2026');   // 46032 = 10/01/2026, ghi chú lặp cùng ngày bị bỏ
-  assert.equal(sept[0].method, '–');
+  assert.equal(sept[0].method, 'Sổ gốc');   // SK-N9: không còn ô "–" không tên
   assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['11/09/2026', '12/09/2026', '13/09/2026']);
   assert.equal(await page.locator('#thang-2026-09 [data-pid="PH-001"][data-field="date"]').count(), 1);
   // Tháng hiện tại: một phiếu, không có hàng nhập (SO-GON-05: sang tháng đó bằng chip rồi về tháng 9).
