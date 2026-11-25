@@ -13,6 +13,7 @@ mà chưa dòng CONT_BO nào nhận thì cũng chờ: đó thường là chính 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import unicodedata
 from collections import Counter
 from typing import Any
@@ -29,6 +30,9 @@ NO_WAREHOUSE = "—"   # CONT_BO để trống KHO ở hầu hết dòng; paste_
 MESSAGES = {"NEW": "Chuyến bộ theo CONT_BO, chưa có trên sổ", "OTHER_CUSTOMER": "Container ở khách khác",
             "OTHER_BOOK_LEGACY": "Đã có ở sổ gốc của sổ khác",
             "MONTH_DIFFERS": "Tháng trên tab Sheet khác tháng của ngày CONT_BO"}
+# Chuyến máy không tự đưa vào sổ nhưng biết vài sổ có thể nhận (WEB-CHINH-01: sau 1/12/2026 tab Sheet đứng yên, người chọn sổ trên web).
+CHOICE_MESSAGES = {"AMBIGUOUS_TAB": "Tab Sheet ghi container này ở nhiều dòng hoặc nhiều sổ · chọn sổ nhận chuyến",
+                   "TAB_FAR": "Tab Sheet có dòng cùng container lệch ngày · chọn sổ nhận chuyến"}
 
 
 def load_road_snapshot(path: Any) -> dict[str, Any]:
@@ -79,6 +83,7 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
         by_container.setdefault(container_key(row.get("container")), []).append(row)
     # Lượt 1, mọi tháng: chuyến nào tab xếp được vào sổ nào. Dùng để học CHỦ HÀNG → sổ và biết dòng tab nào đã có chủ.
     placed = []
+    near_books: dict[int, set[int]] = {}   # chuyến có nhiều dòng tab gần ngày: các sổ của những dòng đó
     for source in road.get("rows") or []:
         date = iso(source.get("event_date"))
         if source.get("status") != "READY" or date is None:
@@ -90,6 +95,7 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
             reason = "NO_TAB"
         elif len(tab_rows) != 1 or len(books) != 1:
             reason = "AMBIGUOUS_TAB"
+            near_books[id(source)] = {book for book in books if book is not None}
         elif None in books:
             reason = "NO_BOOK"
         else:
@@ -117,7 +123,12 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
         if not reason and claimed[(tab_row.get("customer_tab"), tab_row.get("source_row"))] == 1 and owner_key(source.get("owner")):
             learned.setdefault(owner_key(source.get("owner")), Counter())[book] += 1
     # Lượt 2, từ ROAD_FROM.
-    items, stats, skipped = [], Counter(), []
+    items, stats, skipped, choices = [], Counter(), [], []
+
+    def offer(source: dict[str, Any], date: dt.date, code: str, books: set[int]) -> None:
+        """Chuyến bị giữ mà biết sổ nào có thể nhận: người chọn trên web (`project_choices`); máy vẫn không tự đưa vào."""
+        if books:
+            choices.append({**_item(road, source, date, None, None), "candidate_ids": sorted(books), "choice_reason": code})
 
     def skip(source: dict[str, Any], date: dt.date, code: str) -> None:
         stats[code] += 1
@@ -138,11 +149,15 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
                    if (row.get("customer_tab"), row.get("source_row")) not in near_any and _close(row, date)]
             if far:
                 skip(source, date, "TAB_FAR")   # tab có dòng lệch ngày chưa ai nhận: nhiều khả năng là chính chuyến này
+                offer(source, date, "TAB_FAR", {*books, *(owned[name_key(row.get("customer_tab"))][0] for row in far
+                                                          if name_key(row.get("customer_tab")) in owned)})
                 continue
             stats["BOOKING_NAME" if by_name else "OWNER"] += 1
             items.append({**_item(road, source, date, next(iter(books)), None), **({"book_basis": "booking_name"} if by_name else {})})
         elif reason:
             skip(source, date, reason)
+            if reason == "AMBIGUOUS_TAB":
+                offer(source, date, reason, near_books.get(id(source), set()))
         elif claimed_new[(tab_row.get("customer_tab"), tab_row.get("source_row"))] > 1:
             # Hai chuyến CONT_BO (khác ngày, cùng container) nhận cùng một dòng tab: một dòng tiền không thành hai chuyến.
             skip(source, date, "AMBIGUOUS_SOURCE")
@@ -163,7 +178,7 @@ def build_road_queue(road: dict[str, Any], prices: dict[str, Any], customers: li
         items = [item for item in items if id(item) not in twin]
     # owner_books: CHỦ HÀNG → các sổ tab đã nhận chuyến của nó; trang Khách dựa vào đây để không gán tên kho hay tên đang vào sổ khác.
     return {"snapshot_sha256": road.get("sha256"), "snapshot_created_at": (road.get("runner") or {}).get("created_at"),
-            "items": items, "stats": dict(stats), "skipped": skipped,
+            "items": items, "stats": dict(stats), "skipped": skipped, "choices": choices,
             "owner_books": {key: sorted(found) for key, found in learned.items()}}
 
 
@@ -181,6 +196,31 @@ def in_book(pool: list[dict[str, Any]], container: str, date: dt.date) -> bool:
         if target["date"] is None and target.get("month") == date.isoformat()[:7]:
             return True
     return False
+
+
+def source_fingerprint(item: dict[str, Any]) -> str:
+    """Dấu vân của một dòng CONT_BO theo bản chụp: nút chọn sổ gửi lại dấu này, bản chụp đổi thì dấu đổi và lệnh bị từ chối."""
+    return hashlib.sha256(str(item["src"]).encode()).hexdigest()
+
+
+def project_choices(queue: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]], other_containers: set[str] | None = None,
+                    other_legacy: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Chuyến bộ chờ người chọn sổ, hiện một lần ở sổ ứng viên có mã nhỏ nhất (như dòng chuyến biển chưa rõ sổ). Chuyến đã có ở sổ này
+    hay ở sổ khác (người đã chọn, hoặc nhập tay) thì thôi hiện. `CONFLICT` + `NEEDS_BOOK` để máy dán chuyến không bao giờ tự đưa vào."""
+    books = {c["id"]: c for c in customers if type(c.get("id")) is int}
+    mine = [c for c in queue.get("choices") or [] if c["candidate_ids"] and min(c["candidate_ids"]) == ledger.get("customer_id")]
+    pool = targets(ledger) if mine else []
+    out = []
+    for choice in mine:
+        date = dt.date.fromisoformat(choice["event_date"])
+        if (in_book(pool, choice["container"], date) or choice["container"] in (other_containers or set())
+                or any(_same_legacy_trip(ref, choice["container"], date) for ref in other_legacy or ())):
+            continue
+        out.append({**choice, "customer_id": ledger.get("customer_id"), "sync_state": "CONFLICT", "sync_reason": "NEEDS_BOOK",
+                    "message": CHOICE_MESSAGES[choice["choice_reason"]], "source_fingerprint": source_fingerprint(choice),
+                    "candidate_books": [{key: books[book].get(key) for key in ("id", "name", "display_name", "commodity", "transport_mode")}
+                                        for book in choice["candidate_ids"] if book in books]})
+    return out
 
 
 def project_road(queue: dict[str, Any], ledger: dict[str, Any], other_containers: set[str] | None = None,
