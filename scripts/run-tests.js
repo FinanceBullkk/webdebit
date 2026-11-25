@@ -42,6 +42,7 @@ function toolTests(folder = TOOLS) {
 const suites = {
   unit: () => [
     "scripts/test-business-rules.js",
+    "scripts/test-check-css-tokens.js",
     "scripts/test-check-font-size.js",
     "scripts/test-check-gates.js",
     "scripts/test-check-secrets.js",
