@@ -273,9 +273,12 @@ test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm,
   assert.equal(await page.locator('.picker-head h1').innerText(), 'Sổ khách');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search');
   assert.equal(await page.locator('#customer-count').innerText(), '60 khách');
-  assert.equal(await page.locator('#customer-list a').count(), 60, 'trang chọn khách không dừng ở 50 dòng');
-  assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['Dừa (30)', 'Thanh long (30)']);
-  assert.equal(await page.locator('#customer-list a').first().innerText(), 'Khách 2');
+  // Phiên test đã mở sổ 1 (withPage) nên sổ 1 là khách gần đây duy nhất, đứng đầu với nhãn đủ mặt hàng (SK-N7).
+  assert.equal(await page.locator('#customer-list a').count(), 61, 'trang chọn khách không dừng ở 50 dòng: 60 sổ + 1 dòng Gần đây');
+  assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['Gần đây', 'Dừa (30)', 'Thanh long (30)']);
+  assert.equal(await page.locator('#customer-list a').first().innerText(), 'Khách 1 · Thanh long');
+  assert.equal(await page.locator('#customer-list a').nth(1).innerText(), 'Khách 2');
+  assert.equal(await page.locator('#customer-list a.is-active').count(), 0, 'chưa gõ thì chưa dòng nào được tô');
   assert.equal(await page.locator('#live-controls').isVisible(), false, 'chưa có sổ thì không có Làm mới');
   assert.equal(await page.locator('.dashboard-link').isVisible(), false, 'menu trái đã có Tổng quan');
   const geometry = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -296,6 +299,53 @@ test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm,
   await page.waitForURL(/customer=1$/);
 }, world => {
   world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
+}));
+
+// SK-N6 (audit Sổ khách 25/11/2026): ô tìm khách chạy bằng bàn phím như ô tìm ở menu trái; tại một lúc chỉ một dòng được tô.
+test('Trang chọn khách: gõ → ↓ ↑ dời dòng tô, Enter mở dòng tô, Tab không để hai dòng cùng tô, Esc xóa chữ gõ', async () => withPage(async ({ page }) => {
+  await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
+  await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+  const search = page.locator('#customer-search');
+  const active = () => page.locator('#customer-list a.is-active').allInnerTexts();
+  await search.fill('thanh long');
+  assert.deepEqual(await active(), ['Khách 1'], 'gõ xong dòng đầu được tô');
+  await search.press('ArrowDown');
+  assert.deepEqual(await active(), ['Khách 3']);
+  await search.press('ArrowDown');
+  await search.press('ArrowUp');
+  assert.deepEqual(await active(), ['Khách 3'], '↓ ↓ ↑ về đúng dòng thứ hai');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search', 'con trỏ ở lại ô tìm để gõ tiếp');
+  await search.press('ArrowUp');
+  await search.press('ArrowUp');
+  assert.deepEqual(await active(), ['Khách 1'], '↑ dừng ở dòng đầu, không vòng lại');
+  // Tab sang dòng khác: chỉ dòng đó được tô.
+  await search.press('Tab');
+  assert.deepEqual(await active(), ['Khách 1']);
+  await page.keyboard.press('ArrowDown');
+  assert.deepEqual(await active(), ['Khách 3'], '↓ từ dòng đang focus dời sang dòng kế');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search', '↑ ở dòng đầu trả con trỏ về ô tìm');
+  await search.press('Escape');
+  assert.equal(await search.inputValue(), '', 'Esc xóa chữ đã gõ');
+  assert.equal(await page.locator('#customer-list a.is-active').count(), 0);
+  await search.fill('thanh long');
+  await search.press('ArrowDown');
+  await search.press('Enter');
+  await page.waitForURL(/customer=3$/);
+}, world => {
+  world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
+}));
+
+// SK-N7: cùng một tên ở hai nhóm mặt hàng không còn hai dòng giống hệt.
+test('Trang chọn khách: tên trùng ở hai nhóm giữ mặt hàng trên dòng; tên không trùng vẫn gọn', async () => withPage(async ({ page }) => {
+  await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
+  await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+  const rows = await page.evaluate(() => [...document.querySelectorAll('#customer-list > *')].map(node => `${node.className === 'customer-group' ? '#' : ''}${node.textContent}`));
+  assert.deepEqual(rows, ['#Gần đây', 'Khách Lẻ · Chuối', '#Bán cước (1)', 'Khách Lẻ · Bán cước', '#Chuối (2)', 'Khách Lẻ · Chuối', 'Khách Riêng']);
+}, world => {
+  world.customers = [{ id: 1, name: 'Khách Lẻ', status: 'active', commodity: 'Chuối' }, { id: 2, name: 'Khách Lẻ', status: 'active', commodity: 'Bán cước' },
+    { id: 3, name: 'Khách Riêng', status: 'active', commodity: 'Chuối' }];
 }));
 
 // Góp ý 13/11/2026 "mở sổ khách lúc load hiện UI cũ": trước khi JS dời ô tìm vào menu trái và dải "Tự cập nhật" vào thanh thẻ

@@ -97,12 +97,14 @@ Mỗi mục có mã `SK-…` để PR trỏ tới. Mức theo [cách review mộ
 - **Căn cứ:** Nielsen #4 (nhất quán), #7 (linh hoạt cho người thạo).
 - **Hướng sửa (ĐỀ XUẤT):** dùng chung một cách xử lý với `app-nav.js` (mũi tên dời mục, Enter mở, Esc đóng), một mục được tô tại một lúc.
 - **Tiêu chí xong:** test trình duyệt: gõ, ↓ ↓, Enter → mở khách thứ hai của kết quả.
+- **Đã làm (đợt 5, 25/11/2026; chưa merge/triển khai khi viết dòng này):** `so-khach-v7-api.js` — con trỏ ở lại ô tìm; gõ xong dòng đầu được tô (là dòng Enter mở), ↓ ↑ dời dòng tô (dừng ở hai đầu), Enter mở dòng tô, Tab/rê chuột tới dòng nào thì chỉ dòng đó được tô (`.is-active`, thay luật `:first-of-type` và `:hover` trong CSS), Esc xóa chữ ở trang chọn khách (trong hộp đổi khách Esc đóng hộp như cũ). Vì dòng đầu đã tô sẵn nên một ↓ tới khách thứ hai. Ô tìm ở menu trái (`app-nav.js`) giữ cách cũ, không đổi.
 
 ### SK-N7. Dễ mở nhầm sổ từ danh sách khách
 
 - **Chỗ nào:** cùng một nhãn tên xuất hiện ở hai nhóm mặt hàng ("Bán cước" và "Chuối"), không có gì cho biết là một sổ hay hai sổ. Bộ đổi khách không có "khách gần đây" như thiết kế đã chốt 2/11 trên canvas.
 - **Căn cứ:** trượt tay (Reason); Nielsen #6.
 - **Hướng sửa (ĐỀ XUẤT):** nhãn trùng thì thêm dấu phân biệt (mặt hàng hoặc mã sổ); bộ đổi khách có 5 khách mở gần nhất ở đầu.
+- **Đã làm (đợt 5, 25/11/2026; chưa merge/triển khai khi viết dòng này):** `so-khach-v7-api.js` — tên rút gọn trùng ở hai nhóm thì dòng giữ nhãn đủ "Tên · Mặt hàng" (tên không trùng vẫn gọn như `SO-GON-…`); chưa gõ thì nhóm "Gần đây" (≤ 5 khách mở gần nhất, mới nhất trước, bỏ khách đang mở, nhãn đủ mặt hàng) nằm đầu danh sách, cả ở hộp đổi khách lẫn trang chọn khách. Danh sách nhớ trong `localStorage` của trình duyệt (`webdebit.recentCustomers.v1`, chỉ id số, tối đa 10), không gửi lên máy chủ; chế độ riêng tư thì không có "Gần đây". Không đổi `customerLabels` (sổ cùng nhãn đủ vẫn có " · sổ <id>").
 
 ### SK-N8. Chip tháng thiếu năm, nhảy cóc
 

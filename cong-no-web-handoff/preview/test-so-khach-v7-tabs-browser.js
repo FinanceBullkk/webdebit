@@ -180,6 +180,28 @@ test('Ô tìm khách ở thanh trên như các trang khác: gõ thì hiện danh
   assert.equal(await search.isVisible(), true);
 }));
 
+// SK-N6 + SK-N7 (audit Sổ khách 25/11/2026): hộp đổi khách có "Gần đây" ở đầu (khách vừa mở, bỏ khách đang mở) và chạy bằng mũi tên.
+test('Hộp đổi khách: Gần đây ở đầu, ↓ Enter mở khách được tô, Esc đóng hộp', async () => withPage(async ({ page }) => {
+  // Máy chủ giả chỉ có sổ khách 1: lịch sử "đã mở 3 rồi 2" đặt sẵn, tải lại thì sổ 1 (đang mở) lên đầu và không hiện trong Gần đây.
+  await page.evaluate(() => localStorage.setItem('webdebit.recentCustomers.v1', '[3,2]'));
+  await reload(page);
+  const search = page.locator('.topbar #customer-picker.in-bar #customer-search');
+  await page.locator('.customer-switch').click();
+  const rows = () => page.evaluate(() => [...document.querySelectorAll('#customer-list > *')].slice(0, 4).map(node => `${node.className === 'customer-group' ? '#' : ''}${node.textContent}`));
+  assert.deepEqual(await rows(), ['#Gần đây', 'Khách Ba · Chuối', 'Khách Hai · Chuối', '#Chuối (4)'], 'khách đang mở (1) không nằm trong Gần đây; mới mở nhất trước');
+  await page.keyboard.press('Escape');
+  assert.equal(await search.isVisible(), false, 'Esc đóng hộp đổi khách');
+  await page.locator('.customer-switch').click();
+  await search.fill('khach');
+  assert.equal(await page.locator('#customer-list .customer-group', { hasText: 'Gần đây' }).count(), 0, 'đang gõ lọc thì không có Gần đây');
+  await search.press('ArrowDown');
+  assert.deepEqual(await page.locator('#customer-list a.is-active').allInnerTexts(), ['Khách Hai']);
+  await search.press('Enter');
+  await page.waitForURL(/customer=2$/);
+}, world => {
+  world.customers = [1, 2, 3, 4].map(id => ({ id, name: ['', 'Khách Một', 'Khách Hai', 'Khách Ba', 'Khách Bốn'][id], status: 'active', commodity: 'Chuối' }));
+}));
+
 test('Thẻ Sổ ghi số việc chờ, bằng tổng chấm cam trên các chip tháng', async () => withPage(async ({ page }) => {
   const chips = await page.locator('.month-chip .chip-work').allInnerTexts();
   assert.equal(chips.length, 2);
