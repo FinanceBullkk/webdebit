@@ -185,7 +185,7 @@ test('QUYEN-01: người dùng thấy số chuyến chưa giá nhưng không có
   assert.equal(await pill.getAttribute('tabindex'), '0');
   assert.doesNotMatch(await pill.getAttribute('data-tip'), /bấm để mở/);
   assert.deepEqual((await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]),
-    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+    ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
 }));
 
 test('Tổng quan không có khách đang nợ: không bịa số', async () => withDashboard({

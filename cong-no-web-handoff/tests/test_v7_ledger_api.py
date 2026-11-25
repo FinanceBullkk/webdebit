@@ -846,7 +846,7 @@ class LedgerApiTest(unittest.TestCase):
                 self.assertEqual(self.runner.calls, [])
                 self.assertEqual(request("boss@example.test", "/api/v7/nhat-ky")[0], 200)
                 for path in ("/", "/dashboard-v7.html", "/so-khach-v7-live.html", "/bang-thu.html", "/bao-cao-thang.html",
-                             "/cong-no-theo-thang.html", "/zalo-chat.html"):
+                             "/cong-no-theo-thang.html", "/zalo-chat.html", "/thu-chi.html"):
                     with self.subTest(path=path):
                         status, _, user_tag, user_page = request("staff@example.test", path)
                         _, _, boss_tag, boss_page = request("boss@example.test", path)
@@ -904,9 +904,19 @@ class LedgerApiTest(unittest.TestCase):
                 status, page = call(staff, "/dashboard-v7.html")
                 self.assertIn(b'data-role="user"', page)
                 self.assertEqual(call(staff, "/api/v7/admin/users")[1]["error"], "ADMIN_ONLY")
-                self.assertEqual((call(staff, "/thu-chi.html")[0], call(staff, "/api/v7/cash-chat")[0], call(staff, "/api/v7/cash-chat/targets")[0]),
-                                 (403, 403, 403))   # ZALO-THU-CHI-01: chỉ quản lý, cả danh sách cho ô gắn
+                # QUYEN-01 sửa đổi 25/11/2026: người dùng xem trang Thu chi và hai đường đọc của nó; lệnh ghi kết luận vẫn chỉ quản lý.
+                status, page = call(staff, "/thu-chi.html")
+                self.assertEqual(status, 200)
+                self.assertIn(b'data-role="user"', page)
+                for path in ("/api/v7/cash-chat", "/api/v7/cash-chat/targets"):
+                    with self.subTest(path=path):
+                        self.assertNotEqual(call(staff, path)[0], 403)
+                for path in ("/api/v7/cash-chat/review", "/api/v7/cash-chat/review/"):
+                    with self.subTest(path=path):
+                        status, body = call(staff, path, {"action": "confirm"})
+                        self.assertEqual((status, body["error"]), (403, "ADMIN_ONLY"))
                 self.assertEqual(call(boss, "/thu-chi.html")[0], 200)
+                self.assertNotEqual(call(boss, "/api/v7/cash-chat/review", {"action": "confirm"})[1].get("error"), "ADMIN_ONLY")
                 self.assertEqual(call(staff, "/api/v7/admin/users", {"action": "remove", "login": boss, "version": 1})[1]["error"], "ADMIN_ONLY")
                 self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "add", "login": staff, "version": 0})[1]["error"], "STALE")
                 self.assertEqual(call(boss, "/api/v7/admin/users", {"action": "role", "login": staff, "role": "admin", "version": 1})[0], 200)

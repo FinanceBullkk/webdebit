@@ -9,6 +9,8 @@
   const { esc } = F;
   const $ = id => document.getElementById(id);
   const root = $('thu-chi');
+  // QUYEN-01 (sửa đổi 25/11/2026): người dùng xem cả trang; nút Xử lý (ghi kết luận, POST /api/v7/cash-chat/review) chỉ quản lý.
+  const ADMIN = document.documentElement.dataset.role !== 'user';
   const POLL_MS = 5000;
   // `today`: ngày hôm nay theo giờ VN của máy chủ, giữ qua lần đổi khoảng (đổi khoảng thì `data` về null). Chưa hỏi được lần nào mới dùng đồng hồ máy.
   const state = { days: 7, filter: 'all', data: null, today: null, raw: '', fresh: new Set(), pending: null, fails: 0 };
@@ -92,7 +94,7 @@
       const month = ref.date ? `&amp;month=${esc(ref.date.slice(0, 7))}` : '';
       return ` <a href="/so-khach-v7-live.html?customer=${encodeURIComponent(customer)}${month}">Mở sổ</a>`;
     }
-    return ' <a href="/doi-xe.html">Mở Đội xe</a>';
+    return ADMIN ? ' <a href="/doi-xe.html">Mở Đội xe</a>' : '';   // Đội xe chỉ quản lý
   }
 
   function thumbs(item) {
@@ -145,7 +147,7 @@
     const open = item.conversation_id
       ? `<a class="tc-open" href="/zalo-chat.html?c=${encodeURIComponent(item.conversation_id)}${item.message_id ? `&amp;m=${encodeURIComponent(item.message_id)}` : ''}&amp;from=thu-chi">Mở tin</a>` : '';
     const can = M.reviewable(item, state.data.items);
-    const act = can.ok ? `<button type="button" class="tc-act" data-act="open" data-k="${esc(key)}" aria-expanded="${edit.open === key}">Xử lý</button>` : '';
+    const act = ADMIN && can.ok ? `<button type="button" class="tc-act" data-act="open" data-k="${esc(key)}" aria-expanded="${edit.open === key}">Xử lý</button>` : '';
     const note = [status.note, can.ok || item.source === 'mark' ? '' : can.why].filter(Boolean).join(' ');
     const amount = item.amount_vnd == null ? '<span class="dash">—</span>' : esc(money(item.amount_vnd));
     const from = item.amount_from === 'anh' ? 'đọc từ ảnh' : item.amount_from === 'sua' ? 'đã sửa tay' : '';

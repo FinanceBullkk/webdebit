@@ -562,11 +562,11 @@ test('Menu riêng của Sổ khách cũng có Bảng thu, Báo cáo tháng, Qu�
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
 }));
 
-test('QUYEN-01: người dùng chỉ thấy năm trang làm sổ, không số Việc cần làm; chip phiếu Sheet chỉ để đọc', () => withPage({ book: byMonth, role: 'user' }, async (page, base) => {
+test('QUYEN-01: người dùng thấy năm trang làm sổ và Thu chi, không số Việc cần làm; chip phiếu Sheet chỉ để đọc', () => withPage({ book: byMonth, role: 'user' }, async (page, base) => {
   await page.locator('tr.pay').first().waitFor();
   assert.equal(await page.locator('html').getAttribute('data-role'), 'user');
   const texts = (await page.locator('.app-nav nav a').allInnerTexts()).map(text => text.split('\n')[0]);
-  assert.deepEqual(texts, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+  assert.deepEqual(texts, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
   assert.equal(await page.locator('.app-nav .nav-extra, #todo-badge').count(), 0);
   const chip = page.locator('span#pending');
   assert.equal(clean(await chip.innerText()), '3 · 85 tr phiếu trên Sheet chưa ghi');
@@ -582,7 +582,7 @@ test('QUYEN-01: người dùng chỉ thấy năm trang làm sổ, không số Vi
     + `<script src="${base}/cong-no-format.js"></script><script src="${base}/app-nav.js"></script></body></html>`);
   await ledger.waitForLoadState('load');
   const order = [...await ledger.locator('.topbar > nav a span').allInnerTexts()];
-  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng']);
+  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Báo cáo tháng', 'Thu chi']);
   assert.deepEqual(errors, []);
 }));
 
