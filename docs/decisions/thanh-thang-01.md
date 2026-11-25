@@ -8,12 +8,12 @@ Thanh chọn tháng của Sổ khách là **một dải liên tục chia nhóm t
 
 1. Năm là nhãn đứng trước nhóm tháng của năm đó; chip tháng chỉ ghi "T5". Chip đang xem chỉ đổi màu, không đổi chữ.
 2. Tháng không có số liệu nằm giữa hai tháng có số liệu vẫn có ô mờ không bấm được, để vị trí tháng cố định và thấy rõ khoảng trống. Bỏ dấu "… N tháng".
-3. Sổ trải không quá 16 tháng thì hiện hết. Sổ dài hơn: năm của tháng đang xem và năm mới nhất hiện đủ, các năm khác gom thành nút "Xem ›" cạnh nhãn năm; bấm thì sang tháng cuối có số liệu của năm đó.
+3. Nhãn năm là nút thu/mở nhóm tháng của năm đó ("2025 ▾" đang mở, "2025 ▸" đã thu); thu/mở không vẽ lại sổ và được nhớ trong tab. Mặc định: sổ trải không quá 16 tháng thì mở hết; sổ dài hơn chỉ mở năm của tháng đang xem và năm mới nhất.
 4. Dấu khóa và chấm việc chờ trên chip giữ như trước.
 
 ## Ngày / nguồn
 
-26/11/2026, Telegram. Người dùng gửi ảnh thanh tháng ("UI phần này vẫn chưa tốt", "nên architect lại cái phần thời gian các tháng năm"); Claude đưa ba hướng (A dải nhóm theo năm, B chọn năm + lưới 12 tháng, C nút lùi tới); người dùng chọn A.
+26/11/2026, Telegram. Người dùng gửi ảnh thanh tháng ("UI phần này vẫn chưa tốt", "nên architect lại cái phần thời gian các tháng năm"); Claude đưa ba hướng (A dải nhóm theo năm, B chọn năm + lưới 12 tháng, C nút lùi tới); người dùng chọn A; cùng ngày người dùng thêm "ấn vào số 2025 thì nó thu gọn lại" (điểm 3).
 
 ## Hiệu lực và giới hạn
 

@@ -236,11 +236,12 @@
       + `${total ? `<span class="chip-work" title="${escape(todo)}" aria-hidden="true">${total}</span>` : ''}</a>`;
   }
 
-  // THANH-THANG-01 (26/11/2026, người dùng chọn hướng A): thanh tháng là một dải liên tục chia nhóm theo năm. Năm có tháng
-  // đang xem và năm mới nhất mở đủ các tháng, từ tháng đầu của sổ (hoặc T1) tới tháng cuối của sổ (hoặc T12); tháng không có
-  // số liệu vẫn có ô mờ không bấm được để vị trí tháng cố định và thấy rõ khoảng trống. Sổ dài quá FIT_MONTHS tháng thì các năm
-  // khác gom thành một nút năm, bấm thì sang tháng cuối có số liệu của năm đó; sổ ngắn hơn (vừa một hàng ở 1280) mở hết.
+  // THANH-THANG-01 (26/11/2026, người dùng chọn hướng A): thanh tháng là một dải liên tục chia nhóm theo năm, mỗi năm từ tháng
+  // đầu của sổ (hoặc T1) tới tháng cuối của sổ (hoặc T12); tháng không có số liệu vẫn có ô mờ không bấm được để vị trí tháng cố
+  // định và thấy rõ khoảng trống. Nhãn năm là nút thu/mở nhóm (sửa đổi cùng ngày). Mặc định: sổ không quá FIT_MONTHS tháng (vừa
+  // một hàng ở 1280) mở hết; sổ dài hơn chỉ mở năm của tháng đang xem và năm mới nhất. Người bấm thu/mở năm nào thì nhớ trong tab.
   const FIT_MONTHS = 16;
+  const yearOpen = new Map();
   const monthIndex = key => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)) - 1;
   const keyOf = index => `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`;
   function monthStrip(groups, book, open) {
@@ -249,24 +250,30 @@
     if (!keys.length) return '';
     const [first, last] = [monthIndex(keys[0]), monthIndex(keys.at(-1))];
     const years = [...new Set(keys.map(key => key.slice(0, 4)))];
-    const expanded = new Set(last - first < FIT_MONTHS ? years : [keys.at(-1).slice(0, 4), (open ?? keys.at(-1)).slice(0, 4)]);
+    const shown = new Set(last - first < FIT_MONTHS ? years : [keys.at(-1).slice(0, 4), (open ?? keys.at(-1)).slice(0, 4)]);
     return years.map(year => {
-      const label = `<span class="month-year">${year}</span>`;
-      if (!expanded.has(year)) {
-        const jump = keys.filter(key => key.startsWith(year)).at(-1);
-        return `<span class="month-group">${label}<a class="month-year-jump" href="#thang-${escape(jump)}" data-month="${escape(jump)}" `
-          + `aria-label="Năm ${year}: xem tháng ${monthLabel(jump)}">Xem ›</a></span>`;
-      }
-      const from = Math.max(first, Number(year) * 12);
-      const to = Math.min(last, Number(year) * 12 + 11);
+      const expanded = yearOpen.get(year) ?? shown.has(year);
+      const current = (open ?? '').startsWith(year);
+      const count = keys.filter(key => key.startsWith(year)).length;
       const cells = [];
-      for (let index = from; index <= to; index += 1) {
+      for (let index = Math.max(first, Number(year) * 12); index <= Math.min(last, Number(year) * 12 + 11); index += 1) {
         const key = keyOf(index);
         cells.push(byKey.has(key) ? monthChip(byKey.get(key), book)
           : `<span class="month-empty" title="Tháng ${monthLabel(key)} không có số liệu">T${index % 12 + 1}</span>`);
       }
-      return `<span class="month-group">${label}${cells.join('')}</span>`;
+      return `<span class="month-group${expanded ? '' : ' collapsed'}"><button type="button" class="month-year${current ? ' current' : ''}" `
+        + `data-year="${year}" aria-expanded="${expanded}" title="${expanded ? 'Thu gọn' : 'Mở'} năm ${year} (${count} tháng có số liệu)">`
+        + `${year} <span aria-hidden="true">${expanded ? '▾' : '▸'}</span></button>${cells.join('')}</span>`;
     }).join('');
+  }
+  // Thu/mở một năm ngay trên thanh, không vẽ lại sổ (chữ đang gõ ở tháng đang xem không mất); lần vẽ sau theo yearOpen.
+  function toggleYear(button) {
+    const expanded = button.getAttribute('aria-expanded') !== 'true';
+    yearOpen.set(button.dataset.year, expanded);
+    button.closest('.month-group').classList.toggle('collapsed', !expanded);
+    button.setAttribute('aria-expanded', String(expanded));
+    button.title = `${expanded ? 'Thu gọn' : 'Mở'}${button.title.replace(/^(Thu gọn|Mở)/, '')}`;
+    button.lastElementChild.textContent = expanded ? '▾' : '▸';
   }
 
   // Các bảng tháng và thanh chip tháng của một bản GET.
@@ -315,7 +322,9 @@
       else ctx.showLoc('thieu-gia');
       return;
     }
-    const chip = event.target.closest('.month-chip,.month-year-jump');
+    const year = event.target.closest('.month-year');
+    if (year) { toggleYear(year); return; }
+    const chip = event.target.closest('.month-chip');
     if (!chip) return;
     event.preventDefault();
     const key = chip.dataset.month;

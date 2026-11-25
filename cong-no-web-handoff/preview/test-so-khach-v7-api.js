@@ -342,7 +342,7 @@ test('locked month: only the text cells open (KHOA-CHU-01); money, date, contain
 });
 
 // THANH-THANG-01 (thay cách ghi năm của SK-N8): năm là nhãn nhóm; năm của tháng đang xem và năm mới nhất mở đủ tháng (tháng
-// trống là ô mờ), năm khác gom thành nút "Xem ›" sang tháng cuối có số liệu của năm đó.
+// trống là ô mờ), năm khác thu gọn; nhãn năm là nút thu/mở nhóm.
 // SK-C1: GET trả dòng tháng hiện tại (phát sinh 0) nên thẻ tháng hiện tại có Nợ đầu tháng và Còn nợ cuối tháng, không "–".
 test('THANH-THANG-01 + SK-C1: month strip groups by year, empty months dimmed, other years collapsed, current month card has numbers', async () => {
   const month = (key, prior, charges, received, end) => ({ month: `${key}-01`, prior_months_vnd: prior, charges_vnd: charges,
@@ -352,10 +352,13 @@ test('THANH-THANG-01 + SK-C1: month strip groups by year, empty months dimmed, o
     month_locks: [], opening: [], trips: [], receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] };
   const { root } = await livePage(book, '?customer=7&month=2026-11');
   const chips = root.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0];
-  const names = [...chips.matchAll(/<(?:span|a) class="(month-year|chip-name|month-empty|month-year-jump)"[^>]*>([^<]*)<\/(?:span|a)>/g)]
-    .map(match => `${match[1] === 'month-empty' ? '~' : ''}${match[2]}`);
-  assert.deepEqual(names, ['2025', 'Xem ›', '2026', ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(m => `~T${m}`), 'T11']);
-  assert.match(chips, /<a class="month-year-jump" href="#thang-2025-08" data-month="2025-08" aria-label="Năm 2025: xem tháng 8\/2025">/);
+  // Mỗi nhóm năm: năm, mở hay thu, các ô tháng ("~" là tháng trống).
+  const strip = html => [...html.match(/<nav class="month-chips".*?<\/nav>/s)[0].matchAll(/<span class="month-group( collapsed)?"><button[^>]*data-year="(\d+)" aria-expanded="(true|false)"[^>]*>.*?<\/button>(.*?)(?=<span class="month-group|<\/nav>)/gs)]
+    .map(match => [match[2], match[3] === 'true' && !match[1],
+      [...match[4].matchAll(/<span class="(chip-name|month-empty)"[^>]*>([^<]*)<\/span>/g)].map(cell => `${cell[1] === 'month-empty' ? '~' : ''}${cell[2]}`)]);
+  const empty = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => `~T${from + index}`);
+  assert.deepEqual(strip(chips), [['2025', false, ['T7', 'T8', ...empty(9, 12)]], ['2026', true, [...empty(1, 10), 'T11']]]);
+  assert.match(chips, /<button type="button" class="month-year" data-year="2025" aria-expanded="false" title="Mở năm 2025 \(2 tháng có số liệu\)">2025 <span aria-hidden="true">▸<\/span><\/button>/);
   const card = root.innerHTML.match(/<section id="thang-2026-11">.*?<\/section>/s)[0];
   assert.match(card, /<span class="month-prior">Nợ đầu tháng <b>1\.000<\/b><\/span>/);
   assert.match(card, /<span class="month-end">Còn nợ cuối tháng <b>1\.000 đ<\/b><\/span>/);
@@ -365,8 +368,7 @@ test('THANH-THANG-01 + SK-C1: month strip groups by year, empty months dimmed, o
   assert.match(card, /<button class="add-month-adjustment" data-month="2026-11-01" >/);
   // Xem tháng của năm cũ: năm đó mở ra (từ tháng đầu của sổ), năm mới nhất vẫn mở.
   const { root: old } = await livePage(book, '?customer=7&month=2025-08');
-  const oldNames = [...old.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0].matchAll(/<span class="(month-year|chip-name|month-empty)"[^>]*>([^<]*)<\/span>/g)].map(match => match[2]);
-  assert.deepEqual(oldNames, ['2025', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', '2026', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11']);
+  assert.deepEqual(strip(old.innerHTML), [['2025', true, ['T7', 'T8', ...empty(9, 12)]], ['2026', true, [...empty(1, 10), 'T11']]]);
 });
 
 test('saved receipt date shows future-date error in clicked cell', async () => {
@@ -570,7 +572,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(newMonth.innerHTML, /month-collapsed|month-toggle|id="thang-2026-08"/);
   // Thanh chip tháng là chỗ chọn tháng duy nhất: tên tháng, còn nợ cuối tháng rút gọn, dấu khóa của tháng khóa; chip đang xem tô.
   // THANH-THANG-01: nhãn năm đứng trước nhóm, chip chỉ ghi "T8"; chip đang xem tô màu, chữ không đổi.
-  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><span class="month-group"><span class="month-year">2026<\/span><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8<\/span><\/a><a class="month-chip locked on" href="#thang-2026-09" data-month="2026-09" aria-current="true" [^>]*><span class="chip-name">T9<\/span><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
+  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><span class="month-group"><button type="button" class="month-year current" data-year="2026" aria-expanded="true"[^>]*>2026 <span aria-hidden="true">▾<\/span><\/button><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8<\/span><\/a><a class="month-chip locked on" href="#thang-2026-09" data-month="2026-09" aria-current="true" [^>]*><span class="chip-name">T9<\/span><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
   assert.doesNotMatch(newMonth.innerHTML, /months-nav|DANH SÁCH THÁNG/);
   // THANH-THANG-01: tháng 10 không có số liệu vẫn có ô mờ không bấm được giữa 9 và 11.
   assert.match(newMonth.innerHTML, /data-month="2026-09"[^>]*>.*?<\/a><span class="month-empty" title="Tháng 10\/2026 không có số liệu">T10<\/span><a class="month-chip[^"]*" href="#thang-2026-11"[^>]*><span class="chip-name">T11<\/span>/);
