@@ -207,6 +207,11 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .entry-field input,.entry-field select{width:100%;min-width:0;height:40px;margin:0;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#162d48}
 .entry-field .receipt-amount{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
 .entry-date{display:flex;gap:6px}.entry-date input{flex:1}
+/* PHIEU-WEB-01: phiếu không rõ ngày trả (ô đánh dấu, ô chọn tháng, câu ngày sẽ ghi). */
+.entry-unknown{display:flex;align-items:center;gap:8px;min-height:40px;font-size:15px;cursor:pointer}
+.entry-unknown input{width:20px;height:20px;margin:0}
+.entry-field[hidden]{display:none}.entry-date input:disabled{opacity:.55}
+.entry-symbolic-hint{font-size:15px;font-weight:600}.entry-symbolic-hint:empty{display:none}
 .entry-form .cell-error{min-height:0;font-size:14px}
 .entry-images .image-entry{margin-top:10px}.entry-review b{white-space:nowrap}
 .entry-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}

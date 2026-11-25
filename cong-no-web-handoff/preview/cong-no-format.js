@@ -205,6 +205,24 @@ const CongNoFormat = (() => {
     return { prefix, tail, text, label: [note, tail ? 'ngày tượng trưng' : ''].filter(Boolean).join(' · ') };
   }
 
+  /** Phiếu không rõ ngày (PHIEU-WEB-01, cùng luật `month_end` của web/v7_sheet_fix.py, chủ sổ chốt 4/11/2026): ngày cuối tháng
+   *  khách trả, không sau hôm nay. `month` dạng yyyy-mm(-dd), `todayIso` yyyy-mm-dd. Ca thử chung với Python ở
+   *  tests/golden/ngay-tuong-trung.json. */
+  function symbolicDate(month, todayIso) {
+    const match = /^(\d{4})-(0[1-9]|1[0-2])/.exec(String(month ?? ''));
+    if (!match || !/^\d{4}-\d\d-\d\d$/.test(String(todayIso ?? ''))) throw new Error('Tháng không hợp lệ.');
+    const last = new Date(Date.UTC(Number(match[1]), Number(match[2]), 0)).getUTCDate();
+    const end = `${match[1]}-${match[2]}-${String(last).padStart(2, '0')}`;
+    return end > todayIso ? todayIso : end;
+  }
+  const SYMBOLIC_MARK = ' (ngày tượng trưng)';
+  /** Tham chiếu của phiếu không rõ ngày: chữ người gõ + đuôi " (ngày tượng trưng)" mà Bảng thu, ngày trả thật và receiptNote
+   *  nhận ra. Server cắt khoảng trắng hai đầu nên chữ trống phải có chữ đứng trước đuôi, không thì đuôi mất dấu cách và thôi khớp. */
+  function symbolicReference(text) {
+    const body = String(text ?? '').trim().replace(SYMBOLIC_TAIL, '') || 'Không rõ ngày';
+    return body.slice(0, 500 - SYMBOLIC_MARK.length).trimEnd() + SYMBOLIC_MARK;
+  }
+
   /** Giá trị lưu khi người dùng sửa tham chiếu: giữ tiền tố và đuôi của máy quanh chữ mới. Server cắt khoảng trắng cuối nên
    *  "Sheet #mã: " trơ không còn khớp tiền tố máy tìm và dòng Sheet sẽ bị đề nghị ghi lại: xóa hết chữ của phiếu đó thì giữ giá trị cũ. */
   function receiptReference(reference, text) {
@@ -258,6 +276,6 @@ const CongNoFormat = (() => {
 
   return { toBig, readVnd, full, short, billions, millions, percent, barWidth, sum, heatStep,
     UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
-    dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText, newCustomer, zaloFreshness };
+    dateText, sheetDate, receiptNote, receiptReference, symbolicDate, symbolicReference, vnDay, loadError, reminderText, newCustomer, zaloFreshness };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;
