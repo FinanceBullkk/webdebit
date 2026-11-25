@@ -48,7 +48,12 @@ from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
 from v7_receipt_queue import load_receipt_snapshot, project_receipts, review_reference
 from v7_receipt_queue import reference as receipt_reference
-from v7_road_queue import build_road_queue, load_road_snapshot, project_road
+from v7_road_queue import (
+    build_road_queue,
+    load_road_snapshot,
+    project_choices,
+    project_road,
+)
 from v7_sheet_queue import (
     build_queue,
     load_baseline,
@@ -366,10 +371,49 @@ def road_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     queue = cached_road_queue(road, prices, customers)
     mine = [item for item in queue["items"] if item["customer_id"] == ledger.get("customer_id")]
-    if not mine:
+    # Chuyến bị giữ (nhiều dòng tab, tab lệch ngày) mà biết sổ ứng viên: hiện ở sổ ứng viên đầu để người chọn sổ (WEB-CHINH-01).
+    offered = [c for c in queue.get("choices") or [] if c["candidate_ids"] and min(c["candidate_ids"]) == ledger.get("customer_id")]
+    if not mine and not offered:
         return project_road({**queue, "items": []}, ledger)
-    other_containers, other_legacy = other_book_checks(runner, ledger, mine, actor)
-    return project_road({**queue, "items": mine}, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
+    other_containers, other_legacy = other_book_checks(runner, ledger, mine + offered, actor)
+    result = project_road({**queue, "items": mine}, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
+    chosen = project_choices(queue, ledger, customers, other_containers, other_legacy)
+    return {**result, "items": result["items"] + chosen, "conflict_count": result["conflict_count"] + len(chosen)}
+
+
+def assign_road_trip(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Người chọn sổ cho một chuyến bộ máy giữ lại (`NEEDS_BOOK`: tab ghi nhiều dòng hay lệch ngày). Đưa vào sổ được chọn bằng đúng
+    đường dán của máy (`paste_sheet_rows`), chưa có giá, nợ không đổi; người làm là người bấm. Thân như lệnh chọn sổ chuyến biển."""
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    required = {"customer_id", "expected_version", "idempotency_key", "target_customer_id", "target_version", "source_fingerprint"}
+    if not isinstance(request, dict) or set(request) != required:
+        bad()
+    if (any(not positive_int(request[k]) for k in ("customer_id", "target_customer_id"))
+            or any(type(request[k]) is not int or not 0 <= request[k] <= MAX_BIGINT for k in ("expected_version", "target_version"))
+            or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
+            or not isinstance(request["idempotency_key"], str) or not 1 <= len(request["idempotency_key"]) <= 128
+            or not request["idempotency_key"].strip() or any(ord(c) < 32 for c in request["idempotency_key"])):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = road_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", "Không đọc được chuyến bộ.") from exc
+    rows = [row for row in projection["items"] if row.get("source_fingerprint") == request["source_fingerprint"]
+            and row.get("sync_reason") == "NEEDS_BOOK"]
+    if len(rows) != 1 or request["target_customer_id"] not in [c["id"] for c in rows[0].get("candidate_books", [])]:
+        raise ApiError(409, "STALE_SHEET", "Chuyến hoặc sổ được chọn đã đổi. Tải lại rồi thử lại.")
+    target = ledger if request["target_customer_id"] == request["customer_id"] else         runner.run("get_ledger", {"customer_id": request["target_customer_id"]}, actor)
+    if target.get("version") != request["target_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    out = paste_sheet_rows(runner, request["target_customer_id"], request["target_version"], projection["snapshot_sha256"],
+                           "chon-so-chuyen-bo:" + request["idempotency_key"], rows, actor)
+    return 200, {**out, "target_customer_id": request["target_customer_id"]}
 
 
 APPROVE_KEYS = {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}

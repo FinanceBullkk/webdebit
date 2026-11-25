@@ -115,6 +115,15 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .pill.warn{background:#fdf0d8;border-color:#f1dfb8;color:var(--amber);cursor:pointer}
 .pill.warn svg,.pill.credit svg{color:currentColor}
 .pill.credit{background:#dff3ee;border-color:#cfe9e2;color:var(--teal)}
+button.pill{font:inherit;font-weight:700}
+.pill.warn[aria-expanded="true"]{border-color:var(--amber)}
+/* WEB-CHINH-01: danh sách sổ còn chuyến chưa giá, bung ngay dưới số Còn phải thu (người dùng không vào được Việc cần làm). */
+.missing-list{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.missing-list p{margin:0 0 6px;color:var(--ink-m);font-size:13px}
+.missing-list ul{margin:0;padding:0;list-style:none;columns:3 14em;column-gap:20px;max-height:220px;overflow-y:auto}
+.missing-list li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;break-inside:avoid}
+.missing-list a{color:var(--blue);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.missing-list li span{color:var(--amber);font-variant-numeric:tabular-nums;white-space:nowrap}
 .brk{display:flex;gap:3px;margin-top:12px;font-size:13px;font-variant-numeric:tabular-nums}
 .brk>div{box-sizing:border-box;padding-bottom:3px;white-space:nowrap;overflow:hidden}
 /* Vạch Trong hạn rộng theo tỷ lệ (tối thiểu 9.5em, đặt trong JS) nhưng được co: khi gần 100% nó nhường đủ 9.5em cho Quá hạn,

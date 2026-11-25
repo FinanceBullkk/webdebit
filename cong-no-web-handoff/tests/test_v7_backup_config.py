@@ -86,8 +86,12 @@ class ConfigTests(unittest.TestCase):
 
     def test_rebuild_paths_from_the_ops_audit_are_in_the_pack(self):
         for path in ("/etc/webdebit-deploy.conf", "/var/lib/webdebit-sheet-sync/access/access.json", "/srv/v7/so-goc-20261020",
-                     "/var/lib/webdebit-sheet-sync/baseline-refs.json"):
+                     "/var/lib/webdebit-sheet-sync/baseline-refs.json",
+                     # RPO/RTO 25/11/2026: cổng 8445 dựng lại được từ gói (chứng chỉ, khóa DNS, hook), mốc lưới an toàn.
+                     "/etc/letsencrypt", "/var/lib/v7-watchdog", "/usr/local/sbin"):
             self.assertIn(path, backup.CONFIG_PATHS)
+        # Unit cấu hình chạy ProtectHome=true: mẫu dưới /home hay /root sẽ luôn nằm ở `missing`, đừng thêm.
+        self.assertFalse([path for path in backup.CONFIG_PATHS if path.startswith(("/home", "/root"))])
         members = [member for member, _ in backup.CONFIG_INVENTORY]
         self.assertTrue(all(member.startswith("inventory/") for member in members))
         self.assertEqual(len(members), len(set(members)))
@@ -153,6 +157,13 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(summary["files"], 4)
         self.assertEqual(backup.CONFIG_COMMANDS[0][1:], (("pg_dumpall", "--globals-only", "--no-password"),
                                                          "postgres"))
+        # Diễn tập dựng lại 25/11/2026: chủ, locale, quyền của từng DB; chạy dưới postgres như globals.
+        argv, user = {member: (argv, user) for member, argv, user in backup.CONFIG_COMMANDS}["databases.txt"]
+        self.assertEqual(user, "postgres")
+        self.assertIn("datacl", argv[-1])
+        dirs = dict(backup.CONFIG_INVENTORY)["inventory/dirs.txt"]
+        self.assertIn("/var/lib/webdebit-sheet-sync", dirs)
+        self.assertEqual(dirs[-1], "%m %u %g %p\\n")  # find tự đổi \n thành xuống dòng
         with self.assertRaisesRegex(backup.BackupError, "plain database name"):
             backup.config(self.outbox, self.recipients, 1, ["postgres://x"], self.paths, ())
 

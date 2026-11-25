@@ -10,6 +10,8 @@ Failed backups retain partial files without MANIFEST.json; do not reuse them.
 (the hourly timer runs it too, on its own root).
 `offsite` age-encrypts the newest daily backup into an outbox that an off-host
 PC pulls (v7_offsite_pull.py); decrypting needs the identity kept on that PC.
+`offsite --hourly` does the same for the newest hourly backup under its own
+`v7-hourly-…` names and retention, so the two families never prune each other.
 `config` (root) seals PostgreSQL globals and hao config files into the same outbox.
 """
 from __future__ import annotations
@@ -43,6 +45,8 @@ VN = timezone(timedelta(hours=7))
 VND = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 STAMP = re.compile(r"v7-[0-9]{8}-[0-9]{6}\Z")
 SEALED = re.compile(r"v7-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
+# RPO 25/11/2026 (WEB-CHINH-01: từ 1/12 web là sổ duy nhất): bản mỗi giờ cũng ra hộp chờ, tên riêng để luật giữ không đụng bản ngày.
+HOURLY_SEALED = re.compile(r"v7-hourly-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
 CONFIG_TOP = re.compile(r"v7-config-[0-9]{8}-[0-9]{6}\Z")
 CONFIG_SEALED = re.compile(r"v7-config-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
 DB_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
@@ -60,11 +64,22 @@ CONFIG_PATHS = (
     "/etc/webdebit-deploy.conf", "/var/lib/webdebit-sheet-sync/access/access.json", "/srv/v7/so-goc-20261020",
     "/var/lib/webdebit-sheet-sync/baseline-refs.json", "/etc/fstab", "/etc/hostname", "/etc/hosts",
     "/etc/apt/sources.list", "/etc/apt/sources.list.d", "/var/spool/cron/crontabs",
+    # RPO/RTO 25/11/2026: cổng 8445 (chứng chỉ Let's Encrypt, khóa DNS Cloudflare, cấu hình gia hạn, hook chép sang
+    # /etc/webdebit/tailnet-tls), mốc của lưới an toàn, script quản trị và compose của app Docker cùng máy. Unit có
+    # ProtectHome=true nên ~/.ssh/authorized_keys không vào gói: dựng lại từ .pub của PC (docs/rebuild-hao.md).
+    "/etc/letsencrypt", "/var/lib/v7-watchdog", "/usr/local/sbin",
+    "/etc/systemd/system/vaultwarden-*", "/etc/systemd/system/ha-tang-*",
+    "/opt/vaultwarden/compose.yaml", "/srv/services/compose.yaml",
 )
 # (member, argv, OS user): stdout kept in memory. Root drops to postgres for peer auth.
 CONFIG_COMMANDS = (
     ("globals.sql", ("pg_dumpall", "--globals-only", "--no-password"), "postgres"),
     ("tailscale-serve.json", ("tailscale", "serve", "status", "--json"), None),
+    # Diễn tập dựng lại 25/11/2026: globals không có chủ, locale, quyền CONNECT của từng DB; thiếu thì đoán khi CREATE DATABASE.
+    ("databases.txt", ("psql", "-X", "-At", "--no-password", "-c",
+                       "SELECT datname, pg_get_userbyid(datdba), pg_encoding_to_char(encoding), datcollate, datctype, "
+                       "datlocprovider, coalesce(datacl::text, '') FROM pg_database WHERE NOT datistemplate ORDER BY 1"),
+     "postgres"),
 )
 # Bảng kê để dựng lại máy (O5): gói, user/nhóm, đĩa/LVM, unit đang bật. Thiếu lệnh hay in rỗng (máy không có LVM) thì ghi
 # `command:<tên>` vào `missing`, không làm hỏng lượt như CONFIG_COMMANDS. Không có mật khẩu: getent đọc passwd/group, không đọc shadow.
@@ -77,6 +92,10 @@ CONFIG_INVENTORY = (
     ("inventory/lvm.txt", ("lvs", "--all", "--units", "g", "-o", "+devices")),
     ("inventory/unit-files.txt", ("systemctl", "list-unit-files", "--state=enabled", "--no-pager", "--no-legend")),
     ("inventory/timers.txt", ("systemctl", "list-timers", "--all", "--no-pager", "--no-legend")),
+    # Diễn tập 25/11/2026: unit có ReadWritePaths tới thư mục trạng thái không nằm trong gói (nhat-ky, office…); thiếu là API
+    # không lên (226/NAMESPACE). Ghi quyền, chủ của thư mục để dựng lại đúng; chỉ tên và quyền, không nội dung.
+    ("inventory/dirs.txt", ("find", "/srv", "/var/lib/webdebit-sheet-sync", "/var/lib/v7-watchdog", "-maxdepth", "2",
+                            "-type", "d", "-printf", "%m %u %g %p\\n")),
 )
 
 
@@ -520,13 +539,15 @@ def prune_sealed(outbox, pattern, keep, current):
     return kept, pruned
 
 
-def offsite(root, outbox, recipients, keep):
+def offsite(root, outbox, recipients, keep, hourly=False):
     """Timer entry after `daily`: age-encrypt the newest complete backup for an off-host pull.
 
     Verifies the source hash, then writes `<name>.tar.age` before its
     `.sha256` (sha256sum format), so a reader never sees a checksum without its
     archive; an intact pair is not sealed again. Prunes only after success:
     archives beyond the newest `keep`, checksum first. Nothing here decrypts.
+    `hourly` names the archive `v7-hourly-<stamp>.tar.age` and prunes only that
+    family; the folder inside the tar keeps its `v7-<stamp>` name for `verify`.
     """
     root, outbox = (Path(path).expanduser().resolve() for path in (root, outbox))
     if not root.is_dir() or not outbox.is_dir():
@@ -540,13 +561,14 @@ def offsite(root, outbox, recipients, keep):
         raise BackupError("no complete backup to seal")
     source = complete[-1]
     verify(source)
-    archive = outbox / f"{source.name}.tar.age"
+    name = "v7-hourly-" + source.name.removeprefix("v7-") if hourly else source.name
+    archive = outbox / f"{name}.tar.age"
     checksum = outbox / f"{archive.name}.sha256"
     new = not (archive.is_file() and checksum.is_file()
                and checksum.read_bytes() == f"{sha256(archive)}  {archive.name}\n".encode("ascii"))
     if new:
         publish(outbox, archive.name, lambda stream: seal(source, stream, recipients))
-    kept, pruned = prune_sealed(outbox, SEALED, keep, archive.name)
+    kept, pruned = prune_sealed(outbox, HOURLY_SEALED if hourly else SEALED, keep, archive.name)
     print(json.dumps({"ok": True, "source": source.name, "sealed": archive.name if new else None,
                       "archive_bytes": archive.stat().st_size, "kept": len(kept), "pruned": pruned,
                       "free_bytes": shutil.disk_usage(outbox).free}))
@@ -713,6 +735,7 @@ def main(argv=None):
     command.add_argument("--outbox", required=True, type=Path)
     command.add_argument("--recipients", required=True, type=Path)
     command.add_argument("--keep", type=int, default=14)
+    command.add_argument("--hourly", action="store_true", help="seal from the hourly root as v7-hourly-…")
     command = commands.add_parser("config")
     command.add_argument("--outbox", required=True, type=Path)
     command.add_argument("--recipients", required=True, type=Path)
@@ -730,7 +753,7 @@ def main(argv=None):
         elif args.command == "daily":
             daily(args.root, args.keep, args.min_free_mb)
         elif args.command == "offsite":
-            offsite(args.root, args.outbox, args.recipients, args.keep)
+            offsite(args.root, args.outbox, args.recipients, args.keep, args.hourly)
         elif args.command == "config":
             config(args.outbox, args.recipients, args.keep, args.database)
         elif args.command == "config-verify":

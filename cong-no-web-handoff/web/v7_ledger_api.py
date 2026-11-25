@@ -56,6 +56,7 @@ from v7_api_sheet import (
     approve_ps_fees,
     approve_receipts,
     approve_sheet,
+    assign_road_trip,
     assign_sheet_trip,
     customer_name_mapping,  # noqa: F401
     keep_sheet_task,
@@ -310,6 +311,7 @@ def handle_reminder(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
 # POST ngoài bảng ROUTES: thân JSON riêng, không qua validate(); mỗi hàm tự kiểm và trả (status, body).
 POST_HANDLERS = {
     "/api/v7/sheet/trips/assign": assign_sheet_trip,
+    "/api/v7/sheet/road/assign": assign_road_trip,
     "/api/v7/sheet/receipts/review": review_sheet_receipt,
     "/api/v7/sheet/tasks/price": apply_sheet_price,
     "/api/v7/sheet/tasks/keep": keep_sheet_task,

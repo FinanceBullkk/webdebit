@@ -54,11 +54,19 @@ test('tháng chọn được từ tháng đầu tới tháng hiện tại, qua n
 });
 
 test('lý do máy chưa đưa chuyến booking vào web: câu nghiệp vụ và ai phải làm (BAO-CAO-THANG-02)', () => {
-  assert.deepEqual(M.reasonOf('CONTAINER_REUSED_OR_CHANGED').whoText, 'Tự hết khi Sheet ghi');
+  // WEB-CHINH-01: không ca nào của chuyến còn chờ Sheet sổ nợ ghi; container dùng lại theo số dòng booking (DU-CHUYEN-01).
+  assert.deepEqual([M.reasonOf('CONTAINER_REUSED_OR_CHANGED').who, M.reasonOf('ROAD_EARLY').who], ['book', 'book']);
+  assert.match(M.reasonOf('CONTAINER_REUSED_OR_CHANGED').text, /booking không có thêm dòng[\s\S]*nhập tay trong sổ/);
   assert.match(M.reasonOf('NO_BOOK').text, /chưa gắn sổ web/);
   assert.equal(M.reasonOf('NO_BOOK').who, 'person');
   assert.equal(M.reasonOf('COMMODITY_MISMATCH').who, 'person');
-  assert.equal(M.reasonOf('ROAD_NO_TAB').who, 'sheet');
+  // WEB-CHINH-01: chuyến bộ không chờ Sheet nữa; người gán tên chủ hàng hoặc chọn sổ trên web.
+  for (const code of ['ROAD_NO_TAB', 'ROAD_TAB_FAR', 'ROAD_AMBIGUOUS_TAB']) {
+    assert.equal(M.reasonOf(code).who, 'person');
+    assert.doesNotMatch(M.reasonOf(code).text, /sửa Sheet|chờ tab/);
+  }
+  assert.match(M.reasonOf('ROAD_NO_TAB').text, /thẻ Khách/);
+  assert.match(M.reasonOf('ROAD_TAB_FAR').text, /chọn sổ ở Sổ khách hoặc Việc cần làm/);
   assert.equal(M.reasonOf('NEXT_RUN').whoText, 'Máy tự làm');
   assert.deepEqual(M.reasonOf('UNKNOWN'), { text: 'Chưa đọc được lý do', who: null, whoText: '—' }, 'mã lạ không đoán');
 });

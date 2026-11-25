@@ -81,3 +81,52 @@ test('dán lô: giá ngoài [1.000.000, 1 tỷ] mang cờ doubt (small cũ vẫn
   const fine = M.planPricePaste(M.parsePricePaste('DEMU0000001\t45000000'), snapshot, []);
   assert.deepEqual(fine.writes.map(item => item.doubt), [null]);
 });
+
+// WEB-CHINH-01 mục 4: dán cột phụ phí riêng (PHU-PHI-01), cùng cách chọn dòng và luật bỏ qua như dán giá.
+const line = (type, amount) => ({ id: type * 100, fee_type_id: type, amount_vnd: amount, note: null });
+test('dán phụ phí: đọc theo dấu của loại, ô 0 hay sai dấu báo dòng', () => {
+  const parsed = M.parseFeePaste('1.500.000\n\n300000 đ\n', 'positive');
+  assert.deepEqual(parsed.rows.map(row => row.priceVnd), ['1500000', null, '300000']);
+  assert.deepEqual(parsed.errors, []);
+  assert.match(M.parseFeePaste('-200.000', 'positive').errors.join(' '), /Dòng 1/);
+  assert.match(M.parseFeePaste('0', 'positive').errors.join(' '), /Dòng 1/);
+  assert.deepEqual(M.parseFeePaste('-200.000', 'negative').rows.map(row => row.priceVnd), ['-200000']);
+  assert.match(M.parseFeePaste('200.000', 'negative').errors.join(' '), /Dòng 1/);
+});
+
+test('dán phụ phí: chỉ chuyến web sửa được; nợ chỉ đổi ở chuyến đã có giá, đúng phần chênh của loại đó', () => {
+  const fees = { ...snapshot, trips: [
+    trip(1, { fee_lines: [] }),
+    trip(2, { unit_price_vnd: '40000000', amount_vnd: '40500000', other_fee_vnd: '500000', fee_lines: [line(7, '200000'), line(9, '300000')] }),
+    trip(3, { status: 'pending_review' }), trip(4, { status: 'rejected' }), trip(5, { editable: false }),
+    trip(6, { container: null, is_fee_only: true, other_fee_vnd: '300000', amount_vnd: '300000' }),
+    trip(7, { unit_price_vnd: '45000000', amount_vnd: '45200000', fee_lines: [line(7, '200000')] })] };
+  const order = ['trip-1', 'legacy-21', 'trip-2', 'trip-3', 'trip-4', 'trip-5', 'trip-6', 'trip-7'];
+  const plan = M.planFeePaste(M.parseFeePaste(['150000', '1', '250000', '1', '1', '1', '1', '200000'].join('\n'), 'positive'), fees, order, 7);
+  assert.deepEqual(plan.items.map(item => item.status === 'skip' ? `skip:${item.reason}` : item.status), [
+    'write', 'skip:dòng sổ gốc: sửa từng ô', 'write', 'skip:chờ kiểm', 'skip:đã loại', 'skip:tháng khóa', 'skip:dòng phí lẻ', 'same']);
+  assert.deepEqual(plan.writes.map(item => [item.tripId, item.amountVnd, item.oldVnd, item.counted, item.overwrite]),
+    [[1, '150000', null, false, false], [2, '250000', 200000n, true, true]]);
+  // Chuyến 1 chưa có giá: chưa tính nợ. Chuyến 2: loại 7 từ 200.000 lên 250.000, khoản loại 9 giữ nguyên.
+  assert.equal(plan.deltaVnd, 50000n);
+  assert.equal(plan.afterVnd, 100050000n);
+});
+
+test('dán phụ phí: nghi sai đơn vị ngoài 10.000 đ – 100 triệu đ (trị tuyệt đối), chỉ cờ không chặn', () => {
+  assert.equal(M.feeDoubt(9999n), 'small');
+  assert.equal(M.feeDoubt('10000'), null);
+  assert.equal(M.feeDoubt('-100000000'), null);
+  assert.equal(M.feeDoubt('-100000001'), 'large');
+  const plan = M.planFeePaste(M.parseFeePaste('1500\n150000000', 'positive'), { ...snapshot, trips: [trip(1), trip(2)] }, ['trip-1', 'trip-2'], 7);
+  assert.deepEqual(plan.writes.map(item => item.doubt), ['small', 'large']);
+});
+
+test('GIA-BOOKING-01: gợi ý booking dùng chung cho Sổ khách và Việc cần làm', () => {
+  const ledger = { sheet_sync: { booking_prices: { 1: { text: '45tr', unit_price_vnd: '45000000', other_fee_vnd: '1500000' },
+    2: { text: 'giá cũ' }, 3: { text: ' ', unit_price_vnd: '1' } } } };
+  assert.deepEqual(M.bookingHint(ledger, { id: 1, other_fee_vnd: null }), { text: '45tr', unit: '45000000', fee: '1500000' });
+  assert.deepEqual(M.bookingHint(ledger, { id: 1, other_fee_vnd: '200000' }), { text: '45tr', unit: '45000000', fee: null });
+  assert.deepEqual(M.bookingHint(ledger, { id: 2 }), { text: 'giá cũ', unit: null, fee: null });
+  assert.equal(M.bookingHint(ledger, { id: 3 }), null);
+  assert.equal(M.bookingHint({}, { id: 1 }), null);
+});

@@ -24,7 +24,7 @@
   // Khi đã so với sổ web: hai nhóm thay cho 'recent'.
   const SPLIT = {
     recent: { key: 'recent', name: 'Tháng này, web chưa có', money: false, about: 'Chuyến tháng này có trong booking mà cả Sheet lẫn sổ web chưa có. Lý do máy chưa đưa vào: Báo cáo tháng.' },
-    recent_web: { key: 'recent_web', name: 'Web có, Sheet chưa ghi', money: false, about: 'Máy đã đưa chuyến vào sổ web, chưa có giá. Sheet ghi vào tab khách thì có giá và dòng hết hiện ở đây.' },
+    recent_web: { key: 'recent_web', name: 'Web có, Sheet chưa ghi', money: false, about: 'Máy đã đưa chuyến vào sổ web. Giá nhập ở Sổ khách trên web; từ 01/12/2026 không chờ Sheet ghi giá (WEB-CHINH-01).' },
   };
   const HEAD = '<th>Container</th><th>Ngày trên sổ</th><th>Sổ</th><th>Số tiền</th><th>Booking</th><th>Vì sao</th>';
   const FIX_HEAD = '<th>Container</th><th>Ô ngày trong booking</th><th>Tab nguồn</th><th>Booking / số xe</th><th>Chủ hàng</th><th>Việc</th>';
@@ -100,7 +100,7 @@
       case 'LECH_NGAY': return row.paired ? `Lệch ${row.gap_days} ngày` : `Chuyến booking gần nhất cách ${row.gap_days} ngày, chưa ghép`;
       case 'NGAY_TU_NGUON': return src.date && row.month && String(src.date).slice(0, 7) !== row.month ? 'Sổ không ghi ngày, ghi ở khối tháng sau' : 'Sổ không ghi ngày';
       case 'THANG_CUOI':
-        if (row.web) return `Đã vào sổ web ngày ${day(row.web.date)}, chờ Sheet ghi giá`;
+        if (row.web) return `Đã vào sổ web ngày ${day(row.web.date)}; giá nhập ở Sổ khách`;
         return split() || onWeb() ? 'Web chưa có' : 'Tháng này, sổ có thể chưa ghi';
       default: return '';
     }

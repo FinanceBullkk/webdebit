@@ -62,7 +62,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 
 | # | Kiểm gì | Đạt khi | Máy | Trạng thái 11/11/2026 |
 | --- | --- | --- | --- | --- |
-| E1 | `hao` hỏng thì mất bao nhiêu và bao lâu dựng lại | Diễn tập phục hồi trên máy khác, có số phút | không | CHƯA. Lần phục hồi thử có ghi lại là 29/10, trên chính `hao` |
+| E1 | `hao` hỏng thì mất bao nhiêu và bao lâu dựng lại | Diễn tập phục hồi trên máy khác, có số phút | không | ĐẠT phần lõi 25/11/2026: máy trống (Docker Ubuntu 26.04, không mạng) từ cặp bản PC đã kéo, giải mã tới web trả đúng tổng 246/246 khách trong khoảng 13 phút; 11 chỗ trang dựng lại sai hoặc thiếu đã sửa ([nhật ký](deploys/2026-11-25-dien-tap-dung-lai-hao.md)). Chưa thử: cài OS máy thật, Tailscale/DNS/8445, máy gửi thật. RPO: tới khoảng 26 giờ trước bản giờ ra ngoài; sau khi cài, khoảng 1 giờ 45 phút trong 6–22 giờ ([O7](v7-deploy-runbook.md#o7-bản-giờ-ra-ngoài--timer-v7-backup-offsite-hourly-bổ-sung-25112026)) |
 | E2 | `hao` sập giữa ngày thì ghi tạm vào đâu | Có quy trình một trang | không | CHƯA |
 | E3 | Cảnh báo email tới thật | Một lần thử tới hộp thư | không | ĐẠT 23/11/2026: `--test-fail` tới 5 check, hộp thư nhận đủ 5 email lỗi và 5 email hết lỗi ([nhật ký](deploys/2026-11-23-van-hanh-canh-bao.md)) |
 | E4 | Bảo mật | Ba điểm còn mở của [`ACCESS-01`](decisions/access-01.md) đóng hoặc được chấp nhận | không | CÒN MỞ |
