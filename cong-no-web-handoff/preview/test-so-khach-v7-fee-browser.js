@@ -40,19 +40,21 @@ test('COT-PHU-PHI-01 + SO-GON-07: bảy cột riêng trống ẩn; bấm Hiện 
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').evaluateAll(list => list.map(th => th.textContent)),
     ['Lưu bãi', 'Ghép', 'Điện', 'Neo', 'Health + KĐ', 'Phí hủy', 'Sửa bill', 'Khác']);
   assert.equal(await page.locator('.ledger-head th.fee-narrow').count(), 7, 'sổ chưa có khoản nào của bảy loại');
+  // SK-N1: chỉ thân bảng cuộn ngang (khung riêng); khung ngoài không cuộn nên hàng tiêu đề còn dính theo trang.
   const box = await page.evaluate(() => {
     const card = document.querySelector('#thang-2026-09 .trip-card');
+    const body = card.querySelector('.trip-body-scroll');
     const amount = card.querySelector('.ledger-head th:last-child');
-    card.scrollLeft = card.scrollWidth;
+    body.scrollLeft = body.scrollWidth;
     const right = amount.getBoundingClientRect().right;
-    return { over: Boolean(document.querySelector('.ledger-book.fee-over')), scroll: getComputedStyle(card).overflowX,
+    return { over: Boolean(document.querySelector('.ledger-book.fee-over')), card: getComputedStyle(card).overflowX, scroll: getComputedStyle(body).overflowX,
       inside: right <= card.getBoundingClientRect().right + 1, label: amount.textContent, page: document.documentElement.scrollWidth <= innerWidth };
   });
-  assert.deepEqual(box, { over: true, scroll: 'auto', inside: true, label: 'Thành tiền', page: true });
+  assert.deepEqual(box, { over: true, card: 'clip', scroll: 'auto', inside: true, label: 'Thành tiền', page: true });
   // Chưa cuộn ngang: cột Thành tiền ghim phải vẫn nằm trọn trong khung.
   const pinned = await page.evaluate(() => {
     const card = document.querySelector('#thang-2026-09 .trip-card');
-    card.scrollLeft = 0;
+    card.querySelector('.trip-body-scroll').scrollLeft = 0;
     const amount = card.querySelector('.trip-list tr[data-row] td:last-child').getBoundingClientRect();
     return amount.right <= card.getBoundingClientRect().right + 1 && amount.left >= card.getBoundingClientRect().left;
   });
@@ -66,6 +68,77 @@ test('COT-PHU-PHI-01 + SO-GON-07: bảy cột riêng trống ẩn; bấm Hiện 
   world.feeColumns = [11, 3, 2, 1, 10, 12, 13];
   world.feeHideEmpty = true;
 }));
+
+// SK-N1 + SK-N5 (audit Sổ khách 25/11/2026): sổ bảy cột phí đều có khoản, 24 chuyến, tên nơi dài. Khung 1265×560 = màn 1280×560
+// trừ thanh cuộn dọc 15px của Chrome Windows (headless không vẽ thanh cuộn).
+const wideBook = world => {
+  for (const [id, name, sort] of [[10, 'Health + KĐ', 7], [11, 'Lưu bãi', 8], [12, 'Phí hủy', 9], [13, 'Sửa bill', 10]]) {
+    world.feeTypes.splice(world.feeTypes.length - 3, 0, { id, name, kind: 'service', sign: 'positive', system_key: null, active: true, sort });
+  }
+  world.feeColumns = [11, 3, 2, 1, 10, 12, 13];
+  world.feeHideEmpty = true;
+  const places = ['Kho hàng khu công nghiệp thử số một', 'Cảng A', 'Bãi container thử phía Nam', 'Cửa khẩu B'];
+  world.trips = Array.from({ length: 24 }, (_, i) => {
+    const fees = world.feeColumns.filter((_, k) => (i + k) % 3 === 0).map((type, k) => ({ id: 700 + i * 10 + k, fee_type_id: type, amount_vnd: '1500000', note: null }));
+    return { id: 200 + i, month: '2026-09-01', container: `DEMU${String(1000000 + i)}`, carrier: 'Tàu thử', shipper: 'Chủ hàng thử có tên khá dài',
+      event_date: `2026-09-${String(1 + i).padStart(2, '0')}`, origin: places[i % 4], destination: places[(i + 1) % 4], unit_price_vnd: '12000000',
+      other_fee_vnd: null, amount_vnd: String(12000000 + fees.length * 1500000), status: 'confirmed', is_missing_price: false, is_fee_only: false,
+      editable: true, info_editable: true, deleted: false, fee_lines: fees };
+  });
+  world.legacy = [];
+};
+
+test('SK-N1: bảng rộng ở 1280×560, cuộn tới chuyến cuối vẫn thấy hàng tiêu đề và Thành tiền; tiêu đề cuộn ngang theo thân bảng', async () => withPage(async ({ page }) => {
+  await page.setViewportSize({ width: 1265, height: 560 });
+  await reload(page);
+  await page.locator('.trip-body-scroll .trip-list tr[data-row]').first().waitFor();
+  assert.equal(await page.locator('.ledger-head th.fee-h').count(), 8, 'bảy cột riêng có khoản + Khác');
+  const seen = await page.evaluate(() => {
+    const rows = document.querySelectorAll('#thang-2026-09 .trip-list tr[data-row]');
+    const last = rows[rows.length - 1];
+    window.scrollTo({ top: scrollY + last.getBoundingClientRect().bottom - innerHeight + 20, behavior: 'instant' });
+    const hit = el => { const b = el.getBoundingClientRect(); const top = document.elementFromPoint(b.left + 6, b.top + b.height / 2); return el === top || el.contains(top); };
+    const head = document.querySelector('.ledger-head');
+    return { headTop: head.getBoundingClientRect().top > 0, headAmount: hit(head.querySelector('th:last-child')), headFirst: hit(head.querySelector('th')),
+      lastAmount: hit(last.lastElementChild), lastShown: last.getBoundingClientRect().bottom <= innerHeight };
+  });
+  assert.deepEqual(seen, { headTop: true, headAmount: true, headFirst: true, lastAmount: true, lastShown: true });
+  // Cuộn ngang thân bảng: hàng tiêu đề đi theo, mỗi tiêu đề vẫn thẳng cột với ô của nó (trừ Thành tiền ghim phải).
+  await page.evaluate(() => { document.querySelector('.trip-body-scroll').scrollLeft = 200; });
+  await page.waitForFunction(() => document.querySelector('.trip-head-scroll').scrollLeft === 200);
+  const aligned = await page.evaluate(() => {
+    const ths = [...document.querySelectorAll('.ledger-head th')], tds = [...document.querySelector('.trip-list tr[data-row]').cells];
+    return ths.slice(0, -1).every((th, index) => Math.abs(th.getBoundingClientRect().left - tds[index].getBoundingClientRect().left) < 1);
+  });
+  assert.equal(aligned, true);
+  // Cuộn trên hàng tiêu đề (Shift + lăn chuột) cũng cuộn thân bảng.
+  await page.evaluate(() => { document.querySelector('.trip-head-scroll').scrollLeft = 60; });
+  await page.waitForFunction(() => document.querySelector('.trip-body-scroll').scrollLeft === 60);
+}, wideBook));
+
+test('SK-N5: ô bị cắt "…" có chữ rê chuột đủ chữ; Tuyến cắt nơi đi trước, giữ nơi đến', async () => withPage(async ({ page }) => {
+  await page.setViewportSize({ width: 1265, height: 560 });
+  await reload(page);
+  await page.locator('.trip-list tr[data-row]').first().waitFor();
+  const cells = await page.evaluate(() => [...document.querySelectorAll('.trip-list td')]
+    .filter(td => [td, ...td.children].some(box => box.scrollWidth > box.clientWidth)).map(td => td.title));
+  assert.ok(cells.length >= 24, `phải có ô bị cắt để kiểm (${cells.length})`);
+  assert.equal(cells.filter(title => !title).length, 0, 'mọi ô bị cắt có title');
+  // Chuyến 200: nơi đi dài, nơi đến ngắn → nơi đi bị cắt, nơi đến còn đủ; chữ rê chuột ghép cả tuyến.
+  const route = await page.locator('tr[data-row="trip-200"] td.route-cell').evaluate(td => {
+    const [from, , to] = td.children;
+    return { from: from.scrollWidth > from.clientWidth, to: to.scrollWidth > to.clientWidth, toText: to.textContent, title: td.title };
+  });
+  assert.deepEqual(route, { from: true, to: false, toText: 'Cảng A', title: 'Kho hàng khu công nghiệp thử số một → Cảng A' });
+  assert.equal(await page.locator('tr[data-row="trip-200"] td[data-field="shipper"]').getAttribute('title'), 'Chủ hàng thử có tên khá dài');
+  assert.equal(await page.locator('tr[data-row="trip-200"]').evaluate(tr => tr.getBoundingClientRect().height), 35, 'ô Tuyến không làm dòng cao thêm');
+}, wideBook));
+
+test('SK-N5: sổ chuyến bộ (khách có transport_mode BO) gọi cột biển số là "Xe"', async () => withPage(async ({ page }) => {
+  await page.locator('.trip-list tr[data-row]').first().waitFor();
+  assert.equal(await page.locator('.ledger-head th').nth(2).innerText(), 'Xe');
+  assert.equal(await page.locator('.info-edit[data-kind="trip"][data-id="11"][data-field="carrier"]').getAttribute('aria-label'), 'Sửa xe');
+}, world => { world.customers = [{ id: 1, name: 'Khách Thử Sửa', status: 'active', transport_mode: 'BO' }]; }));
 
 test('ô cột riêng: gõ số + Enter gửi một lệnh đặt loại; Esc trả lại, xóa trắng bỏ loại đó', async () => withPage(async ({ page, world }) => {
   const cell = own(page, 'trip:11', 1);
