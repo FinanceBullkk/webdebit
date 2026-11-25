@@ -12,6 +12,11 @@ user and key come from arguments, never from the repo.
 healthchecks.io URL. After the log line the run pings it (PASS) or `<url>/fail`
 (FAIL), so a pull that logs in but keeps nothing (disk full, hash mismatch)
 mails like a missed one. The body carries counts and file names only.
+
+`--hourly` (RPO 25/11/2026): pull only `v7-hourly-YYYYMMDD-HHMMSS.tar.age`
+pairs (`v7_backup.py offsite --hourly`) from the same outbox. Run it as its own
+task into its own `--dest`, with its own `pull.log` and check, so an hourly run
+never deletes the `.partial` files of a daily run or prunes its family.
 """
 from __future__ import annotations
 
@@ -27,8 +32,10 @@ from pathlib import Path
 
 ARCHIVE = re.compile(r"v7-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
 CONFIG = re.compile(r"v7-config-[0-9]{8}-[0-9]{6}\.tar\.age\Z")  # optional: older outboxes have none
-FAMILIES = (("", ARCHIVE), ("config_", CONFIG))  # (pull.log prefix, names)
-CHECKSUM = re.compile(r"([0-9a-f]{64})  (v7-(?:config-)?[0-9]{8}-[0-9]{6}\.tar\.age)\n\Z")
+HOURLY = re.compile(r"v7-hourly-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
+FAMILIES = (("", ARCHIVE), ("config_", CONFIG))  # (pull.log prefix, names); the first one must not be empty
+HOURLY_FAMILIES = (("", HOURLY),)
+CHECKSUM = re.compile(r"([0-9a-f]{64})  (v7-(?:config-|hourly-)?[0-9]{8}-[0-9]{6}\.tar\.age)\n\Z")
 LOG = "pull.log"
 VN = timezone(timedelta(hours=7))
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # pythonw under Task Scheduler: no console flash
@@ -96,16 +103,17 @@ def pull(args):
     """Returns the PASS summary; raises PullError listing every pair that failed."""
     if not args.dest.is_dir():
         raise PullError("dest must be an existing directory")
+    families = HOURLY_FAMILIES if getattr(args, "hourly", False) else FAMILIES
     for entry in args.dest.iterdir():  # leftovers of a run killed mid-transfer
         stem = entry.name.removesuffix(".partial").removesuffix(".sha256")
         if entry.name.endswith(".partial") and entry.is_file() and any(
-                pattern.fullmatch(stem) for _, pattern in FAMILIES):
+                pattern.fullmatch(stem) for _, pattern in families):
             entry.unlink()
     names = remote_names(args)
-    if not remote_pairs(names, ARCHIVE):
+    if not remote_pairs(names, families[0][1]):
         raise PullError("no sealed backup in the outbox")
     errors, pulled = [], {}
-    for prefix, pattern in FAMILIES:
+    for prefix, pattern in families:
         have = local_pairs(args.dest, pattern)
         # Only what the window keeps: a short --keep never re-downloads pruned pairs.
         wanted = sorted({*have, *remote_pairs(names, pattern)})[-args.keep:]
@@ -118,7 +126,7 @@ def pull(args):
     if errors:
         raise PullError("; ".join(errors))
     summary = []
-    for prefix, pattern in FAMILIES:  # prune only after a run without any error
+    for prefix, pattern in families:  # prune only after a run without any error
         pairs = local_pairs(args.dest, pattern)
         pruned = pairs[:-args.keep]
         for name in pruned:
@@ -151,6 +159,7 @@ def main(argv=None):
     parser.add_argument("--keep", type=int, default=30)
     parser.add_argument("--sftp", default="sftp")
     parser.add_argument("--ping-url-file", type=Path, help="file with this PC's healthchecks.io URL (O8)")
+    parser.add_argument("--hourly", action="store_true", help="pull only v7-hourly-… pairs (own task, own --dest)")
     args = parser.parse_args(argv)
     if args.keep < 1:
         parser.error("--keep must be >= 1")
