@@ -300,7 +300,6 @@ div.lock-ask button,li.lock-ask button{margin-left:0}
 .month-chip:hover{border-color:#145fa9}.month-chip:focus-visible{outline:3px solid #145fa9;outline-offset:-3px}
 .month-chip .chip-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:13px;font-weight:700;line-height:20px;text-align:center}
 /* SK-N8: dấu "… N tháng" giữa hai chip không liền nhau; chữ, không phải nút. */
-.month-gap{display:inline-flex;flex:0 0 auto;align-items:center;align-self:stretch;padding:0 4px;font-size:13px;white-space:nowrap}
 /* SO-GON-05: dòng tóm tắt của tháng đang xem (Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng) và chữ trạng thái khóa. */
 .month-lock-text{margin-left:-6px;font-size:14px;font-weight:400;color:#d6e4f2}
 .month-stats i{font-style:normal;color:#9fbad6}.month-stats .month-end b{font-size:17px}

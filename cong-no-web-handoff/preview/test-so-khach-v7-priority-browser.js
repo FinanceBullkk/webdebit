@@ -35,7 +35,7 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
     assert.equal(await page.locator('.month-missing').innerText(), 'ⓘ 2 chưa giá');
     assert.equal(await page.locator('#demo-banner').isVisible(), true);
     assert.equal(await page.locator('.history-toggle').isVisible(), false);
-    assert.equal(await page.locator('.month-chip.on .chip-name').innerText(), 'Tháng 11/2026');
+    assert.equal(await page.locator('.month-chip.on .chip-name').innerText(), 'T11');
     assert.equal(await page.locator('.subtotal .unit-total').innerText(), '57.000.000');
     // Thành tiền ở dòng cộng là phát sinh tháng của GET (months[].charges_vnd), bằng tổng Thành tiền các dòng có giá.
     const rows = await page.locator('.trip-list td.trip-amount').allInnerTexts();

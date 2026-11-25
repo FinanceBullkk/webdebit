@@ -45,7 +45,12 @@ body{margin:0;padding-left:76px;background:var(--line-soft);color:var(--ink);fon
 #the-so .layout{max-width:none}#the-so .ledger-book{min-width:0;width:100%;padding-top:10px}
 .month-chips{position:sticky;top:calc(var(--banner) + var(--head));height:40px;align-items:flex-end;gap:4px;background:var(--line-soft);border:0;z-index:32}
 .month-chip,.month-chip.locked{height:34px;padding:0 14px;border:1px solid transparent;border-radius:8px 8px 0 0;background:#dde2e8;color:var(--ink-2);font-size:14px;font-weight:600}
-.month-chip.on,.month-chip.locked.on{position:relative;top:1px;height:40px;padding:0 18px;background:#fff;color:#0d366b;border-color:var(--line);border-bottom-color:#fff;font-size:15px;font-weight:700}
+.month-chip.on,.month-chip.locked.on{position:relative;top:1px;height:40px;background:#fff;color:#0d366b;border-color:var(--line);border-bottom-color:#fff;font-weight:700}
+/* THANH-THANG-01: dải tháng chia nhóm theo năm; nhãn năm đứng trước nhóm, tháng trống là ô mờ cùng cỡ, năm gom lại là nút "Xem ›". */
+.month-group{display:flex;flex:0 0 auto;align-items:flex-end;align-self:stretch;gap:4px}.month-group+.month-group{margin-left:10px;padding-left:10px;border-left:1px solid var(--pin-line)}
+.month-year{align-self:center;padding:0 4px;color:var(--ink-2);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.month-empty{display:inline-flex;flex:0 0 auto;align-items:center;height:34px;padding:0 14px;border:1px dashed var(--pin-line);border-bottom:0;border-radius:var(--radius) var(--radius) 0 0;color:var(--ink-2);opacity:.6;font-size:14px;cursor:default}
+.month-year-jump{display:inline-flex;align-items:center;align-self:center;min-height:32px;padding:0 10px;border:1px solid var(--pin-line);border-radius:var(--radius);background:var(--surface);color:var(--accent-ink);font-size:13px;font-weight:600;text-decoration:none}.month-year-jump:hover{border-color:var(--accent-ink)}.month-year-jump:focus-visible{outline:3px solid var(--accent-ink);outline-offset:1px}
 .month-chip.on:not(.locked)::before{content:"";width:8px;height:8px;border-radius:4px;background:#0f766e}.chip-lock{display:none}
 .ledger-book section{scroll-margin-top:calc(var(--banner) + var(--head) + var(--chips));margin:0}
 .month-card{background:#fff;border:1px solid var(--line);border-radius:0 8px 8px 8px;overflow:hidden}.month-summary-layout{display:flex;flex-wrap:wrap;min-width:0}

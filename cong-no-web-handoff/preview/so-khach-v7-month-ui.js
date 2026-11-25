@@ -8,7 +8,7 @@
   'use strict';
   const { root, model, escape, fmt, num, dateText, monthKey, monthLabel, liveOpenMonth, columns, ghosts, redraw, showNotice,
     legacyTripRow, webTripRow, sheetPendingRows, bookingMissingRows, payRows } = ctx;
-  const { short, monthTag } = CongNoFormat;
+  const { short } = CongNoFormat;
   // Chuyến Sheet chưa vào sổ: dòng mới, hoặc lệch mà chưa nối được dòng nào trong sổ.
   const sheetPending = row => row.sync_state === 'NEW' || !row.existing_id;
   // DONG-MO-BOOKING-01: chuyến booking sổ chưa có; bỏ chuyến đã hiện thành dòng Sheet chờ (cùng container, lệch không quá 3 ngày).
@@ -218,10 +218,10 @@
     `${detailed ? '' : subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table>${toolbar}</section>`].join(GAP);
   }
 
-  // Chip một tháng trên thanh tháng: "T9", ghi năm ở chip đầu tiên và khi năm khác chip đứng trước (SK-N8: theo chip trước, không
-  // theo năm hiện tại, để "T11" sau "T8/2025" không bị đọc thành 11/2025); còn nợ cuối tháng rút gọn, dấu khóa chỉ để xem
-  // (khóa/mở khóa bấm ở thanh của bảng tháng) và chấm cam số việc chờ.
-  function monthChip(item, { data, openKey, lockFlags }, prevYear) {
+  // Chip một tháng trên thanh tháng (THANH-THANG-01, thay cách ghi năm của SK-N8): chữ luôn là "T9", năm đứng riêng ở nhãn
+  // nhóm phía trước; chip đang xem chỉ đổi màu, không đổi chữ. Dấu khóa chỉ để xem (khóa/mở khóa bấm ở thanh của bảng tháng),
+  // chấm cam là số việc chờ.
+  function monthChip(item, { data, openKey, lockFlags }) {
     const key = monthKey(item.month);
     const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
     const end = item.end_of_month_vnd == null ? '–' : short(item.end_of_month_vnd);
@@ -231,17 +231,42 @@
     return `<a class="month-chip${locked ? ' locked' : ''}${key === selected ? ' on' : ''}" href="#thang-${escape(key)}" data-month="${escape(key)}" `
       + `${key === selected ? 'aria-current="true" ' : ''}`
       + `aria-label="Tháng ${monthLabel(key)} · còn nợ cuối tháng ${escape(end)}${locked ? ' · đã khóa' : ''}${todo ? ` · ${escape(todo)}` : ''}">`
-      + `<span class="chip-name">${key === selected ? `Tháng ${monthLabel(key)}` : monthTag(`${key}-01`, prevYear)}</span>`
+      + `<span class="chip-name">T${Number(key.slice(5, 7))}</span>`
       + `${locked ? '<span class="chip-lock" aria-hidden="true">🔒</span>' : ''}`
       + `${total ? `<span class="chip-work" title="${escape(todo)}" aria-hidden="true">${total}</span>` : ''}</a>`;
   }
 
-  // SK-N8: giữa hai chip cách nhau một tháng trở lên có dấu "… N tháng" (tháng không có số liệu không có chip), để dãy chip
-  // không bị đọc như các tháng liền nhau.
-  const monthIndex = key => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7));
-  function monthGap(before, key) {
-    const skipped = monthIndex(key) - monthIndex(before) - 1;
-    return skipped > 0 ? `<span class="month-gap" title="${skipped} tháng không có số liệu">… ${skipped} tháng</span>` : '';
+  // THANH-THANG-01 (26/11/2026, người dùng chọn hướng A): thanh tháng là một dải liên tục chia nhóm theo năm. Năm có tháng
+  // đang xem và năm mới nhất mở đủ các tháng, từ tháng đầu của sổ (hoặc T1) tới tháng cuối của sổ (hoặc T12); tháng không có
+  // số liệu vẫn có ô mờ không bấm được để vị trí tháng cố định và thấy rõ khoảng trống. Sổ dài quá FIT_MONTHS tháng thì các năm
+  // khác gom thành một nút năm, bấm thì sang tháng cuối có số liệu của năm đó; sổ ngắn hơn (vừa một hàng ở 1280) mở hết.
+  const FIT_MONTHS = 16;
+  const monthIndex = key => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)) - 1;
+  const keyOf = index => `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`;
+  function monthStrip(groups, book, open) {
+    const byKey = new Map(groups.map(item => [monthKey(item.month), item]));
+    const keys = [...byKey.keys()];
+    if (!keys.length) return '';
+    const [first, last] = [monthIndex(keys[0]), monthIndex(keys.at(-1))];
+    const years = [...new Set(keys.map(key => key.slice(0, 4)))];
+    const expanded = new Set(last - first < FIT_MONTHS ? years : [keys.at(-1).slice(0, 4), (open ?? keys.at(-1)).slice(0, 4)]);
+    return years.map(year => {
+      const label = `<span class="month-year">${year}</span>`;
+      if (!expanded.has(year)) {
+        const jump = keys.filter(key => key.startsWith(year)).at(-1);
+        return `<span class="month-group">${label}<a class="month-year-jump" href="#thang-${escape(jump)}" data-month="${escape(jump)}" `
+          + `aria-label="Năm ${year}: xem tháng ${monthLabel(jump)}">Xem ›</a></span>`;
+      }
+      const from = Math.max(first, Number(year) * 12);
+      const to = Math.min(last, Number(year) * 12 + 11);
+      const cells = [];
+      for (let index = from; index <= to; index += 1) {
+        const key = keyOf(index);
+        cells.push(byKey.has(key) ? monthChip(byKey.get(key), book)
+          : `<span class="month-empty" title="Tháng ${monthLabel(key)} không có số liệu">T${index % 12 + 1}</span>`);
+      }
+      return `<span class="month-group">${label}${cells.join('')}</span>`;
+    }).join('');
   }
 
   // Các bảng tháng và thanh chip tháng của một bản GET.
@@ -259,10 +284,7 @@
     const book = { data, active, openKey, lockFlags, historical, outgoing };
     // Chỉ vẽ tháng đang xem (SO-GON-05). work: tổng số việc chờ của mọi chip (số trên thẻ Sổ của trang khách, TRANG-KHACH-01).
     return { sections: groups.filter(item => monthKey(item.month) === open).map(item => monthSection(item, book)).join(''),
-      chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map((item, index) => {
-        const before = index ? monthKey(groups[index - 1].month) : null;
-        return `${before ? monthGap(before, monthKey(item.month)) : ''}${monthChip(item, book, before ? Number(before.slice(0, 4)) : null)}`;
-      }).join('')}</nav>`,
+      chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${monthStrip(groups, book, open)}</nav>`,
       work: bookWork(data, groups).reduce((sum, [count]) => sum + count, 0) };
   }
 
@@ -293,7 +315,7 @@
       else ctx.showLoc('thieu-gia');
       return;
     }
-    const chip = event.target.closest('.month-chip');
+    const chip = event.target.closest('.month-chip,.month-year-jump');
     if (!chip) return;
     event.preventDefault();
     const key = chip.dataset.month;

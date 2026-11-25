@@ -136,7 +136,7 @@
 /* Nút trên Sổ dưới 760px (DIEN-THOAI-NUT-01): thẻ tháng, nút trên thanh chuyến và nút Ghi phiếu thu cao ít nhất 40px. */
 @media (max-width:760px){
   #the-so .month-chips{height:46px}
-  #the-so .month-chip,#the-so .month-chip.locked{height:40px}
+  #the-so .month-chip,#the-so .month-chip.locked,#the-so .month-empty{height:40px}
   #the-so .month-chip.on,#the-so .month-chip.locked.on{height:46px}
   #the-so .trip-tools button,#the-so .trip-tools #refresh-data{width:40px;min-width:40px;height:40px;min-height:40px}
   #the-so .pay-head .entry-open{height:44px;min-height:44px}

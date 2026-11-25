@@ -341,9 +341,10 @@ test('locked month: only the text cells open (KHOA-CHU-01); money, date, contain
   assert.match(root.innerHTML, /<button type="button" class="entry-open" >\+ Ghi phiếu thu<\/button>/);
 });
 
-// SK-N8: năm của chip theo chip đứng trước (không theo năm hiện tại); khoảng trống nhiều tháng có dấu "… N tháng".
+// THANH-THANG-01 (thay cách ghi năm của SK-N8): năm là nhãn nhóm; năm của tháng đang xem và năm mới nhất mở đủ tháng (tháng
+// trống là ô mờ), năm khác gom thành nút "Xem ›" sang tháng cuối có số liệu của năm đó.
 // SK-C1: GET trả dòng tháng hiện tại (phát sinh 0) nên thẻ tháng hiện tại có Nợ đầu tháng và Còn nợ cuối tháng, không "–".
-test('SK-N8 + SK-C1: chip years follow the previous chip, gaps show a month count, current month card has numbers', async () => {
+test('THANH-THANG-01 + SK-C1: month strip groups by year, empty months dimmed, other years collapsed, current month card has numbers', async () => {
   const month = (key, prior, charges, received, end) => ({ month: `${key}-01`, prior_months_vnd: prior, charges_vnd: charges,
     received_vnd: received, end_of_month_vnd: end, outstanding_vnd: '0' });
   const book = { ...ledger(1), today_month: '2026-11-01',
@@ -351,8 +352,10 @@ test('SK-N8 + SK-C1: chip years follow the previous chip, gaps show a month coun
     month_locks: [], opening: [], trips: [], receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] };
   const { root } = await livePage(book, '?customer=7&month=2026-11');
   const chips = root.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0];
-  const names = [...chips.matchAll(/<span class="(chip-name|month-gap)"[^>]*>([^<]*)<\/span>/g)].map(match => match[2]);
-  assert.deepEqual(names, ['T7/2025', 'T8', '… 14 tháng', 'Tháng 11/2026']);
+  const names = [...chips.matchAll(/<(?:span|a) class="(month-year|chip-name|month-empty|month-year-jump)"[^>]*>([^<]*)<\/(?:span|a)>/g)]
+    .map(match => `${match[1] === 'month-empty' ? '~' : ''}${match[2]}`);
+  assert.deepEqual(names, ['2025', 'Xem ›', '2026', ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(m => `~T${m}`), 'T11']);
+  assert.match(chips, /<a class="month-year-jump" href="#thang-2025-08" data-month="2025-08" aria-label="Năm 2025: xem tháng 8\/2025">/);
   const card = root.innerHTML.match(/<section id="thang-2026-11">.*?<\/section>/s)[0];
   assert.match(card, /<span class="month-prior">Nợ đầu tháng <b>1\.000<\/b><\/span>/);
   assert.match(card, /<span class="month-end">Còn nợ cuối tháng <b>1\.000 đ<\/b><\/span>/);
@@ -360,10 +363,10 @@ test('SK-N8 + SK-C1: chip years follow the previous chip, gaps show a month coun
   // Tháng hiện tại mở: ổ khóa nói "Đang mở", nút điều chỉnh bật và không có chữ lý do.
   assert.match(card, /aria-label="Đang mở · bấm để khóa tháng 11\/2026" title="Đang mở · bấm để khóa tháng 11\/2026"/);
   assert.match(card, /<button class="add-month-adjustment" data-month="2026-11-01" >/);
-  // Xem tháng khác: chip 11/2026 có năm vì chip đứng trước ở năm 2025.
+  // Xem tháng của năm cũ: năm đó mở ra (từ tháng đầu của sổ), năm mới nhất vẫn mở.
   const { root: old } = await livePage(book, '?customer=7&month=2025-08');
-  const oldNames = [...old.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0].matchAll(/<span class="chip-name">([^<]*)<\/span>/g)].map(match => match[1]);
-  assert.deepEqual(oldNames, ['T7/2025', 'Tháng 8/2025', 'T11/2026']);
+  const oldNames = [...old.innerHTML.match(/<nav class="month-chips".*?<\/nav>/s)[0].matchAll(/<span class="(month-year|chip-name|month-empty)"[^>]*>([^<]*)<\/span>/g)].map(match => match[2]);
+  assert.deepEqual(oldNames, ['2025', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12', '2026', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11']);
 });
 
 test('saved receipt date shows future-date error in clicked cell', async () => {
@@ -566,10 +569,11 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(block(newMonth, '2026-09'), /<span class="month-lock-text">Đã khóa<\/span>.*<em class="month-stats"[^>]*><span class="month-prior">Nợ đầu tháng <b>0<\/b><\/span>.*<span class="month-end">Còn nợ cuối tháng <b>500 đ<\/b><\/span><\/em>/);
   assert.doesNotMatch(newMonth.innerHTML, /month-collapsed|month-toggle|id="thang-2026-08"/);
   // Thanh chip tháng là chỗ chọn tháng duy nhất: tên tháng, còn nợ cuối tháng rút gọn, dấu khóa của tháng khóa; chip đang xem tô.
-  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8\/2026<\/span><\/a><a class="month-chip locked on" href="#thang-2026-09" data-month="2026-09" aria-current="true" [^>]*><span class="chip-name">Tháng 9\/2026<\/span><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
+  // THANH-THANG-01: nhãn năm đứng trước nhóm, chip chỉ ghi "T8"; chip đang xem tô màu, chữ không đổi.
+  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><span class="month-group"><span class="month-year">2026<\/span><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8<\/span><\/a><a class="month-chip locked on" href="#thang-2026-09" data-month="2026-09" aria-current="true" [^>]*><span class="chip-name">T9<\/span><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
   assert.doesNotMatch(newMonth.innerHTML, /months-nav|DANH SÁCH THÁNG/);
-  // SK-N8: tháng 10 không có chip nên giữa 9 và 11 có dấu "… 1 tháng"; chip 11 cùng năm với chip trước nên không ghi năm.
-  assert.match(newMonth.innerHTML, /data-month="2026-09"[^>]*>.*?<\/a><span class="month-gap" title="1 tháng không có số liệu">… 1 tháng<\/span><a class="month-chip[^"]*" href="#thang-2026-11"[^>]*><span class="chip-name">T11<\/span>/);
+  // THANH-THANG-01: tháng 10 không có số liệu vẫn có ô mờ không bấm được giữa 9 và 11.
+  assert.match(newMonth.innerHTML, /data-month="2026-09"[^>]*>.*?<\/a><span class="month-empty" title="Tháng 10\/2026 không có số liệu">T10<\/span><a class="month-chip[^"]*" href="#thang-2026-11"[^>]*><span class="chip-name">T11<\/span>/);
   // SK-N11: ổ khóa nói cùng một câu ở chữ rê chuột và tên đọc; nút tắt ở tháng khóa nói lý do.
   assert.match(block(newMonth, '2026-09'), /<button class="month-lock" data-month="2026-09-01" aria-label="Đang khóa · bấm để mở khóa tháng 9\/2026" title="Đang khóa · bấm để mở khóa tháng 9\/2026" aria-pressed="false" >/);
   assert.match(block(newMonth, '2026-09'), /<button class="add-month-adjustment" data-month="2026-09-01" disabled title="Tháng đang khóa, mở khóa trước">/);
