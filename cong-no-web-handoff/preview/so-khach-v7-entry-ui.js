@@ -32,6 +32,10 @@
     <div class="entry-body"><div class="entry-form">
       <label class="entry-field"><span>Ngày trả</span><span class="entry-date"><input class="receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off"><button type="button" class="entry-today">Hôm nay</button></span></label>
       <span class="cell-error receipt-date-error" role="status"></span>
+      <label class="entry-unknown"><input type="checkbox" class="receipt-unknown"> Không rõ ngày trả</label>
+      <label class="entry-field entry-month" hidden><span>Tháng khách trả</span><select class="receipt-month" aria-label="Tháng khách trả"></select></label>
+      <span class="entry-symbolic-hint" role="status"></span>
+      <span class="cell-error receipt-month-error" role="status"></span>
       <label class="entry-field"><span>Hình thức</span><select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${escape(method)}</option>`).join('')}</select></label>
       <div class="offset-slot"></div>
       <label class="entry-field"><span>Số tiền (VND)</span><input class="receipt-amount" aria-label="Số tiền trả" inputmode="numeric" autocomplete="off"></label>
@@ -58,7 +62,7 @@
     drawer.hidden = false;
     paintImages();
     showStep(step);
-    (step === 'review' ? $('.entry-sum') : $(`.${$('.receipt-date').value ? 'receipt-amount' : 'receipt-date'}`)).focus();
+    (step === 'review' ? $('.entry-sum') : $(`.${$('.receipt-date').value || $('.receipt-unknown').checked ? 'receipt-amount' : 'receipt-date'}`)).focus();
   }
   // SK-C2: sang bước xem lại thì tiêu điểm vào câu tóm tắt, không vào nút Ghi phiếu: Enter, Enter theo thói quen Sheet không
   // ghi tiền khi người gõ chưa đọc dòng trước → sau. Muốn ghi phải Tab tới Ghi phiếu (hay bấm), rồi Enter.
@@ -67,6 +71,28 @@
   const paintAmountHint = () => {
     const shown = model.readMoneyInput($('.receipt-amount').value);
     $('.entry-amount-hint').textContent = shown ? `Hiểu là ${shown} đ` : '';
+  };
+  // "Không rõ ngày trả": ô ngày tắt, hiện ô chọn tháng (12 tháng tới tháng hiện tại, chưa chọn sẵn để không ghi nhầm tháng) và
+  // câu ngày sẽ ghi. Bỏ chọn thì về ô ngày như cũ.
+  function paintUnknown() {
+    const unknown = $('.receipt-unknown').checked, select = $('.receipt-month');
+    $('.receipt-date').disabled = unknown;
+    $('.entry-today').disabled = unknown;
+    $('.entry-month').hidden = !unknown;
+    if (unknown && !select.options.length) {
+      const today = ctx.todayIso();
+      let n = Number(today.slice(0, 4)) * 12 + Number(today.slice(5, 7)) - 1;
+      const months = Array.from({ length: 12 }, () => { const key = `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, '0')}`; n -= 1; return key; });
+      select.innerHTML = '<option value="">Chọn tháng…</option>' + months.map(key => `<option value="${key}">Tháng ${monthLabel(key)}</option>`).join('');
+    }
+    if (!unknown) select.value = '';
+    $('.receipt-date-error').textContent = '';
+    $('.receipt-month-error').textContent = '';
+    paintSymbolicHint();
+  }
+  const paintSymbolicHint = () => {
+    const month = $('.receipt-unknown').checked && $('.receipt-month').value;
+    $('.entry-symbolic-hint').textContent = month ? `Ghi ngày ${dateText(CongNoFormat.symbolicDate(month, ctx.todayIso()))} (ngày tượng trưng).` : '';
   };
   function close() {
     if (!isOpen()) return;
@@ -78,6 +104,8 @@
   function resetForm() {
     for (const box of drawer.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference')) box.value = '';
     for (const box of drawer.querySelectorAll('.cell-error,.entry-amount-hint')) box.textContent = '';
+    $('.receipt-unknown').checked = false;
+    paintUnknown();
     const method = $('.receipt-method');
     if (method.value !== methods[0]) { method.value = methods[0]; method.dispatchEvent(new Event('change', { bubbles: true })); }
     review = null;
@@ -94,15 +122,24 @@
     for (const box of form.querySelectorAll('.cell-error')) box.textContent = '';
     const method = $('.receipt-method').value;
     // CẤN TRỪ: phần cấn trừ kiểm và mở hộp xác nhận của nó; "Ngoài sổ" thì đi tiếp như phiếu thường.
+    if (method === 'CẤN TRỪ' && $('.receipt-unknown').checked) { fieldError('receipt-month', 'Cấn trừ cần ngày cụ thể. Bỏ chọn "Không rõ ngày trả" rồi gõ ngày.'); return; }
     if (method === 'CẤN TRỪ' && await ctx.startOffset(form)) return;
     let date, amount;
-    try { date = model.parseCellEdit('event_date', $('.receipt-date').value, null); }
-    catch { fieldError('receipt-date', 'Ngày trả phải dạng dd/mm/yyyy.'); return; }
-    if (date > ctx.todayIso()) { fieldError('receipt-date', 'Ngày trả không được sau hôm nay.'); return; }
+    const unknown = $('.receipt-unknown').checked;
+    if (unknown) {
+      // PHIEU-WEB-01: không rõ ngày trả thì ngày tượng trưng của tháng khách trả (cuối tháng, không sau hôm nay), cùng luật máy Sheet.
+      if (!$('.receipt-month').value) { fieldError('receipt-month', 'Chọn tháng khách trả.'); return; }
+      date = CongNoFormat.symbolicDate($('.receipt-month').value, ctx.todayIso());
+    } else {
+      try { date = model.parseCellEdit('event_date', $('.receipt-date').value, null); }
+      catch { fieldError('receipt-date', 'Ngày trả phải dạng dd/mm/yyyy.'); return; }
+      if (date > ctx.todayIso()) { fieldError('receipt-date', 'Ngày trả không được sau hôm nay.'); return; }
+    }
     if (!$('.receipt-amount').value.trim()) { fieldError('receipt-amount', 'Nhập số tiền khách trả.'); return; }
     try { amount = moneyText($('.receipt-amount').value); } catch { fieldError('receipt-amount', model.MONEY_INPUT_HELP); return; }
     if (amount === '0') { fieldError('receipt-amount', 'Số tiền phải lớn hơn 0.'); return; }
-    review = { date, method, amount, reference: referenceFields(form).reference ?? null };
+    const reference = referenceFields(form).reference ?? null;
+    review = { date, method, amount, symbolic: unknown, reference: unknown ? CongNoFormat.symbolicReference(reference) : reference };
     paintReview();
     showStep('review');
     focusReview();
@@ -116,7 +153,8 @@
     const lock = (data.month_locks ?? []).find(row => monthKey(row.month) === key);
     const locked = lock ? lock.locked : key !== (monthKey(data.today_month) || liveOpenMonth);
     const images = drawer.querySelectorAll('.entry-images .image-thumb').length;
-    $('.entry-review').innerHTML = `<p class="entry-sum" tabindex="-1">Ghi phiếu <b>${fmt(review.amount)} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}, nằm ở tháng ${monthLabel(key)}.</p>`
+    $('.entry-review').innerHTML = `<p class="entry-sum" tabindex="-1">Ghi phiếu <b>${fmt(review.amount)} đ</b> · ${escape(review.method)} · ngày ${escape(dateText(review.date))}${review.symbolic ? ' (ngày tượng trưng)' : ''}, nằm ở tháng ${monthLabel(key)}.</p>`
+      + (review.symbolic ? '<p class="entry-note">Không rõ ngày trả: ghi ngày cuối tháng (không sau hôm nay), tham chiếu có chữ "ngày tượng trưng". Biết ngày thật thì sửa ngày ở dòng phiếu.</p>' : '')
       + `<p>Tổng còn nợ: ${model.formatVnd(plan.beforeVnd)} đ → <b>${model.formatVnd(plan.afterVnd)} đ</b>.</p>`
       + (plan.creditVnd > 0n ? `<p class="entry-note">Sau phiếu này khách dư ${model.formatVnd(plan.creditVnd)} đ.</p>` : '')
       + (locked ? `<p class="entry-note">Tháng ${monthLabel(key)} đang khóa; phiếu vẫn ghi được.</p>` : '')
@@ -294,6 +332,10 @@
       if (event.target.matches('.receipt-date')) $('.receipt-date-error').textContent = '';
       if (event.target.matches('.receipt-amount')) { $('.receipt-amount-error').textContent = ''; paintAmountHint(); }
       if (event.target.matches('.receipt-date') && event.target.value.length === 10) $('.receipt-amount').focus();
+    });
+    drawer.addEventListener('change', event => {
+      if (event.target.matches('.receipt-unknown')) { paintUnknown(); (event.target.checked ? $('.receipt-month') : $('.receipt-date')).focus(); }
+      if (event.target.matches('.receipt-month')) { $('.receipt-month-error').textContent = ''; paintSymbolicHint(); }
     });
     // Rời ô Số tiền: số đọc được thì ghi lại có nhóm nghìn (cùng số, dễ soát thừa thiếu số 0); chưa đọc được thì giữ nguyên chữ gõ.
     drawer.addEventListener('focusout', event => {

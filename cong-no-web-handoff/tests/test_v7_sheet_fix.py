@@ -1,6 +1,7 @@
 """Máy tự sửa sổ lệch Sheet (MAY-DOI-SOAT-01): chỉ ghi khi đúng một tổ hợp đưa tổng về đúng tổng Sheet. Dữ liệu giả."""
 
 import datetime as dt
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -31,6 +32,13 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(fix.month_end("2026-08", TODAY), "2026-08-31")
         self.assertEqual(fix.month_end("2024-02-01", TODAY), "2024-02-29")
         self.assertEqual(fix.month_end("2026-11", TODAY), "2026-11-04")
+
+    def test_month_end_matches_the_shared_cases_of_the_web_form(self):
+        # PHIEU-WEB-01: khung Ghi phiếu thu (CongNoFormat.symbolicDate) chạy cùng các ca này, hai bên không được lệch luật.
+        cases = json.loads((Path(__file__).parent / "golden" / "ngay-tuong-trung.json").read_text(encoding="utf-8"))["cases"]
+        for case in cases:
+            with self.subTest(**case):
+                self.assertEqual(fix.month_end(case["month"], dt.date.fromisoformat(case["today"])), case["date"])
 
     def test_receipt_groups_by_kind_and_month(self):
         orphans = [{"id": 5, "amount_vnd": "300"}, {"id": 6, "amount_vnd": "100"}]
