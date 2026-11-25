@@ -2,22 +2,23 @@
 :root{--bar:0px;--head:52px;--chips:40px;--cols:34px}
 body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 #app{padding:0 16px 24px}
-.topbar{position:fixed;inset:var(--banner) auto 0 0;width:76px;height:auto;padding:4px 0;background:#16324f;display:flex;flex-direction:column;align-items:stretch;gap:0;z-index:55}
+.topbar{position:fixed;inset:var(--banner) auto 0 0;width:76px;height:auto;padding:8px 0 10px;background:#16324f;display:flex;flex-direction:column;align-items:stretch;gap:0;z-index:55}
 .topbar .brand{display:none}
-.nav-toggle{display:flex;flex:none;align-items:center;justify-content:center;gap:12px;min-height:40px;margin:0 6px 4px;padding:0;border:0;border-radius:8px;background:#21405f;color:#fff;font:inherit;cursor:pointer}
-.topbar>nav{display:flex;flex-direction:column;align-self:auto;gap:0}
-/* Cùng cỡ với menu chung app-nav.css: tám mục lọt khung 1280×560 (BAO-CAO-THANG-01). */
-.topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1px;min-height:44px;margin:1px 6px;padding:1px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
-.topbar .picker-open{min-height:48px;padding:4px 2px}
-.topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:68px;overflow:visible;clip-path:none;white-space:normal;font-size:13px;font-weight:600;line-height:1.05;text-align:center}
-.topbar:not(.expanded)>nav a svg{width:20px;height:20px}
-.topbar>nav a.active{background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{background:#21405f}
+.nav-toggle{display:flex;flex:none;align-items:center;justify-content:center;gap:12px;min-height:40px;margin:0 4px 2px;padding:0;border:0;border-radius:10px;background:transparent;color:#c3d1e0;font:inherit;cursor:pointer}
+.nav-toggle:hover{background:#21405f;color:#fff}
+.topbar>nav{display:flex;flex:1;flex-direction:column;align-self:auto;gap:4px;margin-top:6px;padding-top:8px;background:linear-gradient(#ffffff24,#ffffff24) 14px 0/calc(100% - 28px) 1px no-repeat}
+/* Cùng khuôn với menu chung app-nav.css (25/11/2026): ô 58px cách đều 4px, Quản trị ở đáy dải. */
+.topbar>nav a,.topbar .picker-open{--ring:#16324f;position:relative;display:flex;flex:none;flex-direction:column;justify-content:center;align-items:center;gap:4px;min-height:58px;margin:0 4px;padding:6px 1px;border:0;border-radius:10px;background:transparent;color:#c3d1e0;text-decoration:none}
+.topbar>nav a.nav-admin,.topbar.expanded>nav a.nav-admin{margin-top:auto}
+.topbar .picker-open{min-height:56px;padding:4px 1px}
+.topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:none;overflow:visible;clip-path:none;white-space:normal;font-size:13px;font-weight:600;line-height:1.15;text-align:center;text-wrap:balance}
+.topbar>nav a.active{--ring:#2a5179;background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{--ring:#21405f;background:#21405f;color:#fff}
 .topbar.expanded{width:240px;box-shadow:6px 0 24px #0d1b2a40}.topbar.expanded .brand{display:block;padding:0 16px}
-.topbar.expanded>nav a,.topbar.expanded .picker-open{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 14px;margin:2px 8px}
+.topbar.expanded>nav a,.topbar.expanded .picker-open{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 14px;margin:0 8px}
 .topbar.expanded>nav a span,.topbar.expanded .picker-open span{font-size:15px;white-space:nowrap;max-width:none}
-/* Số "sổ còn việc" trên mục Việc cần làm: cùng chỗ, cùng màu với app-nav.css (app-nav.js đếm). */
-.topbar>nav a span.badge{position:absolute;top:4px;right:8px;width:auto;max-width:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:13px;font-weight:700;line-height:18px;text-align:center}
-.topbar>nav a span.badge[hidden]{display:none}.topbar.expanded>nav a span.badge{position:static;margin-left:auto;font-size:13px}
+/* Số "sổ còn việc" trên mục Quản trị: cùng chỗ, cùng màu với app-nav.css (app-nav.js đếm). */
+.topbar>nav a span.badge{position:absolute;top:3px;left:calc(50% + 5px);right:auto;width:auto;max-width:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e8a33d;color:#1a1a19;box-shadow:0 0 0 2px var(--ring);font-size:13px;font-weight:700;line-height:18px;text-align:center}
+.topbar>nav a span.badge[hidden]{display:none}.topbar.expanded>nav a span.badge{position:static;margin-left:auto;font-size:13px;box-shadow:none}
 .topbar .presence{margin:8px auto;flex-wrap:wrap;max-width:60px}.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
 /* Đầu trang chung của bốn thẻ (canvas UuTien 3/11/2026): thanh trắng 52px "Sổ khách / Tên ▾" · bốn thẻ · ⋯. */
 .book-head{position:sticky;top:var(--banner);height:var(--head);margin:0 -16px;padding:0 28px;gap:16px;border-bottom:1px solid #e3e7ec;background:#fff;box-shadow:none}
