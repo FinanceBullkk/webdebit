@@ -402,6 +402,12 @@ def choose(groups: list[dict[str, Any]], need: int) -> tuple[str, list[dict[str,
     return ("AMBIGUOUS_FIX", []) if len(found) > 1 else ("FIX", list(found[0]))
 
 
+def has_work(group: dict[str, Any]) -> bool:
+    """Nhóm còn việc chờ: tổng nhóm khác 0, hoặc nhóm giá có dòng đổi tiền dù cả tháng cộng lại bằng 0 (sổ 141 tháng 9/2026: Sheet sửa
+    giá hai chuyến +10/−10 triệu, lọc theo tổng nhóm thì máy và bảng đối chiếu đều bỏ qua, web sai giá từng chuyến mà vẫn khớp tổng)."""
+    return bool(group["delta_vnd"]) or (group["kind"] == "prices" and any(price_delta(row) for row in group["rows"]))
+
+
 def machine_part(chosen: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(phần máy theo Sheet được tự ghi, phần để người) của một tổ hợp đã khớp tổng (WEB-CHINH-01 (3)). Tổ hợp vẫn tìm trên mọi nhóm:
     phần để người là lời giải thích cho phần thêm, không được ghi. Nhóm giá tách theo dòng: dòng `adds_only` là thêm, dòng khác (giá

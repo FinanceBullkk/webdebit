@@ -326,7 +326,7 @@ def settle_matched(db, row: dict[str, Any], customer_id: int, customers: list[di
     if health["status"] == "broken":
         return
     groups, ahead, shuffled = fix.plan(prices, receipts, ledger, customers, today)
-    active = [group for group in groups if group["delta_vnd"]]
+    active = [group for group in groups if fix.has_work(group)]   # kể cả nhóm giá bù nhau trong tháng: tổng 0 mà từng chuyến lệch
     if not active:
         return
     need = ahead   # đích là tổng Sheet cộng phần web đi trước, như `settle`

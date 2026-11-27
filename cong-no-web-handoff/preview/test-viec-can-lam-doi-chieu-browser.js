@@ -118,6 +118,18 @@ if (process.argv.includes('--preview')) {
       assert.equal(await page.locator('.dc-ai-preview pre').evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'bản xem trước tự xuống dòng');
     }, { width: 390, height: 720 });
   });
+  test('nhóm giá bù nhau trong tháng (sổ 141 tháng 9/2026): vẫn hiện, ghi rõ tổng bằng nhau, xem được từng chuyến', async () => {
+    const swap = [{ ...priceRows[0], delta_vnd: '9500000' }, { ...priceRows[1], delta_vnd: '-9500000' }];
+    const opts = { statement: statement({ reason: 'WEB_KEPT', groups: [{ id: 'prices:2026-10', kind: 'prices', month: '2026-10', count: 2, delta_vnd: '0', locked: false, undoable: true, replaces: 0, rows: swap }] }) };
+    await withPage(opts, async page => {
+      await opened(page);
+      const table = await page.locator('.dc-table').innerText();
+      assert.match(table, /Giá từng chuyến khác, tổng tháng bằng nhau/);
+      assert.doesNotMatch(table, /Sheet thấp hơn web/);
+      await page.locator('[data-dc-xem="prices:2026-10"]').click();
+      assert.match(await page.locator('.dc-rows').innerText(), /\+9,5[\s\S]*−9,5/);
+    });
+  });
   test('mở trang: trả lời số nợ có đúng không, khách lệch mở sẵn, đọc phụ phí thay vì hai số bằng nhau', async () => withPage({}, async page => {
     await opened(page);
     const line = await statusLine(page);

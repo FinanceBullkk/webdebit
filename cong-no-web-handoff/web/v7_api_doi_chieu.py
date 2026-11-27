@@ -33,6 +33,7 @@ from v7_psql import Psql
 from v7_receipt_queue import load_receipt_snapshot
 from v7_sheet_fix import (
     apply_fix,
+    has_work,
     plan,
     price_delta,
     sheet_findings,
@@ -119,7 +120,7 @@ def statement(customer: int, runner: Psql, actor: str) -> dict[str, Any]:
                         "delta_vnd": str(group["delta_vnd"]), "undoable": group["kind"] in UNDOABLE,
                         "locked": bool(group["month"] and _locked_months(ledger, {group["month"]})),
                         "replaces": len(group.get("orphans") or []),
-                        "rows": [_public_row(group, row) for row in group["rows"]]} for group in groups if group["delta_vnd"]]}
+                        "rows": [_public_row(group, row) for row in group["rows"]]} for group in groups if has_work(group)]}
 
 
 def region(query: str, runner: Psql, actor: str, *, opener=None, now: float | None = None) -> dict[str, Any]:
@@ -218,7 +219,7 @@ def write(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         require_writable({"snapshot_created_at": (snapshot.get("runner") or {}).get("created_at")})
     if prices["sha256"] != request["prices_sha256"] or receipts["sha256"] != request["receipts_sha256"]:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi xem lại.")
-    by_id = {_group_id(group): group for group in groups if group["delta_vnd"]}
+    by_id = {_group_id(group): group for group in groups if has_work(group)}
     if len({item.get("id") if isinstance(item, dict) else None for item in items}) != len(items):
         bad()
     chosen = [_pick(item, by_id) for item in items]
