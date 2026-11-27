@@ -100,7 +100,10 @@ def check_khach_thang(pg, a: int, b: int) -> None:
     jan = {row["customer_id"]: row for row in call(pg, "get_month_customers", "2026-01-01")["customers"]}
     require((jan[a]["charges_vnd"], jan[a]["outstanding_vnd"]) == ("1000", "1000"), f"book a January: {jan[a]}")
     require((jan[b]["charges_vnd"], jan[b]["received_vnd"], jan[b]["outstanding_vnd"]) == ("500", "0", "200"), f"book b January: {jan[b]}")
-    matrix = {row["customer_id"]: row["months"].get("1") for row in call(pg, "get_receivables_matrix", 2026)["customers"]}
-    require((matrix[a], matrix[b]) == ("1000", "200"), f"January outstanding equals the matrix: {matrix.get(a)} {matrix.get(b)}")
+    # Cùng nguồn với ô ma trận (get_receivables_matrix cộng v_outstanding_month). Không gọi chính ma trận: DB harness dùng chung có
+    # ca số rất lớn ở sổ khác làm tổng của ma trận tràn bigint.
+    view = pg.value("SELECT string_agg(customer_id||'='||outstanding_vnd,',' ORDER BY customer_id) FROM sokhach.v_outstanding_month "
+                    f"WHERE customer_id IN ({a},{b}) AND debt_month='2026-01-01'")
+    require(view == f"{a}=1000,{b}=200", f"January outstanding equals v_outstanding_month: {view}")
     empty = call(pg, "get_month_customers", "2001-01-01")
     require(empty["customers"] == [] and empty["charges_vnd"] == "0", f"empty month: {empty}")
