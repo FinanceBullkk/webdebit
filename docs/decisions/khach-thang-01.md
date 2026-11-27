@@ -21,4 +21,4 @@ Chỉ đọc. Hàm `sokhach.get_month_customers(date)`, API `GET /api/v7/month-c
 
 ## Trạng thái
 
-ĐÃ CHỐT 28/11/2026 (nội dung, bố cục). Cách làm ở trên là ĐỀ XUẤT của Claude.
+ĐÃ CHỐT 28/11/2026 (nội dung, bố cục). Cách làm ở trên là ĐỀ XUẤT của Claude. ĐÃ TRIỂN KHAI trên `hao` 28/11/2026 ([nhật ký](../deploys/2026-11-28-tim-cont-khach-thang.md)); CÒN MỞ: người dùng tự đi hết luồng.
