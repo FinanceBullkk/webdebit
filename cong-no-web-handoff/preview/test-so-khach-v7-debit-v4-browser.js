@@ -56,8 +56,8 @@ test('Debit note v4: bảng có gì xuất nấy — chuyến chưa có giá kh�
   assert.match(row, /Noi D(\n–){8}$/);             // bảy cột phí luôn in (DEBIT-NOTE-04) + Other fees, đều "–" (không có phí)
   assert.match(await view.locator('[data-total]').innerText(), /140,000,000(\s+–){7}\s+3,000,000\s+143,000,000/);
   assert.match(await view.locator('[data-blk="INFO"]').innerText(), /HTH-2609-001[\s\S]*\[Issue date\]/);   // số theo gợi ý, ngày chưa chốt
-  // Tiêu đề "DEBIT – tên sổ – tháng" (27/11/2026): tên sổ trên web bỏ dấu, chữ hoa.
-  assert.equal((await view.locator('[data-title]').first().innerText()).replace(/\s+/g, ' '), 'DEBIT – KHACH THU SUA – SEP');
+  // Tiêu đề "DEBIT-tên sổ-tháng" (27/11/2026): tên sổ trên web bỏ dấu, chữ hoa.
+  assert.equal(await view.locator('[data-title]').first().textContent(), 'DEBIT-KHACH THU SUA-SEP');
   assert.equal(await dialog.locator('.dn4-month').inputValue(), '2026-09');
 
   const [download] = await Promise.all([page.waitForEvent('download'), dialog.locator('.debit-excel').click()]);

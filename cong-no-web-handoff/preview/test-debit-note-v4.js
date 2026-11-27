@@ -214,9 +214,9 @@ test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường]
   const first = v4.pageHtml(doc, 'first', doc.rows.slice(0, 2), 1, 2);
   assert.doesNotMatch(first, /data-total|data-blk="BOTTOM"/);
   assert.match(first, /Continued on next page · 续下页<\/span><span>Page 1 of 2/);
-  // Tiêu đề mọi trang: DEBIT – tên sổ – tháng (27/11/2026; dữ liệu mẫu không có tên sổ nên lấy tên khách).
+  // Tiêu đề mọi trang: DEBIT-tên sổ-tháng, gạch nối liền (27/11/2026; dữ liệu mẫu không có tên sổ nên lấy tên khách).
   const middle = v4.pageHtml(doc, 'middle', doc.rows.slice(2, 3), 2, 3);
-  assert.match(middle, /<div data-title[^>]*><span[^>]*>DEBIT<span[^>]*>\u00A0–\u00A0<\/span><\/span><span[^>]*>SAMPLE<\/span><span[^>]*><span[^>]*>\u00A0–\u00A0<\/span>NOV<\/span><\/div>/);
+  assert.match(middle, /<div data-title[^>]*><span[^>]*>DEBIT-<\/span><span[^>]*>SAMPLE<\/span><span[^>]*>-NOV<\/span><\/div>/);
   assert.match(middle, /Debit Note No\. 账单号 HTH-2611-001 · Bill to 客户 SAMPLE 样本 · Billing Period 账单期间 Nov 2026 · Currency 币种 VND/);
 });
 
@@ -265,9 +265,9 @@ test('Excel v4 theo thiết kế: đầu trang, hai khối cạnh nhau, bảng k
   // 12 cột: No. … POD, Unit price, Storage, Generator, Overstay, Amount (không HC fee, không B/L).
   assert.equal(sheet.widths.length, 12);
   assert.equal(sheet.text('A3'), 'HTH LOGISTICS DV TM CO.,LTD');
-  // Tiêu đề "DEBIT – tên sổ – tháng": ô lùi trái đủ chỗ cho chữ, tên công ty vẫn chiếm phần trái của hàng 3.
+  // Tiêu đề "DEBIT-tên sổ-tháng": ô lùi trái đủ chỗ cho chữ, tên công ty vẫn chiếm phần trái của hàng 3.
   const titleRef = [...sheet.cells.keys()].find(ref => ref !== 'A3' && rowOf(ref) === 3 && sheet.text(ref));
-  assert.equal(sheet.text(titleRef), 'DEBIT  –  SAMPLE  –  NOV');
+  assert.equal(sheet.text(titleRef), 'DEBIT-SAMPLE-NOV');
   const titleCol = titleRef.replace(/\d+/, ''), beforeTitle = String.fromCharCode(titleCol.charCodeAt(0) - 1);
   for (const range of [`A3:${beforeTitle}3`, `${titleCol}3:L3`, 'A4:L4']) assert.ok(sheet.merges.includes(range), range);
   assert.deepEqual(['A7', 'A8', 'C7', 'C8'].map(sheet.text), ['BILL TO', '客户', 'SAMPLE 样本', '[Customer legal name &amp; address]']);
