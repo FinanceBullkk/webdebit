@@ -1,0 +1,42 @@
+# Tìm số cont và khách theo tháng
+
+Trạng thái: ĐÃ CHỐT (người dùng, 28/11/2026: tìm cont ở ô Tìm khách của menu; Tổng quan xem theo tháng là tiền theo khách, khối riêng cuối trang). Quyết định: [`TIM-CONT-01`](../docs/decisions/tim-cont-01.md), [`KHACH-THANG-01`](../docs/decisions/khach-thang-01.md).
+
+## Người dùng và luồng
+
+Người nhập và quản lý (mọi login, `QUYEN-01`), trên máy tính 1280×720 và điện thoại.
+
+1. **Tìm theo số cont.** Khách gọi hỏi một cont; người dùng gõ số cont (đủ hoặc vài số cuối, có hay không khoảng trắng) vào ô Tìm khách ở menu trái, hoặc hộp đổi khách của Sổ khách. Dưới các khách khớp tên có khối "Số cont": mỗi chuyến một dòng "SỐ CONT · sổ · ngày" (thêm "chờ kiểm" / "sổ gốc"; rê chuột thấy nơi đi → nơi đến). Bấm dòng mở Sổ khách đúng tháng nợ, dòng chuyến có số cont đó được tô vàng, thanh việc có "Đến dòng tiếp" và nút bỏ đánh dấu.
+2. **Tháng đó có những khách nào.** Cuối Tổng quan có khối "Khách theo tháng": ‹ Tháng M/YYYY ›, một dòng tổng (số khách · phát sinh · đã thu · còn nợ), bảng khách với Phát sinh, Đã thu, Còn nợ của tháng; 10 dòng đầu và nút "Hiện cả N khách". Bấm dòng mở Sổ khách tháng đó. `?thang=yyyy-mm` giữ tháng khi gửi link hay tải lại.
+
+Bị chặn: chuỗi tìm ngắn hơn 4 hoặc dài hơn 20 ký tự (bỏ khoảng trắng) hay không có chữ số thì không hỏi máy chủ; không sang tháng sau tháng hiện tại.
+
+## Đầu ra
+
+- Hàm đọc `sokhach.find_container(text)`: chuyến web chưa xóa, không bị loại (cả chờ kiểm) và dòng chuyến sổ gốc theo bản sửa mới nhất, chưa xóa, của mọi sổ đang hoạt động, có số cont chứa chuỗi tìm sau khi bỏ khoảng trắng và viết hoa. Nguyên số trước, rồi ngày chuyến mới trước; tối đa 30 dòng, cờ `more`.
+- Hàm đọc `sokhach.get_month_customers(date)`: mỗi sổ có phát sinh, đã thu hoặc còn nợ khác 0 ở tháng đó (trống là tháng hiện tại giờ VN). Phát sinh, đã thu cùng phép tính `this_month` của `get_dashboard_debt` (dòng Tổng tháng của sổ, `DA-THU-01`); còn nợ của tháng là `v_outstanding_month` (như ô Công nợ theo tháng).
+- API `GET /api/v7/containers/find?q=` và `GET /api/v7/month-customers[?month=yyyy-mm-01]`, mở cho mọi login; khách theo tháng đi qua bộ nhớ đọc (`HIEU-NANG-01`).
+- Migration `2026-11-28-v7-tim-cont-khach-thang.sql`: chỉ thêm hai hàm và quyền `EXECUTE` cho `sokhach_app`, `sokhach_reader`.
+
+## Đối chiếu dữ liệu và code hiện có
+
+- Chuyến web: `v_trip_current` (bản sửa thông tin mới nhất); dòng sổ gốc: `legacy_row.display` hoặc `legacy_trip_rev` mới nhất, như `get_trip_month`, `list_legacy_trip_refs`.
+- Phát sinh/đã thu theo tháng đã có cho tháng hiện tại trong `get_dashboard_debt.this_month.customers`; hàm mới tính cùng phép cho tháng bất kỳ (chép CTE `keyed`, `flow_c`; ca harness so hai hàm để hai bản không lệch nhau).
+- Tên sổ lấy từ `list_customers` như ô tìm khách (`customerLabels`); sổ không có trong danh sách ghi "Sổ N".
+- Sổ khách đã có cơ chế tô dòng `?loc=` (`so-khach-v7-loc-ui.js`); `?cont=` dùng chung thanh và nút.
+
+Thử trên bản sao `webdebit_v7` (28/11/2026, chỉ đọc, đã xóa DB thử): migration hai lượt; tìm cont khoảng 150 ms một lượt, khớp chuyến web và dòng sổ gốc; khách theo tháng tháng hiện tại lệch 0 sổ so với `get_dashboard_debt.this_month`, tháng 10/2026 lệch 0 sổ so với cột tháng 10 của `get_receivables_matrix(2026)`.
+
+## Hành vi và bất biến
+
+- Chỉ đọc: không đổi tiền, phân bổ, version sổ hay dữ liệu.
+- VND là chuỗi số nguyên; số 0 hiện "–", số đầy đủ ở chữ rê chuột.
+- Container không là khóa duy nhất: cùng số cont ở nhiều sổ/tháng hiện đủ các dòng.
+- Sổ đã lưu trữ hoặc chưa có mốc đang hoạt động không có trong kết quả.
+
+## Tiêu chí nghiệm thu
+
+- [x] Harness `TIM-CONT.01` (`tools/test_pg_v7_backend_tim_cont.py`): tìm qua sổ, chuẩn hóa chuỗi, dòng sổ gốc, nguyên số trước, sửa số cont, chuyến xóa bị bỏ, chuỗi sai bị chặn; khách theo tháng bằng `this_month` và ma trận; đọc không đổi version.
+- [x] Unittest route (`tests/test_v7_tim_cont_khach_thang.py`), đồng bộ file chuẩn (`tests/test_v7_fee_sql_sync.py`), quyền (`tools/test_pg_v7_grants.py`).
+- [x] Trình duyệt: Tổng quan (khối tháng, đổi tháng, ?thang=, hơn 10 khách, lỗi + Thử lại, 390px không cuộn ngang; ô tìm cont, phím ↓), Sổ khách (`?cont=` tô chuyến web và dòng sổ gốc, không còn khớp, hộp đổi khách).
+- [ ] Người dùng tự đi hết hai luồng trên `hao`.

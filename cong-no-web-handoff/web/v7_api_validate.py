@@ -322,6 +322,25 @@ def _receipt_book(parts_query: str) -> tuple[str, dict]:
 
 
 
+def _month_customers(parts_query: str) -> tuple[str, dict]:
+    """KHACH-THANG-01: không có tham số là tháng hiện tại; có thì đúng một `month` là ngày đầu tháng."""
+    if not parts_query:
+        return "get_month_customers", {"month": None}
+    query = parse_qs(parts_query, keep_blank_values=True)
+    if set(query) != {"month"} or len(query["month"]) != 1 or not valid_date(query["month"][0], month=True):
+        bad("INVALID_MONTH", ERRORS["INVALID_MONTH"][1])
+    return "get_month_customers", {"month": query["month"][0]}
+
+
+def _find_container(parts_query: str) -> tuple[str, dict]:
+    """TIM-CONT-01: đúng một `q`, 4–20 ký tự sau khi bỏ khoảng trắng (SQL kiểm lại cùng luật)."""
+    query = parse_qs(parts_query, keep_blank_values=True)
+    values = query.get("q", [])
+    if set(query) != {"q"} or len(values) != 1 or not 4 <= len(re.sub(r"\s", "", values[0])) <= 20:
+        bad("INVALID_QUERY", ERRORS["INVALID_QUERY"][1])
+    return "find_container", {"q": values[0]}
+
+
 def _activity(parts_query: str) -> tuple[str, dict]:
     """HOAT-DONG-01: không có tham số là hôm nay; có thì đúng một `day` dạng yyyy-mm-dd (ngày tương lai do SQL chặn)."""
     query = parse_qs(parts_query, keep_blank_values=True)
@@ -382,6 +401,8 @@ GET_ROUTES = {
     "/api/v7/receivables/matrix": _matrix,
     "/api/v7/receivables/detail": _detail,
     "/api/v7/receipt-book": _receipt_book,
+    "/api/v7/month-customers": _month_customers,   # KHACH-THANG-01
+    "/api/v7/containers/find": _find_container,     # TIM-CONT-01
     "/api/v7/activity": _activity,
     "/api/v7/sheet-queue": _sheet_queue,
     "/api/v7/receipt-images": lambda parts_query: _receipt_images(parts_query, with_id=False),

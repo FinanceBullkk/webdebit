@@ -35,8 +35,11 @@ const INBOX_EMPTY = { state: 'ready', computed_at: '2026-11-01T08:02:00+00:00', 
 const inboxBook = (id, extra = {}) => ({ customer_id: id, receipts: { ready: 0, review: 0, amount_vnd: '0' }, removed: { count: 0, amount_vnd: '0' },
   trips_new: 0, trips_check: { count: 0, reasons: {} }, text_diff: 0, prices: { ready: 0, review: 0 }, ps: { ready: 0, review: 0 }, ...extra });
 
+// KHACH-THANG-01: tháng không có khách (mặc định của máy chủ giả).
+const MONTH_EMPTY = month => ({ month, charges_vnd: '0', received_vnd: '0', outstanding_vnd: '0', customers: [] });
+
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200, receiptPost = null, posted = [], role } = {}) {
+function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200, receiptPost = null, posted = [], role, monthCustomers = MONTH_EMPTY, containers = () => ({ query: '', more: false, items: [] }), asked = [] } = {}) {
   return http.createServer((req, res) => {
     const route = req.url.split('?')[0];
     const file = path.join(__dirname, route.replace(/^\//, ''));
@@ -60,6 +63,13 @@ function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus =
     if (route.startsWith('/api/v7/presence')) return send(200, 'application/json', JSON.stringify({ people }));   // PRESENCE-01
     if (route === '/api/v7/customers') return send(customerStatus, 'application/json', JSON.stringify({ customers }));
     if (route === '/api/v7/inbox') return send(inboxStatus, 'application/json', value(inbox));   // hộp ngoại lệ P1
+    // KHACH-THANG-01, TIM-CONT-01: hai route đọc; test ghi lại tham số để kiểm trang hỏi đúng.
+    if (route === '/api/v7/month-customers' || route === '/api/v7/containers/find') {
+      const query = new URL(req.url, 'http://x').searchParams;
+      asked.push(`${route}?${query}`);
+      const reply = route === '/api/v7/month-customers' ? monthCustomers(query.get('month')) : containers(query.get('q'));
+      return reply === 'drop' ? req.socket.destroy() : send(200, 'application/json', JSON.stringify(reply));
+    }
     // Số đệm menu (web/v7_todo_badge.py): ba nguồn trên một lượt, danh sách nợ chỉ còn mặt hàng; một nguồn lỗi thì cả lượt lỗi.
     if (route === '/api/v7/todo-badge') {
       if ([inboxStatus, dashboardStatus, debtStatus].some(status => status !== 200)) return send(503, 'application/json', '{"error":"DB_UNAVAILABLE"}');
@@ -141,7 +151,7 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   assert.deepEqual(await page.locator('#list .num.tot').allInnerTexts(), ['1,25 tỷ', '600 triệu', '250 triệu', '380 triệu']);
   assert.deepEqual(await page.locator('#list .days').allInnerTexts(), ['27', '3', 'chưa', '162', '963', 'chưa', '9', '4']);
   assert.deepEqual(await page.locator('#list .days.bad').allInnerTexts(), ['chưa', '162', '963', 'chưa']);
-  assert.deepEqual(await seen(page.locator('.dtable thead th')), ['Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả ngày', 'Đi hàng ngày', '']);
+  assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả ngày', 'Đi hàng ngày', '']);
   assert.equal(await page.locator('#list .rdot.r-high').count(), 2);
   assert.deepEqual(await tipLines(page.locator('#list tr').nth(1)), ['Khách D', 'Rủi ro cao — Nợ từ T5/2026 · chưa trả lần nào · ngừng đi hàng',
     'Còn nợ 600.000.000 đ', 'Bấm để mở Tình hình']);
@@ -715,3 +725,101 @@ test('KHACH-MOI-01: API cũ chưa có mốc new_* thì không có ô khách mớ
   assert.equal(await page.locator('#chips .r-new').count(), 0);
   assert.equal(await page.locator('#list .new-tag').count(), 0);
 }, '?moi=1'));
+
+// KHACH-THANG-01: tháng hiện tại theo giờ VN của máy chạy test; tháng trước có hai khách giả, 12 khách ở tháng trước nữa.
+const vnMonth = by => {
+  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).format(new Date()).split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1 + by, 1));
+  return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+const monthRow = (id, charges, received, outstanding) => ({ customer_id: id, charges_vnd: charges, received_vnd: received, outstanding_vnd: outstanding });
+const monthBody = month => {
+  if (month === `${vnMonth(-1)}-01`) return { month, charges_vnd: '500000000', received_vnd: '300000000', outstanding_vnd: '180000000',
+    customers: [monthRow(2, '320000000', '300000000', '20000000'), monthRow(1, '180000000', '0', '160000000')] };
+  if (month === `${vnMonth(-2)}-01`) return { month, charges_vnd: '120000000', received_vnd: '0', outstanding_vnd: '0',
+    customers: Array.from({ length: 12 }, (_, i) => monthRow(30 + i, '10000000', '0', '0')) };
+  return MONTH_EMPTY(month);
+};
+
+test('KHACH-THANG-01: Tổng quan có khối Khách theo tháng; ‹ › đổi tháng, ?thang= giữ tháng, bấm dòng mở sổ đúng tháng', async () => {
+  const asked = [];
+  await withDashboard({ monthCustomers: monthBody, asked }, async page => {
+    const block = page.locator('#khach-thang');
+    await block.locator('.empty').filter({ hasText: 'chưa có khách nào' }).waitFor();
+    assert.equal(await block.locator('#kt-month').innerText(), `Tháng ${Number(vnMonth(0).slice(5))}/${vnMonth(0).slice(0, 4)}`);
+    assert.equal(await block.locator('[data-kt="1"]').isDisabled(), true, 'không sang tháng sau tháng hiện tại');
+    assert.ok(asked.includes(`/api/v7/month-customers?month=${vnMonth(0)}-01`), JSON.stringify(asked));
+
+    await block.locator('[data-kt="-1"]').click();
+    await block.locator('tbody tr').first().waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('thang'), vnMonth(-1));
+    assert.deepEqual(await seen(block.locator('.kt-sum')), ['2 khách · phát sinh 500 triệu · đã thu 300 triệu · còn nợ 180 triệu']);
+    assert.deepEqual(await seen(block.locator('thead th')), ['Khách', 'Phát sinh', 'Đã thu', 'Còn nợ', '']);
+    assert.deepEqual(await seen(block.locator('tbody tr')), ['Khách C 320 triệu 300 triệu 20 triệu', 'Khách A 180 triệu – 160 triệu']);
+    assert.deepEqual(await tipLines(block.locator('tbody tr').first().locator('td.num').first()), ['Phát sinh', '320.000.000 đ']);
+    assert.equal(await block.locator('tbody a').first().getAttribute('href'), `/so-khach-v7-live.html?customer=2&month=${vnMonth(-1)}`);
+    assert.equal(await page.locator('#dashboard .strip').count(), 1, 'phần trên của Tổng quan vẫn còn');
+
+    // Hơn 10 khách: 10 dòng đầu và nút mở hết; sổ chưa có trong danh sách khách ghi "Sổ N".
+    await block.locator('[data-kt="-1"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#khach-thang tbody tr').length === 10);
+    assert.equal(await block.locator('tbody tr').first().locator('.nm').innerText(), 'Sổ 30');
+    await block.locator('[data-kt-more]').click();
+    assert.equal(await block.locator('tbody tr').count(), 12);
+    assert.equal(await noSideScroll(page), true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await noSideScroll(page), true, 'điện thoại không cuộn ngang');
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Mở lại trang với ?thang= của tháng trước: thấy ngay tháng đó; bấm chỗ khác trên dòng cũng mở sổ.
+    await page.goto(`${new URL(page.url()).origin}/dashboard-v7.html?thang=${vnMonth(-1)}`);
+    await block.locator('tbody tr').first().waitFor();
+    if (process.env.SHOTS_DIR) {
+      fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'tong-quan-khach-theo-thang.png'), fullPage: true });
+    }
+    await block.locator('tbody tr').nth(1).locator('td.num').last().click();
+    await page.waitForURL(/so-khach-v7-live\.html\?customer=1&month=/);
+  });
+});
+
+test('KHACH-THANG-01: lỗi tải khách của tháng thì báo câu tiếng Việt, Thử lại tải lại; phần trên không đổi', async () => {
+  let fail = true;
+  await withDashboard({ monthCustomers: month => (fail ? 'drop' : monthBody(month)) }, async page => {
+    const block = page.locator('#khach-thang');
+    await block.locator('[data-kt-retry]').waitFor();
+    assert.doesNotMatch(await block.innerText(), /fetch|Failed/i);
+    assert.equal(await page.locator('#error').isHidden(), true);
+    fail = false;
+    await block.locator('[data-kt-retry]').click();
+    await block.locator('.empty').filter({ hasText: 'chưa có khách nào' }).waitFor();
+  });
+});
+
+test('TIM-CONT-01: ô Tìm khách gõ số cont thì có khối Số cont; mỗi chuyến mở sổ đúng tháng, tô số cont', async () => {
+  const asked = [];
+  const containers = q => ({ query: q.replace(/\s/g, '').toUpperCase(), more: true, items: [
+    { customer_id: 2, debt_month: '2026-09-01', date: '2026-09-05', container: 'FAKU 1234567', origin: 'Kho A', destination: 'Cảng B', source: 'web' },
+    { customer_id: 9, debt_month: '2026-08-01', date: null, container: 'FAKU1234500', origin: null, destination: null, source: 'legacy' },
+  ] });
+  await withDashboard({ containers, asked }, async page => {
+    const search = page.locator('#customer-search');
+    await search.fill('Khách');   // chữ không có số: không hỏi máy chủ
+    await page.locator('#customer-results a').first().waitFor();
+    await search.fill('1234');
+    const hits = page.locator('#customer-results a.cont-hit');
+    await hits.first().waitFor();
+    assert.deepEqual(asked.filter(item => item.includes('containers')), ['/api/v7/containers/find?q=1234']);
+    assert.deepEqual(await seen(page.locator('#customer-results .search-head')), ['Số cont (2+)', 'Còn nữa · gõ thêm số để lọc']);
+    assert.deepEqual(await seen(hits), ['FAKU 1234567 · Khách C · 05/09/2026', 'FAKU1234500 · Sổ 9 · T8/2026 · sổ gốc']);
+    assert.equal(await hits.first().getAttribute('href'), '/so-khach-v7-live.html?customer=2&month=2026-09&cont=FAKU1234567');
+    assert.equal(await hits.first().getAttribute('title'), 'Kho A → Cảng B');
+    // Phím ↓ đi qua các link, bỏ qua dòng tiêu đề.
+    await search.press('ArrowDown');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'FAKU 1234567 · Khách C · 05/09/2026');
+    await page.keyboard.press('ArrowDown');
+    assert.match(await page.evaluate(() => document.activeElement.textContent), /^FAKU1234500/);
+    await search.fill('12');   // ngắn quá: bỏ khối Số cont
+    await page.waitForFunction(() => !document.querySelector('#customer-results a.cont-hit'));
+  });
+});

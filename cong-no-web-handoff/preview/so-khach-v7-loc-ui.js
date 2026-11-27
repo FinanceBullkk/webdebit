@@ -1,5 +1,6 @@
 /* Sổ khách V7 bản live — mở từ "Việc cần làm" ở Tổng quan: ?loc=thieu-gia|cho-kiem tô các chuyến cần xử lý và có nút
- * nhảy tới từng dòng. Không ẩn dòng nào, để số cộng trong tháng vẫn đọc đúng như sổ. Tách từ so-khach-v7-ui.js
+ * nhảy tới từng dòng. TIM-CONT-01 (28/11/2026): mở từ kết quả tìm số cont ở ô Tìm khách, ?cont=<số> tô chuyến web và dòng
+ * chuyến sổ gốc có đúng số cont đó (bỏ khoảng trắng, gạch, không phân biệt hoa thường), cùng thanh và nút nhảy. Không ẩn dòng nào, để số cộng trong tháng vẫn đọc đúng như sổ. Tách từ so-khach-v7-ui.js
  * (31/10/2026, DOM không đổi). Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).loc = ctx => {
   'use strict';
@@ -8,30 +9,43 @@
     'thieu-gia': ['chuyến thiếu đơn giá', trip => trip.status === 'confirmed' && trip.is_missing_price === true],
     'cho-kiem': ['chuyến chờ kiểm', trip => trip.status === 'pending_review'],
   };
-  let locKind = new URLSearchParams(location.search).get('loc');
+  const contKey = value => String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const opened = new URLSearchParams(location.search);
+  const contWanted = contKey(opened.get('cont'));
+  let locKind = opened.get('loc') ?? (contWanted ? 'cont' : null);
   let locJumped = false;
   let locIndex = 0;
+  // Dòng cần tô của ?loc= / ?cont= hiện tại: [khóa dòng của bảng tháng, tháng], cùng nhãn cho thanh việc.
+  function targets(data) {
+    if (locKind === 'cont' && contWanted) {
+      const live = (data.trips ?? []).filter(trip => !trip.deleted && contKey(trip.container) === contWanted)
+        .map(trip => [`trip-${trip.id}`, trip.month]);
+      const legacy = (data.legacy_rows ?? []).filter(row => row.kind === 'trip' && !row.current?.deleted
+        && contKey(row.current?.container ?? row.display?.container) === contWanted).map(row => [`legacy-${row.id}`, row.month]);
+      return { label: `chuyến số cont ${contWanted}`, rows: [...live, ...legacy] };
+    }
+    const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
+    return rule ? { label: rule[0], rows: (data.trips ?? []).filter(trip => !trip.deleted && rule[1](trip)).map(trip => [`trip-${trip.id}`, trip.month]) } : null;
+  }
   // SO-GON-04: tháng có dòng cần xử lý tự hiện chi tiết (so-khach-v7-month-ui.js), để tô và "Đến dòng tiếp" đi qua cả tháng cũ.
   function locMonths(data) {
-    const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
-    return rule ? (data.trips ?? []).filter(trip => !trip.deleted && rule[1](trip)).map(trip => monthKey(trip.month)) : [];
+    return (targets(data)?.rows ?? []).map(([, month]) => monthKey(month));
   }
   // Gọi sau mỗi lần vẽ sổ: tô lại các dòng và dựng lại mục ?loc= trong thanh việc.
   // SK-N2 (audit 25/11/2026, người dùng chọn A): không còn dải riêng trên thẻ tháng; là một mục của thanh việc (SO-GON-06 (2)),
   // đứng ngay sau nút "Điền giá theo bảng" khi đang tô chuyến thiếu giá. Trang không có thanh việc thì vẫn đặt trên sổ như cũ.
   function locAfterRender(data) {
-    const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
-    if (!rule) return;
-    const hits = (data.trips ?? []).filter(trip => !trip.deleted && rule[1](trip))
-      .map(trip => root.querySelector(`[data-row="trip-${trip.id}"]`)).filter(Boolean);
+    const found = targets(data);
+    if (!found) return;
+    const hits = found.rows.map(([key]) => root.querySelector(`[data-row="${key}"]`)).filter(Boolean);
     hits.forEach(row => row.classList.add('loc-hit'));
     const bar = document.createElement('div');
     bar.className = 'loc-bar';
     bar.setAttribute('role', 'status');
     const clear = label => `<button type="button" class="loc-clear" aria-label="${label}" title="${label}">×</button>`;
     bar.innerHTML = hits.length
-      ? `<span title="Các dòng này được tô vàng trong sổ"><b>${hits.length}</b> ${rule[0]}</span><button type="button" class="loc-next">Đến dòng tiếp ›</button>${clear('Bỏ đánh dấu')}`
-      : `<span>Sổ này không còn ${rule[0]}.</span><a href="/dashboard-v7.html">Về Tổng quan</a>${clear('Đóng')}`;
+      ? `<span title="Các dòng này được tô vàng trong sổ"><b>${hits.length}</b> ${found.label}</span><button type="button" class="loc-next">Đến dòng tiếp ›</button>${clear('Bỏ đánh dấu')}`
+      : `<span>Sổ này không còn ${found.label}.</span><a href="/dashboard-v7.html">Về Tổng quan</a>${clear('Đóng')}`;
     const tasks = root.querySelector('.book-tasks');
     const price = tasks?.querySelector('.price-table-apply');
     if (price && locKind === 'thieu-gia') price.after(bar);
@@ -47,7 +61,7 @@
     bar.querySelector('.loc-next')?.addEventListener('click', () => go(locIndex + 1));
     bar.querySelector('.loc-clear').addEventListener('click', () => {
       locKind = null;
-      const query = new URLSearchParams(location.search); query.delete('loc');
+      const query = new URLSearchParams(location.search); query.delete('loc'); query.delete('cont');
       window.history.replaceState(null, '', `${location.pathname}?${query}`);
       root.querySelectorAll('tr.loc-hit').forEach(row => row.classList.remove('loc-hit'));
       root.querySelectorAll('.loc-bar').forEach(node => node.remove());

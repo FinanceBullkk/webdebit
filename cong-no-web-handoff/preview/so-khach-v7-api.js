@@ -175,6 +175,9 @@
         link.classList.add('is-active');
         link.scrollIntoView?.({ block: 'nearest' });
       };
+      // TIM-CONT-01: gõ chuỗi có chữ số thì thêm khối "Số cont" dưới các khách khớp (tim-cont.js, dùng chung với menu).
+      let cont = null;
+      const findCont = globalThis.TimCont ? globalThis.TimCont.searcher(state => { cont = state; render(); }) : () => {};
       const render = () => {
         const query = search.value.trim();
         const grouped = groupCustomers(customers, query);
@@ -196,6 +199,7 @@
           for (const row of rows) items.push(makeLink(row, labels.get(String(row.id))));
         }
         list.replaceChildren(...items);
+        if (cont?.query === query) list.insertAdjacentHTML('beforeend', globalThis.TimCont.html(cont, customerNames, 'customer-group'));
         // Có gõ thì dòng đầu là dòng Enter sẽ mở; chưa gõ thì chưa dòng nào được tô.
         setActive(query ? links()[0] : null);
         document.querySelector('#customer-count').textContent = query && !found.length
@@ -204,7 +208,7 @@
             ? `${found.length} khách${found.length > shown.size ? ` · hiện ${shown.size}, gõ thêm để lọc` : ''}`
             : `${customers.length} khách · gõ tên để đổi khách`;
       };
-      search.addEventListener('input', render);
+      search.addEventListener('input', () => { findCont(search.value); render(); });
       search.addEventListener('focus', () => { listAll = true; render(); });
       showCustomers = () => { listAll = true; render(); search.focus(); };
       const inPopover = () => document.querySelector('#customer-picker')?.hasAttribute('popover');

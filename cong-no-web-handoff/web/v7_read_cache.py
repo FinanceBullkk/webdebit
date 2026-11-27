@@ -1,6 +1,6 @@
 """Bộ nhớ đọc của API theo dấu dữ liệu (HIEU-NANG-01, specs/hieu-nang-01.md).
 
-Bốn hàm đọc nặng (`CACHED`) chỉ chạy lại khi dữ liệu `sokhach` đổi hoặc sang ngày VN mới. Mỗi lượt đọc lấy dấu mới bằng
+Năm hàm đọc nặng (`CACHED`) chỉ chạy lại khi dữ liệu `sokhach` đổi hoặc sang ngày VN mới. Mỗi lượt đọc lấy dấu mới bằng
 `get_read_stamp` (một lần psql, ~30 ms trong DB), nên lượt GET đến sau một lệnh ghi luôn thấy bản mới. Chỉ dùng ở đường GET:
 lệnh ghi, máy theo Sheet và hộp thư nền đọc thẳng runner.
 
@@ -21,7 +21,8 @@ from typing import Any
 
 from v7_api_validate import ApiError
 
-CACHED = frozenset({"get_ledger", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix"})
+CACHED = frozenset({"get_ledger", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix",
+                    "get_month_customers"})   # KHACH-THANG-01: Tổng quan tải lại mỗi 60 giây
 MAX_BYTES = 96 * 1024 * 1024   # tính theo ký tự của chữ JSON (chữ có dấu trong RAM có thể gấp đôi)
 _STAMP = re.compile(r"[0-9a-f]{32}")
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")

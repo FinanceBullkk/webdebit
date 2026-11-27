@@ -398,6 +398,12 @@ async function withPage(fn, setup = () => {}) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+    // TIM-CONT-01: kết quả tìm số cont do test đặt (world.containers); ghi lại chuỗi đã hỏi.
+    if (url.pathname === '/api/v7/containers/find') {
+      (world.contReads ??= []).push(url.searchParams.get('q'));
+      send(200, world.containers ?? { query: '', more: false, items: [] });
+      return;
+    }
     if (url.pathname === '/api/v7/customers') { send(200, { customers: world.customers ?? [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
     if (url.pathname.startsWith('/api/v7/presence')) {   // PRESENCE-01: không vào world.requests; SSE không có nên trang hỏi định kỳ
       const chunks = [];
