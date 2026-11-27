@@ -216,7 +216,7 @@ test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường]
   assert.match(first, /Continued on next page · 续下页<\/span><span>Page 1 of 2/);
   // Tiêu đề mọi trang: DEBIT-tên sổ-tháng, gạch nối liền (27/11/2026; dữ liệu mẫu không có tên sổ nên lấy tên khách).
   const middle = v4.pageHtml(doc, 'middle', doc.rows.slice(2, 3), 2, 3);
-  assert.match(middle, /<div data-title[^>]*><span[^>]*>DEBIT-<\/span><span[^>]*>SAMPLE<\/span><span[^>]*>-NOV<\/span><\/div>/);
+  assert.match(middle, /<div data-title style="font-size: 16px;[^>]*><span[^>]*>DEBIT-<\/span><span[^>]*>SAMPLE<\/span><span[^>]*>-NOV<\/span><\/div>/);
   assert.match(middle, /Debit Note No\. 账单号 HTH-2611-001 · Bill to 客户 SAMPLE 样本 · Billing Period 账单期间 Nov 2026 · Currency 币种 VND/);
 });
 

@@ -139,15 +139,13 @@ const DebitNoteV4Xlsx = (() => {
     // Thanh navy 6px, đầu trang, kẻ navy 2px.
     for (let col = 0; col <= last; col++) cell.blank(1, col, 'band');
     g.height(1, 4.5); g.height(2, 12);
-    // Tiêu đề "DEBIT-<tên sổ>-<tháng>" như bản in (27/11/2026). Ô tiêu đề lùi trái tới khi đủ chỗ cho chữ (ước lượng: chữ hoa
-    // đậm ≈ 0,137 × cỡ pt đơn vị cột) nhưng chừa đủ tên công ty; vẫn thiếu thì chữ 15pt.
-    const titleParts = ['DEBIT', doc.book.toUpperCase(), doc.monthShort.toUpperCase()];
-    const titleNeed = size => textWidth(titleParts.join('-')) * 0.137 * size + 4;
-    const companyNeed = textWidth(shown(c.name, 'Company name')) * 1.8 + 2;
+    // Tiêu đề "DEBIT-<tên sổ>-<tháng>" như bản in, cùng chữ với tên công ty (27/11/2026). Ô tiêu đề lùi trái tới khi đủ chỗ
+    // cho chữ (ước lượng: chữ hoa đậm 13pt ≈ 1,8 đơn vị cột) nhưng chừa đủ tên công ty.
+    const titleText = `DEBIT-${doc.book.toUpperCase()}-${doc.monthShort.toUpperCase()}`;
+    const titleNeed = textWidth(titleText) * 1.8 + 2, companyNeed = textWidth(shown(c.name, 'Company name')) * 1.8 + 2;
     let titleFrom = last - 4;
-    while (titleFrom > 1 && width(titleFrom, last) < titleNeed(20) && width(0, titleFrom - 2) >= companyNeed) titleFrom--;
-    const big = [width(titleFrom, last) >= titleNeed(20) ? 20 : 15, NAVY, true];
-    const titleRuns = [run(titleParts.join('-'), big)];
+    while (titleFrom > 1 && width(titleFrom, last) < titleNeed && width(0, titleFrom - 2) >= companyNeed) titleFrom--;
+    const titleRuns = [run(titleText, FONTS.company)];
     span(3, 0, titleFrom - 1, col => cell.text(3, col, shown(c.name, 'Company name'), 'company'), 'company');
     span(3, titleFrom, last, col => cell.rich(3, col, titleRuns, 'title'), 'title');
     g.height(3, 30);
