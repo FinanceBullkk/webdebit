@@ -341,13 +341,13 @@ const DebitNoteV4 = (() => {
       ? `Debit Note No. 账单号 ${shown(doc.number, 'Debit note no.')} · Bill to 客户 ${[shown(doc.customer.nameEn, 'Customer name'), doc.customer.nameZh].filter(Boolean).join(' ')} · Billing Period 账单期间 ${doc.period} · Currency 币种 ${doc.currency}`
       : `${shown(c.address, 'Company address')} · Tax ID 税号: ${shown(c.taxId, 'Tax ID')} · Tel 电话: ${shown(c.tel, 'Phone')} · Email 邮箱: ${shown(c.email, 'Email')}`;
     // Tiêu đề "DEBIT-<tên sổ>-<tháng>" (người dùng 27/11/2026, vd "DEBIT-HTH419-NOV"), gạch nối liền không cách. Luôn một dòng để
-    // đầu trang không đổi chiều cao (chia trang giữ nguyên): tên sổ dài hơn ~16 chữ thì chữ 20px, vẫn không vừa thì cắt "…" ở tên sổ, giữ DEBIT và tháng.
-    const long = doc.book.length > 16;
+    // đầu trang không đổi chiều cao (chia trang giữ nguyên): không vừa thì cắt "…" ở tên sổ, giữ DEBIT và tháng. Cỡ chữ như tên
+    // công ty (người dùng 27/11/2026).
     const title = `<span style="flex: none">DEBIT-</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">${esc(doc.book.toUpperCase())}</span>`
       + `<span style="flex: none">-${esc(doc.monthShort.toUpperCase())}</span>`;
     return `<div data-blk="LH" style="flex: none; padding: 24px 40px 0; margin-bottom: -4.29px"><div style="display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 40px; align-items: baseline">`
       + `<div style="font-size: 16px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px; white-space: nowrap">${esc(shown(c.name, 'Company name'))}</div>`
-      + `<div data-title style="font-size: ${long ? 20 : 26}px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px; display: flex; justify-content: flex-end; min-width: 0; white-space: nowrap">${title}</div>`
+      + `<div data-title style="font-size: 16px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px; display: flex; justify-content: flex-end; min-width: 0; white-space: nowrap">${title}</div>`
       + `<div style="grid-column: 1 / -1; ${LABEL}">${esc(second)}</div></div></div>`;
   }
 
