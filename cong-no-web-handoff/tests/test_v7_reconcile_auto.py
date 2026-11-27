@@ -937,6 +937,14 @@ class WebKeptTests(unittest.TestCase):
         row = self.settle(db, 180, [line(1, "AAAA1", unit=110), line(2, "AAAA2", unit=70, month="2026-10")], matched=True)
         self.assertEqual((db.writes, row["reason"], row["status"], row["detail_check"]), ([], "WEB_KEPT", "KHOP", True))
 
+    def test_matched_book_whose_price_changes_cancel_out_in_one_month_waits_for_a_person(self):
+        """Sổ 141 tháng 9/2026 (thật, 27/11): Sheet sửa giá hai chuyến cùng tháng, một +10, một −10. Nhóm giá của tháng cộng lại bằng 0
+        nên trước đây máy coi như không có việc, sổ khớp tổng mà web sai giá từng chuyến. Nay là việc của người, không ghi gì."""
+        db = BookDb(trips=[trip(1, "AAAA1", unit="90"), trip(2, "AAAA2", unit="80")])
+        row = self.settle(db, 170, [line(1, "AAAA1", unit=100), line(2, "AAAA2", unit=70)], matched=True)
+        self.assertEqual((db.writes, row["reason"], row["status"], row["detail_check"]), ([], "WEB_KEPT", "KHOP", True))
+        self.assertEqual(row["kept"], [{"kind": "prices", "month": "2026-11", "count": 2, "delta_vnd": "0"}])
+
     def test_matched_book_whose_additions_cancel_out_is_written_and_a_half_write_is_no_longer_matched(self):
         """Khách khớp tổng mà Sheet thêm cả giá cho chuyến chưa giá lẫn một phiếu bằng đúng số đó: toàn việc thêm, máy ghi hết. Ghi dở
         (phiếu xong, giá bị từ chối) thì tổng đã đổi, khách không còn tính là khớp."""

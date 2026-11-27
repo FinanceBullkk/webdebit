@@ -93,6 +93,21 @@ class StatementTest(Base):
         self.assertEqual((prices["rows"][0]["key"], prices["rows"][0]["delta_vnd"], prices["rows"][0]["source_row"]), ("legacy:1", "50000000", 401))
         self.assertEqual((receipts["id"], receipts["delta_vnd"], receipts["rows"][0]["amount_vnd"]), ("receipts_no_date:2026-09", "-6100000", "6100000"))
 
+    def test_price_changes_that_cancel_out_in_a_month_are_still_shown_and_writable(self):
+        """Sổ 141 tháng 9/2026: hai chuyến lệch +10/−10, cả nhóm tổng 0. Trước đây bảng ẩn nhóm, người không thấy chuyến nào sai giá."""
+        swap = {"kind": "prices", "month": "2026-10", "rows": [price_row(1, 10000000), price_row(2, -10000000)], "delta_vnd": 0}
+        with patch.object(api, "plan", lambda *_args: ([dict(swap)], 0, [])):
+            (group,) = api.statement(7, Runner(), ACTOR)["groups"]
+            self.assertEqual((group["id"], group["delta_vnd"], [row["delta_vnd"] for row in group["rows"]]),
+                             ("prices:2026-10", "0", ["10000000", "-10000000"]))
+            runner = Runner()
+            status, _ = api.write(self.body(items=[{"id": "prices:2026-10", "delta_vnd": "0", "rows": None}]), runner, ACTOR)
+        self.assertEqual((status, [w[0] for w in runner.writes() if w[0] == "edit_legacy_trip"]), (200, ["edit_legacy_trip"] * 2))
+
+    def test_empty_price_group_is_not_shown(self):
+        with patch.object(api, "plan", lambda *_args: ([{"kind": "prices", "month": "2026-10", "rows": [], "delta_vnd": 0}], 0, [])):
+            self.assertEqual(api.statement(7, Runner(), ACTOR)["groups"], [])
+
     def test_customer_not_in_reconcile_has_null_sheet_total(self):
         with patch.object(api, "reconcile_result", return_value=None):
             self.assertIsNone(api.statement(7, Runner(), ACTOR)["sheet_total_vnd"])

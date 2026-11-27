@@ -152,7 +152,8 @@ globalThis.DoiChieuView = (() => {
     return group.kind;
   }
   function groupNote(group, delta) {
-    if (group.kind === 'prices') return BigInt(delta) > 0n ? 'Sheet cao hơn web' : 'Sheet thấp hơn web';
+    // Nhóm giá tổng 0 (sổ 141 tháng 9/2026): Sheet đổi giá vài chuyến bù nhau, từng chuyến vẫn lệch.
+    if (group.kind === 'prices') return BigInt(delta) > 0n ? 'Sheet cao hơn web' : BigInt(delta) < 0n ? 'Sheet thấp hơn web' : 'Giá từng chuyến khác, tổng tháng bằng nhau';
     if (group.kind === 'receipts_edited') return 'Sheet đã sửa phiếu';
     return GROUP_NOTE[group.kind] ?? '';
   }

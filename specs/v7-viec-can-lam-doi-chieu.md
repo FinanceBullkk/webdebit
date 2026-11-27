@@ -22,7 +22,7 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 | Khớp bao nhiêu, khách nào lệch, lý do | `GET /api/v7/inbox` → `reconcile` | Đã có |
 | Tổng Sheet của khách | `reconcile.customers[].sheet_total_vnd` | Lượt đối soát gần nhất |
 | Tổng web, phiên bản sổ | `get_ledger` | Đọc mới mỗi lần |
-| Khoản và số tiền từng khoản | `v7_sheet_fix.plan` trên bản chụp giá và phiếu mới nhất | Cùng đường của máy |
+| Khoản và số tiền từng khoản | `v7_sheet_fix.plan` trên bản chụp giá và phiếu mới nhất; nhóm giá tổng 0 mà có chuyến lệch vẫn hiện (`has_work`, 27/11/2026) | Cùng đường của máy |
 | Từng dòng, số dòng Sheet | Dòng trong nhóm của `plan` | Không có link Sheet vì thiếu `gid` |
 | Ghi | `v7_sheet_fix.apply_fix(..., actor=người bấm)` | Tháng khóa: `in_month` mở, ghi, khóa lại |
 | Giữ số web | `keep_sheet_task` từng dòng | Nợ không đổi |
