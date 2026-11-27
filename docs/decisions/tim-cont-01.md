@@ -22,4 +22,4 @@ Chỉ đọc; không đổi tiền, phân bổ hay dữ liệu. Hàm `sokhach.fi
 
 ## Trạng thái
 
-ĐÃ CHỐT 28/11/2026 (chỗ đặt, hành vi chính). Cách làm ở trên là ĐỀ XUẤT của Claude.
+ĐÃ CHỐT 28/11/2026 (chỗ đặt, hành vi chính). Cách làm ở trên là ĐỀ XUẤT của Claude. ĐÃ TRIỂN KHAI trên `hao` 28/11/2026 ([nhật ký](../deploys/2026-11-28-tim-cont-khach-thang.md)); CÒN MỞ: người dùng tự đi hết luồng.

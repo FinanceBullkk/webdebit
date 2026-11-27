@@ -2090,7 +2090,7 @@ Job: phép kiểm booking (`tools/v7_booking_check.py`, chạy trong lượt `v7
 
 Rollback: `DROP FUNCTION sokhach.get_trip_month(date);` (không gì phụ thuộc). Release cũ không đọc file mới; file có thể để lại.
 
-## Tìm số cont và khách theo tháng (TIM-CONT-01, KHACH-THANG-01) — nâng DB đang có (CHƯA CHẠY)
+## Tìm số cont và khách theo tháng (TIM-CONT-01, KHACH-THANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 28/11/2026, [nhật ký](deploys/2026-11-28-tim-cont-khach-thang.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-28-v7-tim-cont-khach-thang.sql` chạy sau `2026-11-25-v7-thang-hien-tai.sql` ([`TIM-CONT-01`](decisions/tim-cont-01.md), [`KHACH-THANG-01`](decisions/khach-thang-01.md), [spec](../specs/v7-tim-cont-khach-thang.md)). Chỉ thêm hai hàm đọc `find_container(text)`, `get_month_customers(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu, không tăng `schema_level`. Chạy lại được.
 
