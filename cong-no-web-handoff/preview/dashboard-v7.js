@@ -52,7 +52,8 @@
     const at = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + by, 1));
     return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
   };
-  const monthTag = key => `T${Number(key.slice(5, 7))}/${key.slice(0, 4)}`;
+  // Nhãn dựng từ số (tháng đến từ ?thang= của địa chỉ): không có ký tự nào ngoài chữ số, vẫn escape ở chỗ ghi HTML.
+  const monthTag = key => `T${Number(key.slice(5, 7))}/${Number(key.slice(0, 4))}`;
   const RISK_URL = { cao: 'high', 'theo-doi': 'watch', 'khong-qua-han': 'ok' };
   const PAGE_ROWS = 10;
   let loading = false;
@@ -160,7 +161,7 @@
     const only = state.tier != null || state.risk != null || state.fresh ? 'Chỉ tính sổ đang nợ trong phạm vi; sổ đã hết nợ không có nhóm hạn trả hay mức rủi ro' : 'Gồm cả sổ đã hết nợ của mặt hàng này';
     const whole = !others ? '' : flow ? scopeTag('month', only)
       : `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>`;
-    const name = key.slice(0, 4) === now.slice(0, 4) ? String(p.month) : `${p.month}/${key.slice(0, 4)}`;
+    const name = esc(key.slice(0, 4) === now.slice(0, 4) ? String(p.month) : `${p.month}/${Number(key.slice(0, 4))}`);
     const nav = (by, label, icon, stop) => `<button type="button" class="m-step" data-mnav="${by}" aria-label="${label}"${stop || !state.ready ? ' disabled' : ''}${tipAttr([label, 'Lọc cả trang theo tháng'])}>${icon}</button>`;
     const head = `<div class="m-head">${nav(-1, 'Tháng trước', ICON.prev, false)}<h2 id="h-month">Thu tháng ${name}${whole}</h2>${nav(1, 'Tháng sau', ICON.next, key >= now)}`
       + `<a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
@@ -228,7 +229,7 @@
   // Tiêu đề bảng khách; đang lọc tháng thì thanh Theo hạn trả nhường chỗ cho Phát sinh · Đã thu · Còn nợ của tháng.
   function headHtml(rule) {
     const th = (sort, label, unit, icon, tip, cls = '') => `<th scope="col" class="r${cls}"${sort ? ` data-col="${sort}"` : ''}><button type="button" data-sort="${sort}"${tipAttr(tip)}>${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span> ${unit ? `<small>${unit}</small>` : ''}</button></th>`;
-    const tag = state.month ? monthTag(state.month) : '';
+    const tag = state.month ? esc(monthTag(state.month)) : '';
     const month = state.month
       ? `${th('charges', 'Phát sinh', tag, null, [`Phát sinh tháng ${tag}`, 'Chuyến, phụ phí, điều chỉnh của tháng (như dòng Tổng tháng của sổ) · bấm để xếp'])}`
         + `<th scope="col" class="r m-rec"><span tabindex="0"${tipAttr([`Đã thu tháng ${tag}`, 'Tiền khách trả trong tháng, theo ngày tiền về'])}>Đã thu</span></th>`
@@ -318,7 +319,7 @@
     };
     const late = state.tier == null || state.tier >= 2;
     const money = (value, cls, tip) => (value === 0n ? `<td class="num zero${cls}">–</td>` : `<td class="num${cls}"${tipAttr([tip, F.full(value)])}>${esc(short(value))}</td>`);
-    const href = id => (state.month ? `${ledgerHref(id)}&month=${state.month}` : pageHref(id));
+    const href = id => (state.month ? `${ledgerHref(id)}&month=${encodeURIComponent(state.month)}` : pageHref(id));
     // KHACH-MOI-01: nhãn "Mới" sau tên, xanh dương; nền đặc khi cần để ý. Câu dữ kiện nằm trong chú thích của dòng.
     const freshTag = row => (row.fresh ? ` <span class="new-tag${row.fresh.flag ? ' warn' : ''}"><span class="sr-only">, khách mới: ${esc(row.fresh.text)}</span><span aria-hidden="true">Mới</span></span>` : '');
     const middle = row => (state.month
