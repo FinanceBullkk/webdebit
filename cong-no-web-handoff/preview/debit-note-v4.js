@@ -49,7 +49,7 @@ const DebitNoteV4 = (() => {
   }
 
   // ---- Dựng chứng từ từ sổ V7 (bản GET đang vẽ) ----
-  // form: { number, issueDate, customer: { nameEn, nameZh, legal } } do người lập điền ở hộp.
+  // form: { number, issueDate, book (tên sổ), customer: { nameEn, nameZh, legal } } do người lập điền ở hộp.
   function fromLedger(ledger, monthKey, { model, feeTypes = [], feeColumnIds = [], config, form = {} }) {
     const month = row => String(row.month ?? '').slice(0, 7);
     const names = new Map(feeTypes.map(type => [Number(type.id), type.name]));
@@ -153,6 +153,8 @@ const DebitNoteV4 = (() => {
     const customer = form.customer ?? {};
     const company = config?.company ?? {}, payment = config?.payment ?? {};
     return {
+      // Tên sổ trên web cho tiêu đề và tên file (27/11/2026); không có (dữ liệu mẫu) thì lấy tên khách tiếng Anh.
+      book: latin(form.book) || latin(customer.nameEn) || '[Book]', monthShort: MONTHS[Number(monthKey.slice(5, 7)) - 1],
       monthKey, period: periodText(monthKey), number: form.number ?? null, issueDate: isoDay(form.issueDate), currency: 'VND',
       company: { name: company.name, address: company.address, taxId: company.tax_id, tel: company.tel, email: company.email },
       payment: { beneficiary: payment.beneficiary, bank: payment.bank, accountLabelEn: payment.account_label_en ?? 'Account',
@@ -338,9 +340,15 @@ const DebitNoteV4 = (() => {
     const second = compact
       ? `Debit Note No. 账单号 ${shown(doc.number, 'Debit note no.')} · Bill to 客户 ${[shown(doc.customer.nameEn, 'Customer name'), doc.customer.nameZh].filter(Boolean).join(' ')} · Billing Period 账单期间 ${doc.period} · Currency 币种 ${doc.currency}`
       : `${shown(c.address, 'Company address')} · Tax ID 税号: ${shown(c.taxId, 'Tax ID')} · Tel 电话: ${shown(c.tel, 'Phone')} · Email 邮箱: ${shown(c.email, 'Email')}`;
-    return `<div data-blk="LH" style="flex: none; padding: 24px 40px 0; margin-bottom: -4.29px"><div style="display: grid; grid-template-columns: 1fr auto; column-gap: 40px; align-items: baseline">`
-      + `<div style="font-size: 16px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px">${esc(shown(c.name, 'Company name'))}</div>`
-      + '<div style="font-size: 26px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px; text-align: right">DEBIT NOTE<span style="font-size: 16px; font-weight: 400; letter-spacing: 0; color: #5F6B7A; margin-left: 12px">账单</span></div>'
+    // Tiêu đề "DEBIT – <tên sổ> – <tháng>" (người dùng 27/11/2026, vd "DEBIT – HTH419 – NOV"), gạch nối xám. Luôn một dòng để
+    // đầu trang không đổi chiều cao (chia trang giữ nguyên): tên sổ dài hơn ~16 chữ thì chữ 20px, vẫn không vừa thì cắt "…" ở tên sổ, giữ DEBIT và tháng.
+    const long = doc.book.length > 16;
+    const dash = '<span style="font-weight: 400; color: #5F6B7A; margin: 0 4px"> – </span>';   // dấu cách không ngắt: chép chữ từ PDF vẫn có cách, flex không nuốt
+    const title = `<span style="flex: none">DEBIT${dash}</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">${esc(doc.book.toUpperCase())}</span>`
+      + `<span style="flex: none">${dash}${esc(doc.monthShort.toUpperCase())}</span>`;
+    return `<div data-blk="LH" style="flex: none; padding: 24px 40px 0; margin-bottom: -4.29px"><div style="display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 40px; align-items: baseline">`
+      + `<div style="font-size: 16px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px; white-space: nowrap">${esc(shown(c.name, 'Company name'))}</div>`
+      + `<div data-title style="font-size: ${long ? 20 : 26}px; line-height: 32px; font-weight: 700; color: #14304F; letter-spacing: 1px; display: flex; justify-content: flex-end; min-width: 0; white-space: nowrap">${title}</div>`
       + `<div style="grid-column: 1 / -1; ${LABEL}">${esc(second)}</div></div></div>`;
   }
 

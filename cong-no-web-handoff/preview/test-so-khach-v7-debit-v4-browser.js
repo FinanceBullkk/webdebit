@@ -56,12 +56,14 @@ test('Debit note v4: bảng có gì xuất nấy — chuyến chưa có giá kh�
   assert.match(row, /Noi D(\n–){8}$/);             // bảy cột phí luôn in (DEBIT-NOTE-04) + Other fees, đều "–" (không có phí)
   assert.match(await view.locator('[data-total]').innerText(), /140,000,000(\s+–){7}\s+3,000,000\s+143,000,000/);
   assert.match(await view.locator('[data-blk="INFO"]').innerText(), /HTH-2609-001[\s\S]*\[Issue date\]/);   // số theo gợi ý, ngày chưa chốt
+  // Tiêu đề "DEBIT – tên sổ – tháng" (27/11/2026): tên sổ trên web bỏ dấu, chữ hoa.
+  assert.equal((await view.locator('[data-title]').first().innerText()).replace(/\s+/g, ' '), 'DEBIT – KHACH THU SUA – SEP');
   assert.equal(await dialog.locator('.dn4-month').inputValue(), '2026-09');
 
   const [download] = await Promise.all([page.waitForEvent('download'), dialog.locator('.debit-excel').click()]);
-  assert.equal(download.suggestedFilename(), 'HTH-2609-001_Khach-Thu-Sua_2026-09.xlsx');
+  assert.equal(download.suggestedFilename(), 'Debit-Khach-Thu-Sua-Sep.xlsx');
   assert.equal(fs.readFileSync(await download.path()).subarray(0, 2).toString(), 'PK');
-  assert.match(await dialog.locator('.dn4-done').innerText(), /Đã tải file Excel\s+HTH-2609-001_Khach-Thu-Sua_2026-09\.xlsx/);
+  assert.match(await dialog.locator('.dn4-done').innerText(), /Đã tải file Excel\s+Debit-Khach-Thu-Sua-Sep\.xlsx/);
   assert.equal(await dialog.locator('.dn4-msg').innerText(),
     'Gửi anh/chị debit note tháng 9/2026: 3 container, tổng 143.000.000 đ.\n您好，附上2026年9月账单：3个柜，合计143,000,000越南盾。');
   assert.equal(await dialog.locator('.dn4-form').isHidden(), true);
@@ -101,7 +103,7 @@ test('Debit note v4: đủ giá; In PDF dựng trang A4 ngang; ACCOUNT STATUS t�
     return { pages: target.querySelectorAll('[data-page]').length, kind: target.querySelector('[data-page]').dataset.page, title: target.title,
       rows: target.querySelectorAll('[data-row]').length, page: [...target.styleSheets[0].cssRules].find(rule => rule.cssText.startsWith('@page')).cssText,
       inflate: target.querySelector('style').textContent.includes('html{-webkit-text-size-adjust:100%;text-size-adjust:100%}') }; });
-  assert.deepEqual(printed, { pages: 1, kind: 'single', title: 'HTH-2609-001_Khach-Thu-Sua_2026-09', rows: 3, page: '@page { size: a4 landscape; margin: 0px; }', inflate: true });
+  assert.deepEqual(printed, { pages: 1, kind: 'single', title: 'Debit-Khach-Thu-Sua-Sep', rows: 3, page: '@page { size: a4 landscape; margin: 0px; }', inflate: true });
   await dialog.locator('.debit-close').click();
   await page.locator('#thang-2026-09 .debit-open').click();
   assert.equal(await dialog.locator('[name="accountStatus"]').isChecked(), true);   // nhớ theo sổ
@@ -258,7 +260,7 @@ test('Debit note v4: đổi tháng ngay trong hộp (các tháng có nút Debit 
   assert.match(await view.locator('[data-blk="INFO"]').innerText(), /HTH-2608-001[\s\S]*Aug 2026/);
   assert.equal(await dialog.locator('.debit-status').innerText(), '1 container · 70.000.000 đ');
   const [download] = await Promise.all([page.waitForEvent('download'), dialog.locator('.debit-excel').click()]);
-  assert.equal(download.suggestedFilename(), 'HTH-2608-001_Khach-Thu-Sua_2026-08.xlsx');
+  assert.equal(download.suggestedFilename(), 'Debit-Khach-Thu-Sua-Aug.xlsx');
 }, world => {
   priced(world);
   world.trips.push({ ...world.trips[0], id: 12, month: '2026-08-01', container: 'TSTU2000006', event_date: '2026-08-10', unit_price_vnd: '70000000', amount_vnd: '70000000' });
@@ -294,7 +296,7 @@ test('Debit note trên điện thoại 390px: xem trước ở trên vừa khung
   assert.equal(await view.locator('style').first().evaluate(el => el.textContent.startsWith('html{-webkit-text-size-adjust:100%;text-size-adjust:100%}')), true);
   await shot('debit-note-dien-thoai-390');
   await dialog.locator('.debit-excel').click();
-  assert.deepEqual(await page.evaluate(() => window.__shared), [[['HTH-2609-001_Khach-Thu-Sua_2026-09.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', true]]]);
+  assert.deepEqual(await page.evaluate(() => window.__shared), [[['Debit-Khach-Thu-Sua-Sep.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', true]]]);
   assert.match(await dialog.locator('.dn4-done').innerText(), /Đã mở khung gửi file/);
   await dialog.locator('.dn4-back').click();
   // Màn rộng: hai cột, cột trái 380px, nút về Tải Excel, xem trước vừa khung (tối đa .74).

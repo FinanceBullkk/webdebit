@@ -139,8 +139,17 @@ const DebitNoteV4Xlsx = (() => {
     // Thanh navy 6px, đầu trang, kẻ navy 2px.
     for (let col = 0; col <= last; col++) cell.blank(1, col, 'band');
     g.height(1, 4.5); g.height(2, 12);
-    span(3, 0, last - 5, col => cell.text(3, col, shown(c.name, 'Company name'), 'company'), 'company');
-    span(3, last - 4, last, col => cell.rich(3, col, [run('DEBIT NOTE', FONTS.title), run('  账单', [12, GRAY])], 'title'), 'title');
+    // Tiêu đề "DEBIT – <tên sổ> – <tháng>" như bản in (27/11/2026). Ô tiêu đề lùi trái tới khi đủ chỗ cho chữ (ước lượng: chữ hoa
+    // đậm ≈ 0,137 × cỡ pt đơn vị cột) nhưng chừa đủ tên công ty; vẫn thiếu thì chữ 15pt.
+    const titleParts = ['DEBIT', doc.book.toUpperCase(), doc.monthShort.toUpperCase()];
+    const titleNeed = size => textWidth(titleParts.join(' – ')) * 0.137 * size + 4;
+    const companyNeed = textWidth(shown(c.name, 'Company name')) * 1.8 + 2;
+    let titleFrom = last - 4;
+    while (titleFrom > 1 && width(titleFrom, last) < titleNeed(20) && width(0, titleFrom - 2) >= companyNeed) titleFrom--;
+    const big = [width(titleFrom, last) >= titleNeed(20) ? 20 : 15, NAVY, true], dash = [big[0], GRAY];
+    const titleRuns = titleParts.flatMap((text, index) => [...(index ? [run('  –  ', dash)] : []), run(text, big)]);
+    span(3, 0, titleFrom - 1, col => cell.text(3, col, shown(c.name, 'Company name'), 'company'), 'company');
+    span(3, titleFrom, last, col => cell.rich(3, col, titleRuns, 'title'), 'title');
     g.height(3, 30);
     span(4, 0, last, col => cell.text(4, col, `${shown(c.address, 'Company address')} · Tax ID 税号: ${shown(c.taxId, 'Tax ID')} · Tel 电话: ${shown(c.tel, 'Phone')} · Email 邮箱: ${shown(c.email, 'Email')}`, 'address'), 'address');
     g.height(4, 15);
@@ -301,8 +310,9 @@ const DebitNoteV4Xlsx = (() => {
   }
 
   const xlsx = doc => base.zip(files(doc));
-  // Tên file như mẫu v3: <số chứng từ>_<khách>_<yyyy-mm>.
-  const baseName = doc => base.baseName({ number: doc.number, buyer: { display: doc.customer.nameEn } }, doc.monthKey);
+  // Tên file "Debit-<tên sổ>-<tháng>" (người dùng 27/11/2026, vd Debit-HTH419-Nov): chữ không phải ASCII bỏ, khoảng trắng thành "-".
+  // doc.book đã bỏ dấu (DebitNoteV4.latin); ở đây bỏ thêm chữ Hán và ký tự không hợp tên file.
+  const baseName = doc => `Debit-${doc.book.replace(/[^A-Za-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'khach'}-${doc.monthShort}`;
   return { xlsx, files, sheet, baseName, widths, layout };
 })();
 if (typeof module !== 'undefined') module.exports = DebitNoteV4Xlsx;
