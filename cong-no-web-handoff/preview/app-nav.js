@@ -78,19 +78,23 @@ globalThis.AppNav = (() => {
   }
 
   // Ô tìm khách: tên Sheet, tên hiển thị, nhãn, mặt hàng, tên gọi khác; bỏ dấu (MH-01), chữ Hán so nguyên chữ.
+  // TIM-CONT-01: chuỗi có chữ số thì thêm khối "Số cont" bên dưới (tim-cont.js), mỗi chuyến mở sổ đúng tháng, tô dòng.
   function setupSearch() {
     const input = root.querySelector('#customer-search');
     const results = root.querySelector('#customer-results');
+    let cont = null;
     const draw = () => {
       const raw = input.value.trim();
-      if (!raw || !customers) { results.hidden = true; return; }
+      if (!raw) { results.hidden = true; return; }
       const loose = F.fold(raw), exact = F.foldText(raw);
-      const labels = F.customerLabels(customers);
-      const found = customers.filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
+      const labels = customers ? F.customerLabels(customers) : new Map();
+      const found = (customers ?? []).filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
         .some(value => (loose && F.fold(value).includes(loose)) || F.foldText(value).includes(exact))).slice(0, 20);
-      results.innerHTML = found.map(item => `<a role="option" href="${ledgerHref(item.id)}">${F.esc(labels.get(String(item.id)))}</a>`).join('');
-      results.hidden = !found.length;
+      const contPart = cont?.query === raw ? globalThis.TimCont.html(cont, labels, 'search-head') : '';
+      results.innerHTML = found.map(item => `<a role="option" href="${ledgerHref(item.id)}">${F.esc(labels.get(String(item.id)))}</a>`).join('') + contPart;
+      results.hidden = !results.innerHTML;
     };
+    const findCont = globalThis.TimCont ? globalThis.TimCont.searcher(state => { cont = state; draw(); }) : () => {};
     const ready = () => {
       if (customers || loadingCustomers) return loadingCustomers;
       loadingCustomers = CongNoNet.customers()
@@ -98,7 +102,7 @@ globalThis.AppNav = (() => {
       return loadingCustomers;
     };
     input.addEventListener('focus', () => { ready(); draw(); });
-    input.addEventListener('input', () => { ready(); draw(); });
+    input.addEventListener('input', () => { ready(); findCont(input.value); draw(); });
     input.addEventListener('keydown', event => {
       if (event.key === 'Escape') { results.hidden = true; input.blur(); return; }
       if (event.key === 'ArrowDown' && !results.hidden) { event.preventDefault(); results.querySelector('a')?.focus(); }
@@ -106,8 +110,10 @@ globalThis.AppNav = (() => {
     });
     results.addEventListener('keydown', event => {
       if (event.key === 'Escape') { results.hidden = true; input.focus(); }
-      if (event.key === 'ArrowDown') { event.preventDefault(); document.activeElement.nextElementSibling?.focus(); }
-      if (event.key === 'ArrowUp') { event.preventDefault(); (document.activeElement.previousElementSibling ?? input).focus(); }
+      // Chỉ đi qua các link: dòng tiêu đề "Số cont" nằm giữa không nhận tiêu điểm.
+      const links = [...results.querySelectorAll('a')], at = links.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown') { event.preventDefault(); links[at + 1]?.focus(); }
+      if (event.key === 'ArrowUp') { event.preventDefault(); (links[at - 1] ?? input).focus(); }
     });
     document.addEventListener('click', event => { if (!event.target.closest('.app-nav .search')) results.hidden = true; });
   }

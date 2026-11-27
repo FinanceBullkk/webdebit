@@ -45,6 +45,7 @@ COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13
 # HIEU-NANG-01 13/11/2026: get_read_stamp chỉ có ở migration này.
 DAU_DOC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql"
 BAO_CAO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql"
+TIM_CONT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-28-v7-tim-cont-khach-thang.sql"  # TIM-CONT-01, KHACH-THANG-01
 # LUOI-AN-TOAN-01 18/11/2026: ba hàm của lưới an toàn chỉ có ở migration này.
 LUOI_AN_TOAN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-luoi-an-toan.sql"
 # KIEM-TAB-01 16/11/2026 (K4): edit_trip_info và resolve_sheet_conflict bằng migration này thay bản KHOA-CHU-01.
@@ -120,6 +121,10 @@ class FeeSqlSync(unittest.TestCase):
         report = BAO_CAO_THANG_MIGRATION.read_text(encoding="utf-8")
         with self.subTest(name="get_trip_month"):
             self.assertEqual(definition(report, "FUNCTION", "get_trip_month"), definition(canonical, "FUNCTION", "get_trip_month"))
+        tim_cont = TIM_CONT_MIGRATION.read_text(encoding="utf-8")
+        for name in ("find_container", "get_month_customers"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(tim_cont, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         safety = LUOI_AN_TOAN_MIGRATION.read_text(encoding="utf-8")
         audit_sql = AUDIT_SQL_MIGRATION.read_text(encoding="utf-8")
         for name in ("paste_trips", "edit_trip_info", "get_safety_net", "_trip_dup_reason", "_catalog_manifest"):

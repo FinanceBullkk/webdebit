@@ -83,7 +83,7 @@ def check_roles(pg: Pg) -> None:
                        "paste_trips", "edit_trip_price", "adjust_trip", "adjust_month", "delete_month_adjustment",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
                        "get_ledger", "get_ledger_events", "list_customers", "get_dashboard", "get_dashboard_debt", "get_read_stamp", "list_sheet_trip_refs", "list_legacy_trip_refs", "resolve_sheet_conflict", "record_offset", "void_offset",
-                       "get_receivables_matrix", "get_receivables_detail", "record_reminder", "get_reminders", "get_receipt_book", "get_trip_month", "get_activity", "get_safety_net", "schema_level",
+                       "get_receivables_matrix", "get_receivables_detail", "record_reminder", "get_reminders", "get_receipt_book", "get_trip_month", "find_container", "get_month_customers", "get_activity", "get_safety_net", "schema_level",
                        "link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks",
                        "record_cash_review", "get_cash_reviews",   # ZALO-THU-CHI-01 PR-3
                        "create_customer", "set_booking_name",   # KHACH-WEB-01

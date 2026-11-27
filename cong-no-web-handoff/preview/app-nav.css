@@ -34,6 +34,8 @@
 .app-nav .search #customer-results{position:absolute;z-index:5;left:0;top:56px;min-width:300px;max-height:300px;overflow:auto;background:#fff;border:1px solid #d7dce3;border-radius:8px;box-shadow:0 8px 24px #1f293733}
 .app-nav .search #customer-results a{display:block;padding:10px 12px;color:#1a1a19;border-bottom:1px solid #eef0f3;text-decoration:none;font-size:14px;font-weight:400}
 .app-nav .search #customer-results a:hover,.app-nav .search #customer-results a:focus{background:#eaf2fc;outline:none}
+/* TIM-CONT-01: tiêu đề khối "Số cont" trong danh sách tìm; số cont in đậm ở đầu mỗi dòng. */
+.app-nav .search #customer-results .search-head{padding:8px 12px 4px;color:var(--ink-3);font-size:13px;font-weight:600;background:var(--head)}
 .app-nav.menu-open{width:240px;box-shadow:6px 0 24px #0d1b2a40}
 .app-nav.menu-open nav a{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;margin:0 8px;padding:0 14px;font-size:15px;text-align:left}
 .app-nav.menu-open .badge{position:static;margin-left:auto;box-shadow:none}

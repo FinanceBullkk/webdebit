@@ -2090,6 +2090,16 @@ Job: phép kiểm booking (`tools/v7_booking_check.py`, chạy trong lượt `v7
 
 Rollback: `DROP FUNCTION sokhach.get_trip_month(date);` (không gì phụ thuộc). Release cũ không đọc file mới; file có thể để lại.
 
+## Tìm số cont và khách theo tháng (TIM-CONT-01, KHACH-THANG-01) — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-28-v7-tim-cont-khach-thang.sql` chạy sau `2026-11-25-v7-thang-hien-tai.sql` ([`TIM-CONT-01`](decisions/tim-cont-01.md), [`KHACH-THANG-01`](decisions/khach-thang-01.md), [spec](../specs/v7-tim-cont-khach-thang.md)). Chỉ thêm hai hàm đọc `find_container(text)`, `get_month_customers(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu, không tăng `schema_level`. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release. Release mới với DB cũ: khối Khách theo tháng báo không tải được và ô tìm không có khối Số cont (hàm chưa có), phần khác không đổi. Release cũ chạy được với DB mới (hàm mới không ai gọi).
+
+Kiểm: backup, áp hai lượt trên bản sao (dấu vân tay không đổi, checker có `catalog_manifest`), gọi `get_month_customers(NULL)` và so với `get_dashboard_debt()->'this_month'->'customers'` (lệch 0 sổ), gọi `find_container` với một số cont có thật. Hàm đọc nên không cần cửa sổ dừng ghi; vẫn đối soát tổng từng khách trước/sau.
+
+Rollback: `DROP FUNCTION sokhach.find_container(text); DROP FUNCTION sokhach.get_month_customers(date);` (không gì phụ thuộc), rồi release cũ.
+
 ## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026, [nhật ký](deploys/2026-11-13-dau-doc.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql` chạy sau `2026-11-13-v7-cot-phu-phi-mac-dinh.sql` ([spec](../specs/hieu-nang-01.md)). Chỉ thêm hàm đọc `get_read_stamp` (md5 của số dòng và tổng xmin mọi bảng `sokhach`, ngày VN) và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, hàm có sẵn hay dữ liệu. Chạy lại được.

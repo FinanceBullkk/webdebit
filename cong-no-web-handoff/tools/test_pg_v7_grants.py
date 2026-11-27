@@ -47,6 +47,7 @@ READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
 READ.add('get_reminders()')  # NHAC-NO-01: ai vào app cũng xem được mốc đã nhắc
 READ.add('get_receipt_book(date)')  # BANG-THU-01: ai vào app cũng xem được bảng thu
 READ.add('get_trip_month(date)')  # BAO-CAO-THANG-01: chỉ đọc, như bảng thu
+READ.update({'find_container(text)', 'get_month_customers(date)'})  # TIM-CONT-01, KHACH-THANG-01: chỉ đọc
 APP_READ.add('get_ledger_events(bigint)')  # MO-SO-NHANH-02: khung Lịch sử của trang, không cấp reader
 APP_READ.add('get_activity(date)')  # HOAT-DONG-01: việc đã ghi theo ngày, có trước → sau như Lịch sử, không cấp reader
 APP_READ.add('get_safety_net(jsonb)')  # LUOI-AN-TOAN-01: lưới an toàn của máy canh (v7app), không cấp reader
@@ -133,6 +134,7 @@ KNOWN_FUNCTIONS.add('resolve_sheet_conflict')  # gộp vào file chuẩn 29/10/2
 KNOWN_FUNCTIONS.update({'record_reminder', 'get_reminders'})  # NHAC-NO-01
 KNOWN_FUNCTIONS.update({'get_receipt_book', '_legacy_pay_date'})  # BANG-THU-01
 KNOWN_FUNCTIONS.add('get_trip_month')  # BAO-CAO-THANG-01
+KNOWN_FUNCTIONS.update({'find_container', 'get_month_customers'})  # TIM-CONT-01, KHACH-THANG-01
 KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # chặn trùng hàng chờ 1/11/2026
 KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_json', 'record_mark', 'cancel_mark',
                         'get_marks'})  # ZALO-GROUP-01

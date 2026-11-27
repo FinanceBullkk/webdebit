@@ -243,6 +243,7 @@ ERRORS.update({
     "NGAY_GIA_CU": (409, "Ngày áp dụng trước tháng này: giá sẽ áp ngược cho chặng đang gom. Xem lại ngày rồi xác nhận."),
     "TUYEN_DOI": (409, "Tên gốc của tuyến vừa đổi ở máy khác. Tải lại rồi sửa."),
 })
+ERRORS["INVALID_QUERY"] = (422, "Gõ 4–20 ký tự của số cont.")   # TIM-CONT-01
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
               "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS", "INVALID_REVIEW"):
@@ -344,6 +345,9 @@ SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
 # BANG-THU-01: tháng trống là tháng hiện tại giờ VN, do hàm SQL tính.
 SQL["get_receipt_book"] = "SELECT sokhach.get_receipt_book((:'payload'::jsonb->>'month')::date);"
 SQL["get_trip_month"] = "SELECT sokhach.get_trip_month((:'payload'::jsonb->>'month')::date);"   # BAO-CAO-THANG-01
+# TIM-CONT-01: chuyến theo số cont ở mọi sổ (ô Tìm khách). KHACH-THANG-01: khách theo tháng ở Tổng quan; tháng trống là tháng hiện tại.
+SQL["find_container"] = "SELECT sokhach.find_container(:'payload'::jsonb->>'q');"
+SQL["get_month_customers"] = "SELECT sokhach.get_month_customers((:'payload'::jsonb->>'month')::date);"
 # HOAT-DONG-01: ngày trống là hôm nay giờ VN, do hàm SQL tính.
 SQL["get_activity"] = "SELECT sokhach.get_activity((:'payload'::jsonb->>'day')::date);"
 # ZALO-GROUP-01: gắn group ↔ sổ và dấu tin, cũng ngoài đường tiền; POST đặc biệt (v7_api_zalo kiểm thân lệnh).
