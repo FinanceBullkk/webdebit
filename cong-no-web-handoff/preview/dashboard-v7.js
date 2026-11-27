@@ -1,6 +1,10 @@
 /* Tổng quan công nợ (DASH-05, 2/11/2026: bản ít chữ theo canvas): dải đầu Còn phải thu + hạn trả, thẻ Thu tháng,
    khối Công nợ theo mặt hàng (DASH-07, 9/11/2026), chip mức rủi ro lọc bảng khách. Mỗi số một chỗ; chữ đầy đủ ở ô chú
-   thích khi rê chuột hoặc focus (data-tip). */
+   thích khi rê chuột hoặc focus (data-tip).
+   KHACH-THANG-01 (28/11/2026, người dùng chọn "Tháng lọc cả trang"): ‹ › trên thẻ Thu tháng chọn một tháng; tháng là một
+   chiều lọc như hạn trả, mức rủi ro, mặt hàng: thẻ ra số của tháng đó, dải đầu và khối mặt hàng chỉ tính sổ có số trong tháng,
+   bảng khách còn các sổ đó (cả sổ đã hết nợ) với cột Phát sinh · Đã thu · Còn nợ của tháng. Số tháng do GET
+   /api/v7/month-customers tính. */
 (() => {
   'use strict';
   const F = CongNoFormat;
@@ -29,6 +33,7 @@
     cash: svg('<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>'),
     truck: svg('<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>'),
     next: svg('<path d="M9 6l6 6-6 6"/>'),
+    prev: svg('<path d="M15 6l-6 6 6 6"/>'),
     close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   };
   // Tên ngắn cho bảng: tên Sheet; trùng tên thì thêm mặt hàng, vẫn trùng thì thêm số sổ.
@@ -41,16 +46,25 @@
       return [String(row.id), `${withCommodity(row)} · sổ ${row.id}`];
     }));
   };
-  const SORTS = { tong: 'total', 'chua-tra': 'pay', 'di-hang': 'trip' };
+  const SORTS = { tong: 'total', 'chua-tra': 'pay', 'di-hang': 'trip', 'phat-sinh': 'charges' };
+  const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+  const shiftMonth = (key, by) => {
+    const at = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + by, 1));
+    return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  const monthTag = key => `T${Number(key.slice(5, 7))}/${key.slice(0, 4)}`;
   const RISK_URL = { cao: 'high', 'theo-doi': 'watch', 'khong-qua-han': 'ok' };
   const PAGE_ROWS = 10;
   let loading = false;
   // Nút Làm mới đọc Sheet ngay (specs/v7-sheet-refresh.md); chữ trạng thái chỉ hiện khi đang lấy hoặc lỗi.
   let sheetRefresh = null;
   // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; fresh: chỉ khách mới (KHACH-MOI-01);
-  // sort: cột xếp; all: đã mở hết danh sách.
+  // sort: cột xếp; all: đã mở hết danh sách; month: tháng đang lọc "yyyy-mm" (KHACH-THANG-01), monthData: số từng tháng đã tải.
   const state = { tier: null, risk: null, com: null, fresh: false, sort: 'overdue', all: false, data: null, debt: null, rows: null, ready: false,
-    tiers: [], rk: null, coms: [], names: new Map(), missingOpen: false };
+    tiers: [], rk: null, coms: [], names: new Map(), missingOpen: false, month: null, monthData: new Map(), customers: [] };
+  const currentMonth = () => (state.debt?.as_of ?? state.data?.as_of ?? '').slice(0, 7);
+  const monthBody = () => (state.month ? state.monthData.get(state.month) ?? null : null);
+  const monthIds = () => (monthBody()?.customers ? new Set(monthBody().customers.map(book => book.customer_id)) : null);
   const nameOf = id => state.names.get(String(id)) ?? state.rows?.find(row => row.id === id)?.name ?? `Sổ ${id}`;
   const comOf = key => state.coms.find(item => item.key === key) ?? null;
   const tierValue = i => state.debt.due_tiers.find(item => item.tier === M.TIERS[i])?.receivable_vnd ?? '0';
@@ -69,11 +83,11 @@
   }
 
   // Lọc chéo (DASH-08): bộ lọc hiện tại và tên của nó cho nhãn "đang lọc" trên các khối.
-  const filter = () => ({ tier: state.tier, risk: state.risk, com: state.com, fresh: state.fresh });
-  const anyFilter = () => state.tier != null || state.risk != null || state.com != null || state.fresh;
+  const filter = () => ({ tier: state.tier, risk: state.risk, com: state.com, fresh: state.fresh, month: monthIds() });
+  const anyFilter = () => state.tier != null || state.risk != null || state.com != null || state.fresh || state.month != null;
   const FRESH = 'Khách mới';
-  const scopeName = skip => [skip !== 'com' && state.com, skip !== 'risk' && state.risk && M.RISK[state.risk], skip !== 'fresh' && state.fresh && FRESH,
-    skip !== 'tier' && state.tier != null && state.tiers[state.tier].label].filter(Boolean).join(' · ');
+  const scopeName = skip => [skip !== 'month' && state.month && monthTag(state.month), skip !== 'com' && state.com, skip !== 'risk' && state.risk && M.RISK[state.risk],
+    skip !== 'fresh' && state.fresh && FRESH, skip !== 'tier' && state.tier != null && state.tiers[state.tier].label].filter(Boolean).join(' · ');
   const scopeTag = (skip, tip) => {
     const name = state.ready ? scopeName(skip) : '';
     return name ? `<span class="scope-tag" tabindex="0"${tipAttr([`Đang lọc: ${name}`, tip])}>${esc(name)}</span>` : '';
@@ -82,7 +96,7 @@
   // 1. Dải đầu: Còn phải thu + nút đếm; ngoặc Trong hạn/Quá hạn, thanh 5 đoạn chỉ là hình, số ở 5 ô. Đang lọc mức rủi
   // ro hoặc mặt hàng thì mọi số tính lại cho phạm vi đó; lọc hạn trả chỉ tô ô đang chọn (chiều của chính khối).
   function owePart(data, debt) {
-    const scoped = state.ready && (state.risk != null || state.com != null || state.fresh);
+    const scoped = state.ready && (state.risk != null || state.com != null || state.fresh || filter().month != null);
     const sc = scoped ? M.totals(M.scope(state.rows, filter(), 'tier')) : null;
     const total = scoped ? sc.total : data.receivable.total_vnd;
     const people = scoped ? sc.count : data.receivable.customers;
@@ -128,23 +142,39 @@
       + '</ul></div>';
   }
 
-  // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng.
+  // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng. KHACH-THANG-01: ‹ › chọn
+  // tháng (lọc cả trang); tháng đã qua thì thước không có vạch hôm nay. Số của tháng khác tháng hiện tại lấy từ monthData.
   function monthPart(data, debt) {
-    // Lọc chéo (DASH-08): có số từng sổ (this_month.customers) thì thẻ tính theo cả ba lọc; API cũ chưa có thì thẻ giữ số cả
-    // công ty và ghi rõ "cả công ty" khi đang lọc.
-    const filtered = state.ready && anyFilter();
-    const flow = filtered ? M.monthFlow(debt?.this_month, state.rows, state.coms, filter()) : null;
-    const p = M.monthProgress(debt?.as_of ?? data.as_of, flow ?? debt?.this_month);
+    const now = (debt?.as_of ?? data.as_of).slice(0, 7);
+    const key = state.month ?? now;
+    const body = monthBody();
+    // Sổ đã hết nợ không có trong danh sách nợ: mặt hàng lấy từ danh sách sổ để lọc mặt hàng vẫn khớp (như monthFlow).
+    const info = new Map(state.customers.map(item => [item.id, item]));
+    const source = state.month ? (body?.customers ? { ...body, customers: body.customers.map(book => ({ ...book,
+      commodity: info.get(book.customer_id)?.commodity ?? null, transport_mode: info.get(book.customer_id)?.transport_mode ?? null })) } : null)
+      : debt?.this_month;
+    // Lọc chéo (DASH-08): có số từng sổ thì thẻ tính theo các lọc khác; API cũ chưa có thì thẻ giữ số cả công ty và ghi rõ.
+    const others = state.ready && (state.tier != null || state.risk != null || state.com != null || state.fresh);
+    const flow = others ? M.monthFlow(source, state.rows, state.coms, filter()) : null;
+    const p = M.monthProgress(debt?.as_of ?? data.as_of, flow ?? source, key);
     const only = state.tier != null || state.risk != null || state.fresh ? 'Chỉ tính sổ đang nợ trong phạm vi; sổ đã hết nợ không có nhóm hạn trả hay mức rủi ro' : 'Gồm cả sổ đã hết nợ của mặt hàng này';
-    const whole = !filtered ? '' : flow ? scopeTag(null, only)
+    const whole = !others ? '' : flow ? scopeTag('month', only)
       : `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>`;
-    const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${p.month}${whole}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
-    if (!debt) return `${head}<p class="empty">Chưa tải được số thu tháng này.</p>`;
-    const ratio = p.percent ? `Đã thu ${p.percent} phát sinh tháng ${p.month}` : `Tháng ${p.month} chưa phát sinh`;
+    const name = key.slice(0, 4) === now.slice(0, 4) ? String(p.month) : `${p.month}/${key.slice(0, 4)}`;
+    const nav = (by, label, icon, stop) => `<button type="button" class="m-step" data-mnav="${by}" aria-label="${label}"${stop || !state.ready ? ' disabled' : ''}${tipAttr([label, 'Lọc cả trang theo tháng'])}>${icon}</button>`;
+    const head = `<div class="m-head">${nav(-1, 'Tháng trước', ICON.prev, false)}<h2 id="h-month">Thu tháng ${name}${whole}</h2>${nav(1, 'Tháng sau', ICON.next, key >= now)}`
+      + `<a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
+    if (state.month && !body) return `${head}<p class="empty">Đang tải số tháng ${esc(monthTag(key))}…</p>`;
+    if (state.month && body.error) return `${head}<p class="empty">${esc(body.error)} <button type="button" class="btn" data-month-retry>Thử lại</button></p>`;
+    if (!debt && !state.month) return `${head}<p class="empty">Chưa tải được số thu tháng này.</p>`;
+    const ratio = p.percent ? `Đã thu ${p.percent} phát sinh tháng ${name}` : `Tháng ${name} chưa phát sinh`;
+    const today = p.past ? '' : `<div class="today" style="left:${p.dayPct}%"></div>`;
+    const left = p.past ? `<span class="left">${ICON.calendar}cả tháng ${esc(monthTag(key))}</span>`
+      : `<span class="left" tabindex="0"${tipAttr([`Tới cuối tháng ${p.days}/${p.month}`])}>${ICON.clock}${p.left ? `còn ${p.left} ngày` : 'ngày cuối tháng'}</span>`;
     return `${head}<div class="m-nums"><span class="got"><b tabindex="0"${tipAttr(['Đã thu', F.full(p.received)])}>${esc(short(p.received))}</b><small>đã thu</small></span>
-        <span class="chg"><b tabindex="0"${tipAttr(['Phát sinh tháng này', F.full(p.charges)])}>${esc(short(p.charges))}</b><small>phát sinh</small></span></div>
-      <div class="meter" role="img" tabindex="0" aria-label="${esc(`${ratio}; hôm nay ${p.day}/${p.month}`)}"${tipAttr([ratio, `Vạch đen: hôm nay ${p.day}/${p.month}`])}><div class="fill" style="width:${p.fill}%"></div><div class="today" style="left:${p.dayPct}%"></div></div>
-      <span class="left" tabindex="0"${tipAttr([`Tới cuối tháng ${p.days}/${p.month}`])}>${ICON.clock}${p.left ? `còn ${p.left} ngày` : 'ngày cuối tháng'}</span>`;
+        <span class="chg"><b tabindex="0"${tipAttr([`Phát sinh tháng ${name}`, F.full(p.charges)])}>${esc(short(p.charges))}</b><small>phát sinh</small></span></div>
+      <div class="meter" role="img" tabindex="0" aria-label="${esc(p.past ? ratio : `${ratio}; hôm nay ${p.day}/${p.month}`)}"${tipAttr([ratio, p.past ? '' : `Vạch đen: hôm nay ${p.day}/${p.month}`])}><div class="fill" style="width:${p.fill}%"></div>${today}</div>
+      ${left}`;
   }
 
   // 2. Công nợ theo mặt hàng (DASH-07): mỗi mặt hàng một dòng, chia hai cột; thanh dài theo còn phải thu (cùng thang =
@@ -186,18 +216,29 @@
   // 3. Bảng khách: hàng chip mức rủi ro, tiền rút gọn như dải đầu, ô ngày là viên màu theo ngưỡng.
   function listPart() {
     const rule = state.debt?.rule;
-    const th = (sort, label, unit, icon, tip) => `<th scope="col" class="r"${sort ? ` data-col="${sort}"` : ''}><button type="button" data-sort="${sort}"${tipAttr(tip)}>${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span> ${unit ? `<small>${unit}</small>` : ''}</button></th>`;
-    const head = rule ? `<thead><tr><th scope="col">Khách</th><th scope="col" class="bar-h">Theo hạn trả</th>
-        ${th('overdue', 'Quá hạn', '', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', '', null, ['Bấm để xếp'])}
-        ${th('pay', 'Trả', 'ngày', ICON.cash, ['Số ngày từ lần khách trả gần nhất', `Đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
-        ${th('trip', 'Đi hàng', 'ngày', ICON.truck, ['Số ngày từ chuyến gần nhất', `Đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
-        <th scope="col" class="go"><span class="sr-only">Mở</span></th></tr></thead>` : '';
+    const head = rule ? '<thead></thead>' : '';
     return `<section class="debtors" aria-labelledby="h-list"><div class="list-head"><h2 id="h-list">Khách cần đòi trước</h2>
         <a class="btn icon-btn" href="${matrixHref()}" aria-label="Mở Công nợ theo tháng"${tipAttr(['Công nợ theo tháng', 'Soi nợ từng khách theo tháng'])}>${ICON.calendar}</a></div>
       <div class="risk-chips" id="chips" role="group" aria-label="Lọc theo mức rủi ro"></div>
       <p class="note" id="list-note" role="note" hidden></p>
       <div class="tbl-wrap"><table class="dtable">${head}<tbody id="list"></tbody></table></div>
       <p class="empty" id="list-empty" hidden></p><div class="more" id="list-more"></div></section>`;
+  }
+
+  // Tiêu đề bảng khách; đang lọc tháng thì thanh Theo hạn trả nhường chỗ cho Phát sinh · Đã thu · Còn nợ của tháng.
+  function headHtml(rule) {
+    const th = (sort, label, unit, icon, tip, cls = '') => `<th scope="col" class="r${cls}"${sort ? ` data-col="${sort}"` : ''}><button type="button" data-sort="${sort}"${tipAttr(tip)}>${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span> ${unit ? `<small>${unit}</small>` : ''}</button></th>`;
+    const tag = state.month ? monthTag(state.month) : '';
+    const month = state.month
+      ? `${th('charges', 'Phát sinh', tag, null, [`Phát sinh tháng ${tag}`, 'Chuyến, phụ phí, điều chỉnh của tháng (như dòng Tổng tháng của sổ) · bấm để xếp'])}`
+        + `<th scope="col" class="r m-rec"><span tabindex="0"${tipAttr([`Đã thu tháng ${tag}`, 'Tiền khách trả trong tháng, theo ngày tiền về'])}>Đã thu</span></th>`
+        + `<th scope="col" class="r m-own"><span tabindex="0"${tipAttr([`Còn nợ của tháng ${tag}`, 'Phần phát sinh của tháng chưa được trả (như ô Công nợ theo tháng)'])}>Còn nợ ${tag}</span></th>`
+      : '<th scope="col" class="bar-h">Theo hạn trả</th>';
+    return `<tr><th scope="col">Khách</th>${month}
+        ${th('overdue', 'Quá hạn', '', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', '', null, ['Bấm để xếp'])}
+        ${th('pay', 'Trả', 'ngày', ICON.cash, ['Số ngày từ lần khách trả gần nhất', `Đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
+        ${th('trip', 'Đi hàng', 'ngày', ICON.truck, ['Số ngày từ chuyến gần nhất', `Đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
+        <th scope="col" class="go"><span class="sr-only">Mở</span></th></tr>`;
   }
 
   function paintChips() {
@@ -221,6 +262,9 @@
     // Đang lọc mặt hàng (bấm dòng ở khối Công nợ theo mặt hàng hoặc link ?mh=): chip bỏ lọc cùng hàng, như chip hạn trả.
     const com = state.com == null ? '' : `<button type="button" class="rchip tier-x com-x" data-clear="com" aria-label="Bỏ lọc mặt hàng ${esc(state.com)}"${tipAttr([`Đang lọc mặt hàng: ${state.com}`, 'Bấm để bỏ lọc'])}>
         ${esc(state.com)}${ICON.close}</button>`;
+    // KHACH-THANG-01: chip bỏ lọc tháng, cùng hàng với chip hạn trả, mặt hàng.
+    const month = state.month == null ? '' : `<button type="button" class="rchip tier-x month-x" data-clear="month" aria-label="Bỏ lọc tháng ${esc(monthTag(state.month))}"${tipAttr([`Đang lọc tháng: ${monthTag(state.month)}`, 'Sổ có phát sinh, tiền thu hoặc còn nợ của tháng này', 'Bấm để bỏ lọc'])}>
+        ${ICON.calendar}${esc(monthTag(state.month))}${ICON.close}</button>`;
     // KHACH-MOI-01: ô "Khách mới" là một chiều lọc như mức rủi ro: mọi sổ mới đang nợ, kèm số sổ cần để ý (19/11/2026 người
     // dùng chọn "Thêm lọc" thay cho ô chỉ có sổ cần để ý). API cũ (chưa có mốc new_*) thì không hiện.
     const rule = state.debt.rule;
@@ -233,7 +277,7 @@
       'Chỉ để ý thu sớm, không đổi mức rủi ro', 'Bấm để lọc bảng'])}>
         <i class="rdot" aria-hidden="true"></i><span class="rl">${FRESH}</span><span class="n">${ICON.people}${freshCount}<span class="sr-only"> khách</span></span>${watchCount
           ? `<span class="watch">${watchCount} cần để ý</span>` : ''}</button>`;
-    node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${groups.map(chip).join('')}${fresh}${tier}${com}`;
+    node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${groups.map(chip).join('')}${fresh}${month}${tier}${com}`;
   }
 
   function paintList() {
@@ -248,24 +292,45 @@
       empty.textContent = 'Chưa tải được danh sách khách. Bấm Làm mới để thử lại.';
       return;
     }
+    const head = document.querySelector('#dashboard .dtable thead');
+    if (head) head.innerHTML = headHtml(rule);
     $('col-first').textContent = state.tier != null ? 'Nhóm này' : 'Quá hạn';
     document.querySelectorAll('.dtable th[data-col]').forEach(cell => {
       if (cell.dataset.col === state.sort) cell.setAttribute('aria-sort', 'descending'); else cell.removeAttribute('aria-sort');
     });
-    const rows = M.filterRows(state.rows, { ...filter(), sort: state.sort });
+    const body = monthBody();
+    if (state.month && !body?.customers) {
+      $('list').innerHTML = '';
+      $('list-more').innerHTML = '';
+      empty.hidden = false;
+      empty.textContent = body?.error ?? `Đang tải khách của tháng ${monthTag(state.month)}…`;
+      return;
+    }
+    // Lọc tháng: dòng mang số của tháng, thêm sổ đã hết nợ có số trong tháng (KHACH-THANG-01).
+    const source = state.month ? M.monthRows(state.rows, body.customers, state.customers, state.coms) : state.rows;
+    const rows = M.filterRows(source, { ...filter(), sort: state.sort });
     const shown = state.all ? rows : rows.slice(0, PAGE_ROWS);
     const max = shown.reduce((top, item) => (item.row.total > top ? item.row.total : top), 0n);
-    const day = (days, limit) => { const cell = M.dayCell(days, limit, rule.active_trip_days); return `<span class="days${cell.tone ? ` ${cell.tone}` : ''}">${esc(cell.text)}</span>`; };
+    const day = (days, limit, paid) => {
+      if (paid) return '<span class="days zero">–</span>';
+      const cell = M.dayCell(days, limit, rule.active_trip_days);
+      return `<span class="days${cell.tone ? ` ${cell.tone}` : ''}">${esc(cell.text)}</span>`;
+    };
     const late = state.tier == null || state.tier >= 2;
+    const money = (value, cls, tip) => (value === 0n ? `<td class="num zero${cls}">–</td>` : `<td class="num${cls}"${tipAttr([tip, F.full(value)])}>${esc(short(value))}</td>`);
+    const href = id => (state.month ? `${ledgerHref(id)}&month=${state.month}` : pageHref(id));
     // KHACH-MOI-01: nhãn "Mới" sau tên, xanh dương; nền đặc khi cần để ý. Câu dữ kiện nằm trong chú thích của dòng.
     const freshTag = row => (row.fresh ? ` <span class="new-tag${row.fresh.flag ? ' warn' : ''}"><span class="sr-only">, khách mới: ${esc(row.fresh.text)}</span><span aria-hidden="true">Mới</span></span>` : '');
-    $('list').innerHTML = shown.map(({ row, first }) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), `${M.RISK[row.risk] ?? ''} — ${row.why}`,
-        row.fresh ? `Mới: ${row.fresh.text}` : '', `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
-        <td class="who"><a href="${pageHref(row.id)}"><i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span><span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
-        <td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>
+    const middle = row => (state.month
+      ? money(row.mon.charges, ' m-chg', 'Phát sinh') + money(row.mon.received, ' m-rec', 'Đã thu') + money(row.mon.outstanding, ' m-own', 'Còn nợ của tháng')
+      : `<td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>`);
+    $('list').innerHTML = shown.map(({ row, first }) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
+        row.fresh ? `Mới: ${row.fresh.text}` : '', row.paid ? '' : `Còn nợ ${F.full(row.total)}`, state.month ? `Bấm để mở sổ tháng ${monthTag(state.month)}` : 'Bấm để mở Tình hình'])}>
+        <td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
+        ${middle(row)}
         <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first === 0n ? '–' : esc(short(first))}</td>
-        <td class="num tot">${esc(short(row.total))}</td>
-        <td class="d">${day(row.payDays, rule.no_pay_days)}</td><td class="d">${day(row.tripDays, rule.no_trip_days)}</td>
+        <td class="num tot${row.total === 0n ? ' zero' : ''}">${row.total === 0n ? '–' : esc(short(row.total))}</td>
+        <td class="d">${day(row.payDays, rule.no_pay_days, row.paid)}</td><td class="d">${day(row.tripDays, rule.no_trip_days, row.paid)}</td>
         <td class="go" aria-hidden="true">${ICON.next}</td></tr>`).join('');
     empty.hidden = shown.length > 0;
     empty.textContent = anyFilter() ? 'Không có khách nào khớp bộ lọc.' : 'Không có khách đang nợ.';
@@ -317,6 +382,7 @@
     set('mh', state.com);
     set('moi', state.fresh ? '1' : null);
     set('xep', Object.keys(SORTS).find(key => SORTS[key] === state.sort) ?? null);
+    set('thang', state.month);
     // Tham số của bản cũ (ô ma trận DASH-04, ngăn kéo, tab cũ) không còn nghĩa.
     for (const key of ['nhom', 'khach', 'xem']) query.delete(key);
     history.replaceState(null, '', location.pathname + (query.toString() ? `?${query}` : ''));
@@ -329,16 +395,49 @@
     // Link cũ của DASH-03 (?nhom=com:<mặt hàng>) vẫn mở đúng lọc mặt hàng.
     state.com = query.get('mh') || (nhom?.startsWith('com:') ? nhom.slice(4) || null : null);
     state.fresh = query.get('moi') === '1';
-    state.sort = SORTS[query.get('xep')] ?? 'overdue';
+    state.month = MONTH.test(query.get('thang') ?? '') ? query.get('thang') : null;
+    state.sort = SORTS[query.get('xep')] ?? (state.month ? 'charges' : 'overdue');
   };
   // Bỏ lọc không còn nghĩa khi số liệu mới không có nhóm đó, hoặc danh sách chưa khớp tổng.
   const dropStale = () => {
     if (!state.ready || state.debt?.rule?.new_days == null) state.fresh = false;
-    if (!state.ready) { state.tier = null; state.risk = null; state.com = null; }
+    if (!state.ready) { state.tier = null; state.risk = null; state.com = null; state.month = null; }
+    if (state.month != null && state.month > currentMonth()) state.month = null;
+    if (state.month == null && state.sort === 'charges') state.sort = 'overdue';
     if (state.com != null && !comOf(state.com)) state.com = null;
   };
 
+  // KHACH-THANG-01: số của một tháng (mọi sổ); lỗi giữ câu tiếng Việt để thẻ và bảng báo, Thử lại tải lại.
+  async function loadMonth(key, { force = false } = {}) {
+    if (!key || (!force && state.monthData.get(key)?.customers)) return;
+    try {
+      const body = await CongNoNet.fetchJson(`/api/v7/month-customers?month=${key}-01`, { what: `khách tháng ${monthTag(key)}` });
+      if (body?.month?.slice(0, 7) !== key || !Array.isArray(body.customers)) throw Error('Dữ liệu khách của tháng không hợp lệ.');
+      state.monthData.set(key, body);
+    } catch (error) {
+      if (!state.monthData.get(key)?.customers) state.monthData.set(key, { error: CongNoNet.messageOf(error, `Không tải được khách tháng ${monthTag(key)}.`) });
+    }
+    if (state.month === key && state.data) paint();
+  }
+  const setMonth = key => {
+    const was = state.month;
+    state.month = key;
+    if (key != null && was == null && state.sort === 'overdue') state.sort = 'charges';
+    if (key == null && state.sort === 'charges') state.sort = 'overdue';
+    state.all = false;
+    writeUrl(); paint(); loadMonth(key);
+  };
+
   root.addEventListener('click', event => {
+    const step = event.target.closest('[data-mnav]');
+    if (step) {
+      if (step.disabled || !state.ready) return;
+      const next = shiftMonth(state.month ?? currentMonth(), Number(step.dataset.mnav));
+      if (next <= currentMonth()) setMonth(next);
+      return;
+    }
+    if (event.target.closest('[data-clear="month"]')) { setMonth(null); return; }
+    if (event.target.closest('[data-month-retry]')) { state.monthData.delete(state.month); paint(); loadMonth(state.month); return; }
     if (event.target.closest('button#missing-price')) {
       state.missingOpen = !state.missingOpen; paint(); root.querySelector('#missing-price')?.focus(); return;
     }
@@ -364,7 +463,7 @@
     if (event.target.closest('[data-more]')) { state.all = true; paintList(); return; }
     // Bấm chỗ khác trên dòng khách cũng mở trang khách như bấm tên.
     const line = event.target.closest('#list tr[data-id]');
-    if (line && !event.target.closest('a')) location.href = pageHref(Number(line.dataset.id));
+    if (line && !event.target.closest('a')) location.href = line.querySelector('td.who a').href;
   });
 
   root.addEventListener('keydown', event => {
@@ -372,7 +471,7 @@
     state.missingOpen = false; paint(); root.querySelector('#missing-price')?.focus();
   });
   globalThis.DataTip.mount('.tq-page');
-  window.addEventListener('popstate', () => { readUrl(); if (state.data) { dropStale(); paint(); } });
+  window.addEventListener('popstate', () => { readUrl(); if (state.data) { dropStale(); paint(); loadMonth(state.month); } });
 
   const json = async url => {
     const response = await fetch(url, { cache: 'no-store' });
@@ -396,7 +495,10 @@
       const [customers, debt] = await Promise.all([
         CongNoNet.customers().then(body => body.customers ?? []).catch(() => []),
         json('/api/v7/dashboard/debt').catch(() => null),
+        // Tháng đang lọc tải lại cùng lượt (máy chủ giữ bản đọc theo dấu dữ liệu), để bảng không nháy về mọi khách.
+        loadMonth(state.month, { force: true }),
       ]);
+      state.customers = customers;
       state.data = data;
       state.debt = debt;
       try {
