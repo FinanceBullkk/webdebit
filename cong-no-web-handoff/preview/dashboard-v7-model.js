@@ -158,14 +158,42 @@ const DashboardModel = (() => {
    * Lọc chéo (DASH-08): khách theo các lọc đang chọn, bỏ chiều `skip` của chính khối đang vẽ ('tier' | 'risk' | 'com' |
    * 'fresh'), để khối vẫn hiện đủ lựa chọn của mình (ô đang chọn chỉ được tô) mà số tính lại theo các lọc còn lại.
    * `fresh` (KHACH-MOI-01, 19/11/2026 người dùng chọn "Thêm lọc") giữ mọi sổ mới, không chỉ sổ cần để ý.
+   * `month` (KHACH-THANG-01, 28/11/2026 người dùng chọn "Tháng lọc cả trang"): tập mã sổ có phát sinh, đã thu hoặc còn nợ
+   * ở tháng đang chọn; null là không lọc tháng (cũng là lúc số của tháng chưa tải xong).
    */
-  function scope(rows, { tier = null, risk = null, com = null, fresh = false } = {}, skip = null) {
+  function scope(rows, { tier = null, risk = null, com = null, fresh = false, month = null } = {}, skip = null) {
     const t = skip === 'tier' ? null : tier;
     const r = skip === 'risk' ? null : risk;
     const c = skip === 'com' ? null : com;
     const n = skip === 'fresh' ? false : fresh;
+    const m = skip === 'month' ? null : month;
     return rows.filter(row => (t == null || row.tiers[t] > 0n) && (r == null || row.risk === r) && (c == null || row.com === c)
-      && (!n || isNew(row)));
+      && (!n || isNew(row)) && (m == null || m.has(row.id)));
+  }
+
+  /**
+   * Khách theo tháng (KHACH-THANG-01): số của tháng đang chọn gắn vào từng dòng (`mon`: phát sinh, đã thu, còn nợ của tháng,
+   * BigInt), cộng dòng cho sổ có số trong tháng mà nay đã hết nợ (không có trong `rows`): còn nợ 0, không nhóm hạn trả, không
+   * mức rủi ro, nên lọc hạn trả / mức rủi ro / khách mới tự bỏ các sổ này; lọc mặt hàng vẫn khớp (mặt hàng lấy từ danh sách
+   * sổ, mặt hàng không có trong `coms` gộp "Khác" như monthFlow). `books`: dòng của GET /api/v7/month-customers;
+   * `customers`: GET /api/v7/customers (tên, mặt hàng, biển/bộ).
+   */
+  function monthRows(rows, books, customers, coms) {
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const info = new Map((customers ?? []).map(item => [item.id, item]));
+    const keys = new Set(coms.map(item => item.key));
+    const zero = TIERS.map(() => 0n);
+    return books.map(book => {
+      const mon = { charges: F.toBig(book.charges_vnd), received: F.toBig(book.received_vnd), outstanding: F.toBig(book.outstanding_vnd) };
+      const row = byId.get(book.customer_id);
+      if (row) return { ...row, mon };
+      const item = info.get(book.customer_id) ?? {};
+      const key = commodityKey(item.commodity ?? null, item.transport_mode ?? null);
+      return { id: book.customer_id, name: item.name ?? `Sổ ${book.customer_id}`, commodity: item.commodity ?? null, transportMode: item.transport_mode ?? null,
+        total: 0n, tiers: zero, overdue: 0n, longOverdue: 0n, oldest: null, risk: null, payDate: null, payExact: null, payDays: null,
+        tripDate: null, tripExact: null, tripDays: null, fresh: null, lateMonth: null, why: 'Không còn nợ', paid: true,
+        com: key === UNSORTED || (keys.has(key) && key !== OTHER) ? key : OTHER, mon };
+    });
   }
 
   /** Dải đầu của một phạm vi khách: còn phải thu, 5 nhóm hạn trả, quá hạn (kể phần âm như server), khách dư ở nợ cũ. */
@@ -208,7 +236,7 @@ const DashboardModel = (() => {
    * trong phạm vi. Lọc hạn trả / mức rủi ro chỉ khớp sổ đang nợ (sổ hết nợ không có nhóm); lọc mặt hàng khớp cả sổ hết nợ,
    * mặt hàng không có trong `coms` gộp "Khác". API chưa có `customers` hoặc không lọc gì thì trả null (dùng tổng của server).
    */
-  function monthFlow(thisMonth, rows, coms, { tier = null, risk = null, com = null, fresh = false } = {}) {
+  function monthFlow(thisMonth, rows, coms, { tier = null, risk = null, com = null, fresh = false } = {}) {   // lọc tháng: thisMonth là số của tháng đó
     if (!Array.isArray(thisMonth?.customers) || (tier == null && risk == null && com == null && !fresh)) return null;
     const byId = new Map(rows.map(row => [row.id, row]));
     const keys = new Set(coms.map(item => item.key));
@@ -231,7 +259,12 @@ const DashboardModel = (() => {
    * Thước đo tháng: đã thu so với phát sinh tháng này, hôm nay là ngày mấy và còn mấy ngày tới cuối tháng (theo `as_of`,
    * giờ VN). Phát sinh 0 thì không có tỉ lệ (`percent` null, `fill` 0); thu vượt phát sinh thì thước đầy, % vẫn đúng.
    */
-  function monthProgress(asOf, thisMonth) {
+  function monthProgress(asOf, thisMonth, month = null) {
+    // KHACH-THANG-01: tháng đã qua thì xem như ngày cuối tháng (thước không có vạch hôm nay, không đếm ngày còn lại).
+    if (month && month < asOf.slice(0, 7)) {
+      const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+      return { ...monthProgress(`${month}-${String(last).padStart(2, '0')}`, thisMonth), past: true };
+    }
     const day = Number(asOf.slice(8, 10));
     const days = new Date(Date.UTC(Number(asOf.slice(0, 4)), Number(asOf.slice(5, 7)), 0)).getUTCDate();
     const charges = F.toBig(thisMonth?.charges_vnd ?? '0');
@@ -251,18 +284,21 @@ const DashboardModel = (() => {
    * `com` là mặt hàng, `fresh` là khách mới (sổ cần để ý lên đầu, rồi mới xếp theo cột). Xếp theo cột tiền đầu (mặc định), `total` còn nợ, `pay`/`trip` số ngày giảm dần với null
    * (chưa trả / chưa có chuyến) coi là lâu nhất.
    */
-  function filterRows(rows, { tier = null, risk = null, com = null, fresh = false, sort = 'overdue' } = {}) {
+  function filterRows(rows, { tier = null, risk = null, com = null, fresh = false, month = null, sort = 'overdue' } = {}) {
     const days = value => (value == null ? Infinity : value);
     const byDays = (field, a, b) => compare(days(a.row[field]), days(b.row[field]));
-    return scope(rows, { tier, risk, com, fresh })
+    // KHACH-THANG-01: xếp theo phát sinh của tháng đang chọn (dòng từ monthRows có `mon`).
+    const charges = item => item.row.mon?.charges ?? 0n;
+    return scope(rows, { tier, risk, com, fresh, month })
       .map(row => ({ row, first: tier == null ? row.overdue : row.tiers[tier] }))
-      .sort((a, b) => (fresh ? watchNew(b.row) - watchNew(a.row) : 0) || (sort === 'total' ? compare(a.row.total, b.row.total) || compare(a.first, b.first)
+      .sort((a, b) => (fresh ? watchNew(b.row) - watchNew(a.row) : 0) || (sort === 'charges' ? compare(charges(a), charges(b)) || compare(a.row.total, b.row.total)
+        : sort === 'total' ? compare(a.row.total, b.row.total) || compare(a.first, b.first)
         : sort === 'pay' ? byDays('payDays', a, b) || compare(a.first, b.first)
           : sort === 'trip' ? byDays('tripDays', a, b) || compare(a.first, b.first)
             : compare(a.first, b.first) || compare(a.row.total, b.row.total)) || a.row.name.localeCompare(b.row.name, 'vi'));
   }
 
   return { UNSORTED, OTHER, TIERS, RISK, RISKS, commodityKey, monthName, tierLabels, tierOfMonth, reason, ago,
-    debtors, totalsMatch, risks, riskMatches, commodities, isNew, watchNew, scope, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
+    debtors, totalsMatch, risks, riskMatches, commodities, isNew, watchNew, scope, monthRows, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;

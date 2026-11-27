@@ -1,13 +1,13 @@
 # Tìm số cont và khách theo tháng
 
-Trạng thái: ĐÃ CHỐT (người dùng, 28/11/2026: tìm cont ở ô Tìm khách của menu; Tổng quan xem theo tháng là tiền theo khách, khối riêng cuối trang). Quyết định: [`TIM-CONT-01`](../docs/decisions/tim-cont-01.md), [`KHACH-THANG-01`](../docs/decisions/khach-thang-01.md).
+Trạng thái: ĐÃ CHỐT (người dùng, 28/11/2026: tìm cont ở ô Tìm khách của menu; Tổng quan xem theo tháng là tiền theo khách, tháng là một lọc của cả trang). Quyết định: [`TIM-CONT-01`](../docs/decisions/tim-cont-01.md), [`KHACH-THANG-01`](../docs/decisions/khach-thang-01.md).
 
 ## Người dùng và luồng
 
 Người nhập và quản lý (mọi login, `QUYEN-01`), trên máy tính 1280×720 và điện thoại.
 
 1. **Tìm theo số cont.** Khách gọi hỏi một cont; người dùng gõ số cont (đủ hoặc vài số cuối, có hay không khoảng trắng) vào ô Tìm khách ở menu trái, hoặc hộp đổi khách của Sổ khách. Dưới các khách khớp tên có khối "Số cont": mỗi chuyến một dòng "SỐ CONT · sổ · ngày" (thêm "chờ kiểm" / "sổ gốc"; rê chuột thấy nơi đi → nơi đến). Bấm dòng mở Sổ khách đúng tháng nợ, dòng chuyến có số cont đó được tô vàng, thanh việc có "Đến dòng tiếp" và nút bỏ đánh dấu.
-2. **Tháng đó có những khách nào.** Cuối Tổng quan có khối "Khách theo tháng": ‹ Tháng M/YYYY ›, một dòng tổng (số khách · phát sinh · đã thu · còn nợ), bảng khách với Phát sinh, Đã thu, Còn nợ của tháng; 10 dòng đầu và nút "Hiện cả N khách". Bấm dòng mở Sổ khách tháng đó. `?thang=yyyy-mm` giữ tháng khi gửi link hay tải lại.
+2. **Tháng đó có những khách nào.** Trên thẻ Thu tháng của Tổng quan bấm ‹ (tháng trước) hay › (tháng sau): tháng thành một lọc của cả trang (người dùng chọn 28/11/2026 thay khối riêng cuối trang). Thẻ ra đã thu / phát sinh của tháng; dải Còn phải thu, khối mặt hàng chỉ tính sổ có số trong tháng; bảng khách còn các sổ đó (cả sổ đã hết nợ) với Phát sinh · Đã thu · Còn nợ của tháng, xếp phát sinh nhiều trước; lọc mức rủi ro, mặt hàng, khách mới chồng lên; chip "T10/2026 ×" để bỏ. Bấm dòng mở Sổ khách tháng đó. `?thang=yyyy-mm` giữ lọc khi gửi link hay tải lại.
 
 Bị chặn: chuỗi tìm ngắn hơn 4 hoặc dài hơn 20 ký tự (bỏ khoảng trắng) hay không có chữ số thì không hỏi máy chủ; không sang tháng sau tháng hiện tại.
 
@@ -38,5 +38,5 @@ Thử trên bản sao `webdebit_v7` (28/11/2026, chỉ đọc, đã xóa DB th�
 
 - [x] Harness `TIM-CONT.01` (`tools/test_pg_v7_backend_tim_cont.py`): tìm qua sổ, chuẩn hóa chuỗi, dòng sổ gốc, nguyên số trước, sửa số cont, chuyến xóa bị bỏ, chuỗi sai bị chặn; khách theo tháng bằng `this_month` và ma trận; đọc không đổi version.
 - [x] Unittest route (`tests/test_v7_tim_cont_khach_thang.py`), đồng bộ file chuẩn (`tests/test_v7_fee_sql_sync.py`), quyền (`tools/test_pg_v7_grants.py`).
-- [x] Trình duyệt: Tổng quan (khối tháng, đổi tháng, ?thang=, hơn 10 khách, lỗi + Thử lại, 390px không cuộn ngang; ô tìm cont, phím ↓), Sổ khách (`?cont=` tô chuyến web và dòng sổ gốc, không còn khớp, hộp đổi khách).
+- [x] Trình duyệt: Tổng quan (‹ › lọc cả trang, cột tháng, sổ hết nợ, lọc chồng mức rủi ro, chip bỏ lọc, ?thang=, lỗi + Thử lại, 390px không cuộn ngang; ô tìm cont, phím ↓), Sổ khách (`?cont=` tô chuyến web và dòng sổ gốc, không còn khớp, hộp đổi khách).
 - [ ] Người dùng tự đi hết hai luồng trên `hao`.

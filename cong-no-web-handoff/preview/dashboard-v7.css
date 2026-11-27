@@ -253,14 +253,14 @@ button.pill{font:inherit;font-weight:700}
 .dtable .go{color:var(--ink-l);padding-right:0}
 .tq .debtors #list-empty{margin:16px 6px}
 .tq .debtors .more:not(:empty){display:flex;justify-content:center;padding-top:10px}
-/* KHACH-THANG-01: khối Khách theo tháng ở cuối trang, ngoài #dashboard; dùng lại khung và bảng của Khách cần đòi trước. */
-#khach-thang{max-width:1204px;padding:16px 28px 0}
-.kt-nav{display:flex;align-items:center;gap:8px;margin-left:auto}
-.kt-nav b{min-width:128px;text-align:center;font-size:15px}
-.kt-nav .icon-btn:disabled{color:var(--ink-l);cursor:default}
-.kt-sum{margin:6px 0 0;color:var(--ink-m);font-size:14px}
-.kt-sum b{color:var(--ink-1)}
-.kt-table{min-width:560px}
+/* KHACH-THANG-01: ‹ › chọn tháng trên thẻ Thu tháng (lọc cả trang); sổ đã hết nợ trong bảng tháng: chấm xám, số ngày "–". */
+.tq .m-head{justify-content:flex-start;align-items:center;gap:6px}
+.tq .m-head .m-link{margin-left:auto}
+.tq .m-step{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--accent-ink);cursor:pointer}
+.tq .m-step svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
+.tq .m-step:disabled{color:var(--ink-3);cursor:default}
+.rdot.none{background:var(--line)}
+.days.zero{color:var(--ink-3)}
 .tq .tip{max-width:300px;background:#16324f}
 .tq .tip b{font-size:14px}
 @media (max-width:700px){
@@ -283,8 +283,7 @@ button.pill{font:inherit;font-weight:700}
   .com-th span:nth-child(2),.com-line .cbar,.com-head .legend{display:none}
   .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
-  #khach-thang{padding:12px 12px 0}
-  .kt-table{min-width:0}
+  .dtable .m-rec{display:none}
   /* Điện thoại (DIEN-THOAI-SEP-01): bảng khách chỉ còn Khách · Quá hạn · Còn nợ, vừa màn, không cuộn ngang. Thanh hạn trả
      chỉ có số khi rê chuột nên bỏ; hai cột ngày Trả, Đi hàng bỏ vì chấm màu trước tên đã gộp mức rủi ro. */
   .dtable{min-width:0}

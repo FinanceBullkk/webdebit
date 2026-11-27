@@ -236,3 +236,39 @@ test('lọc khách mới (KHACH-MOI-01): scope/filterRows/monthFlow giữ mọi 
   const flow = M.monthFlow(fresh.this_month, rows, M.commodities(rows), { fresh: true });
   assert.deepEqual([flow.charges_vnd, flow.received_vnd, flow.books], [12n, 2n, 2]);
 });
+
+// KHACH-THANG-01 (28/11/2026): tháng là một chiều lọc như hạn trả, mức rủi ro, mặt hàng.
+test('scope lọc theo tập sổ của tháng; skip month bỏ chiều đó; null là không lọc tháng', () => {
+  const rows = M.debtors(debt);
+  const month = new Set([2, 4, 9]);
+  assert.deepEqual(M.scope(rows, { month }).map(r => r.id), [2, 4]);
+  assert.deepEqual(M.scope(rows, { month, risk: 'high' }).map(r => r.id), [2]);
+  assert.deepEqual(M.scope(rows, { month }, 'month').map(r => r.id), [1, 2, 3, 4]);
+  assert.deepEqual(M.scope(rows, { month: null }).map(r => r.id), [1, 2, 3, 4]);
+});
+
+test('monthRows gắn số của tháng; sổ đã hết nợ có dòng còn nợ 0, không mức rủi ro, mặt hàng lấy từ danh sách sổ', () => {
+  const rows = M.debtors(debt);
+  const coms = M.commodities(rows);
+  const books = [{ customer_id: 2, charges_vnd: '50', received_vnd: '0', outstanding_vnd: '50' },
+    { customer_id: 9, charges_vnd: '70', received_vnd: '70', outstanding_vnd: '0' },
+    { customer_id: 8, charges_vnd: '10', received_vnd: '0', outstanding_vnd: '0' }];
+  const list = [{ id: 9, name: 'Khách P', commodity: 'Chuối' }, { id: 8, name: 'Khách Q', commodity: 'Dừa' }];
+  const out = M.monthRows(rows, books, list, coms);
+  assert.deepEqual(out.map(r => [r.id, r.mon.charges, r.mon.received, r.mon.outstanding, r.total, r.risk, r.com, Boolean(r.paid)]), [
+    [2, 50n, 0n, 50n, 400n, 'high', 'Chuối', false],
+    [9, 70n, 70n, 0n, 0n, null, 'Chuối', true],
+    [8, 10n, 0n, 0n, 0n, null, M.OTHER, true]]);
+  // Lọc mặt hàng vẫn khớp sổ đã hết nợ; lọc mức rủi ro hay hạn trả bỏ chúng.
+  const ids = new Set(books.map(b => b.customer_id));
+  assert.deepEqual(M.filterRows(out, { month: ids, com: 'Chuối', sort: 'charges' }).map(x => x.row.id), [9, 2]);
+  assert.deepEqual(M.filterRows(out, { month: ids, risk: 'high' }).map(x => x.row.id), [2]);
+  assert.deepEqual(M.filterRows(out, { month: ids, tier: 3 }).map(x => x.row.id), [2]);
+});
+
+test('monthProgress của tháng đã qua: xem như ngày cuối tháng, cờ past; tháng hiện tại giữ như cũ', () => {
+  const past = M.monthProgress('2026-10-29', { charges_vnd: '100', received_vnd: '40' }, '2026-02');
+  assert.deepEqual([past.past, past.month, past.day, past.days, past.left, past.percent], [true, 2, 28, 28, 0, F.percent(40n, 100n)]);
+  const now = M.monthProgress('2026-10-29', { charges_vnd: '100', received_vnd: '40' }, '2026-10');
+  assert.deepEqual([now.past, now.day, now.left], [undefined, 29, 2]);
+});

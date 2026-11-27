@@ -7,13 +7,18 @@
 Tổng quan xem được **theo tháng**: chọn một tháng thì thấy tháng đó có những khách nào và tiền của từng khách. Người dùng chốt 28/11/2026 (chọn qua câu hỏi trong phiên):
 
 1. Nội dung là **tiền theo khách**: phát sinh, đã thu, còn nợ của tháng (không thêm số cont; số cont theo tháng đã có ở [Báo cáo tháng](bao-cao-thang-01.md)).
-2. Bố cục: **khối riêng cuối trang** "Khách theo tháng", có ‹ › đổi tháng, một dòng tổng, bảng khách. Phần đầu Tổng quan giữ nguyên. Phương án gắn bộ chọn tháng vào thẻ Thu tháng không chọn.
+2. **Tháng là một bộ lọc của cả trang**, như hạn trả, mức rủi ro, mặt hàng, khách mới (người dùng chọn cùng ngày, thay bố cục khối riêng cuối trang đã làm trước đó: "để riêng ở dưới không hợp lý, mình muốn nó hoạt động qua bộ lọc"). Nút ‹ › nằm trên thẻ Thu tháng; chọn tháng thì:
+   - thẻ Thu tháng ra đã thu / phát sinh của tháng đó;
+   - dải Còn phải thu và khối Công nợ theo mặt hàng chỉ tính sổ có số trong tháng đó;
+   - bảng khách chỉ còn các sổ đó, cột thanh Theo hạn trả đổi thành Phát sinh · Đã thu · Còn nợ của tháng;
+   - các lọc khác lọc chồng lên; chip "T10/2026 ×" ở hàng chip để bỏ.
 
 Claude chọn phần cách làm (ĐỀ XUẤT, trong phạm vi trên):
 
-- Mỗi sổ đang hoạt động có phát sinh, đã thu hoặc còn nợ khác 0 ở tháng đó. Phát sinh và đã thu tính như dòng Tổng tháng của Sổ khách ([`DA-THU-01`](da-thu-01.md)), cùng phép với thẻ Thu tháng; còn nợ là phần phát sinh của tháng chưa được trả, như ô của Công nợ theo tháng.
-- Mặc định tháng hiện tại (giờ VN); không sang tháng sau; `?thang=yyyy-mm` giữ tháng trên địa chỉ.
-- Xếp phát sinh nhiều trước; 10 dòng đầu và nút "Hiện cả N khách"; số 0 hiện "–"; bấm dòng mở Sổ khách tháng đó.
+- Sổ "có số trong tháng" là sổ đang hoạt động có phát sinh, đã thu hoặc còn nợ khác 0 ở tháng đó. Phát sinh và đã thu tính như dòng Tổng tháng của Sổ khách ([`DA-THU-01`](da-thu-01.md)), cùng phép với thẻ Thu tháng; còn nợ của tháng là phần phát sinh của tháng chưa được trả, như ô của Công nợ theo tháng.
+- Bảng khách có cả sổ đã hết nợ có số trong tháng (chấm xám, các cột nợ "–"); lọc mức rủi ro, hạn trả, khách mới bỏ các sổ này, lọc mặt hàng vẫn khớp (mặt hàng lấy từ danh sách sổ). Dải Còn phải thu là nợ hiện tại của các sổ đó.
+- Đang lọc tháng thì bảng xếp phát sinh nhiều trước (cột Phát sinh bấm để xếp như các cột khác); bấm dòng mở Sổ khách đúng tháng đó.
+- Mặc định không lọc tháng (thẻ ra tháng hiện tại như cũ); không sang tháng sau tháng hiện tại; `?thang=yyyy-mm` giữ lọc trên địa chỉ. Tháng đã qua thì thước không có vạch hôm nay.
 
 ## Phạm vi
 

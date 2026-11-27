@@ -726,73 +726,82 @@ test('KHACH-MOI-01: API cũ chưa có mốc new_* thì không có ô khách mớ
   assert.equal(await page.locator('#list .new-tag').count(), 0);
 }, '?moi=1'));
 
-// KHACH-THANG-01: tháng hiện tại theo giờ VN của máy chạy test; tháng trước có hai khách giả, 12 khách ở tháng trước nữa.
-const vnMonth = by => {
-  const [y, m] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).format(new Date()).split('-').map(Number);
-  const at = new Date(Date.UTC(y, m - 1 + by, 1));
-  return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
-};
+// KHACH-THANG-01 (tháng lọc cả trang): số dashboard giả ở tháng 10/2026; tháng 9 có Khách C (đang nợ) và sổ 9 đã hết nợ.
 const monthRow = (id, charges, received, outstanding) => ({ customer_id: id, charges_vnd: charges, received_vnd: received, outstanding_vnd: outstanding });
-const monthBody = month => {
-  if (month === `${vnMonth(-1)}-01`) return { month, charges_vnd: '500000000', received_vnd: '300000000', outstanding_vnd: '180000000',
-    customers: [monthRow(2, '320000000', '300000000', '20000000'), monthRow(1, '180000000', '0', '160000000')] };
-  if (month === `${vnMonth(-2)}-01`) return { month, charges_vnd: '120000000', received_vnd: '0', outstanding_vnd: '0',
-    customers: Array.from({ length: 12 }, (_, i) => monthRow(30 + i, '10000000', '0', '0')) };
-  return MONTH_EMPTY(month);
-};
+const monthBody = month => (month === '2026-09-01'
+  ? { month, charges_vnd: '500000000', received_vnd: '480000000', outstanding_vnd: '20000000',
+    customers: [monthRow(2, '320000000', '300000000', '20000000'), monthRow(9, '180000000', '180000000', '0')] }
+  : MONTH_EMPTY(month));
+const monthCustomersList = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C', commodity: 'Chuối' }, { id: 9, name: 'Khách P', commodity: 'Chuối' }];
 
-test('KHACH-THANG-01: Tổng quan có khối Khách theo tháng; ‹ › đổi tháng, ?thang= giữ tháng, bấm dòng mở sổ đúng tháng', async () => {
+test('KHACH-THANG-01: ‹ › trên thẻ Thu tháng lọc cả trang theo tháng; chip bỏ lọc; lọc chồng mức rủi ro; ?thang= giữ tháng', async () => {
   const asked = [];
-  await withDashboard({ monthCustomers: monthBody, asked }, async page => {
-    const block = page.locator('#khach-thang');
-    await block.locator('.empty').filter({ hasText: 'chưa có khách nào' }).waitFor();
-    assert.equal(await block.locator('#kt-month').innerText(), `Tháng ${Number(vnMonth(0).slice(5))}/${vnMonth(0).slice(0, 4)}`);
-    assert.equal(await block.locator('[data-kt="1"]').isDisabled(), true, 'không sang tháng sau tháng hiện tại');
-    assert.ok(asked.includes(`/api/v7/month-customers?month=${vnMonth(0)}-01`), JSON.stringify(asked));
+  await withDashboard({ monthCustomers: monthBody, customers: monthCustomersList, asked }, async page => {
+    const card = page.locator('.month-card');
+    await page.locator('#list tr').first().waitFor();
+    assert.equal(await card.locator('h2').innerText(), 'Thu tháng 10');
+    assert.equal(await card.locator('[data-mnav="1"]').isDisabled(), true, 'không sang tháng sau tháng hiện tại');
+    assert.equal(await page.locator('#khach-thang').count(), 0, 'không còn khối riêng cuối trang');
 
-    await block.locator('[data-kt="-1"]').click();
-    await block.locator('tbody tr').first().waitFor();
-    assert.equal(new URL(page.url()).searchParams.get('thang'), vnMonth(-1));
-    assert.deepEqual(await seen(block.locator('.kt-sum')), ['2 khách · phát sinh 500 triệu · đã thu 300 triệu · còn nợ 180 triệu']);
-    assert.deepEqual(await seen(block.locator('thead th')), ['Khách', 'Phát sinh', 'Đã thu', 'Còn nợ', '']);
-    assert.deepEqual(await seen(block.locator('tbody tr')), ['Khách C 320 triệu 300 triệu 20 triệu', 'Khách A 180 triệu – 160 triệu']);
-    assert.deepEqual(await tipLines(block.locator('tbody tr').first().locator('td.num').first()), ['Phát sinh', '320.000.000 đ']);
-    assert.equal(await block.locator('tbody a').first().getAttribute('href'), `/so-khach-v7-live.html?customer=2&month=${vnMonth(-1)}`);
-    assert.equal(await page.locator('#dashboard .strip').count(), 1, 'phần trên của Tổng quan vẫn còn');
+    await card.locator('[data-mnav="-1"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#list tr').length === 2);
+    assert.ok(asked.includes('/api/v7/month-customers?month=2026-09-01'), JSON.stringify(asked));
+    assert.equal(new URL(page.url()).searchParams.get('thang'), '2026-09');
+    assert.match(await card.locator('h2').innerText(), /^Thu tháng 9/);
+    assert.deepEqual(await seen(card.locator('.m-nums b')), ['480 triệu', '500 triệu']);
+    assert.equal(await card.locator('.today').count(), 0, 'tháng đã qua: không có vạch hôm nay');
+    assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')),
+      ['Khách', 'Phát sinh T9/2026', 'Đã thu', 'Còn nợ T9/2026', 'Quá hạn', 'Còn nợ', 'Trả ngày', 'Đi hàng ngày', '']);
+    // Xếp phát sinh nhiều trước; sổ đã hết nợ vẫn có dòng, các cột nợ "–".
+    assert.deepEqual(await seen(page.locator('#list tr')), ['Khách C 320 triệu 300 triệu 20 triệu 950 triệu 1,25 tỷ 27 3', 'Khách P 180 triệu 180 triệu – – – – –']);
+    assert.equal(await page.locator('#list tr td.who a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2&month=2026-09');
+    // Dải đầu chỉ tính sổ đang nợ có số trong tháng 9 (Khách C); chip bỏ lọc tháng cùng hàng chip.
+    assert.equal(await page.locator('.big-money').innerText(), '1,25 tỷ');
+    assert.equal(await page.locator('#chips [data-clear="month"]').innerText(), 'T9/2026');
+    assert.match(await page.locator('#h-owe').innerText(), /T9\/2026/);
 
-    // Hơn 10 khách: 10 dòng đầu và nút mở hết; sổ chưa có trong danh sách khách ghi "Sổ N".
-    await block.locator('[data-kt="-1"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('#khach-thang tbody tr').length === 10);
-    assert.equal(await block.locator('tbody tr').first().locator('.nm').innerText(), 'Sổ 30');
-    await block.locator('[data-kt-more]').click();
-    assert.equal(await block.locator('tbody tr').count(), 12);
+    // Lọc chồng: Rủi ro cao không có sổ nào của tháng 9; Theo dõi còn Khách C (sổ hết nợ không có mức rủi ro).
+    await page.locator('#chips [data-risk="high"]').click();
+    assert.equal(await page.locator('#list tr').count(), 0);
+    assert.equal(await page.locator('#list-empty').innerText(), 'Không có khách nào khớp bộ lọc.');
+    await page.locator('#chips [data-risk="watch"]').click();
+    assert.deepEqual(await seen(page.locator('#list tr .nm')), ['Khách C']);
+    await page.locator('#chips [data-risk=""]').click();
     assert.equal(await noSideScroll(page), true);
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await noSideScroll(page), true, 'điện thoại không cuộn ngang');
     await page.setViewportSize({ width: 1280, height: 720 });
-
-    // Mở lại trang với ?thang= của tháng trước: thấy ngay tháng đó; bấm chỗ khác trên dòng cũng mở sổ.
-    await page.goto(`${new URL(page.url()).origin}/dashboard-v7.html?thang=${vnMonth(-1)}`);
-    await block.locator('tbody tr').first().waitFor();
     if (process.env.SHOTS_DIR) {
       fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
-      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'tong-quan-khach-theo-thang.png'), fullPage: true });
+      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'tong-quan-loc-thang.png'), fullPage: true });
     }
-    await block.locator('tbody tr').nth(1).locator('td.num').last().click();
-    await page.waitForURL(/so-khach-v7-live\.html\?customer=1&month=/);
+
+    // Bỏ lọc tháng: về bảng nợ như cũ, địa chỉ không còn ?thang=.
+    await page.locator('#chips [data-clear="month"]').click();
+    assert.equal(await page.locator('#list tr').count(), 4);
+    assert.equal(new URL(page.url()).searchParams.get('thang'), null);
+    assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả ngày', 'Đi hàng ngày', '']);
+
+    // Mở link có sẵn ?thang=: lọc ngay tháng đó; bấm chỗ khác trên dòng mở sổ tháng đó.
+    await page.goto(`${new URL(page.url()).origin}/dashboard-v7.html?thang=2026-09`);
+    await page.waitForFunction(() => document.querySelectorAll('#list tr').length === 2);
+    await page.locator('#list tr').nth(1).locator('td.m-chg').click();
+    await page.waitForURL(/so-khach-v7-live\.html\?customer=9&month=2026-09/);
   });
 });
 
-test('KHACH-THANG-01: lỗi tải khách của tháng thì báo câu tiếng Việt, Thử lại tải lại; phần trên không đổi', async () => {
+test('KHACH-THANG-01: lỗi tải số của tháng thì thẻ và bảng báo câu tiếng Việt, Thử lại tải lại', async () => {
   let fail = true;
-  await withDashboard({ monthCustomers: month => (fail ? 'drop' : monthBody(month)) }, async page => {
-    const block = page.locator('#khach-thang');
-    await block.locator('[data-kt-retry]').waitFor();
-    assert.doesNotMatch(await block.innerText(), /fetch|Failed/i);
-    assert.equal(await page.locator('#error').isHidden(), true);
+  await withDashboard({ monthCustomers: month => (fail ? 'drop' : monthBody(month)), customers: monthCustomersList }, async page => {
+    await page.locator('#list tr').first().waitFor();
+    await page.locator('.month-card [data-mnav="-1"]').click();
+    const retry = page.locator('.month-card [data-month-retry]');
+    await retry.waitFor();
+    assert.doesNotMatch(await page.locator('.month-card').innerText(), /fetch|Failed/i);
+    assert.equal(await page.locator('#list tr').count(), 0);
     fail = false;
-    await block.locator('[data-kt-retry]').click();
-    await block.locator('.empty').filter({ hasText: 'chưa có khách nào' }).waitFor();
+    await retry.click();
+    await page.waitForFunction(() => document.querySelectorAll('#list tr').length === 2);
   });
 });
 
