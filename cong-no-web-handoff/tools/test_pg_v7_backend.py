@@ -478,7 +478,8 @@ def check_migration(pg: Pg) -> None:
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-25-v7-thang-hien-tai.sql").read_text(encoding="utf-8"))  # SK-C1: get_ledger hiện hành
     # Chuỗi trên viết tay nên dễ thiếu file mới; migration chỉ đổi dữ liệu thì so catalog không phát hiện được.
     outside_chain = {"2026-10-16-ledger-f2f3.sql",  # DB legacy webdebit_ledger, không thuộc V7
-                     "2026-10-24-v7-shipper.sql", "2026-10-26-v7-ledger-shipper-read.sql"}  # chạy ở cuối hàm này
+                     "2026-10-24-v7-shipper.sql", "2026-10-26-v7-ledger-shipper-read.sql",  # chạy ở cuối hàm này
+                     "2026-11-24-tien-p0a-lat1.sql"}  # schema tien riêng, không đụng sokhach; harness riêng tools/test_pg_tien.py
     migrations = (ROOT / "cong-no-web-handoff/tools/migrations").glob("*.sql")
     not_applied = sorted(p.name for p in migrations if p.name not in outside_chain
                          and not p.name.endswith(".rollback.sql")
