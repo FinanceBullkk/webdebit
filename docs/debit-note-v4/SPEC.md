@@ -44,7 +44,7 @@ Bốn khối, mỗi khối trả lời một câu hỏi:
 
 ### 4.1 Nhãn cố định (song ngữ, tiếng Anh trước)
 
-- Tiêu đề: `DEBIT NOTE` + `账单`.
+- Tiêu đề (người dùng 27/11/2026, thay `DEBIT NOTE` + `账单`): `DEBIT – {TÊN SỔ} – {THÁNG}`, ví dụ `DEBIT – HTH419 – NOV`; tên sổ là tên sổ khách trên web (bỏ dấu, chữ hoa), tháng là ba chữ tiếng Anh, không năm (năm vẫn ở Billing Period). Tên công ty phát hành vẫn ở góc trái. Chữ 26px đậm navy, gạch nối xám; luôn một dòng: tên sổ quá khoảng 16 chữ thì 20px, vẫn không vừa thì cắt `…` ở tên sổ, giữ DEBIT và tháng. Excel cùng chữ; ô tiêu đề lùi trái khi thiếu chỗ nhưng chừa đủ tên công ty, vẫn thiếu thì 15pt. Tên file Excel và PDF: `Debit-{tên sổ}-{Tháng}`, ví dụ `Debit-HTH419-Nov` (thay `<số>_<khách>_<yyyy-mm>`). Các file trong `reference/` vẫn là tiêu đề cũ, không theo phần đó.
 - BILL TO `客户`: dòng 1 tên khách (đậm) + tên tiếng Trung (thường); dòng 2 tên pháp lý và địa chỉ. Dòng 3 `Attn 联系人` + người liên hệ **đã bỏ** (người dùng 12/11/2026): người liên hệ, nếu cần, nằm trong tên pháp lý và địa chỉ lấy từ Thông tin cty; các file trong `reference/` vẫn còn dòng này, không theo phần đó.
 - DOCUMENT `单据信息` (từ 12/11/2026 sát lề phải, mép phải thẳng cột Amount và chữ DEBIT NOTE; nhãn và giá trị là hai cột rộng theo chữ, BILL TO lấy phần còn lại):
   - `Debit Note No. 账单号` (giá trị đậm)

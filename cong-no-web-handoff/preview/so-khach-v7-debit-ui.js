@@ -330,7 +330,7 @@
     const account = accountsFor(open.directory, s.issuer).find(item => item.id === s.account) ?? null;
     const bill = customersOf(open.directory).find(item => item.pickLabel === s.bill) ?? null;
     const config = effectiveConfig(open.config, account, issuerOf(open.directory, s.issuer));
-    const form = { number: model.suggestNumber('HTH', open.monthKey), issueDate: '', accountStatus: s.accountStatus,
+    const form = { number: model.suggestNumber('HTH', open.monthKey), issueDate: '', accountStatus: s.accountStatus, book: defaultDisplay(),
       customer: { nameEn: s.nameEn, nameZh: s.nameZh, legal: billText(bill) } };
     const doc = DebitNoteV4.fromLedger(ctx.snapshot ?? {}, open.monthKey, { model, feeTypes: ctx.feeTypes ?? [], feeColumnIds: ctx.feeColumnIds ?? [], config, form });
     const blocks = [...(open.configError ? [{ text: `Không đọc được cấu hình debit note: ${open.configError}` }] : []),
