@@ -52,7 +52,7 @@ Người dùng chốt phương án A ([`KHACH-THANG-02`](../docs/decisions/khach
 
 Nghiệm thu:
 
-- [ ] Harness `TIM-CONT.01`, phần `check_so_thang`: hai sổ giả, tháng 1/2026 và tháng hiện tại, so `get_ledger` và `get_dashboard_debt`, đẳng thức từng dòng (chưa chạy ở máy vì Docker tắt; chờ job `postgres-v7-backend` của CI).
+- [x] Harness `TIM-CONT.01`, phần `check_so_thang`: hai sổ giả, tháng 1/2026 và tháng hiện tại, so `get_ledger` và `get_dashboard_debt`, đẳng thức từng dòng (chạy ở CI: job `postgres-v7-backend` xanh trên PR và commit merge).
 - [x] Test model (`monthRows`, `dayCell`, xếp bốn cột tháng) và trình duyệt (cột, thứ tự, xếp, chú thích, chú giải, 390px).
 - [x] Bản sao `webdebit_v7` (28/11/2026, đã xóa DB thử): 23 tháng từ 1/2025, 834 dòng sổ × tháng, lệch với `get_ledger` 0, sai đẳng thức 0, tập sổ và ba số cũ không đổi, tháng hiện tại 44/44 sổ khớp còn nợ hôm nay; áp hai lượt khoảng 100 ms, dấu vân DB trùng.
 - [ ] Người dùng tự xem trên `hao`.
