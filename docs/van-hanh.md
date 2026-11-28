@@ -2,7 +2,8 @@
 
 Trang một chỗ cho người lạ phải trông hệ thống (audit vận hành 23/11/2026, O11). Chi tiết cài từng phần ở
 [runbook](v7-deploy-runbook.md); tự động deploy ở [hao-auto-deploy.md](hao-auto-deploy.md); dựng lại máy ở
-[rebuild-hao.md](rebuild-hao.md). Trạng thái ghi theo 23/11/2026; báo cáo cũ không là trạng thái hôm nay, kiểm lại trên máy.
+[rebuild-hao.md](rebuild-hao.md). Trạng thái ghi theo 23/11/2026; timer, cảnh báo và sao lưu kiểm lại trên `hao` ngày
+28/11/2026. Báo cáo cũ không là trạng thái hôm nay, kiểm lại trên máy.
 
 ## Máy và việc
 
@@ -33,6 +34,10 @@ Máy canh trên `hao` (15 phút) gom phép kiểm thành nhóm, mỗi nhóm mộ
 healthchecks.io chỉ gửi email khi check đổi trạng thái: check đang đỏ thì lỗi mới cùng nhóm không có email mới, xem trang của
 check hoặc `journalctl -u v7-watchdog.service -n 5 -o cat`. Nghỉ dài muốn yên thì Pause check của nhóm ồn, không Pause nhịp sống.
 
+Email DOWN của **nhịp sống** thường là `hao` mất điện hoặc mất mạng. `hao` là laptop không pin, mất điện là tắt hẳn: kiểm điện,
+bấm nguồn. Máy lên lại thì các dịch vụ và timer tự chạy, PostgreSQL tự phục hồi. Lần 28/11/2026: máy tắt lúc 04:48, email DOWN
+lúc 05:47, máy lên lại lúc 13:38; PostgreSQL phục hồi sạch, sao lưu và đối soát chạy tiếp ngay lượt kế.
+
 Không có email cho: khách cần xem, web đi trước Sheet, tab chưa tạo được sổ (đầu tab Việc cần làm); thông tin cty; Hermes ở PC
 (tab Máy chạy). Tab **Máy chạy** trên web hiện trạng thái từng job trực tiếp.
 
@@ -61,10 +66,10 @@ chép riêng bằng `git show <sha>:<đường dẫn>` và so SHA-256, rồi rel
 
 Dữ liệu: bản mới nhất mà một PC đã kéo, mã hóa `age`: bản giờ trong 6–22 giờ (mất tối đa khoảng 1 giờ 45 phút khi có PC
 bật), ngoài giờ là bản ngày 02:40. Dựng lại theo [rebuild-hao.md](rebuild-hao.md) (diễn tập lõi 25/11/2026 trên máy trống:
-khoảng 13 phút từ giải mã tới web đúng số; cả máy thật ước 2–3 giờ). Tới 30/11/2026 Sheet vẫn là sổ chính thức
-([`SONG-SONG-01`](decisions/song-song-01.md)): người nhập tiếp tục trên Sheet, máy theo lại sau khi `hao` chạy. Từ 1/12/2026
-web là sổ duy nhất ([`WEB-CHINH-01`](decisions/web-chinh-01.md)): phần sau bản đã kéo phải nhập lại tay; chỗ ghi tạm khi
-`hao` sập chưa có quy trình (E2 của [checklist chuyển hẳn](chuyen-han-checklist.md)).
+khoảng 13 phút từ giải mã tới web đúng số; cả máy thật ước 2–3 giờ). Web là sổ chính thức từ 25/11/2026
+([`WEB-CHINH-01`](decisions/web-chinh-01.md)). Tới hết 30/11 người nhập vẫn gõ Sheet: `hao` sập thì họ tiếp tục trên Sheet,
+máy theo lại sau khi `hao` chạy. Từ 1/12/2026 web là nơi nhập duy nhất: phần sau bản đã kéo phải nhập lại tay; chỗ ghi tạm
+khi `hao` sập chưa có quy trình (E2 của [checklist chuyển hẳn](chuyen-han-checklist.md)).
 
 ## Nhìn ở đâu
 
