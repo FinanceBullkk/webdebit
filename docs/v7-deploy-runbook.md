@@ -2100,7 +2100,7 @@ Kiểm: backup, áp hai lượt trên bản sao (dấu vân tay không đổi, c
 
 Rollback: `DROP FUNCTION sokhach.find_container(text); DROP FUNCTION sokhach.get_month_customers(date);` (không gì phụ thuộc), rồi release cũ.
 
-## Sổ tháng ở bảng khách Tổng quan (KHACH-THANG-02) — nâng DB đang có (CHƯA CHẠY)
+## Sổ tháng ở bảng khách Tổng quan (KHACH-THANG-02) — nâng DB đang có (ĐÃ CHẠY trên hao 28/11/2026, [nhật ký](deploys/2026-11-28-so-thang.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-28-v7-khach-thang-so-thang.sql` chạy sau `2026-11-28-v7-tim-cont-khach-thang.sql` ([`KHACH-THANG-02`](decisions/khach-thang-02.md), [spec](../specs/v7-tim-cont-khach-thang.md#sổ-tháng-khach-thang-02-28112026)). Chỉ thay hàm đọc `get_month_customers(date)`: thêm `prior_months_vnd`, `end_of_month_vnd` mỗi sổ, giữ chữ ký, quyền và các trường cũ; không đổi bảng, view, tiền hay dữ liệu, không tăng `schema_level`. Chạy lại được.
 

@@ -51,4 +51,6 @@ Không đổi tiền, phân bổ, quyền hay dữ liệu. Spec: [`v7-tim-cont-k
 - Tập sổ và ba số cũ (phát sinh, đã thu, còn nợ của tháng) không đổi so với hàm cũ.
 - Tháng hiện tại: còn nợ cuối tháng bằng còn nợ hôm nay ở 44/44 sổ.
 
-CÒN MỞ: triển khai lên `hao`; người dùng tự xem trên `hao`.
+ĐÃ TRIỂN KHAI trên `hao` 28/11/2026 ([nhật ký](../deploys/2026-11-28-so-thang.md)). Sau triển khai, DB thật: 834 dòng sổ × tháng lệch 0 với `get_ledger`, tháng 11 có 44 sổ, còn nợ cuối tháng bằng còn nợ hôm nay.
+
+CÒN MỞ: người dùng tự xem trên `hao`.
