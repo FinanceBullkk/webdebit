@@ -137,22 +137,27 @@ test('SK-N5: ô bị cắt "…" có chữ rê chuột đủ chữ; Tuyến cắ
   await reload(page);
   await page.locator('.trip-list tr[data-row]').first().waitFor();
   const cells = await page.evaluate(() => [...document.querySelectorAll('.trip-list td')]
-    .filter(td => [td, ...td.children].some(box => box.scrollWidth > box.clientWidth)).map(td => td.title));
+    .filter(td => [td, ...td.children, ...(td.querySelector('.route-in')?.children ?? [])].some(box => box.scrollWidth > box.clientWidth)).map(td => td.title));
   assert.ok(cells.length >= 24, `phải có ô bị cắt để kiểm (${cells.length})`);
   assert.equal(cells.filter(title => !title).length, 0, 'mọi ô bị cắt có title');
   // Chuyến 200: nơi đi dài, nơi đến ngắn → nơi đi co trước (về bề rộng tối thiểu 2em) rồi nơi đến mới co; chữ rê chuột ghép cả
   // tuyến. Không đo "nơi đến còn đủ" thẳng vì font Ubuntu của CI rộng hơn Segoe UI (ở Windows "Cảng A" còn đủ chữ).
   const route = await page.locator('tr[data-row="trip-200"] td.route-cell').evaluate(td => {
-    const [from, , to] = td.children;
+    const [from, , to] = td.querySelector('.route-in').children;
     const originFirst = to.scrollWidth <= to.clientWidth || from.clientWidth <= parseFloat(getComputedStyle(from).minWidth) + 1;
     return { from: from.scrollWidth > from.clientWidth, originFirst, toText: to.textContent, title: td.title };
   });
   assert.deepEqual(route, { from: true, originFirst: true, toText: 'Cảng A', title: 'Kho hàng khu công nghiệp thử số một → Cảng A' });
   if (process.platform === 'win32') {
-    assert.equal(await page.locator('tr[data-row="trip-200"] td.route-cell>:last-child').evaluate(to => to.scrollWidth <= to.clientWidth), true, 'Segoe UI: nơi đến còn đủ chữ');
+    assert.equal(await page.locator('tr[data-row="trip-200"] td.route-cell .route-in>:last-child').evaluate(to => to.scrollWidth <= to.clientWidth), true, 'Segoe UI: nơi đến còn đủ chữ');
   }
   assert.equal(await page.locator('tr[data-row="trip-200"] td[data-field="shipper"]').getAttribute('title'), 'Chủ hàng thử có tên khá dài');
   assert.equal(await page.locator('tr[data-row="trip-200"]').evaluate(tr => tr.getBoundingClientRect().height), 35, 'ô Tuyến không làm dòng cao thêm');
+  // Ô Tuyến là ô bảng thật: cùng đỉnh, cùng chiều cao với ô khác của dòng (flex đặt thẳng lên td làm ô tách khỏi dòng, 28/11/2026).
+  assert.deepEqual(await page.locator('tr[data-row="trip-200"]').evaluate(tr => {
+    const box = td => td.getBoundingClientRect(), [first] = tr.cells, route = tr.querySelector('td.route-cell');
+    return { display: getComputedStyle(route).display, top: box(route).top === box(first).top, height: box(route).height === box(first).height };
+  }), { display: 'table-cell', top: true, height: true });
 }, wideBook));
 
 test('SK-N5: sổ chuyến bộ (khách có transport_mode BO) gọi cột biển số là "Xe"', async () => withPage(async ({ page }) => {

@@ -344,7 +344,7 @@
     if (td.title && !td.dataset.cutTitle) return;
     const text = [...td.childNodes].map(node => node.textContent.trim()).filter(Boolean).join(' ');
     // Tuyến cắt ở từng phần (nơi đi, nơi đến) nên xét cả ô con.
-    const cut = [td, ...td.children].some(box => box.scrollWidth > box.clientWidth);
+    const cut = [td, ...td.children, ...(td.querySelector('.route-in')?.children ?? [])].some(box => box.scrollWidth > box.clientWidth);
     if (cut && text && !td.querySelector('input')) {
       td.title = text;
       td.dataset.cutTitle = '1';

@@ -29,7 +29,8 @@
     return `<${tag} class="info-edit ${classes}" data-kind="${kind}" data-id="${escape(id)}" `
     + `data-field="${field}" tabindex="0" role="button" aria-label="Sửa ${fieldNames[field]}">${escape(text)}</${tag}>`;
   };
-  const route = (origin, destination) => `<td class="route-cell">${origin}<span class="route-arrow" aria-hidden="true"> → </span>${destination}</td>`;
+  // Ô Tuyến giữ là ô bảng (cao theo dòng, nhận màu nền của dòng); hộp flex cắt nơi đi trước nằm ở div bên trong (SK-N5).
+  const route = (origin, destination) => `<td class="route-cell"><div class="route-in">${origin}<span class="route-arrow" aria-hidden="true"> → </span>${destination}</div></td>`;
   const routeText = (origin, destination) => route(`<span data-field="origin">${escape(origin)}</span>`, `<span data-field="destination">${escape(destination)}</span>`);
   const deleteCell = (kind, id, text, what, pick = '') => `<td class="row-delete" data-kind="${kind}" data-id="${escape(id)}" tabindex="0" `
     + `role="button" aria-label="Xóa hẳn ${escape(what)}" title="Bấm để xóa hẳn dòng này">${pick}${escape(text)}</td>`;
@@ -187,7 +188,7 @@
         const button = document.createElement('button'); button.type = 'button'; button.className = 'sheet-diff';
         button.dataset.index = String(sheetRows.indexOf(row)); button.textContent = 'Xem';
         button.setAttribute('aria-expanded', 'false');
-        target.children[1]?.append(button);
+        label.append(' ', button);
       }
     }
   }

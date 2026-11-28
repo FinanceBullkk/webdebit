@@ -55,7 +55,7 @@
   }
   function cellTexts(td) {
     if (td.matches('.route-cell')) {
-      const parts = [...td.children].filter(item => !item.matches('.route-arrow'));
+      const parts = [...(td.querySelector('.route-in') ?? td).children].filter(item => !item.matches('.route-arrow'));
       if (parts.length === 2) return parts.map(clean);
     }
     return [clean(td)];

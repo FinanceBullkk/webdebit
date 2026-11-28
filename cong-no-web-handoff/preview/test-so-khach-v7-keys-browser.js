@@ -14,7 +14,7 @@ function moreTrips(world) {
 // Ô đang có tiêu điểm: "dòng:cột:tên ô" (cột = vị trí ô trong hàng; ">THẺ" khi tiêu điểm ở phần tử trong ô), hoặc thẻ/BODY.
 const focused = page => page.evaluate(() => {
   const el = document.activeElement, td = el?.closest?.('td'), row = td?.closest('tr[data-row]');
-  return row ? `${row.dataset.row}:${td.cellIndex}:${el?.closest('[data-field]')?.dataset.field ?? ''}${el === td || el.matches('.route-cell > span') ? '' : `>${el.tagName}`}`
+  return row ? `${row.dataset.row}:${td.cellIndex}:${el?.closest('[data-field]')?.dataset.field ?? ''}${el === td || el.matches('.route-in > span') ? '' : `>${el.tagName}`}`
     : `${el?.tagName ?? 'BODY'}${el?.className ? `.${el.className.split(' ')[0]}` : ''}`;
 });
 
