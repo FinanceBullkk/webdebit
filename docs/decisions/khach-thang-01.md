@@ -7,7 +7,7 @@
 Tổng quan xem được **theo tháng**: chọn một tháng thì thấy tháng đó có những khách nào và tiền của từng khách. Người dùng chốt 28/11/2026 (chọn qua câu hỏi trong phiên):
 
 1. Nội dung là **tiền theo khách**: phát sinh, đã thu, còn nợ của tháng (không thêm số cont; số cont theo tháng đã có ở [Báo cáo tháng](bao-cao-thang-01.md)).
-2. **Tháng là một bộ lọc của cả trang**, như hạn trả, mức rủi ro, mặt hàng, khách mới (người dùng chọn cùng ngày, thay bố cục khối riêng cuối trang đã làm trước đó: "để riêng ở dưới không hợp lý, mình muốn nó hoạt động qua bộ lọc"). Nút ‹ › nằm trên thẻ Thu tháng; chọn tháng thì:
+2. **Tháng là một bộ lọc của cả trang**, như hạn trả, mức rủi ro, mặt hàng, khách mới (người dùng chọn cùng ngày, thay bố cục khối riêng cuối trang đã làm trước đó: "để riêng ở dưới không hợp lý, mình muốn nó hoạt động qua bộ lọc"). Bộ chọn tháng nằm trên **thanh đầu trang**, cạnh tên trang (audit cùng ngày, người dùng chọn: hai nút ‹ › không chữ trong thẻ Thu tháng khó thấy và trông như chỉ đổi thẻ đó). Nút có chữ "Tất cả tháng" / "Tháng 10/2026" mở bảng 12 tháng của một năm để chọn thẳng; ‹ › hai bên lùi/tiến một tháng; × bỏ lọc; đang lọc thì nút tô màu nhấn. Chọn tháng thì:
    - thẻ Thu tháng ra đã thu / phát sinh của tháng đó;
    - dải Còn phải thu và khối Công nợ theo mặt hàng chỉ tính sổ có số trong tháng đó;
    - bảng khách chỉ còn các sổ đó, cột thanh Theo hạn trả đổi thành Phát sinh · Đã thu · Còn nợ của tháng;
