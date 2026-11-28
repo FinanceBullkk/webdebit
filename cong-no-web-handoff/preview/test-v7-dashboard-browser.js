@@ -148,6 +148,7 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   // Bảng: xếp theo tiền quá hạn; quá hạn 0 là "–". KHACH-THANG-02: ô lần trả / chuyến gần nhất ghi "… trước" (quá 90 ngày đếm tháng),
   // null là "chưa có"; ngày cụ thể ở chú thích; chú giải màu hiện sẵn dưới bảng.
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách C', 'Khách D', 'Khách E', 'Khách A']);
+  assert.deepEqual(await page.locator('#list .stt').allInnerTexts(), ['1', '2', '3', '4']);
   assert.deepEqual(await page.locator('#list .num.od').allInnerTexts(), ['950 triệu', '600 triệu', '250 triệu', '–']);
   assert.deepEqual(await page.locator('#list .num.tot').allInnerTexts(), ['1,25 tỷ', '600 triệu', '250 triệu', '380 triệu']);
   assert.deepEqual(await page.locator('#list .days').allInnerTexts(),
@@ -157,7 +158,7 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   assert.deepEqual(await tipLines(page.locator('#list .days').nth(2)), ['Chưa trả lần nào']);
   assert.equal(await page.locator('#days-key').isVisible(), true);
   assert.match(await page.locator('#days-key').innerText(), /vàng quá 30 ngày · đỏ quá 60 ngày chưa trả, quá 90 ngày không có chuyến, hoặc chưa có/);
-  assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả gần nhất', 'Chuyến gần nhất', '']);
+  assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['STT', 'Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả gần nhất', 'Chuyến gần nhất', '']);
   assert.equal(await page.locator('#list .rdot.r-high').count(), 2);
   assert.deepEqual(await tipLines(page.locator('#list tr').nth(1)), ['Khách D', 'Rủi ro cao — Nợ từ T5/2026 · chưa trả lần nào · ngừng đi hàng',
     'Còn nợ 600.000.000 đ', 'Bấm để mở Tình hình']);
@@ -402,6 +403,7 @@ test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết 
   assert.deepEqual((await page.locator('#tip > *').allTextContents()).slice(0, 3), ['Quá hạn trên 6 tháng (nợ T2 trở về trước)', '250 triệu · 1 khách · 10,1% còn phải thu', '250.000.000 đ']);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await noSideScroll(page), true);
+  assert.equal(await page.locator('#list .stt').first().isVisible(), false, 'điện thoại giữ ba cột Khách · Quá hạn · Còn nợ');
 }));
 
 test('link có sẵn ?han=&muc= mở đúng lọc; tham số cũ (ô ma trận, ngăn kéo) bị bỏ qua và xóa khỏi địa chỉ', async () => withDashboard({}, async page => {
@@ -497,6 +499,7 @@ test('hơn 10 khách: hiện 10 dòng, nút "Hiện cả N khách" mở hết t�
   assert.ok((await more.boundingBox()).height >= 40);
   await more.click();
   assert.equal(await page.locator('#list tr').count(), 12);
+  assert.equal(await page.locator('#list tr').last().locator('.stt').innerText(), '12');
   assert.equal(await page.locator('#list-more').innerText(), '');
 }));
 
@@ -780,11 +783,11 @@ test('KHACH-THANG-01: bộ chọn tháng ở thanh đầu lọc cả trang; ch�
     assert.equal(await card.locator('.today').count(), 0, 'tháng đã qua: không có vạch hôm nay');
     // KHACH-THANG-02: bảng lọc tháng là sổ tháng, không kèm số hôm nay (quá hạn, còn nợ, lần trả, chuyến); tiêu đề nói tháng nào.
     assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')),
-      ['Khách', 'Nợ đầu tháng', '+ Phát sinh', '− Đã thu', '= Còn nợ cuối tháng', '']);
+      ['STT', 'Khách', 'Nợ đầu tháng', '+ Phát sinh', '− Đã thu', '= Còn nợ cuối tháng', '']);
     assert.equal(await page.locator('#h-list').innerText(), 'Khách tháng 9/2026');
     assert.equal(await page.locator('#days-key').isVisible(), false);
     // Xếp phát sinh nhiều trước; sổ đã hết nợ vẫn có dòng; còn nợ cuối tháng 0 là "–".
-    assert.deepEqual(await seen(page.locator('#list tr')), ['Khách C 1,23 tỷ 320 triệu 300 triệu 1,25 tỷ', 'Khách P 200 triệu 180 triệu 380 triệu –']);
+    assert.deepEqual(await seen(page.locator('#list tr')), ['1 Khách C 1,23 tỷ 320 triệu 300 triệu 1,25 tỷ', '2 Khách P 200 triệu 180 triệu 380 triệu –']);
     assert.deepEqual(await tipLines(page.locator('#list tr').first().locator('td.m-end')), ['Còn nợ cuối tháng', '1.250.000.000 đ']);
     assert.match(await page.locator('th[data-col="end"] button').getAttribute('data-tip'), /^Còn nợ cuối tháng T9\/2026\nNợ đầu tháng \+ Phát sinh − Đã thu\n/);
     assert.equal(await page.locator('#list tr td.who a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2&month=2026-09');
@@ -828,7 +831,7 @@ test('KHACH-THANG-01: bộ chọn tháng ở thanh đầu lọc cả trang; ch�
     await pick.locator('.mp-clear').click();
     assert.equal(await page.locator('#list tr').count(), 4);
     assert.equal(new URL(page.url()).searchParams.get('thang'), null);
-    assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả gần nhất', 'Chuyến gần nhất', '']);
+    assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['STT', 'Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả gần nhất', 'Chuyến gần nhất', '']);
 
     // Mở link có sẵn ?thang=: lọc ngay tháng đó; bấm chỗ khác trên dòng mở sổ tháng đó.
     await page.goto(`${new URL(page.url()).origin}/dashboard-v7.html?thang=2026-09`);

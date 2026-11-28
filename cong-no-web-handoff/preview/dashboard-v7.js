@@ -229,17 +229,19 @@
     const th = (sort, label, icon, tip, pre = '') => `<th scope="col" class="r" data-col="${sort}"><button type="button" data-sort="${sort}"${tipAttr(tip)}>${pre}${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span></button></th>`;
     const op = sign => `<i class="op" aria-hidden="true">${sign}</i>`;
     const go = '<th scope="col" class="go"><span class="sr-only">Mở</span></th>';
+    // STT (#694) đứng đầu cả hai bảng.
+    const lead = '<th scope="col" class="stt r">STT</th><th scope="col">Khách</th>';
     if (state.month) {
       const tag = esc(monthTag(state.month));
       const sorted = 'Bấm để xếp';
-      return `<tr><th scope="col">Khách</th>${th('prior', 'Nợ đầu tháng', null, [`Nợ đầu tháng ${tag}`, 'Còn nợ cuối tháng trước, như thanh tháng của Sổ khách', sorted])}`
+      return `<tr>${lead}${th('prior', 'Nợ đầu tháng', null, [`Nợ đầu tháng ${tag}`, 'Còn nợ cuối tháng trước, như thanh tháng của Sổ khách', sorted])}`
         + th('charges', 'Phát sinh', null, [`Phát sinh tháng ${tag}`, 'Chuyến, phụ phí, điều chỉnh của tháng (như dòng Tổng tháng của sổ)', sorted], op('+'))
         + th('received', 'Đã thu', null, [`Đã thu tháng ${tag}`, 'Tiền khách trả trong tháng, theo ngày tiền về; trừ vào nợ cũ trước', sorted], op('−'))
         + th('end', 'Còn nợ cuối tháng', null, [`Còn nợ cuối tháng ${tag}`, 'Nợ đầu tháng + Phát sinh − Đã thu',
           state.month === currentMonth() ? 'Tháng chưa hết: là còn nợ đến hôm nay' : '', sorted], op('='))
         + `${go}</tr>`;
     }
-    return `<tr><th scope="col">Khách</th><th scope="col" class="bar-h">Theo hạn trả</th>
+    return `<tr>${lead}<th scope="col" class="bar-h">Theo hạn trả</th>
         ${th('overdue', 'Quá hạn', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', null, ['Bấm để xếp'])}
         ${th('pay', 'Trả gần nhất', ICON.cash, ['Lần khách trả gần nhất, cách hôm nay bao lâu', `Vàng khi quá ${rule.active_trip_days} ngày, đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
         ${th('trip', 'Chuyến gần nhất', ICON.truck, ['Chuyến gần nhất, cách hôm nay bao lâu', `Vàng khi quá ${rule.active_trip_days} ngày, đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
@@ -344,9 +346,10 @@
         <td class="num tot${row.total === 0n ? ' zero' : ''}">${row.total === 0n ? '–' : esc(short(row.total))}</td>
         <td class="d">${day(row.payDays, rule.no_pay_days, row.paid, row.payDate, row.payExact, 'Trả gần nhất', 'Chưa trả lần nào')}</td>
         <td class="d">${day(row.tripDays, rule.no_trip_days, row.paid, row.tripDate, row.tripExact, 'Chuyến gần nhất', 'Chưa có chuyến')}</td>`);
-    $('list').innerHTML = shown.map(({ row, first }) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
+    // STT đánh theo thứ tự đang xếp/lọc, đếm tiếp khi bấm Hiện cả (#694).
+    $('list').innerHTML = shown.map(({ row, first }, i) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
         row.fresh ? `Mới: ${row.fresh.text}` : '', row.paid || state.month ? '' : `Còn nợ ${F.full(row.total)}`, state.month ? `Bấm để mở sổ tháng ${monthTag(state.month)}` : 'Bấm để mở Tình hình'])}>
-        <td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
+        <td class="stt">${i + 1}</td><td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
         ${cells(row, first)}
         <td class="go" aria-hidden="true">${ICON.next}</td></tr>`).join('');
     empty.hidden = shown.length > 0;
