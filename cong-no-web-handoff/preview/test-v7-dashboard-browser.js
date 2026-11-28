@@ -734,20 +734,39 @@ const monthBody = month => (month === '2026-09-01'
   : MONTH_EMPTY(month));
 const monthCustomersList = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C', commodity: 'Chuối' }, { id: 9, name: 'Khách P', commodity: 'Chuối' }];
 
-test('KHACH-THANG-01: ‹ › trên thẻ Thu tháng lọc cả trang theo tháng; chip bỏ lọc; lọc chồng mức rủi ro; ?thang= giữ tháng', async () => {
+test('KHACH-THANG-01: bộ chọn tháng ở thanh đầu lọc cả trang; chọn thẳng trong bảng tháng, ‹ ›, ×, Esc; lọc chồng mức rủi ro; ?thang=', async () => {
   const asked = [];
   await withDashboard({ monthCustomers: monthBody, customers: monthCustomersList, asked }, async page => {
     const card = page.locator('.month-card');
     await page.locator('#list tr').first().waitFor();
+    const pick = page.locator('#month-pick');
     assert.equal(await card.locator('h2').innerText(), 'Thu tháng 10');
-    assert.equal(await card.locator('[data-mnav="1"]').isDisabled(), true, 'không sang tháng sau tháng hiện tại');
+    assert.equal(await card.locator('button').count(), 0, 'thẻ Thu tháng không còn nút ‹ ›');
     assert.equal(await page.locator('#khach-thang').count(), 0, 'không còn khối riêng cuối trang');
+    // Nút có chữ, nằm trên thanh đầu trang, trong khung nhìn đầu tiên.
+    assert.equal(await pick.locator('.mp-main').innerText(), 'Tất cả tháng');
+    assert.ok((await pick.locator('.mp-main').boundingBox()).y < 60, 'bộ chọn ở thanh đầu');
+    assert.equal(await pick.locator('[data-step="1"]').isDisabled(), true, 'không sang tháng sau tháng hiện tại');
 
-    await card.locator('[data-mnav="-1"]').click();
+    // Mở bảng tháng: tháng sau tháng hiện tại tắt; Esc đóng và trả tiêu điểm về nút.
+    await pick.locator('.mp-main').click();
+    assert.equal(await pick.locator('.mp-pop').isVisible(), true);
+    assert.equal(await pick.locator('.mp-cell[data-pick="2026-11"]').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await pick.locator('.mp-pop').count(), 0);
+    assert.equal(await page.evaluate(() => document.activeElement.classList.contains('mp-main')), true);
+    await pick.locator('.mp-main').click();
+    if (process.env.SHOTS_DIR) {
+      fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'tong-quan-chon-thang-mo.png') });
+    }
+    await pick.locator('.mp-cell[data-pick="2026-09"]').click();
     await page.waitForFunction(() => document.querySelectorAll('#list tr').length === 2);
     assert.ok(asked.includes('/api/v7/month-customers?month=2026-09-01'), JSON.stringify(asked));
     assert.equal(new URL(page.url()).searchParams.get('thang'), '2026-09');
     assert.match(await card.locator('h2').innerText(), /^Thu tháng 9/);
+    assert.equal(await pick.locator('.mp-main .mp-long').innerText(), 'Tháng 9/2026');
+    assert.equal(await pick.locator('.mp.on').count(), 1, 'đang lọc: nút tô màu nhấn');
     assert.deepEqual(await seen(card.locator('.m-nums b')), ['480 triệu', '500 triệu']);
     assert.equal(await card.locator('.today').count(), 0, 'tháng đã qua: không có vạch hôm nay');
     assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')),
@@ -776,8 +795,13 @@ test('KHACH-THANG-01: ‹ › trên thẻ Thu tháng lọc cả trang theo thán
       await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'tong-quan-loc-thang.png'), fullPage: true });
     }
 
-    // Bỏ lọc tháng: về bảng nợ như cũ, địa chỉ không còn ?thang=.
-    await page.locator('#chips [data-clear="month"]').click();
+    // ‹ › lùi/tiến một tháng ngay trên thanh đầu.
+    await pick.locator('[data-step="-1"]').click();
+    assert.equal(new URL(page.url()).searchParams.get('thang'), '2026-08');
+    await pick.locator('[data-step="1"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#list tr').length === 2);
+    // Bỏ lọc bằng × trên thanh đầu: về bảng nợ như cũ, địa chỉ không còn ?thang=.
+    await pick.locator('.mp-clear').click();
     assert.equal(await page.locator('#list tr').count(), 4);
     assert.equal(new URL(page.url()).searchParams.get('thang'), null);
     assert.deepEqual(await seen(page.locator('#dashboard .dtable thead th')), ['Khách', 'Theo hạn trả', 'Quá hạn', 'Còn nợ', 'Trả ngày', 'Đi hàng ngày', '']);
@@ -794,7 +818,8 @@ test('KHACH-THANG-01: lỗi tải số của tháng thì thẻ và bảng báo c
   let fail = true;
   await withDashboard({ monthCustomers: month => (fail ? 'drop' : monthBody(month)), customers: monthCustomersList }, async page => {
     await page.locator('#list tr').first().waitFor();
-    await page.locator('.month-card [data-mnav="-1"]').click();
+    await page.locator('#month-pick .mp-main').click();
+    await page.locator('#month-pick .mp-cell[data-pick="2026-09"]').click();
     const retry = page.locator('.month-card [data-month-retry]');
     await retry.waitFor();
     assert.doesNotMatch(await page.locator('.month-card').innerText(), /fetch|Failed/i);

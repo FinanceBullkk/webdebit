@@ -253,12 +253,23 @@ button.pill{font:inherit;font-weight:700}
 .dtable .go{color:var(--ink-l);padding-right:0}
 .tq .debtors #list-empty{margin:16px 6px}
 .tq .debtors .more:not(:empty){display:flex;justify-content:center;padding-top:10px}
-/* KHACH-THANG-01: ‹ › chọn tháng trên thẻ Thu tháng (lọc cả trang); sổ đã hết nợ trong bảng tháng: chấm xám, số ngày "–". */
-.tq .m-head{justify-content:flex-start;align-items:center;gap:6px}
-.tq .m-head .m-link{margin-left:auto}
-.tq .m-step{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--accent-ink);cursor:pointer}
-.tq .m-step svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
-.tq .m-step:disabled{color:var(--ink-3);cursor:default}
+/* KHACH-THANG-01: bộ chọn tháng ở thanh đầu (tong-quan-chon-thang.js), lọc cả trang; đang lọc thì nút chính tô màu nhấn.
+   Sổ đã hết nợ trong bảng tháng: chấm xám, số ngày "–". */
+.month-pick{position:relative;margin-left:16px}
+.mp{display:flex;align-items:center;gap:4px}
+.mp button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:40px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);color:var(--ink);font:inherit;cursor:pointer}
+.mp button:disabled{color:var(--ink-3);cursor:default}
+.mp svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
+.mp-step,.mp-clear{width:40px;padding:0}
+.mp-main{padding:0 12px;font-weight:600}
+.mp-main .mp-short{display:none}
+.mp.on .mp-main,.mp.on .mp-clear{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+.mp-pop{position:absolute;z-index:30;top:46px;left:0;width:264px;padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow)}
+.mp-year{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.mp-year button{width:40px;padding:0}
+.mp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.mp .mp-cell[aria-pressed="true"],.mp .mp-all[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:700}
+.mp-all{width:100%;margin-top:8px}
 .rdot.none{background:var(--line)}
 .days.zero{color:var(--ink-3)}
 .tq .tip{max-width:300px;background:#16324f}
@@ -284,6 +295,10 @@ button.pill{font:inherit;font-weight:700}
   .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
   .dtable .m-rec{display:none}
+  .month-pick{margin-left:8px}
+  .mp-step,.mp-main .mp-long{display:none}
+  .mp-main .mp-short{display:inline}
+  .mp-main{padding:0 8px}
   /* Điện thoại (DIEN-THOAI-SEP-01): bảng khách chỉ còn Khách · Quá hạn · Còn nợ, vừa màn, không cuộn ngang. Thanh hạn trả
      chỉ có số khi rê chuột nên bỏ; hai cột ngày Trả, Đi hàng bỏ vì chấm màu trước tên đã gộp mức rủi ro. */
   .dtable{min-width:0}

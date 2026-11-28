@@ -1,7 +1,8 @@
 /* Tổng quan công nợ (DASH-05, 2/11/2026: bản ít chữ theo canvas): dải đầu Còn phải thu + hạn trả, thẻ Thu tháng,
    khối Công nợ theo mặt hàng (DASH-07, 9/11/2026), chip mức rủi ro lọc bảng khách. Mỗi số một chỗ; chữ đầy đủ ở ô chú
    thích khi rê chuột hoặc focus (data-tip).
-   KHACH-THANG-01 (28/11/2026, người dùng chọn "Tháng lọc cả trang"): ‹ › trên thẻ Thu tháng chọn một tháng; tháng là một
+   KHACH-THANG-01 (28/11/2026, người dùng chọn "Tháng lọc cả trang"; audit cùng ngày: bộ chọn ở thanh đầu trang,
+   tong-quan-chon-thang.js): chọn một tháng; tháng là một
    chiều lọc như hạn trả, mức rủi ro, mặt hàng: thẻ ra số của tháng đó, dải đầu và khối mặt hàng chỉ tính sổ có số trong tháng,
    bảng khách còn các sổ đó (cả sổ đã hết nợ) với cột Phát sinh · Đã thu · Còn nợ của tháng. Số tháng do GET
    /api/v7/month-customers tính. */
@@ -33,7 +34,6 @@
     cash: svg('<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>'),
     truck: svg('<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>'),
     next: svg('<path d="M9 6l6 6-6 6"/>'),
-    prev: svg('<path d="M15 6l-6 6 6 6"/>'),
     close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   };
   // Tên ngắn cho bảng: tên Sheet; trùng tên thì thêm mặt hàng, vẫn trùng thì thêm số sổ.
@@ -48,10 +48,6 @@
   };
   const SORTS = { tong: 'total', 'chua-tra': 'pay', 'di-hang': 'trip', 'phat-sinh': 'charges' };
   const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
-  const shiftMonth = (key, by) => {
-    const at = new Date(Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + by, 1));
-    return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}`;
-  };
   // Nhãn dựng từ số (tháng đến từ ?thang= của địa chỉ): không có ký tự nào ngoài chữ số, vẫn escape ở chỗ ghi HTML.
   const monthTag = key => `T${Number(key.slice(5, 7))}/${Number(key.slice(0, 4))}`;
   const RISK_URL = { cao: 'high', 'theo-doi': 'watch', 'khong-qua-han': 'ok' };
@@ -143,8 +139,8 @@
       + '</ul></div>';
   }
 
-  // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng. KHACH-THANG-01: ‹ › chọn
-  // tháng (lọc cả trang); tháng đã qua thì thước không có vạch hôm nay. Số của tháng khác tháng hiện tại lấy từ monthData.
+  // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng. KHACH-THANG-01: đang lọc
+  // tháng (bộ chọn ở thanh đầu) thì ra số tháng đó; tháng đã qua thì thước không có vạch hôm nay. Số tháng lấy từ monthData.
   function monthPart(data, debt) {
     const now = (debt?.as_of ?? data.as_of).slice(0, 7);
     const key = state.month ?? now;
@@ -162,9 +158,7 @@
     const whole = !others ? '' : flow ? scopeTag('month', only)
       : `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>`;
     const name = esc(key.slice(0, 4) === now.slice(0, 4) ? String(p.month) : `${p.month}/${Number(key.slice(0, 4))}`);
-    const nav = (by, label, icon, stop) => `<button type="button" class="m-step" data-mnav="${by}" aria-label="${label}"${stop || !state.ready ? ' disabled' : ''}${tipAttr([label, 'Lọc cả trang theo tháng'])}>${icon}</button>`;
-    const head = `<div class="m-head">${nav(-1, 'Tháng trước', ICON.prev, false)}<h2 id="h-month">Thu tháng ${name}${whole}</h2>${nav(1, 'Tháng sau', ICON.next, key >= now)}`
-      + `<a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
+    const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${name}${whole}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
     if (state.month && !body) return `${head}<p class="empty">Đang tải số tháng ${esc(monthTag(key))}…</p>`;
     if (state.month && body.error) return `${head}<p class="empty">${esc(body.error)} <button type="button" class="btn" data-month-retry>Thử lại</button></p>`;
     if (!debt && !state.month) return `${head}<p class="empty">Chưa tải được số thu tháng này.</p>`;
@@ -363,7 +357,9 @@
     };
   }
 
-  function paint() { const refocus = repaintBlocks(); paintTiers(); paintComs(); paintChips(); paintList(); refocus(); }
+  // Bộ chọn tháng ở thanh đầu (ngoài #dashboard): tạo sau khi khai báo setMonth, vẽ lại cùng mỗi lần paint.
+  let picker = null;
+  function paint() { const refocus = repaintBlocks(); paintTiers(); paintComs(); paintChips(); paintList(); picker?.paint(); refocus(); }
 
   function render(data, debt, customers = []) {
     state.names = shortLabels(customers);
@@ -428,15 +424,13 @@
     state.all = false;
     writeUrl(); paint(); loadMonth(key);
   };
+  const pickNode = document.getElementById('month-pick');
+  if (globalThis.TongQuanChonThang && pickNode) {
+    picker = globalThis.TongQuanChonThang.create({ node: pickNode, pick: setMonth,
+      read: () => ({ month: state.month, current: state.data ? currentMonth() : '', ready: state.ready }) });
+  }
 
   root.addEventListener('click', event => {
-    const step = event.target.closest('[data-mnav]');
-    if (step) {
-      if (step.disabled || !state.ready) return;
-      const next = shiftMonth(state.month ?? currentMonth(), Number(step.dataset.mnav));
-      if (next <= currentMonth()) setMonth(next);
-      return;
-    }
     if (event.target.closest('[data-clear="month"]')) { setMonth(null); return; }
     if (event.target.closest('[data-month-retry]')) { state.monthData.delete(state.month); paint(); loadMonth(state.month); return; }
     if (event.target.closest('button#missing-price')) {
