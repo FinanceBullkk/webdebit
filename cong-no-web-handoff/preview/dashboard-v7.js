@@ -229,7 +229,7 @@
         + `<th scope="col" class="r m-rec"><span tabindex="0"${tipAttr([`Đã thu tháng ${tag}`, 'Tiền khách trả trong tháng, theo ngày tiền về'])}>Đã thu</span></th>`
         + `<th scope="col" class="r m-own"><span tabindex="0"${tipAttr([`Còn nợ của tháng ${tag}`, 'Phần phát sinh của tháng chưa được trả (như ô Công nợ theo tháng)'])}>Còn nợ ${tag}</span></th>`
       : '<th scope="col" class="bar-h">Theo hạn trả</th>';
-    return `<tr><th scope="col">Khách</th>${month}
+    return `<tr><th scope="col" class="stt r">STT</th><th scope="col">Khách</th>${month}
         ${th('overdue', 'Quá hạn', '', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', '', null, ['Bấm để xếp'])}
         ${th('pay', 'Trả', 'ngày', ICON.cash, ['Số ngày từ lần khách trả gần nhất', `Đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
         ${th('trip', 'Đi hàng', 'ngày', ICON.truck, ['Số ngày từ chuyến gần nhất', `Đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
@@ -319,9 +319,10 @@
     const middle = row => (state.month
       ? money(row.mon.charges, ' m-chg', 'Phát sinh') + money(row.mon.received, ' m-rec', 'Đã thu') + money(row.mon.outstanding, ' m-own', 'Còn nợ của tháng')
       : `<td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>`);
-    $('list').innerHTML = shown.map(({ row, first }) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
+    // STT đánh theo thứ tự đang xếp/lọc, đếm tiếp khi bấm Hiện cả.
+    $('list').innerHTML = shown.map(({ row, first }, i) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
         row.fresh ? `Mới: ${row.fresh.text}` : '', row.paid ? '' : `Còn nợ ${F.full(row.total)}`, state.month ? `Bấm để mở sổ tháng ${monthTag(state.month)}` : 'Bấm để mở Tình hình'])}>
-        <td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
+        <td class="stt">${i + 1}</td><td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
         ${middle(row)}
         <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first === 0n ? '–' : esc(short(first))}</td>
         <td class="num tot${row.total === 0n ? ' zero' : ''}">${row.total === 0n ? '–' : esc(short(row.total))}</td>
