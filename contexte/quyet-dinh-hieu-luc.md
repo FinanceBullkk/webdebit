@@ -1,24 +1,18 @@
-# Quyết định còn hiệu lực (tóm tắt từ bộ nhớ Claude, đã loại số liệu và tên khách)
+# Quyết định còn hiệu lực: đọc ở đâu
 
-Nguồn sống là `docs/decisions.md` và `docs/business-rules.md`; khi lệch thì các file đó thắng. Đây chỉ là bản định hướng.
+Chỉ là con trỏ, không chép nội dung quyết định. Nguồn sống là [`docs/decisions.md`](../docs/decisions.md) (mục lục, mỗi
+quyết định một file) và [`docs/business-rules.md`](../docs/business-rules.md). Cập nhật 28/11/2026; bản 22/10/2026 tóm tắt nội
+dung đã cũ, xem lịch sử Git.
 
-**Nghiệp vụ**
-- Opening lấy từ **sổ gốc** (Google Sheet), không dùng replay 13/10. Giao dịch lịch sử trong opening không cộng lại.
-- Một người nhập và ghi sổ, không có người duyệt thứ hai (V6, V6-DB). Mọi thao tác ghi tiền ghi người làm.
-- Mỗi tháng có ổ khóa; tháng khóa sửa bằng dòng điều chỉnh, hủy phiếu bắt buộc lý do (V7-SO). Thu mới trừ nợ cũ trước.
-- NULL không phải 0, trừ phụ phí trống của chuyến đã có đơn giá (V7-BE). Cờ NO_BASELINE, thiếu giá, chênh 600đ chỉ tô màu.
-- Cấm ghi phiếu có `posting_date` sau hôm nay (giờ VN), chặn ở hàm ghi sổ (luật FUTURE-01).
-- Mặt hàng gắn theo sổ khách (một sổ một mặt hàng); sầu riêng cảng/bộ là phương thức vận chuyển, dùng để lọc.
-- Cấn trừ giữa hai sổ: ghi cả hai sổ một lệnh, chặn khi sổ nguồn không đủ dư, vẫn có "Ngoài sổ".
-- Chuyến cũ không có booking: giữ nợ, bỏ truy vết.
+| Khi sửa | Đọc trước |
+| --- | --- |
+| Tiền, số dư, FIFO, phụ phí trống, ngày ghi sổ | [`V7-BE`](../docs/decisions/v7-be.md), [`CAN-DU-01`](../docs/decisions/can-du-01.md), [`FUTURE-01`](../docs/decisions/future-01.md), [`OPENING-SO-GOC`](../docs/decisions/opening-so-goc.md) |
+| Khóa tháng | [`V7-SO`](../docs/decisions/v7-so.md), [khóa tháng 24/10/2026](../docs/decisions/khoa-thang-2026-10-24.md), [`KHOA-CHU-01`](../docs/decisions/khoa-chu-01.md), [`V7-CSM`](../docs/decisions/v7-csm.md) |
+| Người làm, đăng nhập, quyền trang | [`V7-ID`](../docs/decisions/v7-id.md), [`ACCESS-01`](../docs/decisions/access-01.md), [`QUYEN-01`](../docs/decisions/quyen-01.md); không có người duyệt thứ hai: [`V6-DB`](../docs/decisions/v6-db.md) |
+| Chuyến vào sổ, khách mới | [`NGUON-CHUYEN-01`](../docs/decisions/nguon-chuyen-01.md), [`DU-CHUYEN-01`](../docs/decisions/du-chuyen-01.md), [`NHAP-SHEET-02`](../docs/decisions/nhap-sheet-02.md), [`KHACH-WEB-01`](../docs/decisions/khach-web-01.md) |
+| Phiếu thu, cấn trừ | [`PHIEU-WEB-01`](../docs/decisions/phieu-web-01.md), [`CT-2SO`](../docs/decisions/ct-2so.md) |
+| Sheet sổ nợ, máy theo Sheet, ngày 1/12 | [`WEB-CHINH-01`](../docs/decisions/web-chinh-01.md) (thay vế (1) của [`SONG-SONG-01`](../docs/decisions/song-song-01.md)), [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md) |
+| Cảnh báo, kiểm định kỳ, đường lui | [`CANH-BAO-01`](../docs/decisions/canh-bao-01.md), [`LUOI-AN-TOAN-01`](../docs/decisions/luoi-an-toan-01.md), [`XUAT-SO-01`](../docs/decisions/xuat-so-01.md) |
+| Cách Claude làm việc, triển khai lên `hao` | [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md), [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md), [`TU-LAM-01`](../docs/decisions/tu-lam-01.md); không ghi dữ liệu sổ tiền: [`SO-TIEN-01`](../docs/decisions/so-tien-01.md) mục (5) |
 
-**Chuyển đổi**
-- Chạy song song (SONG-SONG-01): Sheet là sổ chính thức tới ngày chuyển hẳn; thay đổi trên Sheet sau mốc phải dán lên web; đối soát theo tổng từng khách; chuyển hẳn sau ít nhất một lần cuối tháng khớp. Mốc là bản xuất Sheet mới nhất nạp vào V7 ngày bắt đầu song song.
-- Nhập chuyến theo lô, một lô một khách (dán từ Sheet, 10–50 container/ngày); guardrail là trạng thái trên dòng, không thêm bước thao tác.
-
-**Cách làm việc**
-- Claude được trao quyền tự quyết điều phối (21/10/2026); mọi quyết định ghi vào `decisions.md` kèm người chốt. Thao tác khó đảo ngược trên `hao`/Sheet/dữ liệu thật vẫn cần backup, thử trên bản sao và báo người dùng.
-- PR xếp chồng: retarget PR con sang nhánh đích trước khi merge cha, rồi kiểm `git merge-base --is-ancestor`.
-- Mockup/UX: spec phải có "Người dùng và luồng" và "Đối chiếu dữ liệu" trước mockup.
-
-**Trạng thái (22/10/2026):** V7 đã triển khai lên `hao` (mốc `clean-v2` 21/10, nâng 22/10), chưa bắt đầu chạy song song chính thức; điều kiện còn thiếu ở `docs/song-song-checklist.md`. Không suy trạng thái live từ tài liệu cũ.
+Không suy trạng thái live từ tài liệu: kiểm lại trên `hao`.

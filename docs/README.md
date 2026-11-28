@@ -2,6 +2,9 @@
 
 | Tài liệu | Dùng để |
 | --- | --- |
+| [Vận hành](van-hanh.md) | Đọc đầu tiên khi phải trông hệ thống: cái gì chạy ở đâu trên `hao`, ai biết khi nó dừng, cách dừng mọi máy ghi tiền |
+| [Roadmap](roadmap.md) | Các mốc của sổ nợ và trạng thái từng mảng khác trên web |
+| [Dựng lại `hao`](rebuild-hao.md) | Dựng lại máy từ bản sao lưu; mất bao nhiêu dữ liệu và bao lâu, theo số đo diễn tập |
 | [Nghiệp vụ](business-rules.md) | Quy tắc đã xác nhận và bất biến |
 | [Quyết định](decisions.md) | Phạm vi được chốt và gate còn mở |
 | [Kiến trúc](architecture.md) | Đường đọc/test hiện có, ranh giới thiết kế nháp |
@@ -12,8 +15,8 @@
 | [Định dạng báo cáo M1](m1-report-format.md) | Count evidence và quy tắc phân biệt NULL với 0 |
 | [Gói deploy và rollback M1](m1-deploy-rollback.md) | Lịch sử: gói runtime theo allowlist, preflight chỉ đọc và rollback; đã áp dụng trên `hao` tại `c439d13`. Công cụ và viewer đã xóa khỏi repo 18/11/2026 |
 | [Đề xuất ACL M1](m1-acl-proposal.md) | Cấp quyền đọc năm view cho viewer, thu hồi membership maker; đã áp dụng trong đợt M1, giữ hồ sơ ngoài Git |
-| [Runbook triển khai V7](v7-deploy-runbook.md) | Đề xuất deploy DB riêng, backup/rollback và tổng duyệt Docker |
-| [Checklist chạy song song](song-song-checklist.md) | Điều kiện bắt đầu chạy song song Sheet–web: ai làm, bằng chứng gì, trạng thái |
+| [Runbook triển khai V7](v7-deploy-runbook.md) | Cài và triển khai từng phần trên `hao` (migration, timer, sao lưu, cảnh báo), mỗi mục ghi trạng thái; có 7 bước ngày 1/12/2026 |
+| [Checklist chạy song song](song-song-checklist.md) | Lịch sử: điều kiện bắt đầu chạy song song Sheet–web (song song tính từ 1/11; từ 25/11 web là sổ chính thức theo `WEB-CHINH-01`) |
 | [Checklist chuyển hẳn](chuyen-han-checklist.md) | Việc phải kiểm và phải làm trước khi bỏ Sheet sổ nợ, số đo từng lượt audit chỉ đọc, việc chủ sổ phải quyết (ĐỀ XUẤT) |
 | [Bài làm thử trên web](bai-thu-nhap-web.md) | Bài người nhập đi thử từng đường nhập trên `hao` trước 1/12/2026 (WEB-CHINH-01), bảng kết quả (ĐỀ XUẤT) |
 | [Đối soát cuối ngày](doi-soat-cuoi-ngay.md) | Các bước người nhập chạy mỗi cuối ngày khi chạy song song |
