@@ -46,6 +46,8 @@ COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13
 DAU_DOC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql"
 BAO_CAO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql"
 TIM_CONT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-28-v7-tim-cont-khach-thang.sql"  # TIM-CONT-01, KHACH-THANG-01
+# KHACH-THANG-02 28/11/2026: get_month_customers (thêm nợ đầu tháng, còn nợ cuối tháng) bằng migration này thay bản KHACH-THANG-01.
+SO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-28-v7-khach-thang-so-thang.sql"
 # LUOI-AN-TOAN-01 18/11/2026: ba hàm của lưới an toàn chỉ có ở migration này.
 LUOI_AN_TOAN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-18-v7-luoi-an-toan.sql"
 # KIEM-TAB-01 16/11/2026 (K4): edit_trip_info và resolve_sheet_conflict bằng migration này thay bản KHOA-CHU-01.
@@ -122,9 +124,11 @@ class FeeSqlSync(unittest.TestCase):
         with self.subTest(name="get_trip_month"):
             self.assertEqual(definition(report, "FUNCTION", "get_trip_month"), definition(canonical, "FUNCTION", "get_trip_month"))
         tim_cont = TIM_CONT_MIGRATION.read_text(encoding="utf-8")
-        for name in ("find_container", "get_month_customers"):
-            with self.subTest(name=name):
-                self.assertEqual(definition(tim_cont, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        with self.subTest(name="find_container"):
+            self.assertEqual(definition(tim_cont, "FUNCTION", "find_container"), definition(canonical, "FUNCTION", "find_container"))
+        with self.subTest(name="get_month_customers", latest="so-thang"):
+            self.assertEqual(definition(SO_THANG_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_month_customers"),
+                             definition(canonical, "FUNCTION", "get_month_customers"))
         safety = LUOI_AN_TOAN_MIGRATION.read_text(encoding="utf-8")
         audit_sql = AUDIT_SQL_MIGRATION.read_text(encoding="utf-8")
         for name in ("paste_trips", "edit_trip_info", "get_safety_net", "_trip_dup_reason", "_catalog_manifest"):

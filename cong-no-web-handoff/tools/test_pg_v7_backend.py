@@ -293,7 +293,7 @@ CASES.append(case("KHACH-WEB.01", "BEHAVIOR", "Manager creates a book and maps b
 # SK-C1 25/11/2026: get_ledger luôn có dòng tháng hiện tại (giờ VN); tổng, phân bổ và tháng khác không đổi.
 CASES.append(case("SK-C1.01", "BEHAVIOR", "Ledger always has the current month row: prior = end of last month, zero charges, totals unchanged", check="thang_hien_tai", functions=("get_ledger",)))
 # TIM-CONT-01, KHACH-THANG-01 28/11/2026: tìm chuyến theo số cont; khách theo tháng cộng như thẻ Thu tháng và ma trận. Chỉ đọc.
-CASES.append(case("TIM-CONT.01", "BEHAVIOR", "Find trips by container across books; month customers match dashboard flow and matrix", check="tim_cont", functions=("find_container", "get_month_customers")))
+CASES.append(case("TIM-CONT.01", "BEHAVIOR", "Find trips by container across books; month customers match dashboard flow, matrix and ledger month bar", check="tim_cont", functions=("find_container", "get_month_customers")))
 CASES.append(case("VCL-GIU.01", "BEHAVIOR", "Keep one Sheet task with audit, unchanged money, retry and validation", check="sheet_keep", functions=("keep_sheet_task",)))
 
 # BANG-THU-01 4/11/2026: tiền về theo ngày qua mọi sổ, chỉ đọc; không đổi số nợ.
@@ -456,7 +456,8 @@ def check_migration(pg: Pg) -> None:
                      "2026-11-23-v7-doi-xe-sua-audit.sql", "2026-11-23-v7-audit-sql.sql",
                      "2026-11-23-v7-dieu-chinh-theo-gia.sql",
                      "2026-11-23-v7-so-gon.sql", "2026-11-24-v7-doi-xe-sau-khoa.sql", "2026-11-24-v7-khach-web.sql",
-                     "2026-11-25-v7-thang-hien-tai.sql", "2026-11-28-v7-tim-cont-khach-thang.sql"):
+                     "2026-11-25-v7-thang-hien-tai.sql", "2026-11-28-v7-tim-cont-khach-thang.sql",
+                     "2026-11-28-v7-khach-thang-so-thang.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)

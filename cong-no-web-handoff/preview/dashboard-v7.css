@@ -247,10 +247,17 @@ button.pill{font:inherit;font-weight:700}
 .tq .num.zero{font-weight:400;color:var(--ink-l)}
 .tq .num.tot{color:var(--ink-m)}
 .dtable .d{text-align:right}
-.days{display:inline-block;min-width:40px;padding:1px 8px;box-sizing:border-box;border-radius:10px;color:var(--ink-m);text-align:right}
+.days{display:inline-block;min-width:40px;padding:1px 8px;box-sizing:border-box;border-radius:10px;color:var(--ink-m);text-align:right;white-space:nowrap}
 .days.warn{background:#fdf0d8;color:var(--amber);font-weight:600}
 .days.bad{background:#fdecea;color:var(--red);font-weight:700}
 .dtable .go{color:var(--ink-l);padding-right:0}
+/* KHACH-THANG-02: bảng lọc tháng là sổ tháng; dấu + − = trước tên cột cho thấy mỗi dòng tự khớp, số cuối tháng đậm như ô kết quả.
+   Chú giải màu ô trả, chuyến hiện sẵn dưới bảng hôm nay. */
+.dtable th .op{font-style:normal;font-weight:400;color:var(--ink-l)}
+.tq .num.m-end:not(.zero){font-weight:700}
+.tq .num.none{color:var(--ink-l)}
+.tq .days-key{margin:8px 6px 0;color:var(--ink-m);font-size:13px}
+.tq .days-key .days{min-width:0;padding:0 6px}
 .tq .debtors #list-empty{margin:16px 6px}
 .tq .debtors .more:not(:empty){display:flex;justify-content:center;padding-top:10px}
 /* KHACH-THANG-01: bộ chọn tháng ở thanh đầu (tong-quan-chon-thang.js), lọc cả trang; đang lọc thì nút chính tô màu nhấn.
@@ -294,7 +301,11 @@ button.pill{font:inherit;font-weight:700}
   .com-th span:nth-child(2),.com-line .cbar,.com-head .legend{display:none}
   .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
-  .dtable .m-rec{display:none}
+  .tq .days-key{display:none}
+  /* KHACH-THANG-02: bảng lọc tháng bỏ cột Nợ đầu tháng (suy ra được: cuối − phát sinh + đã thu) để Còn nợ cuối tháng luôn trong màn. */
+  .dtable th[data-col="prior"],.dtable td.m-pri{display:none}
+  .dtable th{white-space:normal}
+  .dtable th button{text-align:right}
   .month-pick{margin-left:8px}
   .mp-step,.mp-main .mp-long{display:none}
   .mp-main .mp-short{display:inline}

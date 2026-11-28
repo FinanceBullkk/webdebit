@@ -40,3 +40,19 @@ Thử trên bản sao `webdebit_v7` (28/11/2026, chỉ đọc, đã xóa DB th�
 - [x] Unittest route (`tests/test_v7_tim_cont_khach_thang.py`), đồng bộ file chuẩn (`tests/test_v7_fee_sql_sync.py`), quyền (`tools/test_pg_v7_grants.py`).
 - [x] Trình duyệt: Tổng quan (‹ › lọc cả trang, cột tháng, sổ hết nợ, lọc chồng mức rủi ro, chip bỏ lọc, ?thang=, lỗi + Thử lại, 390px không cuộn ngang; ô tìm cont, phím ↓), Sổ khách (`?cont=` tô chuyến web và dòng sổ gốc, không còn khớp, hộp đổi khách).
 - [ ] Người dùng tự đi hết hai luồng trên `hao`.
+
+## Sổ tháng (KHACH-THANG-02, 28/11/2026)
+
+Người dùng chốt phương án A ([`KHACH-THANG-02`](../docs/decisions/khach-thang-02.md)): mỗi bảng khách của Tổng quan một mốc thời gian. Bảng lọc tháng cũ trộn phát sinh và đã thu của tháng với "Còn nợ Tx" (nợ của riêng phát sinh tháng, luôn bằng phát sinh khi khách còn nợ cũ vì thu trừ nợ cũ trước) và các số hôm nay, nên cộng trừ theo hàng không ra.
+
+- **Đầu ra:** `get_month_customers` thêm `prior_months_vnd` (nợ đầu tháng) và `end_of_month_vnd` (còn nợ cuối tháng) mỗi sổ, cùng phép và cùng tên với `months[]` của `get_ledger` (cuối tháng tính lùi từ tổng còn nợ trừ phát sinh − đã thu các tháng sau, cùng tập tháng `month_keys`); giữ mọi trường cũ và tập sổ. Migration `2026-11-28-v7-khach-thang-so-thang.sql` chỉ thay hàm đọc đó.
+- **Trang, lọc tháng:** cột Nợ đầu tháng · + Phát sinh · − Đã thu · = Còn nợ cuối tháng, cả bốn bấm để xếp (`?xep=no-dau|phat-sinh|da-thu|no-cuoi`, mặc định phát sinh); tiêu đề "Khách tháng M/YYYY"; không còn Quá hạn, Còn nợ, Trả, Đi hàng. Nợ âm ghi "dư …"; máy chủ cũ thiếu hai số thì ô "—". Điện thoại bỏ cột Nợ đầu tháng để Còn nợ cuối tháng luôn trong màn.
+- **Trang, không lọc:** "Trả gần nhất", "Chuyến gần nhất" ghi "27 ngày trước" (quá 90 ngày đếm tháng; "chưa có"), ngày cụ thể ở chú thích, chú giải màu hiện sẵn dưới bảng.
+- **Bất biến:** mỗi dòng nợ đầu + phát sinh − đã thu = còn nợ cuối, bằng thanh tháng của Sổ khách cùng sổ, cùng tháng; tháng hiện tại còn nợ cuối tháng = còn nợ hôm nay.
+
+Nghiệm thu:
+
+- [ ] Harness `TIM-CONT.01`, phần `check_so_thang`: hai sổ giả, tháng 1/2026 và tháng hiện tại, so `get_ledger` và `get_dashboard_debt`, đẳng thức từng dòng (chưa chạy ở máy vì Docker tắt; chờ job `postgres-v7-backend` của CI).
+- [x] Test model (`monthRows`, `dayCell`, xếp bốn cột tháng) và trình duyệt (cột, thứ tự, xếp, chú thích, chú giải, 390px).
+- [x] Bản sao `webdebit_v7` (28/11/2026, đã xóa DB thử): 23 tháng từ 1/2025, 834 dòng sổ × tháng, lệch với `get_ledger` 0, sai đẳng thức 0, tập sổ và ba số cũ không đổi, tháng hiện tại 44/44 sổ khớp còn nợ hôm nay; áp hai lượt khoảng 100 ms, dấu vân DB trùng.
+- [ ] Người dùng tự xem trên `hao`.
