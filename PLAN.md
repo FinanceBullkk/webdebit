@@ -1,31 +1,46 @@
-# PLAN — hiện tại (cập nhật 23/11/2026)
+# PLAN — hiện tại (cập nhật 28/11/2026)
 
-Mục tiêu gần nhất: **web tự chạy theo Sheet, không cần người nhập thao tác trên web** ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md), người dùng chốt 4/11/2026), và giữ đối soát khớp liền một tháng theo [`SONG-SONG-01`](docs/decisions/song-song-01.md). Tháng song song đầu tiên là tháng 11/2026, lần xét đầu là đối soát cuối tháng 11 (F2, ĐÃ CHỐT 5/11).
+Mục tiêu gần nhất: **từ 1/12/2026 web là nơi nhập duy nhất của sổ nợ** ([`WEB-CHINH-01`](docs/decisions/web-chinh-01.md)).
+Web đã là sổ chính thức từ 25/11/2026. Tới hết 30/11 người nhập vẫn gõ Sheet, máy chép theo nhưng chỉ *thêm* cái web chưa có,
+không đè cái web đã có. Cái gì chạy ở đâu, ai biết khi nó dừng: [van-hanh.md](docs/van-hanh.md). Lộ trình theo mốc:
+[roadmap](docs/roadmap.md).
 
-So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ trên `hao`, và tự sửa khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet tới từng đồng; kết quả ở đầu tab Việc cần làm ([nhật ký](docs/deploys/2026-11-04-may-doi-soat.md)). Việc còn lại chủ yếu là **vận hành và quyết định của chủ sổ**. Cái gì chạy ở đâu, ai biết khi nó dừng: [van-hanh.md](docs/van-hanh.md).
+Mỗi dòng ghi trạng thái kèm ngày của chính nó; dòng nào ngày cũ thì kiểm lại trước khi dựa vào. Bản 23/11/2026 (web chạy theo
+Sheet, chờ xét cuối tháng) xem lịch sử Git.
 
-Mỗi dòng bảng ghi trạng thái kèm ngày của chính nó; dòng nào ngày cũ thì kiểm lại trước khi dựa vào.
+## Trước và trong ngày 1/12
 
-## Việc còn lại trước khi coi là chạy được không cần người
-
-| # | Việc | Ai | Trạng thái 4/11 | Bằng chứng cần |
+| # | Việc | Ai | Trạng thái 28/11 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
-| A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | Lượt 14:45: 238/238 khớp, gồm 2 sổ mới máy vừa tạo ([`MAY-TAO-SO-01`](docs/decisions/may-tao-so-01.md), [nhật ký](docs/deploys/2026-11-04-may-tao-so.md)) | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
-| Cảnh báo | Máy lỗi hoặc dừng thì có email ([`CANH-BAO-01`](docs/decisions/canh-bao-01.md)) | Chủ sổ tạo check, Claude cài | 18/11: link ping đã có trên `hao`. 23/11: tách nhiều check (tiền, lưới an toàn, sao lưu, Zalo, nhịp sống; mỗi PC kéo một check), chờ chủ sổ tạo check mới | Một lần `--test-fail` tới hộp thư (E3 của [checklist chuyển hẳn](docs/chuyen-han-checklist.md)) |
-| Dựng lại máy | `hao` chết thì dựng lại được, biết mất bao nhiêu và bao lâu | Claude, cần một PC/VM trống | 23/11: có [checklist](docs/rebuild-hao.md), gói cấu hình thêm file và bảng kê còn thiếu; chưa diễn tập trên máy khác | Nhật ký diễn tập có số phút (E1) |
-| E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
-| F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐÃ CHỐT 5/11: tính cả tháng 11, từ 1/11/2026 | [`SONG-SONG-02`](docs/decisions/song-song-02.md) |
-| F4 | Cách chuyển hẳn khi Sheet vẫn là nơi nhập | Chủ nghiệp vụ | Chưa chuyển, giữ Sheet; xét lại sau đối soát cuối tháng 11. Lượt audit chỉ đọc 11/11: web khớp Sheet tới từng dòng, tab TONG để trống 14 khách còn số dư, 6 việc chủ sổ phải quyết | [`CHUYEN-HAN-01`](docs/decisions/chuyen-han-01.md); [checklist chuyển hẳn](docs/chuyen-han-checklist.md); quyết định chuyển hẳn sau lần xét |
+| P1 | Người nhập đi thử từng đường nhập trên `hao` bằng login của mình | Người nhập, chủ sổ ở cạnh | CHƯA: bảng kết quả của [bài làm thử](docs/bai-thu-nhap-web.md) còn trống. Lịch sử 7 ngày tới 28/11: 14/208 dòng do người, cùng 1 login; danh sách cho phép có 3 login | Bảng kết quả điền đủ; Lịch sử ra đúng tên từng người |
+| P2 | Đối soát cuối tháng 11, lượt so Sheet cuối cùng còn giá trị | Máy mỗi giờ; chủ sổ đọc kết quả | Lượt 16:15 ngày 28/11: 242/251 sổ khớp, 5 lệch tổng, 4 chỉ có trên web | `reconcile.json` của lượt cuối 30/11 chép vào thư mục bằng chứng (bước 1 của runbook ở P4) |
+| P3 | Giữ tháng 11 mở ở sổ còn chuyến chưa giá, khóa lại sau 15/12 | Máy: timer `webdebit-giu-mo-thang`, `webdebit-khoa-lai-thang` | Lịch đặt 25/11, cả hai timer đang bật (kiểm 28/11); lượt ghi đầu 23:30 ngày 30/11 ([nhật ký](docs/deploys/2026-11-25-giu-mo-thang-11.md)) | Dòng Lịch sử người làm `giu-mo-thang` |
+| P4 | Tắt máy theo Sheet sổ nợ, giữ máy theo booking | Claude theo [`DEPLOY-CLAUDE-01`](docs/decisions/deploy-claude-01.md); cần SSH và sudo trên `hao` | CHƯA CHẠY. 7 bước và cách lùi ở [runbook](docs/v7-deploy-runbook.md#tắt-máy-theo-sheet-sổ-nợ-ngày-1122026-web-chinh-01--chưa-chạy) | Nhật ký trong `docs/deploys/`; lượt 08:05 ngày 1/12 thoát 0 ở chế độ `booking-only` |
+| P5 | Khóa Sheet sổ nợ, chỉ cho xem | Chủ sổ | CÒN MỞ, đề xuất làm cùng ngày 1/12 | Quyền chia sẻ của file |
+| P6 | Chỗ ghi tạm khi `hao` sập giữa ngày | Chủ sổ chọn cách, Claude viết trang | CHƯA có quy trình (E2 của [checklist chuyển hẳn](docs/chuyen-han-checklist.md)). Ngày 28/11 `hao` tắt từ 04:48 tới 13:38 sau một lần mất điện | Quy trình một trang |
 
-B1, B2 (mỗi người nhập một tài khoản) và C4 (người nhập tự chạy đối soát) không còn chặn theo hướng này; xem [checklist](docs/song-song-checklist.md). Sếp hay ai khác muốn tự xem web thì cần thêm login vào danh sách cho phép ([`ACCESS-01`](docs/decisions/access-01.md)).
+Sếp hay ai khác muốn tự xem web thì cần thêm login vào danh sách cho phép ([`ACCESS-01`](docs/decisions/access-01.md)).
 
-## Không chặn — làm trong lúc chạy song song, xong trước ngày chuyển hẳn
+## Bàn giao vận hành
 
-- Người dùng tự đi hết luồng trên web thật: xuất Debit Note đối chiếu mẫu (`DEBIT-NOTE-02`), xóa một dòng điều chỉnh (`XOA-DC-THANG-01`).
-- Khách còn mở của `SONG-SONG-03` (2): chủ nghiệp vụ xác định số phải thu trước F4.
-- Chép bản xuất chat Zalo lên `hao` để trang Chat Zalo có dữ liệu (`NHAC-NO-01`, sửa đổi ZALO-CHAT-01).
-- Bỏ đường export cũ khi Sheet xóa ba tab (sau khi đồng bộ chuyến đã đọc `CONT_NGUON` ổn định).
-- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy. Ngoại lệ do người dùng chốt 1/11/2026: group Zalo trên web ([`ZALO-GROUP-01`](docs/decisions/zalo-group-01.md)); 3/11/2026: chuyến theo nguồn booking ([`NGUON-CHUYEN-01`](docs/decisions/nguon-chuyen-01.md), bốn giai đoạn trong [spec](specs/v7-chuyen-theo-nguon.md)); 4/11/2026: máy tự đối soát ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md)); 18/11/2026: module Đội xe ([`CHI-PHI-XE-01`](docs/decisions/chi-phi-xe-01.md), [`DOI-XE-THU-01`](docs/decisions/doi-xe-thu-01.md)); 19/11/2026: Đội xe đổi hướng, chặng sinh từ booking và điều xe phân công trên web ([`DOI-XE-DIEU-DO-01`](docs/decisions/doi-xe-dieu-do-01.md), [bản đồ dữ liệu](docs/doi-xe-kien-truc-du-lieu.md)).
-- Chủ sổ tự đi hết luồng đối soát trên `hao` ([spec](specs/v7-may-doi-soat.md)); khóa lại các tháng cũ đang để mở.
+| Việc | Trạng thái 28/11 |
+| --- | --- |
+| Người quản trị thứ hai cho tổ chức GitHub, tailnet Tailscale, healthchecks.io; email cảnh báo tới hơn một người | CHƯA. Tổ chức GitHub có 1 thành viên, cũng là admin. Tailnet và healthchecks.io dùng tài khoản của chủ dự án; mọi email cảnh báo tới một hộp thư. Chưa kiểm danh sách quản trị tailnet |
+| Bản khóa age thứ hai (USB hoặc giấy) và ít nhất một PC kéo bản sao ở lại công ty | Không có bằng chứng trong repo ([runbook O6](docs/v7-deploy-runbook.md#o6-theo-dõi-và-rollback)) |
+| Nguồn điện cho `hao` (laptop không pin, một ổ HDD) | CHƯA |
+| Các tài khoản dịch vụ khác cần người giữ: Cloudflare (DNS cổng 8445), Google Cloud (tài khoản dịch vụ đọc Sheet), key Anthropic của trang Nhật ký | Chưa kê ai giữ |
 
-Cập nhật bảng khi trạng thái đổi; lộ trình ở `docs/roadmap.md`, điều kiện khởi động ở `docs/song-song-checklist.md`.
+## Sau 1/12, không chặn
+
+- Gỡ mã và giao diện theo Sheet sổ nợ sau khi tắt máy: chép giá, chép phiếu, đối soát so Sheet, [`KIEM-TONG-01`](docs/decisions/kiem-tong-01.md), audit chuyển hẳn.
+- Người dùng tự đi hết luồng trên `hao`: xuất debit note đối chiếu mẫu ([`DEBIT-NOTE-02`](docs/decisions/debit-note-02.md)), xóa một dòng điều chỉnh ([`XOA-DC-THANG-01`](docs/decisions/xoa-dc-thang-01.md)), kết luận CHỜ KIỂM, cấn trừ hai sổ.
+- 17 tháng cũ đang mở ở 9 sổ (đo 28/11): khóa lại.
+- Khách còn mở của [`SONG-SONG-03`](docs/decisions/song-song-03.md) mục (2): chủ nghiệp vụ xác định số phải thu.
+- Sổ tiền ([`SO-TIEN-01`](docs/decisions/so-tien-01.md)): P0-a ở hai PR nháp ThienThanhLogs/webdebit#639, ThienThanhLogs/webdebit#649, chưa chạy trên `hao`.
+- Thu chi tự sinh: bản bấm thử ThienThanhLogs/webdebit#632.
+- Đội xe đợt 3 (dầu, sửa chữa, định phí, lãi lỗ): chưa làm, câu hỏi mở trong [spec](specs/chi-phi-xe-01.md).
+- Bot Zalo hỏi đáp ([`ZALO-BOT-01`](docs/decisions/zalo-bot-01.md)): mã đã merge, chưa cài trên `hao`. Báo thu chi qua Telegram ([`TELEGRAM-01`](docs/decisions/telegram-01.md)): code xong, cờ tắt.
+- Mã cũ thời V6/M1 (`pg_ledger_schema.sql`, `pg_versioned_approval_fixture.sql`, `pg_m1_*`, `webdebit_export_connector.py`) và các job CI của nó: đánh dấu lịch sử hoặc gỡ.
+- Mục chưa đạt khác của [checklist chuyển hẳn](docs/chuyen-han-checklist.md): hai người cùng sửa một sổ, tốc độ khi dán nhiều chuyến, dựng lại trên máy thật.
+
+Cập nhật bảng khi trạng thái đổi.

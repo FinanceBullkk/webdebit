@@ -6,7 +6,7 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | --- | --- |
 | `AGENTS.md` | Lan can chung cho mọi agent (nghiệp vụ, an toàn, kiểm tra). `CLAUDE.md` nạp file này và thêm phần Harness |
 | `SPEC.md`, `PLAN.md` | Mục tiêu/tiêu chí nghiệm thu và kế hoạch hiện tại |
-| `contexte/` | Bối cảnh dự án và tóm tắt quyết định còn hiệu lực. Đọc theo nhiệm vụ |
+| `contexte/` | Bối cảnh dự án và con trỏ tới quyết định còn hiệu lực theo từng mảng (không chép nội dung quyết định). Đọc theo nhiệm vụ |
 | `livrables/` | Chỗ đặt sản phẩm bàn giao đã loại dữ liệu nhạy cảm |
 | `.claude/settings.json` | Quyền: cho phép lệnh kiểm, commit/push/mở và merge PR (Claude tự merge từ 28/10/2026), hỏi trước psql/xóa file (ssh không hỏi từ 30/10/2026, lệnh có psql vẫn hỏi), cấm force push và đọc secrets |
 | `.claude/agents/` | `planner.md` (chỉ đọc), `implementer.md` (sửa theo phạm vi), `reviewer.md` (review, không sửa) |
