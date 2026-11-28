@@ -175,14 +175,15 @@ test('monthProgress: received over charges, today and days left in the month; ch
   assert.deepEqual(M.monthProgress('2026-10-29', undefined).charges, 0n);
 });
 
-test('dayCell: the number only (unit sits in the column head) and tone by threshold; null is "chưa", never 0', () => {
-  assert.deepEqual(M.dayCell(27, 60, 30), { text: '27', tone: '' });
-  assert.deepEqual(M.dayCell(30, 60, 30), { text: '30', tone: '' });
-  assert.deepEqual(M.dayCell(45, 60, 30), { text: '45', tone: 'warn' });
-  assert.deepEqual(M.dayCell(61, 60, 30), { text: '61', tone: 'bad' });
-  assert.deepEqual(M.dayCell(963, 90, 30), { text: '963', tone: 'bad' });
-  assert.deepEqual(M.dayCell(null, 90, 30), { text: 'chưa', tone: 'bad' });
-  assert.deepEqual(M.dayCell(0, 90, 30), { text: '0', tone: '' });
+test('dayCell (KHACH-THANG-02): "… trước", tới 90 ngày đếm ngày rồi đếm tháng; sắc thái theo ngưỡng; null là "chưa có", không phải 0', () => {
+  assert.deepEqual(M.dayCell(27, 60, 30), { text: '27 ngày trước', tone: '' });
+  assert.deepEqual(M.dayCell(30, 60, 30), { text: '30 ngày trước', tone: '' });
+  assert.deepEqual(M.dayCell(45, 60, 30), { text: '45 ngày trước', tone: 'warn' });
+  assert.deepEqual(M.dayCell(61, 60, 30), { text: '61 ngày trước', tone: 'bad' });
+  assert.deepEqual(M.dayCell(90, 90, 30), { text: '90 ngày trước', tone: 'warn' });
+  assert.deepEqual(M.dayCell(963, 90, 30), { text: '32 tháng trước', tone: 'bad' });
+  assert.deepEqual(M.dayCell(null, 90, 30), { text: 'chưa có', tone: 'bad' });
+  assert.deepEqual(M.dayCell(0, 90, 30), { text: 'hôm nay', tone: '' });
 });
 
 test('filterRows filters by due tier, risk level and commodity; sorts by first column, total, or days with null first', () => {
@@ -247,23 +248,33 @@ test('scope lọc theo tập sổ của tháng; skip month bỏ chiều đó; nu
   assert.deepEqual(M.scope(rows, { month: null }).map(r => r.id), [1, 2, 3, 4]);
 });
 
-test('monthRows gắn số của tháng; sổ đã hết nợ có dòng còn nợ 0, không mức rủi ro, mặt hàng lấy từ danh sách sổ', () => {
+// KHACH-THANG-02: dòng của GET /api/v7/month-customers có nợ đầu tháng và còn nợ cuối tháng (máy chủ tính như thanh tháng của sổ).
+const book = (id, prior, charges, received, end) => ({ customer_id: id, prior_months_vnd: prior, charges_vnd: charges, received_vnd: received,
+  end_of_month_vnd: end, outstanding_vnd: '0' });
+
+test('monthRows gắn sổ tháng (đầu + phát sinh − đã thu = cuối); sổ đã hết nợ có dòng còn nợ 0, không mức rủi ro, mặt hàng lấy từ danh sách sổ', () => {
   const rows = M.debtors(debt);
   const coms = M.commodities(rows);
-  const books = [{ customer_id: 2, charges_vnd: '50', received_vnd: '0', outstanding_vnd: '50' },
-    { customer_id: 9, charges_vnd: '70', received_vnd: '70', outstanding_vnd: '0' },
-    { customer_id: 8, charges_vnd: '10', received_vnd: '0', outstanding_vnd: '0' }];
+  const books = [book(2, '350', '50', '0', '400'), book(9, '30', '70', '100', '0'), book(8, '0', '10', '0', '10')];
   const list = [{ id: 9, name: 'Khách P', commodity: 'Chuối' }, { id: 8, name: 'Khách Q', commodity: 'Dừa' }];
   const out = M.monthRows(rows, books, list, coms);
-  assert.deepEqual(out.map(r => [r.id, r.mon.charges, r.mon.received, r.mon.outstanding, r.total, r.risk, r.com, Boolean(r.paid)]), [
-    [2, 50n, 0n, 50n, 400n, 'high', 'Chuối', false],
-    [9, 70n, 70n, 0n, 0n, null, 'Chuối', true],
-    [8, 10n, 0n, 0n, 0n, null, M.OTHER, true]]);
+  assert.deepEqual(out.map(r => [r.id, r.mon.prior, r.mon.charges, r.mon.received, r.mon.end, r.total, r.risk, r.com, Boolean(r.paid)]), [
+    [2, 350n, 50n, 0n, 400n, 400n, 'high', 'Chuối', false],
+    [9, 30n, 70n, 100n, 0n, 0n, null, 'Chuối', true],
+    [8, 0n, 10n, 0n, 10n, 0n, null, M.OTHER, true]]);
+  // Máy chủ cũ (chưa có nợ đầu/cuối tháng): hai số là null, không đoán thành 0.
+  const old = M.monthRows(rows, [{ customer_id: 2, charges_vnd: '50', received_vnd: '0', outstanding_vnd: '50' }], list, coms);
+  assert.deepEqual([old[0].mon.prior, old[0].mon.end], [null, null]);
   // Lọc mặt hàng vẫn khớp sổ đã hết nợ; lọc mức rủi ro hay hạn trả bỏ chúng.
   const ids = new Set(books.map(b => b.customer_id));
   assert.deepEqual(M.filterRows(out, { month: ids, com: 'Chuối', sort: 'charges' }).map(x => x.row.id), [9, 2]);
   assert.deepEqual(M.filterRows(out, { month: ids, risk: 'high' }).map(x => x.row.id), [2]);
   assert.deepEqual(M.filterRows(out, { month: ids, tier: 3 }).map(x => x.row.id), [2]);
+  // Bốn cột tiền của tháng là bốn cách xếp, nhiều trước.
+  assert.deepEqual(M.MONTH_SORTS, ['prior', 'charges', 'received', 'end']);
+  assert.deepEqual(M.filterRows(out, { month: ids, sort: 'prior' }).map(x => x.row.id), [2, 9, 8]);
+  assert.deepEqual(M.filterRows(out, { month: ids, sort: 'received' }).map(x => x.row.id), [9, 2, 8]);
+  assert.deepEqual(M.filterRows(out, { month: ids, sort: 'end' }).map(x => x.row.id), [2, 8, 9]);
 });
 
 test('monthProgress của tháng đã qua: xem như ngày cuối tháng, cờ past; tháng hiện tại giữ như cũ', () => {

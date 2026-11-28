@@ -356,7 +356,7 @@
   "get_ledger(bigint)": "04ce436e0ee04c6153bea3177f3a7216",
   "get_ledger_events(bigint)": "d0b75d8cb152d69fe6450c7f43da7129",
   "get_marks(bigint,text)": "6319c809215d721fd15e2b6258a8a6ab",
-  "get_month_customers(date)": "df73a5a558a452ebaa3e44167666a28f",
+  "get_month_customers(date)": "2e9043eb02babe00ac3d724c5c347430",
   "get_price_status(bigint)": "3a26aecf3e2c3a9052817524cd39bcb4",
   "get_price_table(bigint)": "148508fc3cd7e8aa1711e0f479fa802b",
   "get_read_stamp()": "d43aa8180b4559c08bf41c288b805adf",

@@ -27,3 +27,5 @@ Chỉ đọc. Hàm `sokhach.get_month_customers(date)`, API `GET /api/v7/month-c
 ## Trạng thái
 
 ĐÃ CHỐT 28/11/2026 (nội dung, bố cục). Cách làm ở trên là ĐỀ XUẤT của Claude. ĐÃ TRIỂN KHAI trên `hao` 28/11/2026 ([nhật ký](../deploys/2026-11-28-tim-cont-khach-thang.md)); CÒN MỞ: người dùng tự đi hết luồng.
+
+**Cập nhật 28/11/2026:** cột của bảng khách khi lọc tháng thay bởi [`KHACH-THANG-02`](khach-thang-02.md): sổ tháng Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng; "còn nợ của tháng" (phần phát sinh của tháng chưa trả) không còn hiện ở Tổng quan, vẫn ở Công nợ theo tháng. Bộ lọc tháng, thẻ Thu tháng, dải đầu và tập sổ giữ nguyên.

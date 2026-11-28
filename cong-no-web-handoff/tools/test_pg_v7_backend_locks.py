@@ -234,7 +234,8 @@ def check_csm_migration(pg: Pg) -> None:
                      "2026-11-23-v7-audit-sql.sql",
                      "2026-11-23-v7-dieu-chinh-theo-gia.sql",
                      "2026-11-23-v7-so-gon.sql", "2026-11-24-v7-khach-web.sql",
-                     "2026-11-25-v7-thang-hien-tai.sql", "2026-11-28-v7-tim-cont-khach-thang.sql"):
+                     "2026-11-25-v7-thang-hien-tai.sql", "2026-11-28-v7-tim-cont-khach-thang.sql",
+                     "2026-11-28-v7-khach-thang-so-thang.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)

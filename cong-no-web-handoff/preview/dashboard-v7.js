@@ -46,7 +46,8 @@
       return [String(row.id), `${withCommodity(row)} · sổ ${row.id}`];
     }));
   };
-  const SORTS = { tong: 'total', 'chua-tra': 'pay', 'di-hang': 'trip', 'phat-sinh': 'charges' };
+  // ?xep=: cột đang xếp. Bốn cột tiền của bảng lọc tháng (KHACH-THANG-02) chỉ có khi đang lọc tháng.
+  const SORTS = { tong: 'total', 'chua-tra': 'pay', 'di-hang': 'trip', 'phat-sinh': 'charges', 'no-dau': 'prior', 'da-thu': 'received', 'no-cuoi': 'end' };
   const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
   // Nhãn dựng từ số (tháng đến từ ?thang= của địa chỉ): không có ký tự nào ngoài chữ số, vẫn escape ở chỗ ghi HTML.
   const monthTag = key => `T${Number(key.slice(5, 7))}/${Number(key.slice(0, 4))}`;
@@ -217,23 +218,34 @@
       <div class="risk-chips" id="chips" role="group" aria-label="Lọc theo mức rủi ro"></div>
       <p class="note" id="list-note" role="note" hidden></p>
       <div class="tbl-wrap"><table class="dtable">${head}<tbody id="list"></tbody></table></div>
+      <p class="days-key" id="days-key" hidden></p>
       <p class="empty" id="list-empty" hidden></p><div class="more" id="list-more"></div></section>`;
   }
 
-  // Tiêu đề bảng khách; đang lọc tháng thì thanh Theo hạn trả nhường chỗ cho Phát sinh · Đã thu · Còn nợ của tháng.
+  // Tiêu đề bảng khách. KHACH-THANG-02 (28/11/2026, người dùng chọn phương án A): mỗi bảng một mốc thời gian. Đang lọc tháng thì
+  // bảng là sổ tháng như thanh tháng của Sổ khách (SO-GON-05): Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng, không kèm số
+  // của hôm nay; không lọc tháng thì mọi cột là số hôm nay (hạn trả, quá hạn, còn nợ, lần trả và chuyến gần nhất).
   function headHtml(rule) {
-    const th = (sort, label, unit, icon, tip, cls = '') => `<th scope="col" class="r${cls}"${sort ? ` data-col="${sort}"` : ''}><button type="button" data-sort="${sort}"${tipAttr(tip)}>${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span> ${unit ? `<small>${unit}</small>` : ''}</button></th>`;
-    const tag = state.month ? esc(monthTag(state.month)) : '';
-    const month = state.month
-      ? `${th('charges', 'Phát sinh', tag, null, [`Phát sinh tháng ${tag}`, 'Chuyến, phụ phí, điều chỉnh của tháng (như dòng Tổng tháng của sổ) · bấm để xếp'])}`
-        + `<th scope="col" class="r m-rec"><span tabindex="0"${tipAttr([`Đã thu tháng ${tag}`, 'Tiền khách trả trong tháng, theo ngày tiền về'])}>Đã thu</span></th>`
-        + `<th scope="col" class="r m-own"><span tabindex="0"${tipAttr([`Còn nợ của tháng ${tag}`, 'Phần phát sinh của tháng chưa được trả (như ô Công nợ theo tháng)'])}>Còn nợ ${tag}</span></th>`
-      : '<th scope="col" class="bar-h">Theo hạn trả</th>';
-    return `<tr><th scope="col" class="stt r">STT</th><th scope="col">Khách</th>${month}
-        ${th('overdue', 'Quá hạn', '', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', '', null, ['Bấm để xếp'])}
-        ${th('pay', 'Trả', 'ngày', ICON.cash, ['Số ngày từ lần khách trả gần nhất', `Đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
-        ${th('trip', 'Đi hàng', 'ngày', ICON.truck, ['Số ngày từ chuyến gần nhất', `Đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
-        <th scope="col" class="go"><span class="sr-only">Mở</span></th></tr>`;
+    const th = (sort, label, icon, tip, pre = '') => `<th scope="col" class="r" data-col="${sort}"><button type="button" data-sort="${sort}"${tipAttr(tip)}>${pre}${icon ?? ''}<span${sort === 'overdue' ? ' id="col-first"' : ''}>${label}</span></button></th>`;
+    const op = sign => `<i class="op" aria-hidden="true">${sign}</i>`;
+    const go = '<th scope="col" class="go"><span class="sr-only">Mở</span></th>';
+    // STT (#694) đứng đầu cả hai bảng.
+    const lead = '<th scope="col" class="stt r">STT</th><th scope="col">Khách</th>';
+    if (state.month) {
+      const tag = esc(monthTag(state.month));
+      const sorted = 'Bấm để xếp';
+      return `<tr>${lead}${th('prior', 'Nợ đầu tháng', null, [`Nợ đầu tháng ${tag}`, 'Còn nợ cuối tháng trước, như thanh tháng của Sổ khách', sorted])}`
+        + th('charges', 'Phát sinh', null, [`Phát sinh tháng ${tag}`, 'Chuyến, phụ phí, điều chỉnh của tháng (như dòng Tổng tháng của sổ)', sorted], op('+'))
+        + th('received', 'Đã thu', null, [`Đã thu tháng ${tag}`, 'Tiền khách trả trong tháng, theo ngày tiền về; trừ vào nợ cũ trước', sorted], op('−'))
+        + th('end', 'Còn nợ cuối tháng', null, [`Còn nợ cuối tháng ${tag}`, 'Nợ đầu tháng + Phát sinh − Đã thu',
+          state.month === currentMonth() ? 'Tháng chưa hết: là còn nợ đến hôm nay' : '', sorted], op('='))
+        + `${go}</tr>`;
+    }
+    return `<tr>${lead}<th scope="col" class="bar-h">Theo hạn trả</th>
+        ${th('overdue', 'Quá hạn', null, ['Bấm để xếp'])}${th('total', 'Còn nợ', null, ['Bấm để xếp'])}
+        ${th('pay', 'Trả gần nhất', ICON.cash, ['Lần khách trả gần nhất, cách hôm nay bao lâu', `Vàng khi quá ${rule.active_trip_days} ngày, đỏ khi quá ${rule.no_pay_days} ngày hoặc chưa trả lần nào · bấm để xếp`])}
+        ${th('trip', 'Chuyến gần nhất', ICON.truck, ['Chuyến gần nhất, cách hôm nay bao lâu', `Vàng khi quá ${rule.active_trip_days} ngày, đỏ khi quá ${rule.no_trip_days} ngày hoặc chưa có chuyến · bấm để xếp`])}
+        ${go}</tr>`;
   }
 
   function paintChips() {
@@ -278,8 +290,12 @@
   function paintList() {
     const rule = state.debt?.rule;
     const empty = $('list-empty');
+    const key = $('days-key');
+    key.hidden = true;
     $('list-note').hidden = !state.rows || state.ready;
     $('list-note').textContent = 'Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.';
+    // KHACH-THANG-02: đang lọc tháng thì tiêu đề nói bảng của tháng nào, không còn "cần đòi trước" (bảng xếp theo tiền của tháng).
+    $('h-list').textContent = state.month ? `Khách tháng ${F.monthLabel(state.month)}` : 'Khách cần đòi trước';
     if (!state.rows) {
       $('list').innerHTML = '';
       $('list-more').innerHTML = '';
@@ -289,7 +305,7 @@
     }
     const head = document.querySelector('#dashboard .dtable thead');
     if (head) head.innerHTML = headHtml(rule);
-    $('col-first').textContent = state.tier != null ? 'Nhóm này' : 'Quá hạn';
+    if ($('col-first')) $('col-first').textContent = state.tier != null ? 'Nhóm này' : 'Quá hạn';
     document.querySelectorAll('.dtable th[data-col]').forEach(cell => {
       if (cell.dataset.col === state.sort) cell.setAttribute('aria-sort', 'descending'); else cell.removeAttribute('aria-sort');
     });
@@ -306,31 +322,44 @@
     const rows = M.filterRows(source, { ...filter(), sort: state.sort });
     const shown = state.all ? rows : rows.slice(0, PAGE_ROWS);
     const max = shown.reduce((top, item) => (item.row.total > top ? item.row.total : top), 0n);
-    const day = (days, limit, paid) => {
+    // Ô lần trả / chuyến gần nhất: chữ "… trước", ngày cụ thể ở chú thích (ngày tượng trưng ghi "khoảng" tháng, như câu lý do).
+    const day = (days, limit, paid, date, exact, what, none) => {
       if (paid) return '<span class="days zero">–</span>';
       const cell = M.dayCell(days, limit, rule.active_trip_days);
-      return `<span class="days${cell.tone ? ` ${cell.tone}` : ''}">${esc(cell.text)}</span>`;
+      const tip = date ? `${what} ${exact ? F.dateText(date) : `khoảng T${F.monthLabel(date)}`}` : days == null ? none : '';
+      return `<span class="days${cell.tone ? ` ${cell.tone}` : ''}"${tip ? tipAttr([tip]) : ''}>${esc(cell.text)}</span>`;
     };
     const late = state.tier == null || state.tier >= 2;
     const money = (value, cls, tip) => (value === 0n ? `<td class="num zero${cls}">–</td>` : `<td class="num${cls}"${tipAttr([tip, F.full(value)])}>${esc(short(value))}</td>`);
+    // Nợ đầu/cuối tháng âm là khách dư (audit UX 4.4: "dư 15 triệu", không dấu trừ); máy chủ cũ chưa có hai số này thì "—", không như 0.
+    const balance = (value, cls, tip) => (value == null ? `<td class="num none${cls}"${tipAttr([tip, 'Chưa có số: máy chủ chưa cập nhật'])}>—</td>`
+      : value < 0n ? `<td class="num${cls}"${tipAttr([tip, `Khách dư ${F.full(-value)}`])}>dư ${esc(short(-value))}</td>` : money(value, cls, tip));
     const href = id => (state.month ? `${ledgerHref(id)}&month=${encodeURIComponent(state.month)}` : pageHref(id));
     // KHACH-MOI-01: nhãn "Mới" sau tên, xanh dương; nền đặc khi cần để ý. Câu dữ kiện nằm trong chú thích của dòng.
     const freshTag = row => (row.fresh ? ` <span class="new-tag${row.fresh.flag ? ' warn' : ''}"><span class="sr-only">, khách mới: ${esc(row.fresh.text)}</span><span aria-hidden="true">Mới</span></span>` : '');
-    const middle = row => (state.month
-      ? money(row.mon.charges, ' m-chg', 'Phát sinh') + money(row.mon.received, ' m-rec', 'Đã thu') + money(row.mon.outstanding, ' m-own', 'Còn nợ của tháng')
-      : `<td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>`);
-    // STT đánh theo thứ tự đang xếp/lọc, đếm tiếp khi bấm Hiện cả.
-    $('list').innerHTML = shown.map(({ row, first }, i) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
-        row.fresh ? `Mới: ${row.fresh.text}` : '', row.paid ? '' : `Còn nợ ${F.full(row.total)}`, state.month ? `Bấm để mở sổ tháng ${monthTag(state.month)}` : 'Bấm để mở Tình hình'])}>
-        <td class="stt">${i + 1}</td><td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
-        ${middle(row)}
+    // KHACH-THANG-02: lọc tháng là bốn số của sổ tháng (mỗi dòng tự khớp: đầu + phát sinh − đã thu = cuối); không lọc là số hôm nay.
+    const cells = (row, first) => (state.month
+      ? balance(row.mon.prior, ' m-pri', 'Nợ đầu tháng') + money(row.mon.charges, ' m-chg', 'Phát sinh') + money(row.mon.received, ' m-rec', 'Đã thu')
+        + balance(row.mon.end, ' m-end', 'Còn nợ cuối tháng')
+      : `<td class="bar"><span class="mbar" aria-hidden="true" style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => (value > 0n ? `<i class="t${i}" style="flex:${F.barWidth(value, row.total)} 1 0"></i>` : '')).join('')}</span></td>
         <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first === 0n ? '–' : esc(short(first))}</td>
         <td class="num tot${row.total === 0n ? ' zero' : ''}">${row.total === 0n ? '–' : esc(short(row.total))}</td>
-        <td class="d">${day(row.payDays, rule.no_pay_days, row.paid)}</td><td class="d">${day(row.tripDays, rule.no_trip_days, row.paid)}</td>
+        <td class="d">${day(row.payDays, rule.no_pay_days, row.paid, row.payDate, row.payExact, 'Trả gần nhất', 'Chưa trả lần nào')}</td>
+        <td class="d">${day(row.tripDays, rule.no_trip_days, row.paid, row.tripDate, row.tripExact, 'Chuyến gần nhất', 'Chưa có chuyến')}</td>`);
+    // STT đánh theo thứ tự đang xếp/lọc, đếm tiếp khi bấm Hiện cả (#694).
+    $('list').innerHTML = shown.map(({ row, first }, i) => `<tr data-id="${row.id}"${tipAttr([nameOf(row.id), row.paid ? row.why : `${M.RISK[row.risk] ?? ''} — ${row.why}`,
+        row.fresh ? `Mới: ${row.fresh.text}` : '', row.paid || state.month ? '' : `Còn nợ ${F.full(row.total)}`, state.month ? `Bấm để mở sổ tháng ${monthTag(state.month)}` : 'Bấm để mở Tình hình'])}>
+        <td class="stt">${i + 1}</td><td class="who"><a href="${href(row.id)}">${row.paid ? '<i class="rdot none" aria-hidden="true"></i>' : `<i class="rdot r-${esc(row.risk)}" aria-hidden="true"></i><span class="sr-only">${esc(M.RISK[row.risk] ?? '')}: </span>`}<span class="nm">${esc(nameOf(row.id))}</span>${freshTag(row)}</a></td>
+        ${cells(row, first)}
         <td class="go" aria-hidden="true">${ICON.next}</td></tr>`).join('');
     empty.hidden = shown.length > 0;
     empty.textContent = anyFilter() ? 'Không có khách nào khớp bộ lọc.' : 'Không có khách đang nợ.';
     $('list-more').innerHTML = rows.length > shown.length ? `<button type="button" class="btn" data-more>Hiện cả ${rows.length} khách</button>` : '';
+    // Chú giải màu ô ngày hiện sẵn dưới bảng (người dùng trên 40, không bắt rê chuột mới hiểu màu).
+    if (!state.month && shown.length) {
+      key.hidden = false;
+      key.innerHTML = `Ô trả, chuyến: <span class="days warn">vàng</span> quá ${rule.active_trip_days} ngày · <span class="days bad">đỏ</span> quá ${rule.no_pay_days} ngày chưa trả, quá ${rule.no_trip_days} ngày không có chuyến, hoặc chưa có`;
+    }
   }
 
   function paintTiers() {
@@ -370,7 +399,7 @@
   }
 
   // Trạng thái trên địa chỉ trang: ?han= (0–4), ?muc= (mức rủi ro), ?mh= (mặt hàng), ?moi=1 (khách mới cần để ý),
-  // ?xep=tong|chua-tra|di-hang.
+  // ?xep=tong|chua-tra|di-hang|phat-sinh|no-dau|da-thu|no-cuoi (bốn cột sau chỉ khi lọc tháng), ?thang=yyyy-mm.
   const params = () => new URLSearchParams(location.search);
   const writeUrl = () => {
     const query = params();
@@ -395,13 +424,20 @@
     state.fresh = query.get('moi') === '1';
     state.month = MONTH.test(query.get('thang') ?? '') ? query.get('thang') : null;
     state.sort = SORTS[query.get('xep')] ?? (state.month ? 'charges' : 'overdue');
+    fitSort();
+  };
+  // KHACH-THANG-02: cột xếp phải có trong bảng đang hiện. Lọc tháng chỉ có bốn cột tiền của tháng (mặc định phát sinh nhiều trước);
+  // không lọc tháng thì không có bốn cột đó (mặc định quá hạn).
+  const fitSort = () => {
+    if (state.month != null && !M.MONTH_SORTS.includes(state.sort)) state.sort = 'charges';
+    if (state.month == null && M.MONTH_SORTS.includes(state.sort)) state.sort = 'overdue';
   };
   // Bỏ lọc không còn nghĩa khi số liệu mới không có nhóm đó, hoặc danh sách chưa khớp tổng.
   const dropStale = () => {
     if (!state.ready || state.debt?.rule?.new_days == null) state.fresh = false;
     if (!state.ready) { state.tier = null; state.risk = null; state.com = null; state.month = null; }
     if (state.month != null && state.month > currentMonth()) state.month = null;
-    if (state.month == null && state.sort === 'charges') state.sort = 'overdue';
+    fitSort();
     if (state.com != null && !comOf(state.com)) state.com = null;
   };
 
@@ -418,10 +454,8 @@
     if (state.month === key && state.data) paint();
   }
   const setMonth = key => {
-    const was = state.month;
     state.month = key;
-    if (key != null && was == null && state.sort === 'overdue') state.sort = 'charges';
-    if (key == null && state.sort === 'charges') state.sort = 'overdue';
+    fitSort();
     state.all = false;
     writeUrl(); paint(); loadMonth(key);
   };

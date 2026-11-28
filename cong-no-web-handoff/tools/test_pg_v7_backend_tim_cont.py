@@ -107,3 +107,22 @@ def check_khach_thang(pg, a: int, b: int) -> None:
     require(view == f"{a}=1000,{b}=200", f"January outstanding equals v_outstanding_month: {view}")
     empty = call(pg, "get_month_customers", "2001-01-01")
     require(empty["customers"] == [] and empty["charges_vnd"] == "0", f"empty month: {empty}")
+    check_so_thang(pg, a, b, current, rows, jan)
+
+
+def check_so_thang(pg, a: int, b: int, current: str, rows: dict, jan: dict) -> None:
+    """KHACH-THANG-02: nợ đầu tháng + phát sinh − đã thu = còn nợ cuối tháng, cùng số với thanh tháng của get_ledger từng sổ.
+
+    Sổ a: đầu kỳ 1000 tháng 1, chuyến 100 tháng 2 (giá mặc định của trip_json; chuyến xóa không tính), chuyến 250 tháng hiện tại.
+    Sổ b: đầu kỳ 500 tháng 1, chuyến 100 tháng 2, thu 300 tháng hiện tại (trừ nợ tháng 1 trước)."""
+    expected = {(a, current): ("1100", "1350"), (b, current): ("600", "300"), (a, "2026-01-01"): ("0", "1000"), (b, "2026-01-01"): ("0", "500")}
+    for (cid, month), (prior, end) in expected.items():
+        row = (rows if month == current else jan)[cid]
+        require((row["prior_months_vnd"], row["end_of_month_vnd"]) == (prior, end), f"book {cid} {month}: {row}")
+        require(int(row["prior_months_vnd"]) + int(row["charges_vnd"]) - int(row["received_vnd"]) == int(row["end_of_month_vnd"]),
+                f"opening + charges − received = closing: {row}")
+        bar = next(item for item in call(pg, "get_ledger", cid)["months"] if item["month"] == month)
+        require((bar["prior_months_vnd"], bar["end_of_month_vnd"]) == (prior, end), f"same as ledger month bar, book {cid} {month}: {bar}")
+    # Tháng hiện tại: còn nợ cuối tháng là tổng còn nợ hôm nay của sổ.
+    debt = {row["customer_id"]: row["outstanding_vnd"] for row in call(pg, "get_dashboard_debt")["customers"]}
+    require((debt[a], debt[b]) == ("1350", "300"), f"current month closing equals today's debt: {debt.get(a)}, {debt.get(b)}")

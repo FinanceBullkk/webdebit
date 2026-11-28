@@ -2100,6 +2100,16 @@ Kiểm: backup, áp hai lượt trên bản sao (dấu vân tay không đổi, c
 
 Rollback: `DROP FUNCTION sokhach.find_container(text); DROP FUNCTION sokhach.get_month_customers(date);` (không gì phụ thuộc), rồi release cũ.
 
+## Sổ tháng ở bảng khách Tổng quan (KHACH-THANG-02) — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-28-v7-khach-thang-so-thang.sql` chạy sau `2026-11-28-v7-tim-cont-khach-thang.sql` ([`KHACH-THANG-02`](decisions/khach-thang-02.md), [spec](../specs/v7-tim-cont-khach-thang.md#sổ-tháng-khach-thang-02-28112026)). Chỉ thay hàm đọc `get_month_customers(date)`: thêm `prior_months_vnd`, `end_of_month_vnd` mỗi sổ, giữ chữ ký, quyền và các trường cũ; không đổi bảng, view, tiền hay dữ liệu, không tăng `schema_level`. Chạy lại được.
+
+Thứ tự: chạy migration rồi đổi release ngay (lưới an toàn so md5 hàm với `v7_catalog_manifest.json` của release đang chạy). Release mới với DB cũ: bảng lọc tháng có hai ô "—" (Nợ đầu tháng, Còn nợ cuối tháng), phần khác không đổi. Release cũ với DB mới: hai trường thừa không ai đọc.
+
+Kiểm: backup; áp hai lượt trên bản sao (dấu vân tay không đổi); so `prior_months_vnd`, `end_of_month_vnd` mọi sổ, mọi tháng từ 1/2025 với `months[]` của `get_ledger` (lệch 0) và đẳng thức đầu + phát sinh − đã thu = cuối; tập sổ và ba số cũ không đổi so với hàm cũ; tháng hiện tại `end_of_month_vnd` bằng `outstanding_vnd` của `get_dashboard_debt`; checker có `catalog_manifest` với manifest của commit merge. Hàm đọc nên không cần cửa sổ dừng ghi; vẫn dừng API vài giây để so dấu vân trước/sau như đợt trước.
+
+Rollback: chạy lại `2026-11-28-v7-tim-cont-khach-thang.sql` (thay lại hai hàm bằng bản cũ, chạy lại được), rồi release cũ.
+
 ## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026, [nhật ký](deploys/2026-11-13-dau-doc.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql` chạy sau `2026-11-13-v7-cot-phu-phi-mac-dinh.sql` ([spec](../specs/hieu-nang-01.md)). Chỉ thêm hàm đọc `get_read_stamp` (md5 của số dòng và tổng xmin mọi bảng `sokhach`, ngày VN) và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, hàm có sẵn hay dữ liệu. Chạy lại được.
