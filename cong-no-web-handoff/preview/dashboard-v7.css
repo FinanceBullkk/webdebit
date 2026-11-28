@@ -228,6 +228,7 @@ button.pill{font:inherit;font-weight:700}
 .dtable th.bar-h{width:32%}
 .dtable th.r{text-align:right}
 .dtable th.go{width:28px}
+.dtable .stt{width:36px;padding-right:10px;color:var(--ink-l);text-align:right;white-space:nowrap}
 .dtable th button{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0;border:0;background:none;color:inherit;font:inherit;cursor:pointer}
 .dtable th button:hover{color:var(--ink-1)}
 .dtable th[aria-sort] button{color:var(--ink-1);font-weight:700}
@@ -302,7 +303,7 @@ button.pill{font:inherit;font-weight:700}
   /* Điện thoại (DIEN-THOAI-SEP-01): bảng khách chỉ còn Khách · Quá hạn · Còn nợ, vừa màn, không cuộn ngang. Thanh hạn trả
      chỉ có số khi rê chuột nên bỏ; hai cột ngày Trả, Đi hàng bỏ vì chấm màu trước tên đã gộp mức rủi ro. */
   .dtable{min-width:0}
-  .dtable th.bar-h,.dtable td.bar,.dtable th[data-col="pay"],.dtable th[data-col="trip"],.dtable td.d{display:none}
+  .dtable th.bar-h,.dtable td.bar,.dtable th[data-col="pay"],.dtable th[data-col="trip"],.dtable td.d,.dtable .stt{display:none}
   .dtable td.who{width:auto}
   /* Ba viên số cạnh Còn phải thu ghi chữ ngay (trên máy tính chữ nằm ở chú thích rê chuột). */
   .owe-row .pill .sr-only{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}
