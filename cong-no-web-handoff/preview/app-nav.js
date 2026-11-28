@@ -1,5 +1,5 @@
 /* Menu trái dùng chung (3/11/2026): mọi trang đặt <aside class="app-nav" data-active="…"></aside> rồi nạp file này trước
- * script của trang. File vẽ nút ☰, ô Tìm khách, các mục điều hướng và số "sổ còn việc" trên mục Quản trị — cùng cách đếm
+ * script của trang. File vẽ nút ☰, ô Tìm kiếm (khách, mặt hàng, số cont), các mục điều hướng và số "sổ còn việc" trên mục Quản trị — cùng cách đếm
  * với trang Việc cần làm (InboxTable.books: việc từ Sheet + chuyến thiếu giá, chờ kiểm, số dư đầu, sổ chưa gán mặt hàng).
  * Trang đã có số liệu thì báo qua AppNav.setCustomers / AppNav.setTodoCount (data-count="page") để khỏi đọc API hai lần;
  * trang khác thì file tự đọc. Không ghi gì lên server; chỉ lưu số đếm gần nhất trên máy (localStorage) và bản số liệu Việc cần
@@ -50,8 +50,8 @@ globalThis.AppNav = (() => {
   function mount() {
     const active = isAdmin() && UNDER_ADMIN.has(root.dataset.active) ? 'quan-tri' : root.dataset.active;
     root.innerHTML = `<button type="button" id="nav-toggle" aria-label="Mở menu" aria-expanded="false">${svg('<path d="M4 6h16M4 12h16M4 18h16"></path>')}</button>`
-      + `<label class="search">${svg('<circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path>')}<span class="search-label">Tìm khách</span>`
-      + '<input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off">'
+      + `<label class="search">${svg('<circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path>')}<span class="search-label">Tìm kiếm</span>`
+      + '<input id="customer-search" type="search" aria-label="Tìm khách, mặt hàng hoặc số cont" placeholder="Khách, mặt hàng, số cont" autocomplete="off">'
       + '<div id="customer-results" role="listbox" hidden></div></label>'
       + `<nav aria-label="Điều hướng chính">${PAGES.map(([id, href, label, paths]) => `<a${navClass(id, active)} href="${href}">`
         + `${svg(paths)}${label}${id === 'quan-tri' ? '<span class="badge" id="todo-badge" data-todo-badge hidden></span>' : ''}</a>`).join('')}</nav>`;

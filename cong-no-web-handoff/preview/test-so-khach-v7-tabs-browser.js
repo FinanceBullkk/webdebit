@@ -164,7 +164,7 @@ test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ �
 test('Ô tìm khách ở thanh trên như các trang khác: gõ thì hiện danh sách, rời ô thì đóng; sổ đọc lỗi vẫn tìm được khách', async () => withPage(async ({ page }) => {
   const search = page.locator('.topbar #customer-picker.in-bar #customer-search');
   const list = page.locator('#customer-list');
-  assert.equal(await search.getAttribute('placeholder'), 'Gõ tên khách hoặc mặt hàng');
+  assert.equal(await search.getAttribute('placeholder'), 'Gõ tên khách, mặt hàng hoặc số cont');
   assert.equal(await list.isVisible(), false);
   await page.locator('.customer-switch').click();
   await search.fill('thu');

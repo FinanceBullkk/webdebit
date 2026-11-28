@@ -23,7 +23,7 @@
     picker.setAttribute('popover', 'auto');
     const search = picker.querySelector('#customer-search');
     search.setAttribute('autofocus', '');
-    search.placeholder = 'Gõ tên khách hoặc mặt hàng';
+    search.placeholder = 'Gõ tên khách, mặt hàng hoặc số cont';
     search.addEventListener('focus', () => search.select());
   }
 
